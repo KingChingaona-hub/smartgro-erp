@@ -28,3 +28,4 @@ reportlab==4.0.4
 requests==2.31.0
 python-magic==0.4.27
 qrcode==7.4.2
+matplotlib==3.7.2
