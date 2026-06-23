@@ -5,6 +5,12 @@ from backend.core.db_adapter import load_users, save_users
 from backend.utils.utils import hash_password
 from backend.utils.phone_utils import validate_zimbabwe_phone
 from backend.modules.shift_manager import can_cashier_login
+from datetime import datetime
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ==============================
 # USER ROLES AND PERMISSIONS
@@ -180,21 +186,72 @@ def get_role_color(role):
 
 
 # ==============================
-# INIT USERS - PostgreSQL VERSION
+# INIT USERS - PostgreSQL VERSION WITH FALLBACK
 # ==============================
 
 def init_users():
-    """Initialize default users if none exist - PostgreSQL version"""
-    df = load_users()
-    
-    # Check if users exist
-    if not df.empty:
-        # Users already exist, check if we have at least one admin
+    """Initialize default users if none exist - with fallback for plain text"""
+    try:
+        logger.info("Initializing users...")
+        df = load_users()
+        
+        # If no users exist, create default ones
+        if df.empty:
+            logger.info("No users found. Creating default users...")
+            default_users = create_default_users()
+            save_users(default_users)
+            logger.info("✅ Default users created successfully!")
+            return default_users
+        
+        # Check if we have at least one admin user
         if "admin" in df["username"].values:
+            logger.info("✅ Users already exist. Found admin user.")
             return df
-    
-    # Create default users
-    default_users = [
+        
+        # If no admin, add default users
+        logger.info("No admin user found. Adding default users...")
+        default_users = create_default_users()
+        
+        # Combine with existing
+        combined_df = pd.concat([df, default_users], ignore_index=True)
+        combined_df = combined_df.drop_duplicates(subset=["username"], keep="last")
+        save_users(combined_df)
+        logger.info("✅ Default users added successfully!")
+        return combined_df
+        
+    except Exception as e:
+        logger.error(f"❌ Error initializing users: {e}")
+        # Try to create a temporary user for testing
+        try:
+            logger.info("Attempting emergency user creation...")
+            emergency_users = pd.DataFrame([{
+                "username": "admin",
+                "password": "admin123",  # Plain text for emergency
+                "role": "owner",
+                "branch_id": "HO",
+                "full_name": "Emergency Admin",
+                "phone": "",
+                "active": True,
+                "mobile_enabled": True,
+                "whatsapp": "",
+                "receive_alerts": False,
+                "last_login": None,
+                "last_mobile_login": None,
+                "device_info": "",
+                "two_factor_enabled": False,
+                "session_token": ""
+            }])
+            save_users(emergency_users)
+            logger.info("✅ Emergency admin user created!")
+            return emergency_users
+        except Exception as e2:
+            logger.error(f"❌ Emergency user creation failed: {e2}")
+            return pd.DataFrame()
+
+
+def create_default_users():
+    """Create default users list"""
+    return pd.DataFrame([
         {
             "username": "admin",
             "password": hash_password("admin123"),
@@ -246,55 +303,95 @@ def init_users():
             "two_factor_enabled": False,
             "session_token": ""
         }
-    ]
-    
-    # Create DataFrame from defaults
-    default_df = pd.DataFrame(default_users)
-    
-    # Combine with existing if any
-    if df.empty:
-        combined_df = default_df
-    else:
-        combined_df = pd.concat([df, default_df], ignore_index=True)
-        # Remove duplicates keeping the last (defaults take precedence)
-        combined_df = combined_df.drop_duplicates(subset=["username"], keep="last")
-    
-    # Save to database
-    save_users(combined_df)
-    
-    return combined_df
+    ])
 
 
 # ==============================
-# LOGIN FUNCTIONS
+# LOGIN FUNCTIONS - FIXED
 # ==============================
 
 def check_login(username, password):
-    """Standard login check with mobile support"""
-    df = load_users()
-    
-    hashed = hash_password(password)
-    
-    if "active" not in df.columns:
-        df["active"] = True
-        save_users(df)
-    
-    user = df[
-        (df["username"] == username) &
-        (df["password"] == hashed) &
-        (df["active"] == True)
-    ]
-    
-    if not user.empty:
+    """Standard login check with fallback for plain text passwords"""
+    try:
+        logger.info(f"Login attempt for user: {username}")
+        df = load_users()
+        
+        if df.empty:
+            logger.warning("No users found in database! Creating default users...")
+            df = init_users()
+            if df.empty:
+                logger.error("❌ Failed to create default users!")
+                return False, None
+        
+        # Ensure required columns exist
+        if "active" not in df.columns:
+            df["active"] = True
+            save_users(df)
+        
+        # Try hashed password first
+        hashed = hash_password(password)
+        
+        # Check for user with hashed password
+        user = df[
+            (df["username"] == username) &
+            (df["password"] == hashed) &
+            (df["active"] == True)
+        ]
+        
+        if not user.empty:
+            logger.info(f"✅ Login successful (hashed) for: {username}")
+            return process_login_user(user, df)
+        
+        # If hashed fails, try plain text (for backward compatibility)
+        user = df[
+            (df["username"] == username) &
+            (df["password"] == password) &
+            (df["active"] == True)
+        ]
+        
+        if not user.empty:
+            logger.info(f"⚠️ Login successful (plain text) for: {username}")
+            # Update to hashed password for security
+            try:
+                idx = user.index[0]
+                df.loc[idx, "password"] = hashed
+                save_users(df)
+                logger.info(f"✅ Updated password to hashed for: {username}")
+            except Exception as e:
+                logger.warning(f"Could not update to hashed password: {e}")
+            return process_login_user(user, df)
+        
+        # Check if user exists but inactive
+        inactive_user = df[
+            (df["username"] == username) &
+            (df["active"] == False)
+        ]
+        
+        if not inactive_user.empty:
+            logger.warning(f"❌ Login blocked - user inactive: {username}")
+            st.error("❌ User account is deactivated. Please contact administrator.")
+            return False, None
+        
+        logger.warning(f"❌ Invalid credentials for: {username}")
+        return False, None
+        
+    except Exception as e:
+        logger.error(f"❌ Login error: {e}")
+        return False, None
+
+
+def process_login_user(user, df):
+    """Process a successful login"""
+    try:
         role = user.iloc[0]["role"]
         branch_id = user.iloc[0].get("branch_id", "HO")
-        full_name = user.iloc[0].get("full_name", username)
+        full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
         mobile_enabled = user.iloc[0].get("mobile_enabled", True)
         whatsapp = user.iloc[0].get("whatsapp", "")
         
         # Cashier shift check
         if role == "cashier":
-            can_login, active_shift = can_cashier_login(username)
+            can_login, active_shift = can_cashier_login(user.iloc[0]["username"])
             if not can_login:
                 st.error("❌ No active shift assigned. Please ask your manager to start a shift.")
                 return False, None
@@ -313,58 +410,87 @@ def check_login(username, password):
         # Update last login
         idx = user.index[0]
         if "last_login" not in df.columns:
-            df["last_login"] = ""
+            df["last_login"] = None
         df.loc[idx, "last_login"] = datetime.now().isoformat()
         save_users(df)
         
+        logger.info(f"✅ Login processed successfully for: {user.iloc[0]['username']}")
         return True, role
-    
-    return False, None
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing login: {e}")
+        return False, None
 
 
 def check_mobile_login(username, password):
     """Check login specifically for mobile access"""
-    df = load_users()
-    
-    hashed = hash_password(password)
-    
-    if "active" not in df.columns:
-        df["active"] = True
-        save_users(df)
-    
-    if "mobile_enabled" not in df.columns:
-        df["mobile_enabled"] = True
-        save_users(df)
-    
-    user = df[
-        (df["username"] == username) &
-        (df["password"] == hashed) &
-        (df["active"] == True) &
-        (df["mobile_enabled"] == True)
-    ]
-    
-    if not user.empty:
-        role = user.iloc[0]["role"]
+    try:
+        df = load_users()
         
-        if not can_use_mobile(role):
-            return False, None, "Mobile access not enabled for this role"
+        if df.empty:
+            return False, None, "No users found"
         
-        branch_id = user.iloc[0].get("branch_id", "HO")
-        full_name = user.iloc[0].get("full_name", username)
-        whatsapp = user.iloc[0].get("whatsapp", "")
+        if "active" not in df.columns:
+            df["active"] = True
+            save_users(df)
         
-        idx = user.index[0]
-        df.loc[idx, "last_mobile_login"] = datetime.now().isoformat()
-        save_users(df)
+        if "mobile_enabled" not in df.columns:
+            df["mobile_enabled"] = True
+            save_users(df)
         
-        st.session_state.user_full_name = full_name
-        st.session_state.user_branch = branch_id
-        st.session_state.whatsapp_number = whatsapp if whatsapp else None
-        st.session_state.mobile_mode = True
+        hashed = hash_password(password)
         
-        return True, role, "Mobile login successful"
-    
-    return False, None, "Invalid credentials or mobile access disabled"
+        # Try hashed password
+        user = df[
+            (df["username"] == username) &
+            (df["password"] == hashed) &
+            (df["active"] == True) &
+            (df["mobile_enabled"] == True)
+        ]
+        
+        # If hashed fails, try plain text
+        if user.empty:
+            user = df[
+                (df["username"] == username) &
+                (df["password"] == password) &
+                (df["active"] == True) &
+                (df["mobile_enabled"] == True)
+            ]
+            if not user.empty:
+                # Update to hashed password
+                try:
+                    idx = user.index[0]
+                    df.loc[idx, "password"] = hashed
+                    save_users(df)
+                except:
+                    pass
+        
+        if not user.empty:
+            role = user.iloc[0]["role"]
+            
+            if not can_use_mobile(role):
+                return False, None, "Mobile access not enabled for this role"
+            
+            branch_id = user.iloc[0].get("branch_id", "HO")
+            full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
+            whatsapp = user.iloc[0].get("whatsapp", "")
+            
+            idx = user.index[0]
+            df.loc[idx, "last_mobile_login"] = datetime.now().isoformat()
+            save_users(df)
+            
+            st.session_state.user_full_name = full_name
+            st.session_state.user_branch = branch_id
+            st.session_state.whatsapp_number = whatsapp if whatsapp else None
+            st.session_state.mobile_mode = True
+            
+            return True, role, "Mobile login successful"
+        
+        return False, None, "Invalid credentials or mobile access disabled"
+        
+    except Exception as e:
+        logger.error(f"❌ Mobile login error: {e}")
+        return False, None, f"Login error: {str(e)}"
 
 
 # ==============================
@@ -379,114 +505,143 @@ def get_all_users():
 def create_user(username, password, role, branch_id="HO", full_name="", phone="", 
                 mobile_enabled=True, whatsapp="", receive_alerts=True):
     """Create a new user with mobile support (owner only)"""
-    df = load_users()
-    
-    if username in df["username"].values:
-        return False, "Username already exists"
-    
-    standardized_phone = ""
-    if phone:
-        valid, standardized_phone, msg = validate_zimbabwe_phone(phone)
-        if not valid:
-            return False, msg
-    
-    standardized_whatsapp = ""
-    if whatsapp:
-        valid, standardized_whatsapp, msg = validate_zimbabwe_phone(whatsapp)
-        if not valid:
-            return False, f"WhatsApp: {msg}"
-    
-    new_user = pd.DataFrame([{
-        "username": username,
-        "password": hash_password(password),
-        "role": role,
-        "branch_id": branch_id,
-        "full_name": full_name if full_name else username,
-        "phone": standardized_phone,
-        "active": True,
-        "mobile_enabled": mobile_enabled,
-        "whatsapp": standardized_whatsapp,
-        "receive_alerts": receive_alerts,
-        "last_login": "",
-        "last_mobile_login": "",
-        "device_info": "",
-        "two_factor_enabled": False,
-        "session_token": ""
-    }])
-    
-    df = pd.concat([df, new_user], ignore_index=True)
-    save_users(df)
-    return True, "User created successfully"
+    try:
+        df = load_users()
+        
+        if username in df["username"].values:
+            return False, "Username already exists"
+        
+        standardized_phone = ""
+        if phone:
+            valid, standardized_phone, msg = validate_zimbabwe_phone(phone)
+            if not valid:
+                return False, msg
+        
+        standardized_whatsapp = ""
+        if whatsapp:
+            valid, standardized_whatsapp, msg = validate_zimbabwe_phone(whatsapp)
+            if not valid:
+                return False, f"WhatsApp: {msg}"
+        
+        new_user = pd.DataFrame([{
+            "username": username,
+            "password": hash_password(password),
+            "role": role,
+            "branch_id": branch_id,
+            "full_name": full_name if full_name else username,
+            "phone": standardized_phone,
+            "active": True,
+            "mobile_enabled": mobile_enabled,
+            "whatsapp": standardized_whatsapp,
+            "receive_alerts": receive_alerts,
+            "last_login": None,
+            "last_mobile_login": None,
+            "device_info": "",
+            "two_factor_enabled": False,
+            "session_token": ""
+        }])
+        
+        df = pd.concat([df, new_user], ignore_index=True)
+        save_users(df)
+        return True, "User created successfully"
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating user: {e}")
+        return False, f"Error creating user: {str(e)}"
 
 
 def update_user(username, **kwargs):
     """Update user details (owner only)"""
-    df = load_users()
-    
-    if username not in df["username"].values:
-        return False
-    
-    idx = df[df["username"] == username].index[0]
-    
-    if "phone" in kwargs and kwargs["phone"]:
-        valid, standardized, msg = validate_zimbabwe_phone(kwargs["phone"])
-        if not valid:
-            return False, msg
-        kwargs["phone"] = standardized
-    
-    if "whatsapp" in kwargs and kwargs["whatsapp"]:
-        valid, standardized, msg = validate_zimbabwe_phone(kwargs["whatsapp"])
-        if not valid:
-            return False, f"WhatsApp: {msg}"
-        kwargs["whatsapp"] = standardized
-    
-    for key, value in kwargs.items():
-        if key in df.columns:
-            df.loc[idx, key] = value
-    
-    save_users(df)
-    return True, "User updated successfully"
+    try:
+        df = load_users()
+        
+        if username not in df["username"].values:
+            return False, "User not found"
+        
+        idx = df[df["username"] == username].index[0]
+        
+        if "phone" in kwargs and kwargs["phone"]:
+            valid, standardized, msg = validate_zimbabwe_phone(kwargs["phone"])
+            if not valid:
+                return False, msg
+            kwargs["phone"] = standardized
+        
+        if "whatsapp" in kwargs and kwargs["whatsapp"]:
+            valid, standardized, msg = validate_zimbabwe_phone(kwargs["whatsapp"])
+            if not valid:
+                return False, f"WhatsApp: {msg}"
+            kwargs["whatsapp"] = standardized
+        
+        # If password is being updated, hash it
+        if "password" in kwargs and kwargs["password"]:
+            kwargs["password"] = hash_password(kwargs["password"])
+        
+        for key, value in kwargs.items():
+            if key in df.columns:
+                df.loc[idx, key] = value
+        
+        save_users(df)
+        return True, "User updated successfully"
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating user: {e}")
+        return False, f"Error updating user: {str(e)}"
 
 
 def delete_user(username):
     """Delete or deactivate user (owner only)"""
-    df = load_users()
-    
-    if username == "admin":
-        return False, "Cannot delete admin user"
-    
-    if username not in df["username"].values:
-        return False, "User not found"
-    
-    df = df[df["username"] != username]
-    save_users(df)
-    return True, "User deleted"
+    try:
+        df = load_users()
+        
+        if username == "admin":
+            return False, "Cannot delete admin user"
+        
+        if username not in df["username"].values:
+            return False, "User not found"
+        
+        df = df[df["username"] != username]
+        save_users(df)
+        return True, "User deleted"
+        
+    except Exception as e:
+        logger.error(f"❌ Error deleting user: {e}")
+        return False, f"Error deleting user: {str(e)}"
 
 
 def toggle_user_active(username):
     """Activate/deactivate user"""
-    df = load_users()
-    
-    if username not in df["username"].values:
+    try:
+        df = load_users()
+        
+        if username not in df["username"].values:
+            return False
+        
+        idx = df[df["username"] == username].index[0]
+        df.loc[idx, "active"] = not df.loc[idx, "active"]
+        save_users(df)
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error toggling user active: {e}")
         return False
-    
-    idx = df[df["username"] == username].index[0]
-    df.loc[idx, "active"] = not df.loc[idx, "active"]
-    save_users(df)
-    return True
 
 
 def toggle_mobile_access(username):
     """Enable/disable mobile access for a user"""
-    df = load_users()
-    
-    if username not in df["username"].values:
+    try:
+        df = load_users()
+        
+        if username not in df["username"].values:
+            return False
+        
+        idx = df[df["username"] == username].index[0]
+        df.loc[idx, "mobile_enabled"] = not df.loc[idx, "mobile_enabled"]
+        save_users(df)
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error toggling mobile access: {e}")
         return False
-    
-    idx = df[df["username"] == username].index[0]
-    df.loc[idx, "mobile_enabled"] = not df.loc[idx, "mobile_enabled"]
-    save_users(df)
-    return True
 
 
 def get_users_by_role(role):
@@ -603,14 +758,10 @@ def import_users_from_csv(csv_data):
             return False, "CSV must contain password column"
         
         for idx, row in df.iterrows():
-            if len(row["password"]) != 64:
+            if len(row["password"]) != 64:  # Not already hashed
                 df.loc[idx, "password"] = hash_password(row["password"])
         
         save_users(df)
         return True, "Users imported successfully"
     except Exception as e:
         return False, f"Import failed: {str(e)}"
-
-
-# Import datetime for login functions
-from datetime import datetime
