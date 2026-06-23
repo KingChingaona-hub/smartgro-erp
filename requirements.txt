@@ -4,13 +4,11 @@ sqlalchemy==2.0.23
 python-dotenv==1.0.0
 
 # Data Processing
-pandas==2.1.3
-numpy==1.26.2
+pandas==2.0.3
+numpy==1.24.3
 
 # Web Framework
-streamlit==1.29.0
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+streamlit==1.28.0
 
 # Authentication
 python-jose==3.3.0
@@ -22,11 +20,10 @@ python-multipart==0.0.6
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# Additional packages for full functionality
-plotly==5.18.0           # For charts and graphs
-Pillow==10.1.0           # For image handling
-openpyxl==3.1.2          # For Excel files
-reportlab==4.0.7         # For PDF generation
-requests==2.31.0         # For API calls
-python-magic==0.4.27     # For file type detection
-python-decouple==3.8     # For environment variables
+# Additional packages
+plotly==5.17.0
+Pillow==10.0.0
+openpyxl==3.1.2
+reportlab==4.0.4
+requests==2.31.0
+python-magic==0.4.27
