@@ -1,0 +1,11 @@
+{
+  "last_sync": null,
+  "offline_enabled": true,
+  "cache_version": "1.0",
+  "tables": [
+    "products",
+    "customers",
+    "sales",
+    "purchases"
+  ]
+}

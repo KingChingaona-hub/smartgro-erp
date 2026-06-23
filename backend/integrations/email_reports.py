@@ -1,0 +1,390 @@
+import streamlit as st
+import smtplib
+import pandas as pd
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+from datetime import datetime, timedelta
+import json
+from pathlib import Path
+
+from backend.core.db_adapter import load_sales, load_products, load_debtors
+
+# ==============================
+# EMAIL CONFIGURATION
+# ==============================
+EMAIL_CONFIG_FILE = Path("data/email_config.json")
+
+def get_email_config():
+    """Load email configuration"""
+    if not EMAIL_CONFIG_FILE.exists():
+        return {
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "sender_email": "",
+            "sender_password": "",
+            "recipient_emails": [],
+            "enable_daily_report": False,
+            "enable_weekly_report": False,
+            "enable_low_stock_alert": False
+        }
+    try:
+        with open(EMAIL_CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"Error loading email config: {e}")
+        return get_email_config()
+
+def save_email_config(config):
+    """Save email configuration"""
+    try:
+        EMAIL_CONFIG_FILE.parent.mkdir(exist_ok=True)
+        with open(EMAIL_CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
+        return True
+    except Exception as e:
+        st.error(f"Error saving email config: {e}")
+        return False
+
+
+def test_email_connection():
+    """Test SMTP connection and authentication"""
+    config = get_email_config()
+    
+    if not config["sender_email"] or not config["sender_password"]:
+        return False, "Email not configured. Please set sender email and password in Settings."
+    
+    try:
+        server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+        server.starttls()
+        server.login(config["sender_email"], config["sender_password"])
+        server.quit()
+        return True, "Connection successful!"
+    except smtplib.SMTPAuthenticationError:
+        return False, "Authentication failed. For Gmail, use an App Password (not your regular password)."
+    except Exception as e:
+        return False, f"Connection error: {str(e)}"
+
+
+def send_email(recipient, subject, body, attachment=None):
+    """Send email with optional attachment"""
+    config = get_email_config()
+    
+    if not config["sender_email"] or not config["sender_password"]:
+        return False, "Email not configured. Please set up email in Settings."
+    
+    try:
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = config["sender_email"]
+        msg['To'] = recipient
+        msg['Subject'] = subject
+        
+        # Attach body
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Attach file if provided
+        if attachment:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename=report.pdf')
+            msg.attach(part)
+        
+        # Send email
+        server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+        server.starttls()
+        server.login(config["sender_email"], config["sender_password"])
+        server.send_message(msg)
+        server.quit()
+        
+        return True, f"Email sent to {recipient}"
+        
+    except smtplib.SMTPAuthenticationError:
+        return False, "Authentication failed! For Gmail, you need an App Password. Go to Google Account → Security → App Passwords."
+    except smtplib.SMTPException as e:
+        return False, f"SMTP error: {str(e)}"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+
+def generate_daily_sales_report():
+    """Generate daily sales report content"""
+    
+    sales_df = load_sales()
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    # Filter today's sales
+    if not sales_df.empty and "date" in sales_df.columns:
+        sales_df["date"] = pd.to_datetime(sales_df["date"]).dt.strftime("%Y-%m-%d")
+        today_sales = sales_df[sales_df["date"] == today]
+    else:
+        today_sales = pd.DataFrame()
+    
+    total_revenue = today_sales["final_total"].sum() if "final_total" in today_sales.columns else 0
+    total_transactions = today_sales["receipt_no"].nunique() if not today_sales.empty else 0
+    total_items = today_sales["items"].sum() if "items" in today_sales.columns else 0
+    
+    report = f"""
+{'='*50}
+AZIEL INVESTMENTS - DAILY SALES REPORT
+{'='*50}
+
+Date: {datetime.now().strftime('%Y-%m-%d')}
+Time: {datetime.now().strftime('%H:%M:%S')}
+
+{'─'*40}
+SALES SUMMARY
+{'─'*40}
+Total Revenue: ${total_revenue:,.2f}
+Total Transactions: {total_transactions}
+Total Items Sold: {int(total_items)}
+Average Transaction: ${total_revenue/total_transactions if total_transactions > 0 else 0:.2f}
+
+{'─'*40}
+{'='*50}
+Generated by SmartGro ERP System - Aziel Investments
+Contact: +263 78 290 5853
+"""
+    
+    return report
+
+
+def generate_weekly_sales_report():
+    """Generate weekly sales report"""
+    
+    sales_df = load_sales()
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=7)
+    
+    if not sales_df.empty and "date" in sales_df.columns:
+        sales_df["date"] = pd.to_datetime(sales_df["date"])
+        week_sales = sales_df[(sales_df["date"] >= start_date) & (sales_df["date"] <= end_date)]
+    else:
+        week_sales = pd.DataFrame()
+    
+    total_revenue = week_sales["final_total"].sum() if "final_total" in week_sales.columns else 0
+    total_transactions = week_sales["receipt_no"].nunique() if not week_sales.empty else 0
+    
+    # Daily breakdown
+    daily_breakdown = ""
+    if not week_sales.empty:
+        daily = week_sales.groupby(week_sales["date"].dt.strftime("%A"))["final_total"].sum()
+        for day, amount in daily.items():
+            daily_breakdown += f"{day}: ${amount:,.2f}\n"
+    
+    report = f"""
+{'='*50}
+AZIEL INVESTMENTS - WEEKLY SALES REPORT
+{'='*50}
+
+Period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+{'─'*40}
+SALES SUMMARY
+{'─'*40}
+Total Revenue: ${total_revenue:,.2f}
+Total Transactions: {total_transactions}
+
+{'─'*40}
+DAILY BREAKDOWN
+{'─'*40}
+{daily_breakdown}
+
+{'─'*40}
+{'='*50}
+Generated by SmartGro ERP System - Aziel Investments
+"""
+    
+    return report
+
+
+def generate_low_stock_alert():
+    """Generate low stock alert email content"""
+    
+    products_df = load_products()
+    
+    if products_df.empty:
+        return None
+    
+    low_stock = products_df[products_df["stock"] <= products_df["reorder_level"]]
+    
+    if low_stock.empty:
+        return None
+    
+    items = ""
+    for _, product in low_stock.iterrows():
+        items += f"• {product['name']}: {product['stock']} units (Reorder at {product['reorder_level']})\n"
+    
+    report = f"""
+{'='*50}
+AZIEL INVESTMENTS - LOW STOCK ALERT
+{'='*50}
+
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+The following products are below reorder level and need attention:
+
+{items}
+
+{'─'*40}
+ACTION REQUIRED: Please place purchase orders for these items.
+
+{'='*50}
+"""
+    
+    return report, low_stock
+
+
+def send_daily_report():
+    """Send daily report to all configured recipients"""
+    config = get_email_config()
+    
+    if not config["enable_daily_report"]:
+        return False, "Daily reports are disabled in settings"
+    
+    if not config["recipient_emails"]:
+        return False, "No recipient emails configured. Add recipients in Settings."
+    
+    if not config["sender_email"] or not config["sender_password"]:
+        return False, "Sender email not configured. Set up email in Settings."
+    
+    report = generate_daily_sales_report()
+    success_count = 0
+    errors = []
+    
+    for recipient in config["recipient_emails"]:
+        if recipient and recipient.strip():
+            success, message = send_email(
+                recipient.strip(), 
+                f"Daily Sales Report - {datetime.now().strftime('%Y-%m-%d')}", 
+                report
+            )
+            if success:
+                success_count += 1
+            else:
+                errors.append(f"{recipient}: {message}")
+    
+    if success_count > 0:
+        return True, f"Sent to {success_count} recipient(s)"
+    else:
+        return False, f"Failed to send to any recipient. Errors: {'; '.join(errors[:3])}"
+
+
+def send_weekly_report():
+    """Send weekly report to all configured recipients"""
+    config = get_email_config()
+    
+    if not config["enable_weekly_report"]:
+        return False, "Weekly reports are disabled in settings"
+    
+    if not config["recipient_emails"]:
+        return False, "No recipient emails configured. Add recipients in Settings."
+    
+    if not config["sender_email"] or not config["sender_password"]:
+        return False, "Sender email not configured. Set up email in Settings."
+    
+    report = generate_weekly_sales_report()
+    success_count = 0
+    errors = []
+    
+    for recipient in config["recipient_emails"]:
+        if recipient and recipient.strip():
+            success, message = send_email(
+                recipient.strip(), 
+                f"Weekly Sales Report - Week Ending {datetime.now().strftime('%Y-%m-%d')}", 
+                report
+            )
+            if success:
+                success_count += 1
+            else:
+                errors.append(f"{recipient}: {message}")
+    
+    if success_count > 0:
+        return True, f"Sent to {success_count} recipient(s)"
+    else:
+        return False, f"Failed to send. Errors: {'; '.join(errors[:3])}"
+
+
+def send_low_stock_alert():
+    """Send low stock alert to configured recipients"""
+    config = get_email_config()
+    
+    if not config["enable_low_stock_alert"]:
+        return False, "Low stock alerts are disabled in settings"
+    
+    if not config["recipient_emails"]:
+        return False, "No recipient emails configured. Add recipients in Settings."
+    
+    if not config["sender_email"] or not config["sender_password"]:
+        return False, "Sender email not configured. Set up email in Settings."
+    
+    result = generate_low_stock_alert()
+    if result is None:
+        return False, "No low stock items found"
+    
+    report, low_stock = result
+    success_count = 0
+    errors = []
+    
+    for recipient in config["recipient_emails"]:
+        if recipient and recipient.strip():
+            success, message = send_email(
+                recipient.strip(), 
+                f"LOW STOCK ALERT - {datetime.now().strftime('%Y-%m-%d')}", 
+                report
+            )
+            if success:
+                success_count += 1
+            else:
+                errors.append(f"{recipient}: {message}")
+    
+    if success_count > 0:
+        return True, f"Alert sent to {success_count} recipient(s)"
+    else:
+        return False, f"Failed to send. Errors: {'; '.join(errors[:3])}"
+
+
+def send_test_email():
+    """Send a test email to verify configuration"""
+    config = get_email_config()
+    
+    if not config["recipient_emails"]:
+        return False, "No recipient emails configured"
+    
+    if not config["sender_email"] or not config["sender_password"]:
+        return False, "Sender email not configured"
+    
+    test_body = f"""
+{'='*40}
+AZIEL INVESTMENTS - TEST EMAIL
+{'='*40}
+
+This is a test email to verify your email configuration.
+
+Sent: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+From: {config['sender_email']}
+
+If you received this, your email settings are working correctly!
+
+{'='*40}
+SmartGro ERP System
+"""
+    
+    success_count = 0
+    for recipient in config["recipient_emails"]:
+        if recipient and recipient.strip():
+            success, message = send_email(
+                recipient.strip(),
+                "SmartGro ERP - Test Email",
+                test_body
+            )
+            if success:
+                success_count += 1
+    
+    if success_count > 0:
+        return True, f"Test email sent to {success_count} recipient(s)"
+    else:
+        return False, "Failed to send test email. Check your email settings."

@@ -1,0 +1,9 @@
+{
+    "host": "localhost",
+    "port": 5432,
+    "database": "smartgro",
+    "user": "postgres",
+    "password": "password",
+    "pool_min_conn": 1,
+    "pool_max_conn": 10
+}

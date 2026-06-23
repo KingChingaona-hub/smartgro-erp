@@ -1,0 +1,38 @@
+{
+  "enabled": true,
+  "app_name": "SmartGro Retail",
+  "app_short_name": "SmartGro",
+  "app_description": "Smart Retail ERP System",
+  "theme_color": "#6366F1",
+  "background_color": "#2ee8de",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/",
+  "scope": "/",
+  "icon_sizes": [
+    72,
+    96,
+    128,
+    144,
+    152,
+    192,
+    384,
+    512
+  ],
+  "offline_enabled": true,
+  "cache_strategy": "network_first",
+  "offline_page": "/offline",
+  "push_enabled": true,
+  "vapid_public_key": "",
+  "vapid_private_key": "",
+  "auto_update": true,
+  "update_interval": 3600,
+  "splash_screen": true,
+  "splash_screen_color": "#1b1bf1",
+  "ios_enabled": true,
+  "ios_icon_sizes": [
+    180,
+    192,
+    512
+  ]
+}
