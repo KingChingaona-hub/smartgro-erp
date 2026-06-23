@@ -8,6 +8,8 @@ from pathlib import Path
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal
+import os
+from urllib.parse import urlparse
 
 # ==============================
 # COMPATIBILITY CONSTANTS
@@ -99,10 +101,48 @@ def get_default_config():
 
 
 def load_db_config():
-    """Load database configuration"""
-    if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+    """Load database configuration from environment or file"""
+    try:
+        # Check for environment variable first (for Streamlit Cloud)
+        database_url = os.environ.get("POSTGRESQL_URL") or os.environ.get("DATABASE_URL")
+        
+        if database_url:
+            print("✅ Using database URL from environment")
+            parsed = urlparse(database_url)
+            return {
+                "host": parsed.hostname,
+                "port": parsed.port or 5432,
+                "database": parsed.path.lstrip('/'),
+                "user": parsed.username,
+                "password": parsed.password,
+                "pool_min_conn": 1,
+                "pool_max_conn": 10
+            }
+        
+        # Try individual environment variables (fallback)
+        if os.environ.get("DB_HOST"):
+            print("✅ Using database config from individual environment variables")
+            return {
+                "host": os.environ.get("DB_HOST"),
+                "port": int(os.environ.get("DB_PORT", 5432)),
+                "database": os.environ.get("DB_NAME", "postgres"),
+                "user": os.environ.get("DB_USER", "postgres"),
+                "password": os.environ.get("DB_PASSWORD", ""),
+                "pool_min_conn": 1,
+                "pool_max_conn": 10
+            }
+        
+        # Try local config file
+        if CONFIG_FILE.exists():
+            print("✅ Using database config from local file")
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+                
+    except Exception as e:
+        print(f"⚠️ Error loading database config: {e}")
+    
+    # Return default config (will fail but at least won't crash on import)
+    print("⚠️ Using default database config (will fail if not connected)")
     return get_default_config()
 
 
@@ -125,6 +165,7 @@ def get_connection_pool():
     if _connection_pool is None:
         config = load_db_config()
         try:
+            print(f"🔌 Connecting to database at {config['host']}:{config['port']}...")
             _connection_pool = psycopg2.pool.SimpleConnectionPool(
                 config["pool_min_conn"],
                 config["pool_max_conn"],
@@ -134,9 +175,10 @@ def get_connection_pool():
                 user=config["user"],
                 password=config["password"]
             )
+            print("✅ Database connection established!")
         except Exception as e:
             print(f"❌ Database connection failed: {str(e)}")
-            print("Please check your database configuration in data/db_config.json")
+            print("Please check your database configuration in data/db_config.json or environment variables")
             return None
     return _connection_pool
 
@@ -146,30 +188,43 @@ def get_db_connection():
     """Context manager for database connections"""
     pool = get_connection_pool()
     if pool is None:
-        raise Exception("Connection pool not available")
+        print("⚠️ Connection pool not available - using fallback mode")
+        yield None
+        return
     
     conn = pool.getconn()
     try:
         yield conn
     finally:
-        pool.putconn(conn)
+        if conn:
+            pool.putconn(conn)
 
 
 @contextmanager
 def get_db_cursor():
     """Context manager for database cursors"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            yield cursor, conn
-        finally:
-            cursor.close()
+    try:
+        with get_db_connection() as conn:
+            if conn is None:
+                print("⚠️ No database connection - returning None cursor")
+                yield None, None
+                return
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            try:
+                yield cursor, conn
+            finally:
+                cursor.close()
+    except Exception as e:
+        print(f"❌ Database cursor error: {e}")
+        yield None, None
 
 
 def test_connection():
     """Test database connection"""
     try:
         with get_db_connection() as conn:
+            if conn is None:
+                return False, "Connection pool not available"
             cur = conn.cursor()
             cur.execute("SELECT 1")
             return True, "Connection successful!"
@@ -179,41 +234,49 @@ def test_connection():
 
 def init_database():
     """Initialize the database schema if not exists"""
-    with get_db_cursor() as (cur, conn):
-        # Check if tables exist
-        cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'branches')")
-        result = cur.fetchone()
-        if result:
-            exists = result.get('exists', False) if isinstance(result, dict) else result[0]
-        else:
-            exists = False
-        
-        if not exists:
-            print("⚠️ Database schema not found. Please run the schema.sql script in pgAdmin.")
-            return False
-        
-        # Check if branches exist
-        cur.execute("SELECT COUNT(*) as count FROM branches")
-        result = cur.fetchone()
-        if result:
-            count = result.get('count', 0) if isinstance(result, dict) else result[0]
-        else:
-            count = 0
-        
-        if count == 0:
-            # Insert default branches
-            cur.execute("""
-                INSERT INTO branches (branch_id, branch_name, location, level, active) VALUES
-                ('HO', 'Head Office', 'Harare', 1, TRUE),
-                ('NAT', 'National Branch', 'Harare', 2, TRUE),
-                ('PRO', 'Provincial Branch', 'Bulawayo', 3, TRUE),
-                ('DIS', 'District Branch', 'Mutare', 4, TRUE),
-                ('VIL', 'Village Branch', 'Gweru', 5, TRUE)
-            """)
-            conn.commit()
-            print("✅ Default branches inserted")
-        
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                print("⚠️ No database connection - skipping initialization")
+                return False
+            
+            # Check if tables exist
+            cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'branches')")
+            result = cur.fetchone()
+            if result:
+                exists = result.get('exists', False) if isinstance(result, dict) else result[0]
+            else:
+                exists = False
+            
+            if not exists:
+                print("⚠️ Database schema not found. Please run the schema.sql script in pgAdmin.")
+                return False
+            
+            # Check if branches exist
+            cur.execute("SELECT COUNT(*) as count FROM branches")
+            result = cur.fetchone()
+            if result:
+                count = result.get('count', 0) if isinstance(result, dict) else result[0]
+            else:
+                count = 0
+            
+            if count == 0:
+                # Insert default branches
+                cur.execute("""
+                    INSERT INTO branches (branch_id, branch_name, location, level, active) VALUES
+                    ('HO', 'Head Office', 'Harare', 1, TRUE),
+                    ('NAT', 'National Branch', 'Harare', 2, TRUE),
+                    ('PRO', 'Provincial Branch', 'Bulawayo', 3, TRUE),
+                    ('DIS', 'District Branch', 'Mutare', 4, TRUE),
+                    ('VIL', 'Village Branch', 'Gweru', 5, TRUE)
+                """)
+                conn.commit()
+                print("✅ Default branches inserted")
+            
+            return True
+    except Exception as e:
+        print(f"⚠️ Database initialization error: {e}")
+        return False
 
 
 # ==============================
@@ -286,11 +349,17 @@ def set_current_branch(branch_id):
 
 def load_branches():
     """Load all branches"""
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM branches ORDER BY level")
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM branches ORDER BY level")
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading branches: {e}")
         return pd.DataFrame()
 
 
@@ -301,19 +370,25 @@ def load_all_branches():
 
 def save_branches(df):
     """Save branches to database"""
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO branches (branch_id, branch_name, location, level, active)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (branch_id) DO UPDATE SET
-                    branch_name = EXCLUDED.branch_name,
-                    location = EXCLUDED.location,
-                    level = EXCLUDED.level,
-                    active = EXCLUDED.active
-            """, (row["branch_id"], row["branch_name"], row["location"], row["level"], row["active"]))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO branches (branch_id, branch_name, location, level, active)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (branch_id) DO UPDATE SET
+                        branch_name = EXCLUDED.branch_name,
+                        location = EXCLUDED.location,
+                        level = EXCLUDED.level,
+                        active = EXCLUDED.active
+                """, (row["branch_id"], row["branch_name"], row["location"], row["level"], row["active"]))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving branches: {e}")
+        return False
 
 
 # ==============================
@@ -324,15 +399,23 @@ def load_products(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute("""
-            SELECT * FROM products 
-            WHERE branch_id = %s 
-            ORDER BY name
-        """, (branch_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
+                                             "price", "cost", "stock", "reorder_level"])
+            cur.execute("""
+                SELECT * FROM products 
+                WHERE branch_id = %s 
+                ORDER BY name
+            """, (branch_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
+                                         "price", "cost", "stock", "reorder_level"])
+    except Exception as e:
+        print(f"⚠️ Error loading products: {e}")
         return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                      "price", "cost", "stock", "reorder_level"])
 
@@ -342,22 +425,28 @@ def save_products(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO products (branch_id, barcode, name, category, price, cost, stock, reorder_level)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (branch_id, barcode) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    category = EXCLUDED.category,
-                    price = EXCLUDED.price,
-                    cost = EXCLUDED.cost,
-                    stock = EXCLUDED.stock,
-                    reorder_level = EXCLUDED.reorder_level
-            """, (branch_id, row["barcode"], row["name"], row["category"], 
-                  row["price"], row["cost"], row["stock"], row["reorder_level"]))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO products (branch_id, barcode, name, category, price, cost, stock, reorder_level)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (branch_id, barcode) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        category = EXCLUDED.category,
+                        price = EXCLUDED.price,
+                        cost = EXCLUDED.cost,
+                        stock = EXCLUDED.stock,
+                        reorder_level = EXCLUDED.reorder_level
+                """, (branch_id, row["barcode"], row["name"], row["category"], 
+                      row["price"], row["cost"], row["stock"], row["reorder_level"]))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving products: {e}")
+        return False
 
 
 # ==============================
@@ -380,11 +469,17 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
     
     query += " ORDER BY sale_date DESC"
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading sales: {e}")
         return pd.DataFrame()
 
 
@@ -425,48 +520,54 @@ def save_sales(df, branch_id=None):
     # Get active shift ID if not already set
     active_shift_id = get_active_shift_id()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            # Convert date to proper format for PostgreSQL
-            sale_date = row.get('date')
-            if isinstance(sale_date, pd.Timestamp):
-                sale_date = sale_date.to_pydatetime()
-            elif isinstance(sale_date, datetime):
-                pass  # Already a datetime
-            else:
-                try:
-                    sale_date = pd.to_datetime(sale_date).to_pydatetime()
-                except:
-                    sale_date = datetime.now()
-            
-            # Get shift_id - if not in row, use active shift from session
-            shift_id = str(row.get('shift_id', ''))
-            if not shift_id and active_shift_id:
-                shift_id = str(active_shift_id)
-            
-            cur.execute("""
-                INSERT INTO sales (branch_id, sale_date, receipt_no, barcode, product_name, 
-                    items, total, profit, payment_method, customer_name, customer_phone, 
-                    final_total, shift_id, cashier)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                branch_id,
-                sale_date,
-                str(row.get('receipt_no', '')),
-                str(row.get('barcode', '')),
-                str(row.get('name', '')),
-                int(row.get('items', 1)),
-                float(row.get('total', 0)),
-                float(row.get('profit', 0)),
-                str(row.get('payment_method', 'CASH')),
-                str(row.get('customer', '')),
-                str(row.get('customer_phone', '')),
-                float(row.get('final_total', row.get('total', 0))),
-                shift_id,
-                str(row.get('cashier', ''))
-            ))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                # Convert date to proper format for PostgreSQL
+                sale_date = row.get('date')
+                if isinstance(sale_date, pd.Timestamp):
+                    sale_date = sale_date.to_pydatetime()
+                elif isinstance(sale_date, datetime):
+                    pass  # Already a datetime
+                else:
+                    try:
+                        sale_date = pd.to_datetime(sale_date).to_pydatetime()
+                    except:
+                        sale_date = datetime.now()
+                
+                # Get shift_id - if not in row, use active shift from session
+                shift_id = str(row.get('shift_id', ''))
+                if not shift_id and active_shift_id:
+                    shift_id = str(active_shift_id)
+                
+                cur.execute("""
+                    INSERT INTO sales (branch_id, sale_date, receipt_no, barcode, product_name, 
+                        items, total, profit, payment_method, customer_name, customer_phone, 
+                        final_total, shift_id, cashier)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    branch_id,
+                    sale_date,
+                    str(row.get('receipt_no', '')),
+                    str(row.get('barcode', '')),
+                    str(row.get('name', '')),
+                    int(row.get('items', 1)),
+                    float(row.get('total', 0)),
+                    float(row.get('profit', 0)),
+                    str(row.get('payment_method', 'CASH')),
+                    str(row.get('customer', '')),
+                    str(row.get('customer_phone', '')),
+                    float(row.get('final_total', row.get('total', 0))),
+                    shift_id,
+                    str(row.get('cashier', ''))
+                ))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving sales: {e}")
+        return False
 
 
 def generate_receipt_number():
@@ -482,11 +583,17 @@ def load_customers(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM customers WHERE branch_id = %s ORDER BY customer_name", (branch_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM customers WHERE branch_id = %s ORDER BY customer_name", (branch_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading customers: {e}")
         return pd.DataFrame()
 
 
@@ -495,23 +602,29 @@ def save_customers(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO customers (branch_id, customer_id, customer_name, phone, 
-                    total_orders, total_spent, last_purchase_date, favorite_product)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (branch_id, phone) DO UPDATE SET
-                    customer_name = EXCLUDED.customer_name,
-                    total_orders = EXCLUDED.total_orders,
-                    total_spent = EXCLUDED.total_spent,
-                    last_purchase_date = EXCLUDED.last_purchase_date,
-                    favorite_product = EXCLUDED.favorite_product
-            """, (branch_id, row["customer_id"], row["customer_name"], row["phone"],
-                  row["total_orders"], row["total_spent"], row["last_purchase_date"],
-                  row["favorite_product"]))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO customers (branch_id, customer_id, customer_name, phone, 
+                        total_orders, total_spent, last_purchase_date, favorite_product)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (branch_id, phone) DO UPDATE SET
+                        customer_name = EXCLUDED.customer_name,
+                        total_orders = EXCLUDED.total_orders,
+                        total_spent = EXCLUDED.total_spent,
+                        last_purchase_date = EXCLUDED.last_purchase_date,
+                        favorite_product = EXCLUDED.favorite_product
+                """, (branch_id, row["customer_id"], row["customer_name"], row["phone"],
+                      row["total_orders"], row["total_spent"], row["last_purchase_date"],
+                      row["favorite_product"]))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving customers: {e}")
+        return False
 
 
 # ==============================
@@ -527,50 +640,56 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
     
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    with get_db_cursor() as (cur, conn):
-        # Check if customer exists
-        cur.execute("SELECT * FROM customers WHERE branch_id = %s AND phone = %s", (branch_id, phone))
-        existing = cur.fetchone()
-        
-        # Get favorite product from cart
-        products = [item.get("name", "") for item in cart if item.get("name")]
-        favorite = pd.Series(products).mode()[0] if products else ""
-        
-        # Calculate total spent
-        total_spent = float(total)
-        
-        if existing:
-            # Update existing customer
-            cur.execute("""
-                UPDATE customers 
-                SET total_orders = total_orders + 1,
-                    total_spent = total_spent + %s,
-                    last_purchase_date = %s,
-                    favorite_product = %s,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE branch_id = %s AND phone = %s
-            """, (total_spent, now, favorite, branch_id, phone))
-        else:
-            # Create new customer
-            customer_id = f"CUST{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            cur.execute("""
-                INSERT INTO customers (branch_id, customer_id, customer_name, phone, 
-                    total_orders, total_spent, last_purchase_date, favorite_product)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (branch_id, customer_id, customer_name, phone, 1, total_spent, now, favorite))
-        
-        # Record customer transactions
-        for item in cart:
-            cur.execute("""
-                INSERT INTO customer_transactions (branch_id, transaction_date, customer_name, 
-                    phone, receipt_no, barcode, product_name, quantity, amount)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (branch_id, now, customer_name, phone, receipt_no, 
-                  item.get("barcode", ""), item.get("name", ""), 
-                  item.get("qty", 1), float(item.get("total", 0))))
-        
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            # Check if customer exists
+            cur.execute("SELECT * FROM customers WHERE branch_id = %s AND phone = %s", (branch_id, phone))
+            existing = cur.fetchone()
+            
+            # Get favorite product from cart
+            products = [item.get("name", "") for item in cart if item.get("name")]
+            favorite = pd.Series(products).mode()[0] if products else ""
+            
+            # Calculate total spent
+            total_spent = float(total)
+            
+            if existing:
+                # Update existing customer
+                cur.execute("""
+                    UPDATE customers 
+                    SET total_orders = total_orders + 1,
+                        total_spent = total_spent + %s,
+                        last_purchase_date = %s,
+                        favorite_product = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE branch_id = %s AND phone = %s
+                """, (total_spent, now, favorite, branch_id, phone))
+            else:
+                # Create new customer
+                customer_id = f"CUST{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                cur.execute("""
+                    INSERT INTO customers (branch_id, customer_id, customer_name, phone, 
+                        total_orders, total_spent, last_purchase_date, favorite_product)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, customer_id, customer_name, phone, 1, total_spent, now, favorite))
+            
+            # Record customer transactions
+            for item in cart:
+                cur.execute("""
+                    INSERT INTO customer_transactions (branch_id, transaction_date, customer_name, 
+                        phone, receipt_no, barcode, product_name, quantity, amount)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, now, customer_name, phone, receipt_no, 
+                      item.get("barcode", ""), item.get("name", ""), 
+                      item.get("qty", 1), float(item.get("total", 0))))
+            
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error recording customer purchase: {e}")
+        return False
 
 
 def load_customer_transactions(branch_id=None, customer_phone=None):
@@ -587,11 +706,21 @@ def load_customer_transactions(branch_id=None, customer_phone=None):
     
     query += " ORDER BY transaction_date DESC"
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame(columns=["id", "branch_id", "transaction_date", "customer_name", 
+                                             "phone", "receipt_no", "barcode", "product_name", 
+                                             "quantity", "amount"])
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame(columns=["id", "branch_id", "transaction_date", "customer_name", 
+                                         "phone", "receipt_no", "barcode", "product_name", 
+                                         "quantity", "amount"])
+    except Exception as e:
+        print(f"⚠️ Error loading customer transactions: {e}")
         return pd.DataFrame(columns=["id", "branch_id", "transaction_date", "customer_name", 
                                      "phone", "receipt_no", "barcode", "product_name", 
                                      "quantity", "amount"])
@@ -602,17 +731,23 @@ def save_customer_transactions(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO customer_transactions (branch_id, transaction_date, customer_name, 
-                    phone, receipt_no, barcode, product_name, quantity, amount)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (branch_id, row["date"], row["customer_name"], row["phone"],
-                  row["receipt_no"], row["barcode"], row["product_name"],
-                  row["quantity"], row["amount"]))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO customer_transactions (branch_id, transaction_date, customer_name, 
+                        phone, receipt_no, barcode, product_name, quantity, amount)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, row["date"], row["customer_name"], row["phone"],
+                      row["receipt_no"], row["barcode"], row["product_name"],
+                      row["quantity"], row["amount"]))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving customer transactions: {e}")
+        return False
 
 
 # ==============================
@@ -856,7 +991,7 @@ def get_customer_actions():
 
 
 # ==============================
-# USER FUNCTIONS
+# USER FUNCTIONS - FIXED WITH ERROR HANDLING
 # ==============================
 
 def load_users():
@@ -864,18 +999,36 @@ def load_users():
     Load all users from the database
     Returns a pandas DataFrame with user data
     """
-    with get_db_cursor() as (cur, conn):
-        cur.execute("""
-            SELECT username, password, role, branch_id, full_name, phone, 
-                   active, mobile_enabled, whatsapp, receive_alerts, 
-                   last_login, last_mobile_login, device_info, 
-                   two_factor_enabled, session_token
-            FROM users 
-            ORDER BY username
-        """)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                print("⚠️ No database connection - returning empty users")
+                return pd.DataFrame(columns=[
+                    "username", "password", "role", "branch_id", "full_name", 
+                    "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
+                    "last_login", "last_mobile_login", "device_info", 
+                    "two_factor_enabled", "session_token"
+                ])
+            
+            cur.execute("""
+                SELECT username, password, role, branch_id, full_name, phone, 
+                       active, mobile_enabled, whatsapp, receive_alerts, 
+                       last_login, last_mobile_login, device_info, 
+                       two_factor_enabled, session_token
+                FROM users 
+                ORDER BY username
+            """)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame(columns=[
+                "username", "password", "role", "branch_id", "full_name", 
+                "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
+                "last_login", "last_mobile_login", "device_info", 
+                "two_factor_enabled", "session_token"
+            ])
+    except Exception as e:
+        print(f"⚠️ Error loading users: {e}")
         return pd.DataFrame(columns=[
             "username", "password", "role", "branch_id", "full_name", 
             "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
@@ -888,76 +1041,82 @@ def save_users(df):
     """
     Save users to the database - FIXED: Handles NaT values properly
     """
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            # Helper function to convert NaT/NaN to None
-            def safe_timestamp(value):
-                """Convert pandas NaT or empty string to None for PostgreSQL"""
-                if pd.isna(value):
-                    return None
-                if isinstance(value, str) and value.lower() in ['nat', 'nan', 'none', '']:
-                    return None
-                return value
-            
-            # Process timestamp fields
-            last_login = safe_timestamp(row.get("last_login"))
-            last_mobile_login = safe_timestamp(row.get("last_mobile_login"))
-            
-            # Process other fields with proper defaults
-            username = str(row.get("username", ""))
-            password = str(row.get("password", ""))
-            role = str(row.get("role", "cashier"))
-            branch_id = str(row.get("branch_id", "HO"))
-            full_name = str(row.get("full_name", username))
-            phone = str(row.get("phone", ""))
-            active = bool(row.get("active", True))
-            mobile_enabled = bool(row.get("mobile_enabled", True))
-            whatsapp = str(row.get("whatsapp", ""))
-            receive_alerts = bool(row.get("receive_alerts", False))
-            device_info = str(row.get("device_info", ""))
-            two_factor_enabled = bool(row.get("two_factor_enabled", False))
-            session_token = str(row.get("session_token", ""))
-            
-            cur.execute("""
-                INSERT INTO users (username, password, role, branch_id, full_name, phone,
-                    active, mobile_enabled, whatsapp, receive_alerts,
-                    last_login, last_mobile_login, device_info,
-                    two_factor_enabled, session_token)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (username) DO UPDATE SET
-                    password = EXCLUDED.password,
-                    role = EXCLUDED.role,
-                    branch_id = EXCLUDED.branch_id,
-                    full_name = EXCLUDED.full_name,
-                    phone = EXCLUDED.phone,
-                    active = EXCLUDED.active,
-                    mobile_enabled = EXCLUDED.mobile_enabled,
-                    whatsapp = EXCLUDED.whatsapp,
-                    receive_alerts = EXCLUDED.receive_alerts,
-                    last_login = EXCLUDED.last_login,
-                    last_mobile_login = EXCLUDED.last_mobile_login,
-                    device_info = EXCLUDED.device_info,
-                    two_factor_enabled = EXCLUDED.two_factor_enabled,
-                    session_token = EXCLUDED.session_token
-            """, (
-                username,
-                password,
-                role,
-                branch_id,
-                full_name,
-                phone,
-                active,
-                mobile_enabled,
-                whatsapp,
-                receive_alerts,
-                last_login,
-                last_mobile_login,
-                device_info,
-                two_factor_enabled,
-                session_token
-            ))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                # Helper function to convert NaT/NaN to None
+                def safe_timestamp(value):
+                    """Convert pandas NaT or empty string to None for PostgreSQL"""
+                    if pd.isna(value):
+                        return None
+                    if isinstance(value, str) and value.lower() in ['nat', 'nan', 'none', '']:
+                        return None
+                    return value
+                
+                # Process timestamp fields
+                last_login = safe_timestamp(row.get("last_login"))
+                last_mobile_login = safe_timestamp(row.get("last_mobile_login"))
+                
+                # Process other fields with proper defaults
+                username = str(row.get("username", ""))
+                password = str(row.get("password", ""))
+                role = str(row.get("role", "cashier"))
+                branch_id = str(row.get("branch_id", "HO"))
+                full_name = str(row.get("full_name", username))
+                phone = str(row.get("phone", ""))
+                active = bool(row.get("active", True))
+                mobile_enabled = bool(row.get("mobile_enabled", True))
+                whatsapp = str(row.get("whatsapp", ""))
+                receive_alerts = bool(row.get("receive_alerts", False))
+                device_info = str(row.get("device_info", ""))
+                two_factor_enabled = bool(row.get("two_factor_enabled", False))
+                session_token = str(row.get("session_token", ""))
+                
+                cur.execute("""
+                    INSERT INTO users (username, password, role, branch_id, full_name, phone,
+                        active, mobile_enabled, whatsapp, receive_alerts,
+                        last_login, last_mobile_login, device_info,
+                        two_factor_enabled, session_token)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (username) DO UPDATE SET
+                        password = EXCLUDED.password,
+                        role = EXCLUDED.role,
+                        branch_id = EXCLUDED.branch_id,
+                        full_name = EXCLUDED.full_name,
+                        phone = EXCLUDED.phone,
+                        active = EXCLUDED.active,
+                        mobile_enabled = EXCLUDED.mobile_enabled,
+                        whatsapp = EXCLUDED.whatsapp,
+                        receive_alerts = EXCLUDED.receive_alerts,
+                        last_login = EXCLUDED.last_login,
+                        last_mobile_login = EXCLUDED.last_mobile_login,
+                        device_info = EXCLUDED.device_info,
+                        two_factor_enabled = EXCLUDED.two_factor_enabled,
+                        session_token = EXCLUDED.session_token
+                """, (
+                    username,
+                    password,
+                    role,
+                    branch_id,
+                    full_name,
+                    phone,
+                    active,
+                    mobile_enabled,
+                    whatsapp,
+                    receive_alerts,
+                    last_login,
+                    last_mobile_login,
+                    device_info,
+                    two_factor_enabled,
+                    session_token
+                ))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving users: {e}")
+        return False
 
 
 def init_users():
@@ -976,11 +1135,17 @@ def load_debtors(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM debtors WHERE branch_id = %s ORDER BY balance DESC", (branch_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM debtors WHERE branch_id = %s ORDER BY balance DESC", (branch_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading debtors: {e}")
         return pd.DataFrame()
 
 
@@ -989,30 +1154,36 @@ def save_debtors(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO debtors (branch_id, debt_id, date_borrowed, customer_name, phone,
-                    total_amount, amount_paid, balance, credit_limit, expected_repayment_date,
-                    status, risk_level, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (debt_id) DO UPDATE SET
-                    customer_name = EXCLUDED.customer_name,
-                    phone = EXCLUDED.phone,
-                    total_amount = EXCLUDED.total_amount,
-                    amount_paid = EXCLUDED.amount_paid,
-                    balance = EXCLUDED.balance,
-                    credit_limit = EXCLUDED.credit_limit,
-                    expected_repayment_date = EXCLUDED.expected_repayment_date,
-                    status = EXCLUDED.status,
-                    risk_level = EXCLUDED.risk_level,
-                    notes = EXCLUDED.notes
-            """, (branch_id, row["debt_id"], row["date_borrowed"], row["customer_name"],
-                  row["phone"], row["total_amount"], row["amount_paid"], row["balance"],
-                  row.get("credit_limit", 0), row["expected_repayment_date"],
-                  row["status"], row["risk_level"], row.get("notes", "")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO debtors (branch_id, debt_id, date_borrowed, customer_name, phone,
+                        total_amount, amount_paid, balance, credit_limit, expected_repayment_date,
+                        status, risk_level, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (debt_id) DO UPDATE SET
+                        customer_name = EXCLUDED.customer_name,
+                        phone = EXCLUDED.phone,
+                        total_amount = EXCLUDED.total_amount,
+                        amount_paid = EXCLUDED.amount_paid,
+                        balance = EXCLUDED.balance,
+                        credit_limit = EXCLUDED.credit_limit,
+                        expected_repayment_date = EXCLUDED.expected_repayment_date,
+                        status = EXCLUDED.status,
+                        risk_level = EXCLUDED.risk_level,
+                        notes = EXCLUDED.notes
+                """, (branch_id, row["debt_id"], row["date_borrowed"], row["customer_name"],
+                      row["phone"], row["total_amount"], row["amount_paid"], row["balance"],
+                      row.get("credit_limit", 0), row["expected_repayment_date"],
+                      row["status"], row["risk_level"], row.get("notes", "")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving debtors: {e}")
+        return False
 
 
 def get_overdue_debtors():
@@ -1038,83 +1209,105 @@ def get_overdue_debtors():
 
 def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
     """Record a debt payment"""
-    df = load_debtors()
-    payments_df = load_debtor_payments()
-    
-    match = df[df["customer_name"] == customer_name]
-    
-    if match.empty:
+    try:
+        df = load_debtors()
+        payments_df = load_debtor_payments()
+        
+        match = df[df["customer_name"] == customer_name]
+        
+        if match.empty:
+            return False
+        
+        i = match.index[0]
+        amount = float(amount)
+        old_balance = float(df.at[i, "balance"])
+        debt_id = df.at[i, "debt_id"]
+        
+        # Prevent overpayment
+        if amount > old_balance:
+            amount = old_balance
+        
+        df.at[i, "amount_paid"] += amount
+        df.at[i, "balance"] -= amount
+        
+        # Payment log
+        if receipt_no is None:
+            receipt_no = f"PAY-{debt_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        new_payment = pd.DataFrame([{
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "debt_id": debt_id,
+            "customer_name": customer_name,
+            "amount_paid": amount,
+            "balance_after": df.at[i, "balance"],
+            "note": "Debt repayment",
+            "receipt_no": receipt_no
+        }])
+        
+        payments_df = pd.concat([payments_df, new_payment], ignore_index=True)
+        
+        # Mark as paid if balance is zero
+        if df.at[i, "balance"] <= 0:
+            df.at[i, "balance"] = 0
+            df.at[i, "status"] = "PAID"
+            df.at[i, "repayment_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        save_debtors(df)
+        save_debtor_payments(payments_df)
+        
+        return True
+    except Exception as e:
+        print(f"⚠️ Error recording debt payment: {e}")
         return False
-    
-    i = match.index[0]
-    amount = float(amount)
-    old_balance = float(df.at[i, "balance"])
-    debt_id = df.at[i, "debt_id"]
-    
-    # Prevent overpayment
-    if amount > old_balance:
-        amount = old_balance
-    
-    df.at[i, "amount_paid"] += amount
-    df.at[i, "balance"] -= amount
-    
-    # Payment log
-    if receipt_no is None:
-        receipt_no = f"PAY-{debt_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
-    new_payment = pd.DataFrame([{
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "debt_id": debt_id,
-        "customer_name": customer_name,
-        "amount_paid": amount,
-        "balance_after": df.at[i, "balance"],
-        "note": "Debt repayment",
-        "receipt_no": receipt_no
-    }])
-    
-    payments_df = pd.concat([payments_df, new_payment], ignore_index=True)
-    
-    # Mark as paid if balance is zero
-    if df.at[i, "balance"] <= 0:
-        df.at[i, "balance"] = 0
-        df.at[i, "status"] = "PAID"
-        df.at[i, "repayment_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    save_debtors(df)
-    save_debtor_payments(payments_df)
-    
-    return True
 
 
 def load_debtor_payments():
     """Load debtor payments"""
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM debtor_payments ORDER BY payment_date DESC")
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame(columns=["id", "date", "debt_id", "customer_name", "amount_paid", "balance_after", "receipt_no", "note"])
+            cur.execute("SELECT * FROM debtor_payments ORDER BY payment_date DESC")
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame(columns=["id", "date", "debt_id", "customer_name", "amount_paid", "balance_after", "receipt_no", "note"])
+    except Exception as e:
+        print(f"⚠️ Error loading debtor payments: {e}")
         return pd.DataFrame(columns=["id", "date", "debt_id", "customer_name", "amount_paid", "balance_after", "receipt_no", "note"])
 
 
 def save_debtor_payments(df):
     """Save debtor payments"""
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO debtor_payments (date, debt_id, customer_name, amount_paid, balance_after, receipt_no, note)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (row["date"], row["debt_id"], row["customer_name"], row["amount_paid"], row["balance_after"], row["receipt_no"], row.get("note", "")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO debtor_payments (date, debt_id, customer_name, amount_paid, balance_after, receipt_no, note)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (row["date"], row["debt_id"], row["customer_name"], row["amount_paid"], row["balance_after"], row["receipt_no"], row.get("note", "")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving debtor payments: {e}")
+        return False
 
 
 def get_debt_items(debt_id):
     """Get items for a specific debt"""
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM debtor_items WHERE debt_id = %s", (debt_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM debtor_items WHERE debt_id = %s", (debt_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error getting debt items: {e}")
         return pd.DataFrame()
 
 
@@ -1171,11 +1364,17 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
     
     query += " ORDER BY expense_date DESC"
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading expenses: {e}")
         return pd.DataFrame()
 
 
@@ -1184,17 +1383,23 @@ def save_expenses(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO expenses (branch_id, expense_date, expense_type, category, 
-                    description, amount, vendor, payment_method, recorded_by, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (branch_id, row["date"], row["expense_type"], row["category"],
-                  row["description"], row["amount"], row["vendor"], row["payment_method"],
-                  row.get("recorded_by", "system"), row.get("notes", "")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO expenses (branch_id, expense_date, expense_type, category, 
+                        description, amount, vendor, payment_method, recorded_by, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, row["date"], row["expense_type"], row["category"],
+                      row["description"], row["amount"], row["vendor"], row["payment_method"],
+                      row.get("recorded_by", "system"), row.get("notes", "")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving expenses: {e}")
+        return False
 
 
 def get_total_expenses():
@@ -1205,11 +1410,17 @@ def get_total_expenses():
 
 def load_expense_categories():
     """Load expense categories"""
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT DISTINCT category FROM expenses ORDER BY category")
-        rows = cur.fetchall()
-        categories = [row["category"] for row in rows] if rows else []
-        return categories
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return []
+            cur.execute("SELECT DISTINCT category FROM expenses ORDER BY category")
+            rows = cur.fetchall()
+            categories = [row["category"] for row in rows] if rows else []
+            return categories
+    except Exception as e:
+        print(f"⚠️ Error loading expense categories: {e}")
+        return []
 
 
 def load_expense_budget(branch_id=None, year=None, month=None):
@@ -1227,11 +1438,17 @@ def load_expense_budget(branch_id=None, year=None, month=None):
         query += " AND month = %s"
         params.append(month)
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading expense budget: {e}")
         return pd.DataFrame()
 
 
@@ -1240,18 +1457,24 @@ def save_expense_budget(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO expense_budget (branch_id, year, month, category, budget_amount, actual_amount)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (branch_id, year, month, category) DO UPDATE SET
-                    budget_amount = EXCLUDED.budget_amount,
-                    actual_amount = EXCLUDED.actual_amount
-            """, (branch_id, row["year"], row["month"], row["category"], 
-                  row["budget_amount"], row.get("actual_amount", 0)))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO expense_budget (branch_id, year, month, category, budget_amount, actual_amount)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (branch_id, year, month, category) DO UPDATE SET
+                        budget_amount = EXCLUDED.budget_amount,
+                        actual_amount = EXCLUDED.actual_amount
+                """, (branch_id, row["year"], row["month"], row["category"], 
+                      row["budget_amount"], row.get("actual_amount", 0)))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving expense budget: {e}")
+        return False
 
 
 def get_budget_vs_actual(year=None, month=None):
@@ -1275,11 +1498,17 @@ def load_recurring_expenses(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM recurring_expenses WHERE branch_id = %s ORDER BY created_at DESC", (branch_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM recurring_expenses WHERE branch_id = %s ORDER BY created_at DESC", (branch_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading recurring expenses: {e}")
         return pd.DataFrame()
 
 
@@ -1288,31 +1517,37 @@ def save_recurring_expenses(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO recurring_expenses (branch_id, recurring_id, description, category,
-                    amount, frequency, day_of_month, vendor, payment_method,
-                    start_date, end_date, active, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (recurring_id) DO UPDATE SET
-                    description = EXCLUDED.description,
-                    category = EXCLUDED.category,
-                    amount = EXCLUDED.amount,
-                    frequency = EXCLUDED.frequency,
-                    day_of_month = EXCLUDED.day_of_month,
-                    vendor = EXCLUDED.vendor,
-                    payment_method = EXCLUDED.payment_method,
-                    start_date = EXCLUDED.start_date,
-                    end_date = EXCLUDED.end_date,
-                    active = EXCLUDED.active,
-                    notes = EXCLUDED.notes
-            """, (branch_id, row["recurring_id"], row["description"], row["category"],
-                  row["amount"], row["frequency"], row["day_of_month"], row.get("vendor", ""),
-                  row.get("payment_method", "CASH"), row.get("start_date"),
-                  row.get("end_date"), row.get("active", True), row.get("notes", "")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO recurring_expenses (branch_id, recurring_id, description, category,
+                        amount, frequency, day_of_month, vendor, payment_method,
+                        start_date, end_date, active, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (recurring_id) DO UPDATE SET
+                        description = EXCLUDED.description,
+                        category = EXCLUDED.category,
+                        amount = EXCLUDED.amount,
+                        frequency = EXCLUDED.frequency,
+                        day_of_month = EXCLUDED.day_of_month,
+                        vendor = EXCLUDED.vendor,
+                        payment_method = EXCLUDED.payment_method,
+                        start_date = EXCLUDED.start_date,
+                        end_date = EXCLUDED.end_date,
+                        active = EXCLUDED.active,
+                        notes = EXCLUDED.notes
+                """, (branch_id, row["recurring_id"], row["description"], row["category"],
+                      row["amount"], row["frequency"], row["day_of_month"], row.get("vendor", ""),
+                      row.get("payment_method", "CASH"), row.get("start_date"),
+                      row.get("end_date"), row.get("active", True), row.get("notes", "")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving recurring expenses: {e}")
+        return False
 
 
 def get_expenses_by_category(month=None, year=None):
@@ -1417,11 +1652,17 @@ def load_income(branch_id=None, date_from=None, date_to=None):
     
     query += " ORDER BY income_date DESC"
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading income: {e}")
         return pd.DataFrame()
 
 
@@ -1430,14 +1671,20 @@ def save_income(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO income (branch_id, income_date, income_source, description, amount, recorded_by)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (branch_id, row["date"], row["income_source"], row["description"], row["amount"], row.get("user", "system")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO income (branch_id, income_date, income_source, description, amount, recorded_by)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (branch_id, row["date"], row["income_source"], row["description"], row["amount"], row.get("user", "system")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving income: {e}")
+        return False
 
 
 def get_monthly_income(month=None):
@@ -1482,11 +1729,17 @@ def load_purchases(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM purchases WHERE branch_id = %s ORDER BY date_ordered DESC", (branch_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM purchases WHERE branch_id = %s ORDER BY date_ordered DESC", (branch_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading purchases: {e}")
         return pd.DataFrame()
 
 
@@ -1495,32 +1748,38 @@ def save_purchases(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
-                    product_name, barcode, quantity_ordered, quantity_received,
-                    cost_price, total_cost, expected_date, status, payment_status, invoice_no)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (po_number) DO UPDATE SET
-                    supplier = EXCLUDED.supplier,
-                    product_name = EXCLUDED.product_name,
-                    barcode = EXCLUDED.barcode,
-                    quantity_ordered = EXCLUDED.quantity_ordered,
-                    quantity_received = EXCLUDED.quantity_received,
-                    cost_price = EXCLUDED.cost_price,
-                    total_cost = EXCLUDED.total_cost,
-                    expected_date = EXCLUDED.expected_date,
-                    status = EXCLUDED.status,
-                    payment_status = EXCLUDED.payment_status,
-                    invoice_no = EXCLUDED.invoice_no
-            """, (branch_id, row["po_number"], row["date_ordered"], row["supplier"],
-                  row["product_name"], row["barcode"], row["quantity_ordered"],
-                  row.get("quantity_received", 0), row["cost_price"], row["total_cost"],
-                  row["expected_date"], row["status"], row.get("payment_status", "UNPAID"),
-                  row.get("invoice_no", "")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
+                        product_name, barcode, quantity_ordered, quantity_received,
+                        cost_price, total_cost, expected_date, status, payment_status, invoice_no)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (po_number) DO UPDATE SET
+                        supplier = EXCLUDED.supplier,
+                        product_name = EXCLUDED.product_name,
+                        barcode = EXCLUDED.barcode,
+                        quantity_ordered = EXCLUDED.quantity_ordered,
+                        quantity_received = EXCLUDED.quantity_received,
+                        cost_price = EXCLUDED.cost_price,
+                        total_cost = EXCLUDED.total_cost,
+                        expected_date = EXCLUDED.expected_date,
+                        status = EXCLUDED.status,
+                        payment_status = EXCLUDED.payment_status,
+                        invoice_no = EXCLUDED.invoice_no
+                """, (branch_id, row["po_number"], row["date_ordered"], row["supplier"],
+                      row["product_name"], row["barcode"], row["quantity_ordered"],
+                      row.get("quantity_received", 0), row["cost_price"], row["total_cost"],
+                      row["expected_date"], row["status"], row.get("payment_status", "UNPAID"),
+                      row.get("invoice_no", "")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving purchases: {e}")
+        return False
 
 
 # ==============================
@@ -1540,11 +1799,17 @@ def load_cash(branch_id=None, shift_id=None):
     
     query += " ORDER BY cash_date DESC"
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading cash: {e}")
         return pd.DataFrame()
 
 
@@ -1553,17 +1818,23 @@ def save_cash(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO cash_register (branch_id, cash_date, shift_id, type, 
-                    amount, receipt_no, customer_name, payment_method, note, cashier)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (branch_id, row["date"], row["shift_id"], row["type"],
-                  row["amount"], row["receipt_no"], row["customer_name"],
-                  row["payment_method"], row.get("note", ""), row.get("cashier", "system")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO cash_register (branch_id, cash_date, shift_id, type, 
+                        amount, receipt_no, customer_name, payment_method, note, cashier)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, row["date"], row["shift_id"], row["type"],
+                      row["amount"], row["receipt_no"], row["customer_name"],
+                      row["payment_method"], row.get("note", ""), row.get("cashier", "system")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving cash: {e}")
+        return False
 
 
 def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", payment_method="CASH", note=""):
@@ -1711,11 +1982,17 @@ def record_petty_cash(description, amount, category, shift_id="", approved_by=""
 
 def load_petty_cash():
     """Load petty cash records"""
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM petty_cash ORDER BY date DESC")
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM petty_cash ORDER BY date DESC")
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading petty cash: {e}")
         return pd.DataFrame()
 
 
@@ -1746,11 +2023,17 @@ def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes="
 
 def load_bank_deposits():
     """Load bank deposits"""
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM bank_deposits ORDER BY date DESC")
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM bank_deposits ORDER BY date DESC")
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading bank deposits: {e}")
         return pd.DataFrame()
 
 
@@ -1902,11 +2185,17 @@ def load_shifts(branch_id=None, status=None):
     
     query += " ORDER BY start_time DESC"
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading shifts: {e}")
         return pd.DataFrame()
 
 
@@ -1917,80 +2206,86 @@ def save_shifts(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            # Convert empty strings to None for timestamp fields
-            end_time = row.get("end_time")
-            if end_time == "" or pd.isna(end_time):
-                end_time = None
-            
-            start_time = row.get("start_time")
-            if start_time == "" or pd.isna(start_time):
-                start_time = None
-            
-            # Convert other empty strings to None
-            notes = row.get("notes")
-            if notes == "" or pd.isna(notes):
-                notes = None
-            
-            # Safely convert numeric values using to_float
-            opening_cash = to_float(row.get("opening_cash"))
-            closing_cash = to_float(row.get("closing_cash"))
-            cash_sales = to_float(row.get("cash_sales"))
-            credit_sales = to_float(row.get("credit_sales"))
-            debt_payments = to_float(row.get("debt_payments"))
-            expenses = to_float(row.get("expenses"))
-            total_revenue = to_float(row.get("total_revenue"))
-            profit = to_float(row.get("profit"))
-            variance = to_float(row.get("variance"))
-            transactions = int(row.get("transactions", 0)) if row.get("transactions") else 0
-            
-            cur.execute("""
-                INSERT INTO shifts (shift_id, branch_id, branch_name, cashier_username,
-                    cashier_name, manager_username, start_time, end_time,
-                    opening_cash, closing_cash, cash_sales, credit_sales,
-                    debt_payments, expenses, total_revenue, profit,
-                    transactions, variance, status, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (shift_id) DO UPDATE SET
-                    branch_name = EXCLUDED.branch_name,
-                    cashier_name = EXCLUDED.cashier_name,
-                    end_time = EXCLUDED.end_time,
-                    closing_cash = EXCLUDED.closing_cash,
-                    cash_sales = EXCLUDED.cash_sales,
-                    credit_sales = EXCLUDED.credit_sales,
-                    debt_payments = EXCLUDED.debt_payments,
-                    expenses = EXCLUDED.expenses,
-                    total_revenue = EXCLUDED.total_revenue,
-                    profit = EXCLUDED.profit,
-                    transactions = EXCLUDED.transactions,
-                    variance = EXCLUDED.variance,
-                    status = EXCLUDED.status,
-                    notes = EXCLUDED.notes
-            """, (
-                str(row["shift_id"]),
-                str(branch_id),
-                str(row.get("branch_name", "Head Office")),
-                str(row.get("cashier_username", "")),
-                str(row.get("cashier_name", "")),
-                str(row.get("manager_username", "")),
-                start_time,
-                end_time,
-                opening_cash,
-                closing_cash,
-                cash_sales,
-                credit_sales,
-                debt_payments,
-                expenses,
-                total_revenue,
-                profit,
-                transactions,
-                variance,
-                str(row.get("status", "OPEN")),
-                notes
-            ))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                # Convert empty strings to None for timestamp fields
+                end_time = row.get("end_time")
+                if end_time == "" or pd.isna(end_time):
+                    end_time = None
+                
+                start_time = row.get("start_time")
+                if start_time == "" or pd.isna(start_time):
+                    start_time = None
+                
+                # Convert other empty strings to None
+                notes = row.get("notes")
+                if notes == "" or pd.isna(notes):
+                    notes = None
+                
+                # Safely convert numeric values using to_float
+                opening_cash = to_float(row.get("opening_cash"))
+                closing_cash = to_float(row.get("closing_cash"))
+                cash_sales = to_float(row.get("cash_sales"))
+                credit_sales = to_float(row.get("credit_sales"))
+                debt_payments = to_float(row.get("debt_payments"))
+                expenses = to_float(row.get("expenses"))
+                total_revenue = to_float(row.get("total_revenue"))
+                profit = to_float(row.get("profit"))
+                variance = to_float(row.get("variance"))
+                transactions = int(row.get("transactions", 0)) if row.get("transactions") else 0
+                
+                cur.execute("""
+                    INSERT INTO shifts (shift_id, branch_id, branch_name, cashier_username,
+                        cashier_name, manager_username, start_time, end_time,
+                        opening_cash, closing_cash, cash_sales, credit_sales,
+                        debt_payments, expenses, total_revenue, profit,
+                        transactions, variance, status, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (shift_id) DO UPDATE SET
+                        branch_name = EXCLUDED.branch_name,
+                        cashier_name = EXCLUDED.cashier_name,
+                        end_time = EXCLUDED.end_time,
+                        closing_cash = EXCLUDED.closing_cash,
+                        cash_sales = EXCLUDED.cash_sales,
+                        credit_sales = EXCLUDED.credit_sales,
+                        debt_payments = EXCLUDED.debt_payments,
+                        expenses = EXCLUDED.expenses,
+                        total_revenue = EXCLUDED.total_revenue,
+                        profit = EXCLUDED.profit,
+                        transactions = EXCLUDED.transactions,
+                        variance = EXCLUDED.variance,
+                        status = EXCLUDED.status,
+                        notes = EXCLUDED.notes
+                """, (
+                    str(row["shift_id"]),
+                    str(branch_id),
+                    str(row.get("branch_name", "Head Office")),
+                    str(row.get("cashier_username", "")),
+                    str(row.get("cashier_name", "")),
+                    str(row.get("manager_username", "")),
+                    start_time,
+                    end_time,
+                    opening_cash,
+                    closing_cash,
+                    cash_sales,
+                    credit_sales,
+                    debt_payments,
+                    expenses,
+                    total_revenue,
+                    profit,
+                    transactions,
+                    variance,
+                    str(row.get("status", "OPEN")),
+                    notes
+                ))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving shifts: {e}")
+        return False
 
 
 def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_username, opening_cash=0):
@@ -2140,11 +2435,17 @@ def load_suppliers(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM suppliers WHERE branch_id = %s AND active = TRUE ORDER BY supplier_name", (branch_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM suppliers WHERE branch_id = %s AND active = TRUE ORDER BY supplier_name", (branch_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading suppliers: {e}")
         return pd.DataFrame()
 
 
@@ -2156,11 +2457,17 @@ def load_loyalty(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM loyalty_points WHERE branch_id = %s ORDER BY points DESC", (branch_id,))
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM loyalty_points WHERE branch_id = %s ORDER BY points DESC", (branch_id,))
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading loyalty: {e}")
         return pd.DataFrame()
 
 
@@ -2169,26 +2476,32 @@ def save_loyalty(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    with get_db_cursor() as (cur, conn):
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO loyalty_points (branch_id, customer_name, phone, points, tier,
-                    total_spent, total_orders, last_visit, birthday, joined_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (branch_id, phone) DO UPDATE SET
-                    customer_name = EXCLUDED.customer_name,
-                    points = EXCLUDED.points,
-                    tier = EXCLUDED.tier,
-                    total_spent = EXCLUDED.total_spent,
-                    total_orders = EXCLUDED.total_orders,
-                    last_visit = EXCLUDED.last_visit,
-                    birthday = EXCLUDED.birthday,
-                    joined_date = EXCLUDED.joined_date
-            """, (branch_id, row["customer_name"], row["phone"], row["points"],
-                  row["tier"], row["total_spent"], row["total_orders"],
-                  row.get("last_visit"), row.get("birthday"), row.get("joined_date")))
-        conn.commit()
-        return True
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+            for _, row in df.iterrows():
+                cur.execute("""
+                    INSERT INTO loyalty_points (branch_id, customer_name, phone, points, tier,
+                        total_spent, total_orders, last_visit, birthday, joined_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (branch_id, phone) DO UPDATE SET
+                        customer_name = EXCLUDED.customer_name,
+                        points = EXCLUDED.points,
+                        tier = EXCLUDED.tier,
+                        total_spent = EXCLUDED.total_spent,
+                        total_orders = EXCLUDED.total_orders,
+                        last_visit = EXCLUDED.last_visit,
+                        birthday = EXCLUDED.birthday,
+                        joined_date = EXCLUDED.joined_date
+                """, (branch_id, row["customer_name"], row["phone"], row["points"],
+                      row["tier"], row["total_spent"], row["total_orders"],
+                      row.get("last_visit"), row.get("birthday"), row.get("joined_date")))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"⚠️ Error saving loyalty: {e}")
+        return False
 
 
 def get_customer_loyalty_info(phone):
@@ -2361,11 +2674,17 @@ def redeem_points(customer_phone, points_to_redeem, receipt_no):
 
 def load_loyalty_redemptions():
     """Load loyalty redemptions"""
-    with get_db_cursor() as (cur, conn):
-        cur.execute("SELECT * FROM loyalty_redemptions ORDER BY redemption_date DESC")
-        rows = cur.fetchall()
-        if rows:
-            return pd.DataFrame(rows)
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return pd.DataFrame()
+            cur.execute("SELECT * FROM loyalty_redemptions ORDER BY redemption_date DESC")
+            rows = cur.fetchall()
+            if rows:
+                return pd.DataFrame(rows)
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"⚠️ Error loading loyalty redemptions: {e}")
         return pd.DataFrame()
 
 
