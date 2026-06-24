@@ -189,7 +189,7 @@ import time
 # ==============================
 st.set_page_config(
     page_title="AZIEL INVESTMENTS",
-    page_icon="🛒",
+    page_icon="",
     layout="wide"
 )
 
@@ -273,10 +273,10 @@ if "auto_switch_theme" not in st.session_state:
 
 
 # ==============================
-# BRANCH SELECTION PAGE (Clean - No Logo)
+# BRANCH SELECTION PAGE
 # ==============================
 def branch_login_page():
-    """Page for selecting and authenticating branch - Clean version"""
+    """Page for selecting and authenticating branch"""
     
     # Apply pure white background theme
     apply_branch_selection_theme()
@@ -295,7 +295,7 @@ def branch_login_page():
     col_a, col_b = st.columns(2)
     
     with col_a:
-        if st.button("🔐 Access Branch", type="primary", use_container_width=True):
+        if st.button("Access Branch", type="primary", use_container_width=True):
             if branch_code and branch_password:
                 branch_code_upper = branch_code.upper()
                 if branch_code_upper in BRANCHES:
@@ -306,29 +306,18 @@ def branch_login_page():
                         st.session_state.user_branch = branch_code_upper
                         # Use the db_adapter version for database operations
                         set_current_branch(branch_code_upper)
-                        st.success(f"✅ Access granted")
+                        st.success("Access granted")
                         show_toast("Branch access granted successfully!", "success")
                         st.rerun()
                     else:
-                        st.error("❌ Invalid branch password")
+                        st.error("Invalid branch password")
                         show_toast("Invalid branch password", "error")
                 else:
-                    st.error("❌ Invalid branch code")
+                    st.error("Invalid branch code")
                     show_toast("Invalid branch code", "error")
             else:
                 st.error("Please enter branch code and password")
                 show_toast("Please enter branch code and password", "warning")
-    
-    with col_b:
-        if st.button("🏠 Head Office Demo", use_container_width=True):
-            st.session_state.branch_selected = True
-            st.session_state.branch_authenticated = True
-            st.session_state.current_branch = "HO"
-            st.session_state.user_branch = "HO"
-            set_current_branch("HO")
-            st.success("✅ Access granted to Head Office")
-            show_toast("Head Office Demo mode activated", "info")
-            st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -382,14 +371,6 @@ def login_page():
                 else:
                     st.error("Invalid credentials")
                     show_toast("Invalid username or password", "error")
-        
-        st.markdown("---")
-        st.caption("Demo Users: admin/admin123 | manager/manager123 | cashier/cash123")
-        
-        if st.button("🔄 Switch to Different Branch"):
-            st.session_state.branch_selected = False
-            st.session_state.branch_authenticated = False
-            st.rerun()
 
 
 # ==============================
@@ -397,7 +378,7 @@ def login_page():
 # ==============================
 def documents_page():
     """Professional Documents Generation Page"""
-    st.title("📄 Professional Documents")
+    st.title("Professional Documents")
     st.caption("Generate professional business documents")
     
     doc_type = st.selectbox(
@@ -459,7 +440,7 @@ def documents_page():
             with col3:
                 st.metric("Total", f"${total:.2f}")
             
-            if st.button("📄 Generate Proforma Invoice", type="primary", use_container_width=True):
+            if st.button("Generate Proforma Invoice", type="primary", use_container_width=True):
                 data = {
                     "invoice_no": invoice_no,
                     "date": datetime.now().strftime("%Y-%m-%d"),
@@ -473,7 +454,7 @@ def documents_page():
                 }
                 with st.spinner("Generating PDF..."):
                     pdf = generate_proforma_invoice(data)
-                    download_pdf_button(pdf, f"proforma_{invoice_no}.pdf", "📥 Download Proforma Invoice")
+                    download_pdf_button(pdf, f"proforma_{invoice_no}.pdf", "Download Proforma Invoice")
                     show_toast("Proforma Invoice generated successfully!", "success")
                     show_confetti()
     
@@ -502,7 +483,7 @@ def documents_page():
             if name:
                 items.append({"name": name, "quantity": qty})
         
-        if st.button("📄 Generate Delivery Note", type="primary", use_container_width=True):
+        if st.button("Generate Delivery Note", type="primary", use_container_width=True):
             data = {
                 "note_no": note_no,
                 "date": datetime.now().strftime("%Y-%m-%d"),
@@ -513,7 +494,7 @@ def documents_page():
             }
             with st.spinner("Generating PDF..."):
                 pdf = generate_delivery_note(data)
-                download_pdf_button(pdf, f"delivery_note_{note_no}.pdf", "📥 Download Delivery Note")
+                download_pdf_button(pdf, f"delivery_note_{note_no}.pdf", "Download Delivery Note")
                 show_toast("Delivery Note generated successfully!", "success")
     
     elif doc_type == "Credit Note":
@@ -548,7 +529,7 @@ def documents_page():
         if items:
             st.metric("Total Credit Amount", f"${total_refund:.2f}")
         
-        if st.button("📄 Generate Credit Note", type="primary", use_container_width=True):
+        if st.button("Generate Credit Note", type="primary", use_container_width=True):
             data = {
                 "note_no": note_no,
                 "invoice_no": original_invoice,
@@ -560,7 +541,7 @@ def documents_page():
             }
             with st.spinner("Generating PDF..."):
                 pdf = generate_credit_note(data)
-                download_pdf_button(pdf, f"credit_note_{note_no}.pdf", "📥 Download Credit Note")
+                download_pdf_button(pdf, f"credit_note_{note_no}.pdf", "Download Credit Note")
                 show_toast("Credit Note generated successfully!", "success")
     
     elif doc_type == "Customer Statement":
@@ -575,7 +556,7 @@ def documents_page():
             
             period = st.selectbox("Statement Period", ["Last 30 Days", "Last 90 Days", "Last 6 Months", "Last Year", "All Time"])
             
-            if st.button("📄 Generate Statement", type="primary", use_container_width=True):
+            if st.button("Generate Statement", type="primary", use_container_width=True):
                 # Get period in days
                 period_days = {
                     "Last 30 Days": 30,
@@ -618,7 +599,7 @@ def documents_page():
                 }
                 
                 pdf = generate_customer_statement(data)
-                download_pdf_button(pdf, f"statement_{selected_customer}.pdf", "📥 Download Statement")
+                download_pdf_button(pdf, f"statement_{selected_customer}.pdf", "Download Statement")
                 show_toast("Customer Statement generated successfully!", "success")
         else:
             st.info("No customers found")
@@ -655,7 +636,7 @@ def documents_page():
         if items:
             st.metric("Total Order Value", f"${total_cost:.2f}")
         
-        if st.button("📄 Generate Purchase Order", type="primary", use_container_width=True):
+        if st.button("Generate Purchase Order", type="primary", use_container_width=True):
             data = {
                 "po_number": po_number,
                 "date": datetime.now().strftime("%Y-%m-%d"),
@@ -667,7 +648,7 @@ def documents_page():
             }
             with st.spinner("Generating PDF..."):
                 pdf = generate_purchase_order(data)
-                download_pdf_button(pdf, f"purchase_order_{po_number}.pdf", "📥 Download Purchase Order")
+                download_pdf_button(pdf, f"purchase_order_{po_number}.pdf", "Download Purchase Order")
                 show_toast("Purchase Order generated successfully!", "success")
 
 
@@ -721,7 +702,7 @@ def main_app():
     st.sidebar.markdown(f"""
     <div style='background: linear-gradient(135deg, #006400 0%, #FFD700 50%, #FF0000 100%); 
                 border-radius: 10px; padding: 10px; text-align: center; color: white;'>
-        <strong>📍 {branch_name}</strong><br>
+        <strong>{branch_name}</strong><br>
         <small>Code: {current_branch}</small>
     </div>
     """, unsafe_allow_html=True)
@@ -735,7 +716,7 @@ def main_app():
     
     navigation_menu = get_navigation_menu(role)
     
-    st.sidebar.markdown("### 📋 Navigation")
+    st.sidebar.markdown("### Navigation")
     
     selected_page = None
     
@@ -748,13 +729,13 @@ def main_app():
                 st.session_state.current_page = item
         st.sidebar.markdown("---")
     
-    st.sidebar.markdown(f"**👤 {username}**")
+    st.sidebar.markdown(f"**{username}**")
     st.sidebar.markdown(f"**Role:** {role.upper()}")
     
     if role == "cashier" and st.session_state.get("active_shift_id"):
-        st.sidebar.info(f"🟢 Shift Active\nID: {st.session_state.active_shift_id[:8]}...")
+        st.sidebar.info(f"Shift Active\nID: {st.session_state.active_shift_id[:8]}...")
     
-    if st.sidebar.button("🔄 Switch Branch", key="switch_branch_sidebar", use_container_width=True):
+    if st.sidebar.button("Switch Branch", key="switch_branch_sidebar", use_container_width=True):
         st.session_state.branch_selected = False
         st.session_state.branch_authenticated = False
         st.session_state.logged_in = False
@@ -767,201 +748,13 @@ def main_app():
     language_selector()
     
     # ==============================
-    # PWA INSTALL BUTTON - IN SIDEBAR (Under Navigation)
-    # ==============================
-    if is_pwa_enabled():
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📱 Install App")
-        
-        install_html = """
-        <style>
-            .install-btn {
-                display: block;
-                width: 100%;
-                padding: 12px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                text-align: center;
-                border-radius: 12px;
-                text-decoration: none;
-                font-size: 1rem;
-                font-weight: 500;
-                margin: 10px 0;
-                border: none;
-                cursor: pointer;
-                transition: transform 0.2s, box-shadow 0.2s;
-            }
-            .install-btn:hover {
-                transform: scale(1.02);
-                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-            }
-            .install-btn:active {
-                transform: scale(0.98);
-            }
-            .install-btn:disabled {
-                opacity: 0.6;
-                cursor: not-allowed;
-            }
-            .install-status {
-                font-size: 0.8rem;
-                color: #666;
-                text-align: center;
-                margin-top: 5px;
-            }
-            .install-status.available {
-                color: #4CAF50;
-            }
-            .install-status.unavailable {
-                color: #f44336;
-            }
-            @media (prefers-color-scheme: dark) {
-                .install-btn {
-                    background: linear-gradient(135deg, #4a5db8 0%, #5a3d8a 100%);
-                }
-                .install-status {
-                    color: #aaa;
-                }
-            }
-        </style>
-        
-        <div id="pwa-install-container">
-            <button class="install-btn" id="pwaInstallBtn">
-                📲 Add to Home Screen
-            </button>
-            <div class="install-status" id="installStatus">Checking availability...</div>
-        </div>
-        
-        <script>
-            (function() {
-                const btn = document.getElementById('pwaInstallBtn');
-                const statusEl = document.getElementById('installStatus');
-                let deferredPrompt = null;
-                
-                // Check if already installed
-                function isAppInstalled() {
-                    if (window.matchMedia('(display-mode: standalone)').matches) {
-                        return true;
-                    }
-                    if (window.navigator.standalone === true) {
-                        return true;
-                    }
-                    return false;
-                }
-                
-                function isMobile() {
-                    return /Android|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent);
-                }
-                
-                function isHTTPS() {
-                    return window.location.protocol === 'https:' || 
-                           window.location.hostname === 'localhost' || 
-                           window.location.hostname === '127.0.0.1';
-                }
-                
-                function updateStatus(message, type) {
-                    statusEl.textContent = message;
-                    statusEl.className = 'install-status ' + type;
-                }
-                
-                if (isAppInstalled()) {
-                    btn.style.display = 'none';
-                    updateStatus('✅ App already installed!', 'available');
-                    return;
-                }
-                
-                if (!isMobile()) {
-                    updateStatus('💻 Open on mobile device to install', 'unavailable');
-                    btn.style.opacity = '0.6';
-                    btn.style.cursor = 'default';
-                    btn.onclick = function(e) {
-                        e.preventDefault();
-                        alert('📱 To install this app on your phone:\\n\\n' +
-                              '1. Open this page on your mobile device\\n' +
-                              '2. Tap the browser menu\\n' +
-                              '3. Select "Add to Home Screen"');
-                    };
-                    return;
-                }
-                
-                if (!isHTTPS()) {
-                    updateStatus('⚠️ HTTPS required for installation', 'unavailable');
-                    btn.style.opacity = '0.6';
-                    btn.style.cursor = 'default';
-                    btn.onclick = function(e) {
-                        e.preventDefault();
-                        alert('⚠️ To install this app:\\n\\n' +
-                              'The app needs to be served over HTTPS.\\n' +
-                              'If you\'re on localhost, try using ngrok or deploy to a secure server.');
-                    };
-                    return;
-                }
-                
-                window.addEventListener('beforeinstallprompt', function(e) {
-                    e.preventDefault();
-                    deferredPrompt = e;
-                    updateStatus('✅ Ready to install!', 'available');
-                    btn.style.opacity = '1';
-                    btn.style.cursor = 'pointer';
-                    btn.disabled = false;
-                });
-                
-                btn.addEventListener('click', function() {
-                    if (deferredPrompt) {
-                        deferredPrompt.prompt();
-                        deferredPrompt.userChoice.then(function(result) {
-                            if (result.outcome === 'accepted') {
-                                updateStatus('✅ Installation started!', 'available');
-                                btn.style.display = 'none';
-                            } else {
-                                updateStatus('Installation declined', 'unavailable');
-                            }
-                            deferredPrompt = null;
-                        });
-                    } else {
-                        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-                        let message = '📱 To install this app:\\n\\n';
-                        if (isIOS) {
-                            message += '1. Tap the share button (⬆)\\n';
-                            message += '2. Scroll and tap "Add to Home Screen"\\n';
-                            message += '3. Tap "Add"';
-                        } else if (/Android/i.test(navigator.userAgent)) {
-                            message += '1. Tap the menu button (⋮)\\n';
-                            message += '2. Select "Add to Home Screen"\\n';
-                            message += '3. Tap "Add"';
-                        } else {
-                            message += 'Look for the install icon (⊕) in your browser\'s address bar\\n\\n';
-                            message += 'Or use your browser\'s "Add to Home Screen" feature.';
-                        }
-                        alert(message);
-                    }
-                });
-                
-                window.addEventListener('appinstalled', function() {
-                    btn.style.display = 'none';
-                    updateStatus('✅ App installed successfully! 🎉', 'available');
-                });
-                
-                if (isMobile() && isHTTPS()) {
-                    updateStatus('⏳ Waiting for install prompt...', 'unavailable');
-                    setTimeout(function() {
-                        if (!deferredPrompt && !isAppInstalled()) {
-                            updateStatus('📱 Tap "Add to Home Screen" in your browser menu', 'unavailable');
-                        }
-                    }, 3000);
-                }
-            })();
-        </script>
-        """
-        st.markdown(install_html, unsafe_allow_html=True)
-    
-    # ==============================
     # SIDEBAR FOOTER & LOGOUT
     # ==============================
     st.sidebar.markdown("---")
     st.sidebar.caption("AZIEL INVESTMENTS ERP")
-    st.sidebar.caption("© 2024 All Rights Reserved")
+    st.sidebar.caption("2024 All Rights Reserved")
     
-    if st.sidebar.button("🚪 Logout", key="logout_sidebar", use_container_width=True):
+    if st.sidebar.button("Logout", key="logout_sidebar", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key not in ["branch_selected", "branch_authenticated", "current_branch", "user_branch", "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]:
                 del st.session_state[key]
@@ -972,7 +765,7 @@ def main_app():
     # FLOATING ACTION BUTTON (Main Content)
     # ==============================
     if page in ["Stock Dashboard", "Inventory", "POS"]:
-        floating_action_button(icon="➕", label="Quick Action", link="#")
+        floating_action_button(icon="", label="Quick Action", link="#")
     
     # ==============================
     # MOBILE QUICK ACTIONS (Main Content)
@@ -994,130 +787,130 @@ def main_app():
         if can_access_feature(role, "inventory_view"):
             dashboard_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Inventory":
         if can_access_feature(role, "inventory_view"):
             inventory_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Barcode Generator":
         if can_access_feature(role, "inventory_view"):
             barcode_generator_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= SALES =================
     elif page == "Sales History":
         if can_access_feature(role, "sales_history"):
             sales_history_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Sales Dashboard":
         if can_access_feature(role, "sales_dashboard"):
             sales_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= POS =================
     elif page == "POS":
         if can_access_feature(role, "pos"):
             pos_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= CASH =================
     elif page == "Cash Dashboard":
         if can_access_feature(role, "cash_dashboard"):
             cash_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= PURCHASES =================
     elif page == "Purchases":
         if can_access_feature(role, "purchases"):
             purchases_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Purchases Dashboard":
         if can_access_feature(role, "purchases"):
             purchases_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= INCOME =================
     elif page == "Income":
         if can_access_feature(role, "income"):
             income_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Income Dashboard":
         if can_access_feature(role, "income"):
             income_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= EXPENSES =================
     elif page == "Expenses":
         if can_access_feature(role, "expenses"):
             expenses_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Expenses Dashboard":
         if can_access_feature(role, "expenses"):
             expenses_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= P&L =================
     elif page == "P&L":
         if can_access_feature(role, "pl"):
             pl_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= CUSTOMERS =================
     elif page == "Customer Dashboard":
         if can_access_feature(role, "customers"):
             customers_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Retention Dashboard":
         if can_access_feature(role, "customers"):
             customers_retention_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Segmentation Dashboard":
         if can_access_feature(role, "customers"):
             customers_segmentation_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Lifecycle Dashboard":
         if can_access_feature(role, "customers"):
             customers_lifecycle_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= CUSTOMER 360 VIEW =================
     elif page == "Customer 360 View":
         if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
             customer_360_view()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
     
     elif page == "Customer Insights 360":
         if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
             customer_insights_360()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= CUSTOMER APP =================
     elif page == "Customer App":
@@ -1127,103 +920,103 @@ def main_app():
         if can_access_feature(role, "customers"):
             customer_insights_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Business Advisor":
         if can_access_feature(role, "business_advisor"):
             business_advisor_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
         
     # ================= DEBTORS =================
     elif page == "Debtors":
         if can_access_feature(role, "debtors"):
             debtors_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     elif page == "Debtors Dashboard":
         if can_access_feature(role, "debtors_dashboard"):
             debtors_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= REPORTS =================
     elif page == "Reports Dashboard":
         if can_access_feature(role, "reports"):
             reports_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= SHIFT MANAGEMENT =================
     elif page == "Shift Management":
         if can_access_feature(role, "shift_management"):
             shift_management_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= BRANCH PERFORMANCE =================
     elif page == "Branch Performance":
         if can_access_feature(role, "branch_performance"):
             branch_performance_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= MOBILE DASHBOARD =================
     elif page == "Mobile Dashboard":
         if can_access_feature(role, "mobile_dashboard") or role in ["owner", "manager", "cashier"]:
             mobile_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= DEMAND FORECASTING =================
     elif page == "Demand Forecasting":
         if can_access_feature(role, "demand_forecasting") or role in ["owner", "manager"]:
             demand_forecasting_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= LIVE DASHBOARD =================
     elif page == "Live Dashboard":
         if can_access_feature(role, "live_dashboard") or role in ["owner", "manager"]:
             live_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= SECURITY DASHBOARD =================
     elif page == "Security Dashboard":
         if can_access_feature(role, "security") or role in ["owner", "manager"]:
             security_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= LANGUAGE MANAGEMENT =================
     elif page == "Language Management":
         if can_access_feature(role, "language_management") or role in ["owner", "manager"]:
             language_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= OFFLINE MODE =================
     elif page == "Offline Mode":
         if can_access_feature(role, "offline_mode") or role in ["owner", "manager"]:
             offline_mode_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= FINANCIAL CLOSING =================
     elif page == "Financial Closing":
         if can_access_feature(role, "financial_closing") or role in ["owner", "manager"]:
             financial_closing_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= SUPPLIER BIDDING =================
     elif page == "Supplier Bidding":
         if can_access_feature(role, "supplier_bidding") or role in ["owner", "manager"]:
             supplier_bidding_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
     
     elif page == "Supplier Bidding Portal":
         supplier_bidding_portal()
@@ -1233,151 +1026,151 @@ def main_app():
         if can_access_feature(role, "returns_management") or role in ["owner", "manager"]:
             returns_management_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
     
     elif page == "Returns Management":
         if can_access_feature(role, "returns_management") or role in ["owner", "manager"]:
             returns_management_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= PROFIT CENTER ANALYSIS =================
     elif page == "Profit Center Analysis":
         if can_access_feature(role, "profit_analysis") or role in ["owner", "manager"]:
             profit_center_analysis()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= PREDICTIVE ANALYTICS =================
     elif page == "Predictive Analytics":
         if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
             predictive_analytics_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= COMPETITOR PRICE MONITORING =================
     elif page == "Competitor Price Monitoring":
         if can_access_feature(role, "competitor_price") or role in ["owner", "manager"]:
             competitor_price_monitoring_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= PAYMENT GATEWAY =================
     elif page == "Payment Gateway":
         if can_access_feature(role, "payment_gateway") or role in ["owner", "manager"]:
             payment_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= ACCOUNTING SYNC =================
     elif page == "Accounting Sync":
         if can_access_feature(role, "accounting_sync") or role in ["owner", "manager"]:
             accounting_sync_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= E-COMMERCE SYNC =================
     elif page == "E-commerce Sync":
         if can_access_feature(role, "ecommerce_sync") or role in ["owner", "manager"]:
             ecommerce_sync_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= SMS GATEWAY =================
     elif page == "SMS Gateway":
         if can_access_feature(role, "sms_gateway") or role in ["owner", "manager"]:
             sms_gateway_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= SMART REPLENISHMENT =================
     elif page == "Smart Replenishment":
         if can_access_feature(role, "smart_replenishment") or role in ["owner", "manager"]:
             smart_replenishment_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= AUTOMATED FOLLOW-UP =================
     elif page == "Automated Follow-up":
         if can_access_feature(role, "automated_followup") or role in ["owner", "manager"]:
             automated_followup_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= WORKFLOW APPROVALS =================
     elif page == "Workflow Approvals":
         if can_access_feature(role, "workflow_approvals") or role in ["owner", "manager"]:
             workflow_approvals_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= PWA SETUP =================
     elif page == "PWA Setup":
         if can_access_feature(role, "pwa_setup") or role in ["owner", "manager"]:
             pwa_setup_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= VOICE COMMANDS =================
     elif page == "Voice Commands":
         if can_access_feature(role, "voice_commands") or role in ["owner", "manager", "cashier"]:
             voice_commands_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= BARCODE SCANNER =================
     elif page == "Barcode Scanner":
         if can_access_feature(role, "barcode_scanner") or role in ["owner", "manager", "cashier"]:
             barcode_scanner_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= WHITE LABEL =================
     elif page == "White Label":
         if can_access_feature(role, "white_label") or role == "owner":
             white_label_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= MULTI-TENANT =================
     elif page == "Multi-Tenant":
         if can_access_feature(role, "multi_tenant") or role == "owner":
             multi_tenant_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= API DEVELOPER =================
     elif page == "API Developer":
         if can_access_feature(role, "api_developer") or role in ["owner", "manager"]:
             api_developer_dashboard()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= DOCUMENTS =================
     elif page == "Documents":
         if role in ["owner", "manager"]:
             documents_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
 
     # ================= ADMIN ONLY =================
     elif page == "Settings":
         if role == "owner":
             settings_page()
         else:
-            st.error("❌ You don't have permission to access this page")
+            st.error("You don't have permission to access this page")
         
     elif page == "User Management":
         if role == "owner":
             user_management_page()
         else:
-            st.error("❌ Only system owner can access user management")
+            st.error("Only system owner can access user management")
 
     elif page == "Branch Management":
         if role == "owner":
             branch_management_page()
         else:
-            st.error("❌ Only system owner can access branch management")
+            st.error("Only system owner can access branch management")
 
     else:
         st.warning(f"Module not found: {page}")
