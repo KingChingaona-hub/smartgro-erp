@@ -10,8 +10,6 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import os
 from urllib.parse import urlparse
-import socket
-import time
 
 # ==============================
 # COMPATIBILITY CONSTANTS
@@ -100,10 +98,6 @@ def get_default_config():
         "pool_min_conn": 1,
         "pool_max_conn": 10,
         "connect_timeout": 30,
-        "keepalives": 1,
-        "keepalives_idle": 30,
-        "keepalives_interval": 10,
-        "keepalives_count": 5,
         "sslmode": "require"
     }
 
@@ -118,25 +112,8 @@ def load_db_config():
             print("✅ Using database URL from environment")
             parsed = urlparse(database_url)
             
-            # Try to resolve hostname to IPv4
-            host = parsed.hostname
-            try:
-                ip_address = socket.gethostbyname(host)
-                if ip_address:
-                    print(f"📡 Resolved {host} -> {ip_address}")
-                    host = ip_address
-            except:
-                pass
-            
-            # Check if it's Neon (port 5432, sslmode=require)
-            sslmode = "require"
-            if "sslmode" in parsed.query:
-                for param in parsed.query.split("&"):
-                    if param.startswith("sslmode="):
-                        sslmode = param.split("=")[1]
-            
             return {
-                "host": host,
+                "host": parsed.hostname,
                 "port": parsed.port or 5432,
                 "database": parsed.path.lstrip('/'),
                 "user": parsed.username,
@@ -144,39 +121,7 @@ def load_db_config():
                 "pool_min_conn": 1,
                 "pool_max_conn": 10,
                 "connect_timeout": 30,
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                "keepalives_interval": 10,
-                "keepalives_count": 5,
-                "sslmode": sslmode
-            }
-        
-        # Try individual environment variables (fallback)
-        if os.environ.get("DB_HOST"):
-            print("✅ Using database config from individual environment variables")
-            host = os.environ.get("DB_HOST")
-            try:
-                ip_address = socket.gethostbyname(host)
-                if ip_address:
-                    print(f"📡 Resolved {host} -> {ip_address}")
-                    host = ip_address
-            except:
-                pass
-            
-            return {
-                "host": host,
-                "port": int(os.environ.get("DB_PORT", 5432)),
-                "database": os.environ.get("DB_NAME", "postgres"),
-                "user": os.environ.get("DB_USER", "postgres"),
-                "password": os.environ.get("DB_PASSWORD", ""),
-                "pool_min_conn": 1,
-                "pool_max_conn": 10,
-                "connect_timeout": 30,
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                "keepalives_interval": 10,
-                "keepalives_count": 5,
-                "sslmode": os.environ.get("DB_SSLMODE", "require")
+                "sslmode": "require"
             }
         
         # Try local config file
@@ -184,19 +129,13 @@ def load_db_config():
             print("✅ Using database config from local file")
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
-                # Add default connection parameters if not present
                 config.setdefault("connect_timeout", 30)
-                config.setdefault("keepalives", 1)
-                config.setdefault("keepalives_idle", 30)
-                config.setdefault("keepalives_interval", 10)
-                config.setdefault("keepalives_count", 5)
                 config.setdefault("sslmode", "require")
                 return config
                 
     except Exception as e:
         print(f"⚠️ Error loading database config: {e}")
     
-    # Return default config
     print("⚠️ Using default database config")
     return get_default_config()
 
@@ -209,61 +148,46 @@ def save_db_config(config):
 
 
 # ==============================
-# CONNECTION POOL - FIXED FOR NEON
+# CONNECTION POOL - SIMPLIFIED
 # ==============================
 _connection_pool = None
-_pool_attempts = 0
-_MAX_POOL_ATTEMPTS = 3
 
 
 def get_connection_pool():
-    """Get or create connection pool - FIXED with retry logic for Neon"""
-    global _connection_pool, _pool_attempts
+    """Get or create connection pool - SIMPLIFIED for reliability"""
+    global _connection_pool
     
-    if _connection_pool is None and _pool_attempts < _MAX_POOL_ATTEMPTS:
+    if _connection_pool is None:
         config = load_db_config()
         try:
-            print(f"🔌 Connecting to Neon database at {config['host']}:{config['port']}...")
-            
-            # Build connection parameters
-            conn_params = {
-                "host": config["host"],
-                "port": config["port"],
-                "database": config["database"],
-                "user": config["user"],
-                "password": config["password"],
-                "connect_timeout": config.get("connect_timeout", 30),
-                "keepalives": config.get("keepalives", 1),
-                "keepalives_idle": config.get("keepalives_idle", 30),
-                "keepalives_interval": config.get("keepalives_interval", 10),
-                "keepalives_count": config.get("keepalives_count", 5),
-                "sslmode": config.get("sslmode", "require")
-            }
+            print(f"🔌 Connecting to database at {config['host']}:{config['port']}...")
             
             _connection_pool = psycopg2.pool.SimpleConnectionPool(
                 config["pool_min_conn"],
                 config["pool_max_conn"],
-                **conn_params
+                host=config["host"],
+                port=config["port"],
+                database=config["database"],
+                user=config["user"],
+                password=config["password"],
+                connect_timeout=config.get("connect_timeout", 30),
+                sslmode=config.get("sslmode", "require")
             )
-            print("✅ Neon database connection established!")
-            _pool_attempts = 0
-            return _connection_pool
             
-        except Exception as e:
-            _pool_attempts += 1
-            print(f"❌ Database connection failed (attempt {_pool_attempts}/{_MAX_POOL_ATTEMPTS}): {str(e)}")
-            
-            if _pool_attempts < _MAX_POOL_ATTEMPTS:
-                wait_time = _pool_attempts * 5
-                print(f"⏳ Waiting {wait_time} seconds before retry...")
-                time.sleep(wait_time)
-                return get_connection_pool()
+            # Test the connection immediately
+            test_conn = _connection_pool.getconn()
+            if test_conn:
+                cur = test_conn.cursor()
+                cur.execute("SELECT 1")
+                _connection_pool.putconn(test_conn)
+                print("✅ Database connection established!")
             else:
-                print("❌ Max connection attempts reached. Please check your Neon database configuration.")
-                print("   - Verify your Neon project is active (not paused)")
-                print("   - Check that the hostname and credentials are correct")
-                print("   - Ensure SSL mode is set to 'require'")
-                return None
+                print("❌ Failed to get test connection")
+                _connection_pool = None
+                
+        except Exception as e:
+            print(f"❌ Database connection failed: {str(e)}")
+            _connection_pool = None
     
     return _connection_pool
 
@@ -273,7 +197,7 @@ def get_db_connection():
     """Context manager for database connections"""
     pool = get_connection_pool()
     if pool is None:
-        print("⚠️ Connection pool not available - using fallback mode")
+        print("⚠️ Connection pool not available")
         yield None
         return
     
@@ -282,11 +206,14 @@ def get_db_connection():
         conn = pool.getconn()
         yield conn
     except Exception as e:
-        print(f"❌ Error getting connection from pool: {e}")
+        print(f"❌ Error getting connection: {e}")
         yield None
     finally:
         if conn:
-            pool.putconn(conn)
+            try:
+                pool.putconn(conn)
+            except:
+                pass
 
 
 @contextmanager
@@ -323,14 +250,13 @@ def test_connection():
 
 def reset_connection_pool():
     """Reset the connection pool"""
-    global _connection_pool, _pool_attempts
+    global _connection_pool
     if _connection_pool:
         try:
             _connection_pool.closeall()
         except:
             pass
         _connection_pool = None
-        _pool_attempts = 0
         print("🔄 Connection pool reset")
 
 
@@ -351,7 +277,7 @@ def init_database():
                 exists = False
             
             if not exists:
-                print("⚠️ Database schema not found. Please run the schema.sql script in Neon SQL Editor.")
+                print("⚠️ Database schema not found. Please run the schema.sql script.")
                 return False
             
             # Check if branches exist
@@ -363,7 +289,6 @@ def init_database():
                 count = 0
             
             if count == 0:
-                # Insert default branches
                 cur.execute("""
                     INSERT INTO branches (branch_id, branch_name, location, level, active) VALUES
                     ('HO', 'Head Office', 'Harare', 1, TRUE),
@@ -402,7 +327,7 @@ def to_float(value):
 
 
 # ==============================
-# NEW: GET ACTIVE SHIFT ID
+# GET ACTIVE SHIFT ID
 # ==============================
 def get_active_shift_id():
     """
@@ -552,7 +477,7 @@ def save_products(df, branch_id=None):
 
 
 # ==============================
-# SALES FUNCTIONS - FIXED WITH SHIFT_ID
+# SALES FUNCTIONS
 # ==============================
 def load_sales(branch_id=None, date_from=None, date_to=None):
     """Load sales for a specific branch and date range"""
@@ -587,7 +512,7 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
 
 def save_sales(df, branch_id=None):
     """
-    Save sales to database - FIXED: Automatically captures shift_id from session state
+    Save sales to database - Automatically captures shift_id from session state
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -1093,7 +1018,7 @@ def get_customer_actions():
 
 
 # ==============================
-# USER FUNCTIONS - FIXED WITH ERROR HANDLING
+# USER FUNCTIONS
 # ==============================
 
 def load_users():
