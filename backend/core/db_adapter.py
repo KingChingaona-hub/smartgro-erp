@@ -94,7 +94,7 @@ def get_default_config():
     return {
         "host": "localhost",
         "port": 5432,
-        "database": "smartgro",
+        "database": "postgres",
         "user": "postgres",
         "password": "",
         "pool_min_conn": 1,
@@ -103,7 +103,8 @@ def get_default_config():
         "keepalives": 1,
         "keepalives_idle": 30,
         "keepalives_interval": 10,
-        "keepalives_count": 5
+        "keepalives_count": 5,
+        "sslmode": "require"
     }
 
 
@@ -127,6 +128,13 @@ def load_db_config():
             except:
                 pass
             
+            # Check if it's Neon (port 5432, sslmode=require)
+            sslmode = "require"
+            if "sslmode" in parsed.query:
+                for param in parsed.query.split("&"):
+                    if param.startswith("sslmode="):
+                        sslmode = param.split("=")[1]
+            
             return {
                 "host": host,
                 "port": parsed.port or 5432,
@@ -139,7 +147,8 @@ def load_db_config():
                 "keepalives": 1,
                 "keepalives_idle": 30,
                 "keepalives_interval": 10,
-                "keepalives_count": 5
+                "keepalives_count": 5,
+                "sslmode": sslmode
             }
         
         # Try individual environment variables (fallback)
@@ -166,7 +175,8 @@ def load_db_config():
                 "keepalives": 1,
                 "keepalives_idle": 30,
                 "keepalives_interval": 10,
-                "keepalives_count": 5
+                "keepalives_count": 5,
+                "sslmode": os.environ.get("DB_SSLMODE", "require")
             }
         
         # Try local config file
@@ -180,6 +190,7 @@ def load_db_config():
                 config.setdefault("keepalives_idle", 30)
                 config.setdefault("keepalives_interval", 10)
                 config.setdefault("keepalives_count", 5)
+                config.setdefault("sslmode", "require")
                 return config
                 
     except Exception as e:
@@ -198,7 +209,7 @@ def save_db_config(config):
 
 
 # ==============================
-# CONNECTION POOL - FIXED
+# CONNECTION POOL - FIXED FOR NEON
 # ==============================
 _connection_pool = None
 _pool_attempts = 0
@@ -206,13 +217,13 @@ _MAX_POOL_ATTEMPTS = 3
 
 
 def get_connection_pool():
-    """Get or create connection pool - FIXED with retry logic"""
+    """Get or create connection pool - FIXED with retry logic for Neon"""
     global _connection_pool, _pool_attempts
     
     if _connection_pool is None and _pool_attempts < _MAX_POOL_ATTEMPTS:
         config = load_db_config()
         try:
-            print(f"🔌 Connecting to database at {config['host']}:{config['port']}...")
+            print(f"🔌 Connecting to Neon database at {config['host']}:{config['port']}...")
             
             # Build connection parameters
             conn_params = {
@@ -225,21 +236,16 @@ def get_connection_pool():
                 "keepalives": config.get("keepalives", 1),
                 "keepalives_idle": config.get("keepalives_idle", 30),
                 "keepalives_interval": config.get("keepalives_interval", 10),
-                "keepalives_count": config.get("keepalives_count", 5)
+                "keepalives_count": config.get("keepalives_count", 5),
+                "sslmode": config.get("sslmode", "require")
             }
-            
-            # Add SSL mode if specified
-            if "sslmode" in config:
-                conn_params["sslmode"] = config["sslmode"]
-            elif config.get("sslmode") is None:
-                conn_params["sslmode"] = "require"
             
             _connection_pool = psycopg2.pool.SimpleConnectionPool(
                 config["pool_min_conn"],
                 config["pool_max_conn"],
                 **conn_params
             )
-            print("✅ Database connection established!")
+            print("✅ Neon database connection established!")
             _pool_attempts = 0
             return _connection_pool
             
@@ -253,10 +259,10 @@ def get_connection_pool():
                 time.sleep(wait_time)
                 return get_connection_pool()
             else:
-                print("❌ Max connection attempts reached. Please check your database configuration.")
-                print("   - Verify your Supabase project is active (not paused)")
+                print("❌ Max connection attempts reached. Please check your Neon database configuration.")
+                print("   - Verify your Neon project is active (not paused)")
                 print("   - Check that the hostname and credentials are correct")
-                print("   - Try using the connection pooler (port 6543)")
+                print("   - Ensure SSL mode is set to 'require'")
                 return None
     
     return _connection_pool
@@ -345,7 +351,7 @@ def init_database():
                 exists = False
             
             if not exists:
-                print("⚠️ Database schema not found. Please run the schema.sql script in pgAdmin.")
+                print("⚠️ Database schema not found. Please run the schema.sql script in Neon SQL Editor.")
                 return False
             
             # Check if branches exist
