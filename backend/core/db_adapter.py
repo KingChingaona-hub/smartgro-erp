@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import os
 from urllib.parse import urlparse
+import socket
+import time
 
 # ==============================
 # COMPATIBILITY CONSTANTS
@@ -96,7 +98,12 @@ def get_default_config():
         "user": "postgres",
         "password": "",
         "pool_min_conn": 1,
-        "pool_max_conn": 10
+        "pool_max_conn": 10,
+        "connect_timeout": 30,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5
     }
 
 
@@ -109,40 +116,77 @@ def load_db_config():
         if database_url:
             print("✅ Using database URL from environment")
             parsed = urlparse(database_url)
+            
+            # Try to resolve hostname to IPv4
+            host = parsed.hostname
+            try:
+                ip_address = socket.gethostbyname(host)
+                if ip_address:
+                    print(f"📡 Resolved {host} -> {ip_address}")
+                    host = ip_address
+            except:
+                pass
+            
             return {
-                "host": parsed.hostname,
+                "host": host,
                 "port": parsed.port or 5432,
                 "database": parsed.path.lstrip('/'),
                 "user": parsed.username,
                 "password": parsed.password,
                 "pool_min_conn": 1,
-                "pool_max_conn": 10
+                "pool_max_conn": 10,
+                "connect_timeout": 30,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5
             }
         
         # Try individual environment variables (fallback)
         if os.environ.get("DB_HOST"):
             print("✅ Using database config from individual environment variables")
+            host = os.environ.get("DB_HOST")
+            try:
+                ip_address = socket.gethostbyname(host)
+                if ip_address:
+                    print(f"📡 Resolved {host} -> {ip_address}")
+                    host = ip_address
+            except:
+                pass
+            
             return {
-                "host": os.environ.get("DB_HOST"),
+                "host": host,
                 "port": int(os.environ.get("DB_PORT", 5432)),
                 "database": os.environ.get("DB_NAME", "postgres"),
                 "user": os.environ.get("DB_USER", "postgres"),
                 "password": os.environ.get("DB_PASSWORD", ""),
                 "pool_min_conn": 1,
-                "pool_max_conn": 10
+                "pool_max_conn": 10,
+                "connect_timeout": 30,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5
             }
         
         # Try local config file
         if CONFIG_FILE.exists():
             print("✅ Using database config from local file")
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
+                config = json.load(f)
+                # Add default connection parameters if not present
+                config.setdefault("connect_timeout", 30)
+                config.setdefault("keepalives", 1)
+                config.setdefault("keepalives_idle", 30)
+                config.setdefault("keepalives_interval", 10)
+                config.setdefault("keepalives_count", 5)
+                return config
                 
     except Exception as e:
         print(f"⚠️ Error loading database config: {e}")
     
-    # Return default config (will fail but at least won't crash on import)
-    print("⚠️ Using default database config (will fail if not connected)")
+    # Return default config
+    print("⚠️ Using default database config")
     return get_default_config()
 
 
@@ -154,32 +198,67 @@ def save_db_config(config):
 
 
 # ==============================
-# CONNECTION POOL
+# CONNECTION POOL - FIXED
 # ==============================
 _connection_pool = None
+_pool_attempts = 0
+_MAX_POOL_ATTEMPTS = 3
 
 
 def get_connection_pool():
-    """Get or create connection pool"""
-    global _connection_pool
-    if _connection_pool is None:
+    """Get or create connection pool - FIXED with retry logic"""
+    global _connection_pool, _pool_attempts
+    
+    if _connection_pool is None and _pool_attempts < _MAX_POOL_ATTEMPTS:
         config = load_db_config()
         try:
             print(f"🔌 Connecting to database at {config['host']}:{config['port']}...")
+            
+            # Build connection parameters
+            conn_params = {
+                "host": config["host"],
+                "port": config["port"],
+                "database": config["database"],
+                "user": config["user"],
+                "password": config["password"],
+                "connect_timeout": config.get("connect_timeout", 30),
+                "keepalives": config.get("keepalives", 1),
+                "keepalives_idle": config.get("keepalives_idle", 30),
+                "keepalives_interval": config.get("keepalives_interval", 10),
+                "keepalives_count": config.get("keepalives_count", 5)
+            }
+            
+            # Add SSL mode if specified
+            if "sslmode" in config:
+                conn_params["sslmode"] = config["sslmode"]
+            elif config.get("sslmode") is None:
+                conn_params["sslmode"] = "require"
+            
             _connection_pool = psycopg2.pool.SimpleConnectionPool(
                 config["pool_min_conn"],
                 config["pool_max_conn"],
-                host=config["host"],
-                port=config["port"],
-                database=config["database"],
-                user=config["user"],
-                password=config["password"]
+                **conn_params
             )
             print("✅ Database connection established!")
+            _pool_attempts = 0
+            return _connection_pool
+            
         except Exception as e:
-            print(f"❌ Database connection failed: {str(e)}")
-            print("Please check your database configuration in data/db_config.json or environment variables")
-            return None
+            _pool_attempts += 1
+            print(f"❌ Database connection failed (attempt {_pool_attempts}/{_MAX_POOL_ATTEMPTS}): {str(e)}")
+            
+            if _pool_attempts < _MAX_POOL_ATTEMPTS:
+                wait_time = _pool_attempts * 5
+                print(f"⏳ Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+                return get_connection_pool()
+            else:
+                print("❌ Max connection attempts reached. Please check your database configuration.")
+                print("   - Verify your Supabase project is active (not paused)")
+                print("   - Check that the hostname and credentials are correct")
+                print("   - Try using the connection pooler (port 6543)")
+                return None
+    
     return _connection_pool
 
 
@@ -192,9 +271,13 @@ def get_db_connection():
         yield None
         return
     
-    conn = pool.getconn()
+    conn = None
     try:
+        conn = pool.getconn()
         yield conn
+    except Exception as e:
+        print(f"❌ Error getting connection from pool: {e}")
+        yield None
     finally:
         if conn:
             pool.putconn(conn)
@@ -230,6 +313,19 @@ def test_connection():
             return True, "Connection successful!"
     except Exception as e:
         return False, f"Connection failed: {str(e)}"
+
+
+def reset_connection_pool():
+    """Reset the connection pool"""
+    global _connection_pool, _pool_attempts
+    if _connection_pool:
+        try:
+            _connection_pool.closeall()
+        except:
+            pass
+        _connection_pool = None
+        _pool_attempts = 0
+        print("🔄 Connection pool reset")
 
 
 def init_database():
