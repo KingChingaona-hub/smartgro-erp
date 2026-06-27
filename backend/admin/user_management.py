@@ -29,7 +29,7 @@ def user_management_page():
             if col == "active":
                 users_df[col] = True
             elif col == "last_login":
-                users_df[col] ""
+                users_df[col] = ""
             else:
                 users_df[col] = ""
     
@@ -205,7 +205,6 @@ def user_management_page():
                                 st.rerun()
                     
                     with col2:
-                        # Generate random password button
                         if st.form_submit_button("🎲 Generate Random Password", use_container_width=True):
                             import random
                             import string
