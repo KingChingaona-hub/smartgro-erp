@@ -7,10 +7,23 @@ from backend.utils.phone_utils import validate_zimbabwe_phone
 from backend.modules.shift_manager import can_cashier_login
 from datetime import datetime
 import logging
+from collections import defaultdict
+import time
+import re
+import secrets
+import string
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ==============================
+# RATE LIMITING
+# ==============================
+_login_attempts = defaultdict(int)
+_login_lockout = {}
+_LOCKOUT_TIME = 300  # 5 minutes
+_MAX_ATTEMPTS = 5
 
 # ==============================
 # USER ROLES AND PERMISSIONS
@@ -186,6 +199,74 @@ def get_role_color(role):
 
 
 # ==============================
+# PASSWORD STRENGTH VALIDATION
+# ==============================
+
+def validate_password_strength(password):
+    """
+    Validate password strength.
+    Returns (is_valid, message)
+    """
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    
+    if not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter"
+    
+    if not re.search(r'[a-z]', password):
+        return False, "Password must contain at least one lowercase letter"
+    
+    if not re.search(r'[0-9]', password):
+        return False, "Password must contain at least one number"
+    
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return False, "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)"
+    
+    return True, "Password is strong"
+
+
+def generate_strong_password(length=16):
+    """Generate a strong random password"""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()"
+    return ''.join(secrets.choice(alphabet) for i in range(length))
+
+
+def get_password_strength_score(password):
+    """Get password strength score (0-100)"""
+    score = 0
+    
+    # Length
+    if len(password) >= 12:
+        score += 25
+    elif len(password) >= 8:
+        score += 15
+    else:
+        score += 5
+    
+    # Uppercase
+    if re.search(r'[A-Z]', password):
+        score += 15
+    
+    # Lowercase
+    if re.search(r'[a-z]', password):
+        score += 15
+    
+    # Numbers
+    if re.search(r'[0-9]', password):
+        score += 15
+    
+    # Special characters
+    if re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        score += 20
+    
+    # Uniqueness (no repeated patterns)
+    if len(set(password)) > len(password) * 0.7:
+        score += 10
+    
+    return min(score, 100)
+
+
+# ==============================
 # INIT USERS - PostgreSQL VERSION WITH FALLBACK
 # ==============================
 
@@ -307,14 +388,26 @@ def create_default_users():
 
 
 # ==============================
-# LOGIN FUNCTIONS - FIXED
+# LOGIN FUNCTIONS - WITH RATE LIMITING
 # ==============================
 
 def check_login(username, password):
-    """Standard login check with fallback for plain text passwords"""
+    """Standard login check with rate limiting"""
     try:
         logger.info(f"Login attempt for user: {username}")
         df = load_users()
+        
+        # Check if account is locked out
+        if username in _login_lockout:
+            lockout_time = _login_lockout[username]
+            if time.time() < lockout_time:
+                remaining = int(lockout_time - time.time())
+                st.error(f"Account locked. Try again in {remaining} seconds.")
+                return False, None
+            else:
+                # Lockout expired
+                del _login_lockout[username]
+                _login_attempts[username] = 0
         
         if df.empty:
             logger.warning("No users found in database! Creating default users...")
@@ -340,6 +433,10 @@ def check_login(username, password):
         
         if not user.empty:
             logger.info(f"✅ Login successful (hashed) for: {username}")
+            # Reset attempts on successful login
+            _login_attempts[username] = 0
+            if username in _login_lockout:
+                del _login_lockout[username]
             return process_login_user(user, df)
         
         # If hashed fails, try plain text (for backward compatibility)
@@ -351,6 +448,10 @@ def check_login(username, password):
         
         if not user.empty:
             logger.info(f"⚠️ Login successful (plain text) for: {username}")
+            # Reset attempts on successful login
+            _login_attempts[username] = 0
+            if username in _login_lockout:
+                del _login_lockout[username]
             # Update to hashed password for security
             try:
                 idx = user.index[0]
@@ -361,6 +462,16 @@ def check_login(username, password):
                 logger.warning(f"Could not update to hashed password: {e}")
             return process_login_user(user, df)
         
+        # Login failed - increment attempts
+        _login_attempts[username] += 1
+        attempts_left = _MAX_ATTEMPTS - _login_attempts[username]
+        
+        if _login_attempts[username] >= _MAX_ATTEMPTS:
+            _login_lockout[username] = time.time() + _LOCKOUT_TIME
+            logger.warning(f"🔒 Account locked for {username} due to too many failed attempts")
+            st.error(f"Too many failed attempts. Account locked for 5 minutes.")
+            return False, None
+        
         # Check if user exists but inactive
         inactive_user = df[
             (df["username"] == username) &
@@ -369,10 +480,11 @@ def check_login(username, password):
         
         if not inactive_user.empty:
             logger.warning(f"❌ Login blocked - user inactive: {username}")
-            st.error("❌ User account is deactivated. Please contact administrator.")
+            st.error("User account is deactivated. Please contact administrator.")
             return False, None
         
         logger.warning(f"❌ Invalid credentials for: {username}")
+        st.error(f"Invalid credentials. {attempts_left} attempts remaining.")
         return False, None
         
     except Exception as e:
@@ -393,7 +505,7 @@ def process_login_user(user, df):
         if role == "cashier":
             can_login, active_shift = can_cashier_login(user.iloc[0]["username"])
             if not can_login:
-                st.error("❌ No active shift assigned. Please ask your manager to start a shift.")
+                st.error("No active shift assigned. Please ask your manager to start a shift.")
                 return False, None
             
             st.session_state.active_shift_id = active_shift.get("shift_id")
@@ -511,6 +623,11 @@ def create_user(username, password, role, branch_id="HO", full_name="", phone=""
         if username in df["username"].values:
             return False, "Username already exists"
         
+        # Validate password strength
+        is_valid, msg = validate_password_strength(password)
+        if not is_valid:
+            return False, f"Password too weak: {msg}"
+        
         standardized_phone = ""
         if phone:
             valid, standardized_phone, msg = validate_zimbabwe_phone(phone)
@@ -574,6 +691,10 @@ def update_user(username, **kwargs):
         
         # If password is being updated, hash it
         if "password" in kwargs and kwargs["password"]:
+            # Validate new password strength
+            is_valid, msg = validate_password_strength(kwargs["password"])
+            if not is_valid:
+                return False, f"Password too weak: {msg}"
             kwargs["password"] = hash_password(kwargs["password"])
         
         for key, value in kwargs.items():
@@ -664,6 +785,106 @@ def get_users_for_whatsapp_alerts():
     if "receive_alerts" in df.columns and "whatsapp" in df.columns:
         return df[(df["receive_alerts"] == True) & (df["whatsapp"] != "") & (df["whatsapp"].notna())]
     return pd.DataFrame()
+
+
+# ==============================
+# PASSWORD RESET FUNCTIONS
+# ==============================
+
+def reset_password(username, new_password):
+    """Reset user password (admin only)"""
+    try:
+        df = load_users()
+        
+        if username not in df["username"].values:
+            return False, "User not found"
+        
+        # Validate new password
+        is_valid, msg = validate_password_strength(new_password)
+        if not is_valid:
+            return False, f"Password too weak: {msg}"
+        
+        idx = df[df["username"] == username].index[0]
+        df.loc[idx, "password"] = hash_password(new_password)
+        save_users(df)
+        
+        return True, "Password reset successfully"
+        
+    except Exception as e:
+        logger.error(f"❌ Error resetting password: {e}")
+        return False, f"Error resetting password: {str(e)}"
+
+
+def force_reset_password(username):
+    """Force password reset for a user (admin only)"""
+    try:
+        df = load_users()
+        
+        if username not in df["username"].values:
+            return False, "User not found"
+        
+        # Generate a temporary password
+        temp_password = generate_strong_password(12)
+        
+        idx = df[df["username"] == username].index[0]
+        df.loc[idx, "password"] = hash_password(temp_password)
+        save_users(df)
+        
+        return True, f"Password reset. Temporary password: {temp_password}"
+        
+    except Exception as e:
+        logger.error(f"❌ Error forcing password reset: {e}")
+        return False, f"Error resetting password: {str(e)}"
+
+
+# ==============================
+# SESSION SECURITY FUNCTIONS
+# ==============================
+
+def validate_session(username, session_token):
+    """Validate a session token"""
+    df = load_users()
+    user = df[df["username"] == username]
+    if not user.empty:
+        stored_token = user.iloc[0].get("session_token", "")
+        return stored_token == session_token
+    return False
+
+
+def end_all_sessions(username):
+    """End all sessions for a user (admin only)"""
+    try:
+        df = load_users()
+        idx = df[df["username"] == username].index
+        if len(idx) > 0:
+            df.loc[idx[0], "session_token"] = ""
+            save_users(df)
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"❌ Error ending sessions: {e}")
+        return False
+
+
+def is_account_locked(username):
+    """Check if an account is locked"""
+    if username in _login_lockout:
+        if time.time() < _login_lockout[username]:
+            remaining = int(_login_lockout[username] - time.time())
+            return True, remaining
+        else:
+            del _login_lockout[username]
+            _login_attempts[username] = 0
+    return False, 0
+
+
+def unlock_account(username):
+    """Unlock a locked account (admin only)"""
+    if username in _login_lockout:
+        del _login_lockout[username]
+        _login_attempts[username] = 0
+        return True, "Account unlocked"
+    return False, "Account not locked"
 
 
 # ==============================

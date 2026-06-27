@@ -194,6 +194,52 @@ st.set_page_config(
 )
 
 # ==============================
+# PREVENT AUTO-REFRESH - JavaScript
+# ==============================
+st.markdown("""
+<script>
+    // Prevent automatic refresh
+    window.addEventListener('load', function() {
+        if (window.performance) {
+            if (performance.navigation.type == 1) {
+                console.log('Manual refresh detected');
+            }
+        }
+    });
+    
+    // Prevent page from auto-refreshing
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            // Page is hidden - do nothing
+        }
+    });
+    
+    // Track user activity to prevent auto-refresh
+    let lastActivity = Date.now();
+    const TIMEOUT = 30 * 60 * 1000; // 30 minutes
+    
+    function updateActivity() {
+        lastActivity = Date.now();
+    }
+    
+    // Update activity on user interaction
+    document.addEventListener('click', updateActivity);
+    document.addEventListener('keydown', updateActivity);
+    document.addEventListener('scroll', updateActivity);
+    document.addEventListener('touchstart', updateActivity);
+    
+    // Check for inactivity
+    setInterval(function() {
+        const inactiveTime = Date.now() - lastActivity;
+        if (inactiveTime > TIMEOUT) {
+            // Session expired - redirect to login
+            window.location.href = window.location.origin + '/?logout=true';
+        }
+    }, 60000); // Check every minute
+</script>
+""", unsafe_allow_html=True)
+
+# ==============================
 # AUTO-NOTIFICATION BACKGROUND THREAD
 # ==============================
 def start_stock_monitor_thread():
@@ -264,6 +310,7 @@ if "logged_in" not in st.session_state:
     st.session_state.branch_selected = False
     st.session_state.branch_authenticated = False
     st.session_state.current_page = "Stock Dashboard"
+    st.session_state.last_activity = datetime.now()
 
 # Initialize theme settings
 if "current_theme" not in st.session_state:
@@ -367,6 +414,7 @@ def login_page():
                     st.session_state.role = role
                     show_toast(f"Welcome back, {username}!", "success")
                     show_confetti()
+                    st.session_state.last_activity = datetime.now()
                     st.rerun()
                 else:
                     st.error("Invalid credentials")
@@ -656,6 +704,29 @@ def documents_page():
 # MAIN APP
 # ==============================
 def main_app():
+    # ==============================
+    # SESSION TIMEOUT MANAGEMENT
+    # ==============================
+    # Initialize session timeout
+    if "last_activity" not in st.session_state:
+        st.session_state.last_activity = datetime.now()
+    
+    # Check if session has expired (30 minutes = 1800 seconds)
+    idle_time = (datetime.now() - st.session_state.last_activity).seconds
+    if idle_time > 1800:  # 30 minutes
+        # Clear session and redirect to login
+        keys_to_keep = ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
+                        "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]
+        for key in list(st.session_state.keys()):
+            if key not in keys_to_keep:
+                del st.session_state[key]
+        st.session_state.logged_in = False
+        show_toast("Session expired. Please login again.", "warning")
+        st.rerun()
+    
+    # Update last activity on any interaction
+    st.session_state.last_activity = datetime.now()
+    
     # ==============================
     # PWA META TAGS (Only after login)
     # ==============================
