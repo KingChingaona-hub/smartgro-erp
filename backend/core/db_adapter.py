@@ -692,7 +692,7 @@ def save_sales(df, branch_id=None):
                 return False
             
             validation_errors = []
-            for _, row in df.iterrows():
+            for idx, row in df.iterrows():
                 # Validate sale data
                 data = row.to_dict()
                 is_valid, errors, clean_data = validate_sale_data(data)
@@ -2455,7 +2455,7 @@ def get_cashier_performance():
     return cashier_stats
 
 # ==============================
-# SHIFT FUNCTIONS WITH VALIDATION
+# SHIFT FUNCTIONS WITH VALIDATION - FIXED
 # ==============================
 
 def load_shifts(branch_id=None, status=None):
@@ -2716,10 +2716,41 @@ def get_active_shifts_by_branch(branch_id):
     return active
 
 def get_all_active_shifts():
-    """Get all active shifts"""
-    df = load_shifts()
-    active = df[df["status"] == "OPEN"]
-    return active
+    """
+    Get all active shifts with proper error handling.
+    Returns a pandas DataFrame with only the columns that exist.
+    """
+    try:
+        df = load_shifts()
+        
+        # Return empty DataFrame if no shifts
+        if df.empty:
+            return pd.DataFrame()
+        
+        # Filter active shifts
+        if "status" in df.columns:
+            active = df[df["status"] == "OPEN"]
+        else:
+            return pd.DataFrame()
+        
+        if active.empty:
+            return pd.DataFrame()
+        
+        # Only return columns that actually exist in the DataFrame
+        safe_columns = [
+            'shift_id', 'branch_id', 'branch_name', 'cashier_name', 
+            'cashier_username', 'start_time', 'opening_cash', 'status'
+        ]
+        available_columns = [col for col in safe_columns if col in active.columns]
+        
+        if not available_columns:
+            return pd.DataFrame()
+        
+        return active[available_columns].copy()
+        
+    except Exception as e:
+        print(f"⚠️ Error getting active shifts: {e}")
+        return pd.DataFrame()
 
 def get_shifts_by_date(date_str):
     """Get shifts for a specific date"""
