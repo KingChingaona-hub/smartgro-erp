@@ -1,3 +1,4 @@
+# backend/admin/user_management.py
 import streamlit as st
 import pandas as pd
 from backend.core.database import load_users, save_users
@@ -28,9 +29,22 @@ def user_management_page():
             if col == "active":
                 users_df[col] = True
             elif col == "last_login":
-                users_df[col] = ""
+                users_df[col] ""
             else:
                 users_df[col] = ""
+    
+    # ==============================
+    # CHECK IF USERS EXIST - CREATE DEFAULTS IF EMPTY
+    # ==============================
+    if users_df.empty:
+        st.warning("⚠️ No users found in the system. Creating default users...")
+        from backend.core.auth import init_users
+        users_df = init_users()
+        if users_df.empty:
+            st.error("❌ Failed to create default users. Please check database connection.")
+            return
+        st.success("✅ Default users created successfully!")
+        st.rerun()
     
     # ==============================
     # TABS
@@ -68,6 +82,10 @@ def user_management_page():
                 st.metric("Cashiers", len(users_df[users_df["role"] == "cashier"]))
         else:
             st.info("No users found")
+            if st.button("🔄 Create Default Users"):
+                from backend.core.auth import init_users
+                users_df = init_users()
+                st.rerun()
     
     # ==============================
     # TAB 2: ADD NEW USER
@@ -218,7 +236,7 @@ def user_management_page():
             st.info("No users found. Add users first.")
     
     # ==============================
-    # DELETE/DEACTIVATE USER SECTION (Additional)
+    # DELETE/DEACTIVATE USER SECTION
     # ==============================
     st.markdown("---")
     st.subheader("🗑️ Delete or Deactivate User")
