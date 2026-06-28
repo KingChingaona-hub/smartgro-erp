@@ -5,10 +5,12 @@ from backend.core.database import load_users, save_users
 from backend.core.auth import hash_password, ROLES
 from backend.utils.phone_utils import validate_zimbabwe_phone, format_phone_display
 from backend.core.db_adapter import load_branches
+import random
+import string
 
 
 def user_management_page():
-    """User Management Page (Owner only) - With Password Change"""
+    """User Management Page (Owner only) - Full CRUD Operations"""
     
     st.title("👥 User Management")
     st.caption("Manage system users - Add, Edit, Delete, and Change Passwords")
@@ -49,10 +51,11 @@ def user_management_page():
     # ==============================
     # TABS
     # ==============================
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "👥 View Users",
         "➕ Add New User",
-        "🔐 Change Password"
+        "🔐 Change Password",
+        "🗑️ Delete/Deactivate User"
     ])
     
     # ==============================
@@ -80,6 +83,16 @@ def user_management_page():
                 st.metric("Owners", len(users_df[users_df["role"] == "owner"]))
             with col4:
                 st.metric("Cashiers", len(users_df[users_df["role"] == "cashier"]))
+            
+            # Export users
+            csv = users_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Export Users (CSV)",
+                data=csv,
+                file_name="users_export.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
         else:
             st.info("No users found")
             if st.button("🔄 Create Default Users"):
@@ -92,41 +105,58 @@ def user_management_page():
     # ==============================
     with tab2:
         st.subheader("➕ Add New User")
+        st.caption("Create a new user account with proper password hashing")
         
         with st.form("add_user_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
             with col1:
-                new_username = st.text_input("Username *", placeholder="Enter unique username")
-                new_password = st.text_input("Password *", type="password", placeholder="Enter password")
-                new_full_name = st.text_input("Full Name", placeholder="Enter full name")
+                new_username = st.text_input("Username *", placeholder="Enter unique username").strip()
+                new_password = st.text_input("Password *", type="password", placeholder="Enter password (min 6 characters)")
+                new_full_name = st.text_input("Full Name", placeholder="Enter full name").strip()
             
             with col2:
                 new_role = st.selectbox("Role *", list(ROLES.keys()), 
                                        format_func=lambda x: f"{x.upper()} - {ROLES[x]['description'][:30]}...")
-                new_branch = st.selectbox("Branch", branches_df["branch_id"].tolist())
+                if not branches_df.empty:
+                    new_branch = st.selectbox("Branch", branches_df["branch_id"].tolist())
+                else:
+                    new_branch = "HO"
+                    st.warning("No branches found. Using default branch 'HO'")
                 new_phone = st.text_input("Phone Number", placeholder="0777123456", help="Zimbabwe phone number")
             
             new_active = st.checkbox("Active", value=True)
             
             if st.form_submit_button("➕ Create User", type="primary", use_container_width=True):
-                if new_username and new_password:
-                    if new_username in users_df["username"].values:
-                        st.error(f"❌ Username '{new_username}' already exists!")
-                    else:
-                        # Validate phone if provided
-                        phone_valid = True
-                        standardized_phone = ""
-                        if new_phone:
-                            valid, standardized_phone, msg = validate_zimbabwe_phone(new_phone)
-                            if not valid:
-                                st.error(f"❌ {msg}")
-                                phone_valid = False
-                        
-                        if phone_valid:
+                # Validate inputs
+                if not new_username:
+                    st.error("❌ Username is required")
+                elif len(new_username) < 3:
+                    st.error("❌ Username must be at least 3 characters")
+                elif not new_password:
+                    st.error("❌ Password is required")
+                elif len(new_password) < 6:
+                    st.error("❌ Password must be at least 6 characters")
+                elif new_username in users_df["username"].values:
+                    st.error(f"❌ Username '{new_username}' already exists!")
+                else:
+                    # Validate phone if provided
+                    phone_valid = True
+                    standardized_phone = ""
+                    if new_phone:
+                        valid, standardized_phone, msg = validate_zimbabwe_phone(new_phone)
+                        if not valid:
+                            st.error(f"❌ {msg}")
+                            phone_valid = False
+                    
+                    if phone_valid:
+                        try:
+                            # Hash the password properly
+                            hashed_pw = hash_password(new_password)
+                            
                             new_user = pd.DataFrame([{
                                 "username": new_username,
-                                "password": hash_password(new_password),
+                                "password": hashed_pw,
                                 "role": new_role,
                                 "branch_id": new_branch,
                                 "full_name": new_full_name if new_full_name else new_username,
@@ -138,16 +168,20 @@ def user_management_page():
                             users_df = pd.concat([users_df, new_user], ignore_index=True)
                             save_users(users_df)
                             st.success(f"✅ User '{new_username}' created successfully!")
+                            st.info(f"🔑 Password: {new_password} (hashed for security)")
+                            st.balloons()
                             st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error creating user: {str(e)}")
                 else:
-                    st.error("❌ Username and password are required")
+                    st.error("❌ Please fill in all required fields")
     
     # ==============================
     # TAB 3: CHANGE PASSWORD
     # ==============================
     with tab3:
         st.subheader("🔐 Change User Password")
-        st.caption("Update passwords for existing users")
+        st.caption("Update passwords for existing users with proper hashing")
         
         if not users_df.empty:
             # Select user to change password
@@ -172,7 +206,7 @@ def user_management_page():
                     st.warning(f"""
                     **Password Security:**
                     - Last Login: {user_data.get('last_login', 'Never') if user_data.get('last_login') else 'Never'}
-                    - Status: {"Active" if user_data.get('active', True) else "Inactive"}
+                    - Status: {"✅ Active" if user_data.get('active', True) else "❌ Inactive"}
                     """)
                 
                 st.markdown("---")
@@ -181,7 +215,7 @@ def user_management_page():
                 with st.form("change_password_form"):
                     st.markdown("### Enter New Password")
                     
-                    new_password = st.text_input("New Password", type="password", placeholder="Enter new password", key="new_pass")
+                    new_password = st.text_input("New Password", type="password", placeholder="Enter new password (min 6 characters)", key="new_pass")
                     confirm_password = st.text_input("Confirm New Password", type="password", placeholder="Confirm new password", key="confirm_pass")
                     
                     col1, col2 = st.columns(2)
@@ -190,99 +224,206 @@ def user_management_page():
                         if st.form_submit_button("🔐 Change Password", type="primary", use_container_width=True):
                             if not new_password:
                                 st.error("❌ Please enter a new password")
-                            elif len(new_password) < 4:
-                                st.error("❌ Password must be at least 4 characters")
+                            elif len(new_password) < 6:
+                                st.error("❌ Password must be at least 6 characters")
                             elif new_password != confirm_password:
                                 st.error("❌ Passwords do not match")
                             else:
-                                # Update password
-                                idx = users_df[users_df["username"] == selected_user].index[0]
-                                users_df.loc[idx, "password"] = hash_password(new_password)
-                                save_users(users_df)
-                                
-                                st.success(f"✅ Password for '{selected_user}' changed successfully!")
-                                st.info("🔒 User can now login with the new password")
-                                st.rerun()
+                                try:
+                                    # Update password with proper hashing
+                                    hashed_pw = hash_password(new_password)
+                                    idx = users_df[users_df["username"] == selected_user].index[0]
+                                    users_df.loc[idx, "password"] = hashed_pw
+                                    save_users(users_df)
+                                    
+                                    st.success(f"✅ Password for '{selected_user}' changed successfully!")
+                                    st.info(f"🔑 New password: {new_password}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error changing password: {str(e)}")
                     
                     with col2:
                         if st.form_submit_button("🎲 Generate Random Password", use_container_width=True):
-                            import random
-                            import string
-                            
-                            # Generate a random 8-character password
-                            characters = string.ascii_letters + string.digits
-                            random_password = ''.join(random.choice(characters) for _ in range(8))
-                            
-                            # Update password
-                            idx = users_df[users_df["username"] == selected_user].index[0]
-                            users_df.loc[idx, "password"] = hash_password(random_password)
-                            save_users(users_df)
-                            
-                            st.success(f"✅ Password for '{selected_user}' changed to: **{random_password}**")
-                            st.info("📋 Please provide this password to the user. They can change it later.")
-                            st.rerun()
-                
-                # Reset password warning
-                st.markdown("---")
-                st.warning("""
-                ⚠️ **Password Security Notes:**
-                - Passwords are stored using SHA-256 encryption
-                - Users should change their password regularly
-                - Never share passwords via insecure channels
-                - Contact administrator if a user forgets their password
-                """)
-        else:
-            st.info("No users found. Add users first.")
+                            try:
+                                # Generate a random 10-character password
+                                characters = string.ascii_letters + string.digits + "!@#$%^&*"
+                                random_password = ''.join(random.choice(characters) for _ in range(10))
+                                
+                                # Update password with proper hashing
+                                hashed_pw = hash_password(random_password)
+                                idx = users_df[users_df["username"] == selected_user].index[0]
+                                users_df.loc[idx, "password"] = hashed_pw
+                                save_users(users_df)
+                                
+                                st.success(f"✅ Password for '{selected_user}' changed to: **{random_password}**")
+                                st.info("📋 Please provide this password to the user. They can change it later.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error generating password: {str(e)}")
     
     # ==============================
-    # DELETE/DEACTIVATE USER SECTION
+    # TAB 4: DELETE/DEACTIVATE USER
     # ==============================
-    st.markdown("---")
-    st.subheader("🗑️ Delete or Deactivate User")
-    
-    if not users_df.empty and len(users_df) > 1:
-        user_to_manage = st.selectbox("Select User to Manage", users_df["username"].tolist(), key="delete_user_select")
+    with tab4:
+        st.subheader("🗑️ Delete or Deactivate User")
+        st.caption("Manage user accounts - Deactivate, Reactivate, or Permanently Delete")
         
-        if user_to_manage != "admin":
-            col1, col2, col3 = st.columns(3)
+        if not users_df.empty:
+            # Filter out the current logged-in user to prevent self-deletion
+            current_user = st.session_state.get("username", "")
+            user_options = [u for u in users_df["username"].tolist() if u != current_user]
+            
+            if user_options:
+                user_to_manage = st.selectbox("Select User to Manage", user_options, key="delete_user_select")
+                
+                if user_to_manage:
+                    user_data = users_df[users_df["username"] == user_to_manage].iloc[0]
+                    
+                    # Display user info
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.info(f"**Username:** {user_data['username']}")
+                    with col2:
+                        st.info(f"**Role:** {user_data['role'].upper()}")
+                    with col3:
+                        status = "🟢 Active" if user_data.get('active', True) else "🔴 Inactive"
+                        st.info(f"**Status:** {status}")
+                    
+                    st.markdown("---")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Toggle active status
+                        current_status = users_df[users_df["username"] == user_to_manage]["active"].iloc[0]
+                        status_text = "Deactivate" if current_status else "Activate"
+                        status_color = "secondary" if current_status else "primary"
+                        
+                        if st.button(f"🔘 {status_text} User", use_container_width=True):
+                            try:
+                                idx = users_df[users_df["username"] == user_to_manage].index[0]
+                                users_df.loc[idx, "active"] = not current_status
+                                save_users(users_df)
+                                new_status = "deactivated" if not current_status else "activated"
+                                st.success(f"✅ User '{user_to_manage}' {new_status} successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error updating user: {str(e)}")
+                    
+                    with col2:
+                        # Delete user
+                        if st.button("🗑️ Delete User Permanently", use_container_width=True):
+                            if user_to_manage in ["admin"]:
+                                st.error("❌ Cannot delete the admin user!")
+                            else:
+                                confirm = st.checkbox("⚠️ I understand this action CANNOT be undone")
+                                if confirm:
+                                    try:
+                                        users_df = users_df[users_df["username"] != user_to_manage]
+                                        save_users(users_df)
+                                        st.success(f"✅ User '{user_to_manage}' deleted permanently!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error deleting user: {str(e)}")
+                    
+                    # Quick actions
+                    st.markdown("---")
+                    st.markdown("### 🔧 Quick Actions")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        if st.button("🔐 Reset Password (Random)", use_container_width=True):
+                            try:
+                                characters = string.ascii_letters + string.digits + "!@#$%^&*"
+                                random_password = ''.join(random.choice(characters) for _ in range(10))
+                                hashed_pw = hash_password(random_password)
+                                idx = users_df[users_df["username"] == user_to_manage].index[0]
+                                users_df.loc[idx, "password"] = hashed_pw
+                                save_users(users_df)
+                                st.success(f"✅ Password reset to: **{random_password}**")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                    
+                    with col2:
+                        if st.button("🔄 Reactivate User", use_container_width=True):
+                            try:
+                                idx = users_df[users_df["username"] == user_to_manage].index[0]
+                                users_df.loc[idx, "active"] = True
+                                save_users(users_df)
+                                st.success(f"✅ User '{user_to_manage}' reactivated!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                    
+                    with col3:
+                        if st.button("📝 Edit User Details", use_container_width=True):
+                            st.session_state.editing_user = user_to_manage
+                            st.rerun()
+            else:
+                st.info("No other users available to manage.")
+        else:
+            st.info("No users found.")
+    
+    # ==============================
+    # EDIT USER DETAILS (Modal-like)
+    # ==============================
+    if st.session_state.get("editing_user"):
+        edit_user = st.session_state.editing_user
+        st.markdown("---")
+        st.subheader(f"✏️ Edit User: {edit_user}")
+        
+        user_data = users_df[users_df["username"] == edit_user].iloc[0]
+        
+        with st.form("edit_user_form"):
+            col1, col2 = st.columns(2)
             
             with col1:
-                # Toggle active status
-                current_status = users_df[users_df["username"] == user_to_manage]["active"].iloc[0]
-                status_text = "Deactivate" if current_status else "Activate"
-                if st.button(f"🔘 {status_text} User", use_container_width=True):
-                    idx = users_df[users_df["username"] == user_to_manage].index[0]
-                    users_df.loc[idx, "active"] = not current_status
-                    save_users(users_df)
-                    st.success(f"✅ User '{user_to_manage}' {status_text}d successfully!")
-                    st.rerun()
+                edit_full_name = st.text_input("Full Name", value=user_data.get("full_name", ""))
+                edit_phone = st.text_input("Phone", value=user_data.get("phone", ""))
             
             with col2:
-                # Reset password (quick option)
-                if st.button("🔐 Reset Password", use_container_width=True):
-                    import random
-                    import string
-                    
-                    random_password = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
-                    idx = users_df[users_df["username"] == user_to_manage].index[0]
-                    users_df.loc[idx, "password"] = hash_password(random_password)
-                    save_users(users_df)
-                    st.success(f"✅ Password reset to: **{random_password}**")
-                    st.info("Share this password with the user")
+                edit_role = st.selectbox("Role", list(ROLES.keys()), 
+                                        index=list(ROLES.keys()).index(user_data.get("role", "cashier")))
+                if not branches_df.empty:
+                    edit_branch = st.selectbox("Branch", branches_df["branch_id"].tolist(),
+                                              index=branches_df["branch_id"].tolist().index(user_data.get("branch_id", "HO")) if user_data.get("branch_id", "HO") in branches_df["branch_id"].tolist() else 0)
+                else:
+                    edit_branch = "HO"
             
-            with col3:
-                # Delete user
-                if st.button("🗑️ Delete User", use_container_width=True):
-                    confirm = st.checkbox("⚠️ I understand this action CANNOT be undone")
-                    if confirm:
-                        users_df = users_df[users_df["username"] != user_to_manage]
+            edit_active = st.checkbox("Active", value=user_data.get("active", True))
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                    try:
+                        idx = users_df[users_df["username"] == edit_user].index[0]
+                        users_df.loc[idx, "full_name"] = edit_full_name
+                        users_df.loc[idx, "role"] = edit_role
+                        users_df.loc[idx, "branch_id"] = edit_branch
+                        users_df.loc[idx, "active"] = edit_active
+                        
+                        # Validate phone if provided
+                        if edit_phone:
+                            valid, standardized_phone, msg = validate_zimbabwe_phone(edit_phone)
+                            if valid:
+                                users_df.loc[idx, "phone"] = standardized_phone
+                            else:
+                                st.warning(f"Phone validation: {msg}")
+                        else:
+                            users_df.loc[idx, "phone"] = ""
+                        
                         save_users(users_df)
-                        st.success(f"✅ User '{user_to_manage}' deleted successfully!")
+                        st.success(f"✅ User '{edit_user}' updated successfully!")
+                        st.session_state.editing_user = None
                         st.rerun()
-        else:
-            st.info("Admin user cannot be deleted or deactivated")
-    else:
-        st.info("Cannot delete the only remaining admin user")
+                    except Exception as e:
+                        st.error(f"❌ Error updating user: {str(e)}")
+            
+            with col2:
+                if st.form_submit_button("❌ Cancel", use_container_width=True):
+                    st.session_state.editing_user = None
+                    st.rerun()
     
     # ==============================
     # REFRESH BUTTON
