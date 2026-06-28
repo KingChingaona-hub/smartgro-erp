@@ -116,8 +116,11 @@ def user_management_page():
                 new_full_name = st.text_input("Full Name", placeholder="Enter full name").strip()
             
             with col2:
-                new_role = st.selectbox("Role *", list(ROLES.keys()), 
-                                       format_func=lambda x: f"{x.upper()} - {ROLES[x]['description'][:30]}...")
+                new_role = st.selectbox(
+                    "Role *", 
+                    list(ROLES.keys()), 
+                    format_func=lambda x: f"{x.upper()} - {ROLES[x]['description'][:30]}..."
+                )
                 if not branches_df.empty:
                     new_branch = st.selectbox("Branch", branches_df["branch_id"].tolist())
                 else:
@@ -127,7 +130,9 @@ def user_management_page():
             
             new_active = st.checkbox("Active", value=True)
             
-            if st.form_submit_button("➕ Create User", type="primary", use_container_width=True):
+            submitted = st.form_submit_button("➕ Create User", type="primary", use_container_width=True)
+            
+            if submitted:
                 # Validate inputs
                 if not new_username:
                     st.error("❌ Username is required")
@@ -173,8 +178,6 @@ def user_management_page():
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error creating user: {str(e)}")
-                else:
-                    st.error("❌ Please fill in all required fields")
     
     # ==============================
     # TAB 3: CHANGE PASSWORD
@@ -297,7 +300,6 @@ def user_management_page():
                         # Toggle active status
                         current_status = users_df[users_df["username"] == user_to_manage]["active"].iloc[0]
                         status_text = "Deactivate" if current_status else "Activate"
-                        status_color = "secondary" if current_status else "primary"
                         
                         if st.button(f"🔘 {status_text} User", use_container_width=True):
                             try:
@@ -383,11 +385,19 @@ def user_management_page():
                 edit_phone = st.text_input("Phone", value=user_data.get("phone", ""))
             
             with col2:
-                edit_role = st.selectbox("Role", list(ROLES.keys()), 
-                                        index=list(ROLES.keys()).index(user_data.get("role", "cashier")))
+                edit_role = st.selectbox(
+                    "Role", 
+                    list(ROLES.keys()), 
+                    index=list(ROLES.keys()).index(user_data.get("role", "cashier"))
+                )
                 if not branches_df.empty:
-                    edit_branch = st.selectbox("Branch", branches_df["branch_id"].tolist(),
-                                              index=branches_df["branch_id"].tolist().index(user_data.get("branch_id", "HO")) if user_data.get("branch_id", "HO") in branches_df["branch_id"].tolist() else 0)
+                    branch_list = branches_df["branch_id"].tolist()
+                    current_branch = user_data.get("branch_id", "HO")
+                    if current_branch in branch_list:
+                        branch_index = branch_list.index(current_branch)
+                    else:
+                        branch_index = 0
+                    edit_branch = st.selectbox("Branch", branch_list, index=branch_index)
                 else:
                     edit_branch = "HO"
             
