@@ -20,9 +20,20 @@ def user_management_page():
         st.error("❌ Access Denied. Only system owner can access this page.")
         return
     
-    # Load data
-    users_df = load_users()
-    branches_df = load_branches()
+    # ==============================
+    # PREVENT INFINITE LOOP - Check session state
+    # ==============================
+    if "user_management_initialized" not in st.session_state:
+        st.session_state.user_management_initialized = False
+    
+    # Load data with error handling
+    try:
+        users_df = load_users()
+        branches_df = load_branches()
+    except Exception as e:
+        st.error(f"❌ Error loading data: {str(e)}")
+        st.info("Please check your database connection and try again.")
+        return
     
     # Ensure required columns exist
     required_cols = ["username", "password", "role", "branch_id", "full_name", "phone", "active", "last_login"]
@@ -36,17 +47,39 @@ def user_management_page():
                 users_df[col] = ""
     
     # ==============================
-    # CHECK IF USERS EXIST - CREATE DEFAULTS IF EMPTY
+    # CHECK IF USERS EXIST - WITH LOOP PREVENTION
     # ==============================
     if users_df.empty:
-        st.warning("⚠️ No users found in the system. Creating default users...")
-        from backend.core.auth import init_users
-        users_df = init_users()
-        if users_df.empty:
-            st.error("❌ Failed to create default users. Please check database connection.")
+        # Check if we've already tried to create users in this session
+        if st.session_state.user_management_initialized:
+            st.error("❌ Users were already created but still not found. Please check database connection.")
+            st.info("""
+            **Troubleshooting:**
+            1. Check if PostgreSQL is running
+            2. Verify database credentials in `data/db_config.json`
+            3. Check if the 'users' table exists
+            4. Try restarting the application
+            """)
             return
-        st.success("✅ Default users created successfully!")
-        st.rerun()
+        
+        st.warning("⚠️ No users found in the system. Creating default users...")
+        try:
+            from backend.core.auth import init_users
+            users_df = init_users()
+            st.session_state.user_management_initialized = True
+            
+            if users_df.empty:
+                st.error("❌ Failed to create default users. Please check database connection.")
+                return
+            
+            st.success("✅ Default users created successfully!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error creating default users: {str(e)}")
+            return
+    
+    # Mark as initialized
+    st.session_state.user_management_initialized = True
     
     # ==============================
     # TABS
@@ -94,11 +127,7 @@ def user_management_page():
                 use_container_width=True
             )
         else:
-            st.info("No users found")
-            if st.button("🔄 Create Default Users"):
-                from backend.core.auth import init_users
-                users_df = init_users()
-                st.rerun()
+            st.info("No users found. Please check database connection.")
     
     # ==============================
     # TAB 2: ADD NEW USER
