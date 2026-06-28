@@ -1,7 +1,7 @@
 # backend/admin/user_management.py
 import streamlit as st
 import pandas as pd
-from backend.core.database import load_users, save_users
+from backend.core.db_adapter import load_users, save_users
 from backend.core.auth import hash_password, ROLES
 from backend.utils.phone_utils import validate_zimbabwe_phone, format_phone_display
 from backend.core.db_adapter import load_branches
@@ -21,12 +21,12 @@ def user_management_page():
         return
     
     # ==============================
-    # PREVENT INFINITE LOOP - Check session state
+    # PREVENT INFINITE LOOP
     # ==============================
     if "user_management_initialized" not in st.session_state:
         st.session_state.user_management_initialized = False
     
-    # Load data with error handling
+    # Load data from db_adapter
     try:
         users_df = load_users()
         branches_df = load_branches()
