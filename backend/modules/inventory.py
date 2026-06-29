@@ -207,7 +207,7 @@ def inventory_page():
     with col1:
         if st.button("🔄 Refresh Page (After Adding/Updating)", use_container_width=True, type="primary"):
             st.cache_data.clear()
-            st.rerun()
+            st.success("✅ Cache cleared! Page will refresh on next action.")
     
     with col2:
         if st.button("🗑️ Clear All Products (Reset Branch)", use_container_width=True):
@@ -218,4 +218,4 @@ def inventory_page():
                 ])
                 save_products(empty_df)
                 st.success("✅ All products cleared! Refresh the page.")
-                st.rerun()
+                #st.rerun()
