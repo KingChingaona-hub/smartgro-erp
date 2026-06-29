@@ -1,4 +1,4 @@
-# backend/core/auth.py
+# backend/core/auth.py - COMPLETE FIXED VERSION
 import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_users, save_users
@@ -118,37 +118,26 @@ def has_permission(role, permission):
 
 def can_access_feature(role, feature):
     """Check if user can access a specific feature"""
-    # Owner has access to everything
     if role == "owner":
         return True
     
-    # Define feature permissions
     feature_permissions = {
-        # POS & Sales
         "pos": ["cashier", "manager", "owner"],
         "inventory_view": ["cashier", "manager", "owner", "mobile_user"],
         "inventory_edit": ["manager", "owner"],
         "sales_history": ["cashier", "manager", "owner", "mobile_user"],
         "sales_dashboard": ["manager", "owner"],
-        
-        # Purchasing
         "purchases": ["manager", "owner"],
-        
-        # Finance
         "expenses": ["manager", "owner"],
         "income": ["manager", "owner"],
         "pl": ["manager", "owner"],
         "cash_dashboard": ["manager", "owner"],
-        
-        # Customers
         "customers": ["cashier", "manager", "owner"],
         "debtors": ["manager", "owner"],
         "debtors_dashboard": ["manager", "owner"],
         "customer_app": ["owner", "manager", "cashier", "viewer", "mobile_user"],
         "customer_insights": ["manager", "owner"],
         "customer_360": ["manager", "owner"],
-        
-        # Analytics & Intelligence
         "business_advisor": ["manager", "owner"],
         "reports": ["manager", "owner"],
         "demand_forecasting": ["manager", "owner"],
@@ -176,17 +165,11 @@ def can_access_feature(role, feature):
         "white_label": ["owner"],
         "multi_tenant": ["owner"],
         "api_developer": ["manager", "owner"],
-        
-        # Administration
         "settings": ["owner"],
         "user_management": ["owner"],
         "branch_management": ["owner"],
-        
-        # Operations
         "shift_management": ["manager", "owner"],
         "branch_performance": ["manager", "owner"],
-        
-        # Mobile & Alerts
         "mobile_dashboard": ["owner", "manager", "cashier", "mobile_user"],
         "whatsapp_alerts": ["owner", "manager"],
         "receive_notifications": ["owner", "manager", "mobile_user"],
@@ -198,17 +181,14 @@ def can_access_feature(role, feature):
 
 
 def can_use_mobile(role):
-    """Check if role has mobile access"""
     return ROLES.get(role, {}).get("mobile_access", False)
 
 
 def get_role_icon(role):
-    """Get icon for role"""
     return ROLES.get(role, {}).get("icon", "👤")
 
 
 def get_role_color(role):
-    """Get color for role"""
     return ROLES.get(role, {}).get("color", "#666666")
 
 
@@ -217,152 +197,48 @@ def get_role_color(role):
 # ==============================
 
 def validate_password_strength(password):
-    """
-    Validate password strength.
-    Returns (is_valid, message)
-    """
     if len(password) < 8:
         return False, "Password must be at least 8 characters long"
-    
     if not re.search(r'[A-Z]', password):
         return False, "Password must contain at least one uppercase letter"
-    
     if not re.search(r'[a-z]', password):
         return False, "Password must contain at least one lowercase letter"
-    
     if not re.search(r'[0-9]', password):
         return False, "Password must contain at least one number"
-    
     if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        return False, "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)"
-    
+        return False, "Password must contain at least one special character"
     return True, "Password is strong"
 
 
 def generate_strong_password(length=16):
-    """Generate a strong random password"""
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*()"
     return ''.join(secrets.choice(alphabet) for i in range(length))
 
 
 def get_password_strength_score(password):
-    """Get password strength score (0-100)"""
     score = 0
-    
-    # Length
     if len(password) >= 12:
         score += 25
     elif len(password) >= 8:
         score += 15
     else:
         score += 5
-    
-    # Uppercase
     if re.search(r'[A-Z]', password):
         score += 15
-    
-    # Lowercase
     if re.search(r'[a-z]', password):
         score += 15
-    
-    # Numbers
     if re.search(r'[0-9]', password):
         score += 15
-    
-    # Special characters
     if re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
         score += 20
-    
-    # Uniqueness (no repeated patterns)
     if len(set(password)) > len(password) * 0.7:
         score += 10
-    
     return min(score, 100)
 
 
 # ==============================
-# INIT USERS - WITH LOOP PREVENTION
+# INIT USERS - FIXED
 # ==============================
-
-def init_users():
-    """
-    Initialize default users if none exist - with loop prevention.
-    Uses session state to prevent multiple initializations.
-    """
-    # Initialize session state if needed
-    init_auth_session_state()
-    
-    # CRITICAL: Check if we've already initialized in this session
-    if st.session_state.get("auth_initialized", False):
-        logger.info("✅ Users already initialized in this session, skipping...")
-        return load_users()
-    
-    try:
-        logger.info("Initializing users...")
-        df = load_users()
-        
-        # If no users exist, create default ones
-        if df.empty:
-            logger.info("No users found. Creating default users...")
-            default_users = create_default_users()
-            save_users(default_users)
-            logger.info("✅ Default users created successfully!")
-            # Mark as initialized to prevent loops
-            st.session_state.auth_initialized = True
-            st.session_state.auth_users_loaded = True
-            return default_users
-        
-        # Check if we have at least one admin user
-        if "admin" in df["username"].values:
-            logger.info("✅ Users already exist. Found admin user.")
-            st.session_state.auth_initialized = True
-            st.session_state.auth_users_loaded = True
-            return df
-        
-        # If no admin, add default users
-        logger.info("No admin user found. Adding default users...")
-        default_users = create_default_users()
-        
-        # Combine with existing
-        combined_df = pd.concat([df, default_users], ignore_index=True)
-        combined_df = combined_df.drop_duplicates(subset=["username"], keep="last")
-        save_users(combined_df)
-        logger.info("✅ Default users added successfully!")
-        st.session_state.auth_initialized = True
-        st.session_state.auth_users_loaded = True
-        return combined_df
-        
-    except Exception as e:
-        logger.error(f"❌ Error initializing users: {e}")
-        # Try to create a temporary user for testing
-        try:
-            logger.info("Attempting emergency user creation...")
-            emergency_users = pd.DataFrame([{
-                "username": "admin",
-                "password": hash_password("admin123"),
-                "role": "owner",
-                "branch_id": "HO",
-                "full_name": "Emergency Admin",
-                "phone": "",
-                "active": True,
-                "mobile_enabled": True,
-                "whatsapp": "",
-                "receive_alerts": False,
-                "last_login": None,
-                "last_mobile_login": None,
-                "device_info": "",
-                "two_factor_enabled": False,
-                "session_token": ""
-            }])
-            save_users(emergency_users)
-            logger.info("✅ Emergency admin user created!")
-            st.session_state.auth_initialized = True
-            st.session_state.auth_users_loaded = True
-            return emergency_users
-        except Exception as e2:
-            logger.error(f"❌ Emergency user creation failed: {e2}")
-            return pd.DataFrame()
-
 
 def create_default_users():
     """Create default users list"""
@@ -421,52 +297,70 @@ def create_default_users():
     ])
 
 
+def init_users():
+    """Initialize default users if none exist - with loop prevention"""
+    try:
+        # Check if already initialized
+        if st.session_state.get("auth_initialized", False):
+            logger.info("✅ Users already initialized in this session, skipping...")
+            return load_users()
+        
+        logger.info("Initializing users...")
+        df = load_users()
+        
+        if df.empty:
+            logger.info("No users found. Creating default users...")
+            default_users = create_default_users()
+            save_users(default_users)
+            logger.info("✅ Default users created successfully!")
+            st.session_state.auth_initialized = True
+            return default_users
+        
+        if "admin" in df["username"].values:
+            logger.info("✅ Users already exist. Found admin user.")
+            st.session_state.auth_initialized = True
+            return df
+        
+        logger.info("No admin user found. Adding default users...")
+        default_users = create_default_users()
+        combined_df = pd.concat([df, default_users], ignore_index=True)
+        combined_df = combined_df.drop_duplicates(subset=["username"], keep="last")
+        save_users(combined_df)
+        logger.info("✅ Default users added successfully!")
+        st.session_state.auth_initialized = True
+        return combined_df
+        
+    except Exception as e:
+        logger.error(f"❌ Error initializing users: {e}")
+        return pd.DataFrame()
+
+
 # ==============================
-# LOGIN FUNCTIONS - WITH RATE LIMITING
+# LOGIN FUNCTIONS - FIXED
 # ==============================
 
 def check_login(username, password):
-    """Standard login check with rate limiting and loop prevention"""
+    """Standard login check with rate limiting - FIXED"""
     try:
         logger.info(f"Login attempt for user: {username}")
         
         # Initialize session state
         init_auth_session_state()
         
-        # Load users - use cached if available
-        if st.session_state.get("auth_users_loaded", False):
-            df = load_users()
-        else:
-            df = load_users()
-            if not df.empty:
-                st.session_state.auth_users_loaded = True
+        # Load users
+        df = load_users()
         
-        # Check if account is locked out
-        if username in _login_lockout:
-            lockout_time = _login_lockout[username]
-            if time.time() < lockout_time:
-                remaining = int(lockout_time - time.time())
-                st.error(f"Account locked. Try again in {remaining} seconds.")
-                return False, None
-            else:
-                # Lockout expired
-                del _login_lockout[username]
-                _login_attempts[username] = 0
-        
-        # If no users, initialize them (only once)
+        # If no users, initialize them
         if df.empty:
-            logger.warning("No users found in database! Creating default users...")
-            # Only init if not already initialized
+            logger.warning("No users found! Creating default users...")
             if not st.session_state.get("auth_initialized", False):
                 df = init_users()
             else:
-                logger.warning("Users already initialized but still empty!")
-                st.error("System error: Users not found. Please contact administrator.")
+                logger.error("Users already initialized but still empty!")
                 return False, None
             
             if df.empty:
-                logger.error("❌ Failed to create default users!")
-                st.error("Failed to create users. Please check database connection.")
+                logger.error("Failed to create users!")
                 return False, None
         
         # Ensure required columns exist
@@ -474,10 +368,11 @@ def check_login(username, password):
             df["active"] = True
             save_users(df)
         
-        # Try hashed password first
+        # Hash the password
         hashed = hash_password(password)
+        logger.info(f"Password hash for {username}: {hashed[:20]}...")
         
-        # Check for user with hashed password
+        # Find user with matching username and password
         user = df[
             (df["username"] == username) &
             (df["password"] == hashed) &
@@ -485,59 +380,28 @@ def check_login(username, password):
         ]
         
         if not user.empty:
-            logger.info(f"✅ Login successful (hashed) for: {username}")
-            # Reset attempts on successful login
-            _login_attempts[username] = 0
-            if username in _login_lockout:
-                del _login_lockout[username]
+            logger.info(f"✅ Login successful for: {username}")
             return process_login_user(user, df)
         
-        # If hashed fails, try plain text (for backward compatibility)
-        user = df[
-            (df["username"] == username) &
-            (df["password"] == password) &
-            (df["active"] == True)
-        ]
-        
-        if not user.empty:
-            logger.info(f"⚠️ Login successful (plain text) for: {username}")
-            # Reset attempts on successful login
-            _login_attempts[username] = 0
-            if username in _login_lockout:
-                del _login_lockout[username]
-            # Update to hashed password for security
-            try:
-                idx = user.index[0]
-                df.loc[idx, "password"] = hashed
-                save_users(df)
-                logger.info(f"✅ Updated password to hashed for: {username}")
-            except Exception as e:
-                logger.warning(f"Could not update to hashed password: {e}")
-            return process_login_user(user, df)
-        
-        # Login failed - increment attempts
-        _login_attempts[username] += 1
-        attempts_left = _MAX_ATTEMPTS - _login_attempts[username]
-        
-        if _login_attempts[username] >= _MAX_ATTEMPTS:
-            _login_lockout[username] = time.time() + _LOCKOUT_TIME
-            logger.warning(f"🔒 Account locked for {username} due to too many failed attempts")
-            st.error(f"Too many failed attempts. Account locked for 5 minutes.")
+        # Check if user exists but password doesn't match
+        user_exists = df[df["username"] == username]
+        if not user_exists.empty:
+            logger.warning(f"❌ Invalid password for: {username}")
+            # Increment attempts
+            _login_attempts[username] += 1
+            attempts_left = _MAX_ATTEMPTS - _login_attempts[username]
+            
+            if _login_attempts[username] >= _MAX_ATTEMPTS:
+                _login_lockout[username] = time.time() + _LOCKOUT_TIME
+                st.error(f"Too many failed attempts. Account locked for 5 minutes.")
+                return False, None
+            
+            st.error(f"Invalid credentials. {attempts_left} attempts remaining.")
             return False, None
         
-        # Check if user exists but inactive
-        inactive_user = df[
-            (df["username"] == username) &
-            (df["active"] == False)
-        ]
-        
-        if not inactive_user.empty:
-            logger.warning(f"❌ Login blocked - user inactive: {username}")
-            st.error("User account is deactivated. Please contact administrator.")
-            return False, None
-        
-        logger.warning(f"❌ Invalid credentials for: {username}")
-        st.error(f"Invalid credentials. {attempts_left} attempts remaining.")
+        # User doesn't exist
+        logger.warning(f"❌ User not found: {username}")
+        st.error("User not found. Please check your username.")
         return False, None
         
     except Exception as e:
@@ -606,30 +470,12 @@ def check_mobile_login(username, password):
         
         hashed = hash_password(password)
         
-        # Try hashed password
         user = df[
             (df["username"] == username) &
             (df["password"] == hashed) &
             (df["active"] == True) &
             (df["mobile_enabled"] == True)
         ]
-        
-        # If hashed fails, try plain text
-        if user.empty:
-            user = df[
-                (df["username"] == username) &
-                (df["password"] == password) &
-                (df["active"] == True) &
-                (df["mobile_enabled"] == True)
-            ]
-            if not user.empty:
-                # Update to hashed password
-                try:
-                    idx = user.index[0]
-                    df.loc[idx, "password"] = hashed
-                    save_users(df)
-                except:
-                    pass
         
         if not user.empty:
             role = user.iloc[0]["role"]
@@ -664,20 +510,17 @@ def check_mobile_login(username, password):
 # ==============================
 
 def get_all_users():
-    """Get all users (owner only)"""
     return load_users()
 
 
 def create_user(username, password, role, branch_id="HO", full_name="", phone="", 
                 mobile_enabled=True, whatsapp="", receive_alerts=True):
-    """Create a new user with mobile support (owner only)"""
     try:
         df = load_users()
         
         if username in df["username"].values:
             return False, "Username already exists"
         
-        # Validate password strength
         is_valid, msg = validate_password_strength(password)
         if not is_valid:
             return False, f"Password too weak: {msg}"
@@ -722,7 +565,6 @@ def create_user(username, password, role, branch_id="HO", full_name="", phone=""
 
 
 def update_user(username, **kwargs):
-    """Update user details (owner only)"""
     try:
         df = load_users()
         
@@ -743,9 +585,7 @@ def update_user(username, **kwargs):
                 return False, f"WhatsApp: {msg}"
             kwargs["whatsapp"] = standardized
         
-        # If password is being updated, hash it
         if "password" in kwargs and kwargs["password"]:
-            # Validate new password strength
             is_valid, msg = validate_password_strength(kwargs["password"])
             if not is_valid:
                 return False, f"Password too weak: {msg}"
@@ -764,7 +604,6 @@ def update_user(username, **kwargs):
 
 
 def delete_user(username):
-    """Delete or deactivate user (owner only)"""
     try:
         df = load_users()
         
@@ -784,7 +623,6 @@ def delete_user(username):
 
 
 def toggle_user_active(username):
-    """Activate/deactivate user"""
     try:
         df = load_users()
         
@@ -802,7 +640,6 @@ def toggle_user_active(username):
 
 
 def toggle_mobile_access(username):
-    """Enable/disable mobile access for a user"""
     try:
         df = load_users()
         
@@ -820,13 +657,11 @@ def toggle_mobile_access(username):
 
 
 def get_users_by_role(role):
-    """Get all users with a specific role"""
     df = load_users()
     return df[df["role"] == role]
 
 
 def get_mobile_users():
-    """Get all users with mobile access enabled"""
     df = load_users()
     if "mobile_enabled" in df.columns:
         return df[df["mobile_enabled"] == True]
@@ -834,7 +669,6 @@ def get_mobile_users():
 
 
 def get_users_for_whatsapp_alerts():
-    """Get users who should receive WhatsApp alerts"""
     df = load_users()
     if "receive_alerts" in df.columns and "whatsapp" in df.columns:
         return df[(df["receive_alerts"] == True) & (df["whatsapp"] != "") & (df["whatsapp"].notna())]
@@ -846,14 +680,12 @@ def get_users_for_whatsapp_alerts():
 # ==============================
 
 def reset_password(username, new_password):
-    """Reset user password (admin only)"""
     try:
         df = load_users()
         
         if username not in df["username"].values:
             return False, "User not found"
         
-        # Validate new password
         is_valid, msg = validate_password_strength(new_password)
         if not is_valid:
             return False, f"Password too weak: {msg}"
@@ -870,14 +702,12 @@ def reset_password(username, new_password):
 
 
 def force_reset_password(username):
-    """Force password reset for a user (admin only)"""
     try:
         df = load_users()
         
         if username not in df["username"].values:
             return False, "User not found"
         
-        # Generate a temporary password
         temp_password = generate_strong_password(12)
         
         idx = df[df["username"] == username].index[0]
@@ -896,7 +726,6 @@ def force_reset_password(username):
 # ==============================
 
 def validate_session(username, session_token):
-    """Validate a session token"""
     df = load_users()
     user = df[df["username"] == username]
     if not user.empty:
@@ -906,7 +735,6 @@ def validate_session(username, session_token):
 
 
 def end_all_sessions(username):
-    """End all sessions for a user (admin only)"""
     try:
         df = load_users()
         idx = df[df["username"] == username].index
@@ -921,7 +749,6 @@ def end_all_sessions(username):
 
 
 def is_account_locked(username):
-    """Check if an account is locked"""
     if username in _login_lockout:
         if time.time() < _login_lockout[username]:
             remaining = int(_login_lockout[username] - time.time())
@@ -933,7 +760,6 @@ def is_account_locked(username):
 
 
 def unlock_account(username):
-    """Unlock a locked account (admin only)"""
     if username in _login_lockout:
         del _login_lockout[username]
         _login_attempts[username] = 0
@@ -946,20 +772,16 @@ def unlock_account(username):
 # ==============================
 
 def generate_mobile_session_token(username):
-    """Generate a session token for mobile authentication"""
     token = secrets.token_urlsafe(32)
-    
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
         df.loc[idx[0], "session_token"] = token
         save_users(df)
-    
     return token
 
 
 def verify_mobile_session_token(username, token):
-    """Verify a mobile session token"""
     df = load_users()
     user = df[df["username"] == username]
     if not user.empty:
@@ -969,7 +791,6 @@ def verify_mobile_session_token(username, token):
 
 
 def revoke_mobile_session(username):
-    """Revoke mobile session for a user"""
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
@@ -980,20 +801,10 @@ def revoke_mobile_session(username):
 
 
 # ==============================
-# ROLE HELPERS (Duplicate removed)
-# ==============================
-
-def get_role_description(role):
-    """Get description for role"""
-    return ROLES.get(role, {}).get("description", "No description")
-
-
-# ==============================
 # EXPORT FUNCTIONS
 # ==============================
 
 def export_users_to_csv():
-    """Export users to CSV for backup"""
     df = load_users()
     if "password" in df.columns:
         df = df.drop(columns=["password"])
@@ -1001,14 +812,13 @@ def export_users_to_csv():
 
 
 def import_users_from_csv(csv_data):
-    """Import users from CSV (owner only)"""
     try:
         df = pd.read_csv(csv_data)
         if "password" not in df.columns:
             return False, "CSV must contain password column"
         
         for idx, row in df.iterrows():
-            if len(row["password"]) != 64:  # Not already hashed
+            if len(row["password"]) != 64:
                 df.loc[idx, "password"] = hash_password(row["password"])
         
         save_users(df)
@@ -1020,5 +830,12 @@ def import_users_from_csv(csv_data):
 # ==============================
 # AUTO-INITIALIZE ON IMPORT
 # ==============================
-# This runs when the module is imported
 init_auth_session_state()
+
+
+# ==============================
+# ROLE HELPERS
+# ==============================
+
+def get_role_description(role):
+    return ROLES.get(role, {}).get("description", "No description")
