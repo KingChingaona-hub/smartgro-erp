@@ -177,7 +177,7 @@ def inventory_page():
                         # Save to branch-specific file
                         if save_products(df):
                             st.success(f"✅ Product '{update_name}' updated successfully!")
-                            st.cache_data.clear()
+                            #st.cache_data.clear()
                         else:
                             st.error("❌ Failed to update product.")
                 
@@ -192,7 +192,7 @@ def inventory_page():
                             # Save to branch-specific file
                             if save_products(df):
                                 st.success(f"✅ Product '{selected_product}' deleted successfully!")
-                                st.cache_data.clear()
+                                #st.cache_data.clear()
                             else:
                                 st.error("❌ Failed to delete product.")
     else:
@@ -206,7 +206,7 @@ def inventory_page():
     
     with col1:
         if st.button("🔄 Refresh Page (After Adding/Updating)", use_container_width=True, type="primary"):
-            st.cache_data.clear()
+            #st.cache_data.clear()
             st.success("✅ Cache cleared! Page will refresh on next action.")
     
     with col2:
