@@ -1,3 +1,4 @@
+# backend/utils/utils.py - COMPLETE FIXED VERSION
 import hashlib
 import json
 import urllib.parse
@@ -6,13 +7,20 @@ from pathlib import Path
 from datetime import datetime
 
 # ==============================
-# PASSWORD HASHING
+# PASSWORD HASHING - FIXED
 # ==============================
 def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+    """
+    Hash password using SHA-256 with proper UTF-8 encoding.
+    This ensures consistent hashing across all platforms.
+    """
+    if not password:
+        return ""
+    # Use UTF-8 encoding explicitly for consistency
+    return hashlib.sha256(str(password).encode('utf-8')).hexdigest()
 
 
-# =======================a=======
+# ==============================
 # CURRENCY FORMATTER
 # ==============================
 def format_currency(amount, currency="ZWL", rates=None):
