@@ -8,6 +8,19 @@ from backend.core.db_adapter import load_products, save_products
 # ==============================
 def inventory_page():
     
+    # ==============================
+    # SESSION STATE FOR REFRESH CONTROL
+    # ==============================
+    if "inventory_refresh" not in st.session_state:
+        st.session_state.inventory_refresh = False
+    
+    # If refresh flag is True, reload data and reset flag
+    if st.session_state.inventory_refresh:
+        st.session_state.inventory_refresh = False
+        # Force reload by clearing cache and rerunning
+        st.cache_data.clear()
+        st.rerun()
+    
     # Load products
     df = load_products()
     
@@ -75,7 +88,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # ADD PRODUCT (NO AUTO-RERUN)
+    # ADD PRODUCT
     # ==============================
     st.markdown("## ➕ Add Product")
     
@@ -121,6 +134,9 @@ def inventory_page():
                     # Save to branch-specific file
                     if save_products(df):
                         st.success(f"✅ Product '{name}' added successfully!")
+                        # Set refresh flag to reload page
+                        st.session_state.inventory_refresh = True
+                        st.rerun()
                     else:
                         st.error("❌ Failed to save product. Please check file permissions.")
             else:
@@ -175,15 +191,16 @@ def inventory_page():
                         # Save to branch-specific file
                         if save_products(df):
                             st.success(f"✅ Product '{update_name}' updated successfully!")
+                            # Set refresh flag to reload page
+                            st.session_state.inventory_refresh = True
+                            st.rerun()
                         else:
                             st.error("❌ Failed to update product.")
                 
                 with col_btn2:
-                    # Delete button with confirmation
                     delete_clicked = st.form_submit_button("🗑️ Delete Product", use_container_width=True)
                     
                     if delete_clicked:
-                        # Show warning and confirmation checkbox
                         st.warning("⚠️ Check the box below to confirm deletion")
                         confirm = st.checkbox("I understand this action CANNOT be undone", key="delete_confirm")
                         
@@ -194,7 +211,8 @@ def inventory_page():
                             # Save to branch-specific file
                             if save_products(df):
                                 st.success(f"✅ Product '{selected_product}' deleted successfully!")
-                                # Refresh the page to show updated list
+                                # Set refresh flag to reload page
+                                st.session_state.inventory_refresh = True
                                 st.rerun()
                             else:
                                 st.error("❌ Failed to delete product.")
@@ -202,14 +220,15 @@ def inventory_page():
         st.info("No products in inventory. Add your first product above.")
     
     # ==============================
-    # MANUAL REFRESH BUTTON (User controls refresh)
+    # MANUAL REFRESH BUTTON
     # ==============================
     st.markdown("---")
     col1, col2 = st.columns(2)
     
     with col1:
         if st.button("🔄 Refresh Data", use_container_width=True):
-            st.success("✅ Data refreshed!")
+            st.session_state.inventory_refresh = True
+            st.rerun()
     
     with col2:
         if st.button("🗑️ Clear All Products (Reset Branch)", use_container_width=True):
@@ -219,4 +238,6 @@ def inventory_page():
                     "barcode", "name", "category", "price", "cost", "stock", "reorder_level"
                 ])
                 save_products(empty_df)
-                st.success("✅ All products cleared! Click 'Refresh Data' to see changes.")
+                st.success("✅ All products cleared!")
+                st.session_state.inventory_refresh = True
+                st.rerun()
