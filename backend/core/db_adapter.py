@@ -103,13 +103,13 @@ def get_default_config():
     return {
         "host": "localhost",
         "port": 5432,
-        "database": "postgres",
+        "database": "smartgro",
         "user": "postgres",
-        "password": "",
+        "password": "R234715KING",
         "pool_min_conn": 1,
         "pool_max_conn": 10,
         "connect_timeout": 30,
-        "sslmode": "require"
+        "sslmode": "disable"
     }
 
 def load_db_config():
@@ -131,7 +131,7 @@ def load_db_config():
                 "pool_min_conn": 1,
                 "pool_max_conn": 10,
                 "connect_timeout": 30,
-                "sslmode": "require"
+                "sslmode": "disable"
             }
         
         # Try local config file
@@ -140,7 +140,7 @@ def load_db_config():
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
                 config.setdefault("connect_timeout", 30)
-                config.setdefault("sslmode", "require")
+                config.setdefault("sslmode", "disable")
                 return config
                 
     except Exception as e:
@@ -178,7 +178,7 @@ def get_connection_pool():
                 user=config["user"],
                 password=config["password"],
                 connect_timeout=config.get("connect_timeout", 30),
-                sslmode=config.get("sslmode", "require")
+                sslmode=config.get("sslmode", "disable")
             )
             
             # Test the connection immediately
@@ -692,7 +692,7 @@ def save_sales(df, branch_id=None):
                 return False
             
             validation_errors = []
-            for idx, row in df.iterrows():
+            for _, row in df.iterrows():
                 # Validate sale data
                 data = row.to_dict()
                 is_valid, errors, clean_data = validate_sale_data(data)
@@ -3479,7 +3479,7 @@ def get_customer_actions():
     return get_customer_lifecycle()
 
 # ==============================
-# USER FUNCTIONS WITH VALIDATION
+# USER FUNCTIONS WITH VALIDATION - FIXED
 # ==============================
 
 def validate_user_data(data):
@@ -3518,7 +3518,10 @@ def validate_user_data(data):
     return len(errors) == 0, errors, data
 
 def load_users():
-    """Load all users from the database"""
+    """
+    Load all users from the database.
+    Returns a pandas DataFrame with user data.
+    """
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -3540,7 +3543,13 @@ def load_users():
             """)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                df = pd.DataFrame(rows, columns=[
+                    "username", "password", "role", "branch_id", "full_name", 
+                    "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
+                    "last_login", "last_mobile_login", "device_info", 
+                    "two_factor_enabled", "session_token"
+                ])
+                return df
             return pd.DataFrame(columns=[
                 "username", "password", "role", "branch_id", "full_name", 
                 "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
@@ -3557,7 +3566,9 @@ def load_users():
         ])
 
 def save_users(df):
-    """Save users to the database with validation"""
+    """
+    Save users to the database with validation.
+    """
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
