@@ -4,24 +4,11 @@ from backend.core.db_adapter import load_products, save_products
 
 
 # ==============================
-# INVENTORY PAGE
+# INVENTORY PAGE - NO RERUNS
 # ==============================
 def inventory_page():
     
-    # ==============================
-    # SESSION STATE FOR REFRESH CONTROL
-    # ==============================
-    if "inventory_refresh" not in st.session_state:
-        st.session_state.inventory_refresh = False
-    
-    # If refresh flag is True, reload data and reset flag
-    if st.session_state.inventory_refresh:
-        st.session_state.inventory_refresh = False
-        # Force reload by clearing cache and rerunning
-        st.cache_data.clear()
-        st.rerun()
-    
-    # Load products
+    # Load products fresh each time
     df = load_products()
     
     st.title("📦 Inventory Management")
@@ -77,7 +64,6 @@ def inventory_page():
     st.markdown("## 📋 All Products")
     
     if not df.empty:
-        # Display all products
         display_cols = ["barcode", "name", "category", "price", "stock", "reorder_level"]
         available_cols = [col for col in display_cols if col in df.columns]
         st.dataframe(df[available_cols], use_container_width=True, hide_index=True)
@@ -110,11 +96,9 @@ def inventory_page():
         
         if submitted:
             if barcode and name and price > 0:
-                # Check if barcode already exists
                 if not df.empty and barcode in df["barcode"].astype(str).values:
-                    st.error(f"❌ Barcode '{barcode}' already exists! Please use a unique barcode.")
+                    st.error(f"❌ Barcode '{barcode}' already exists!")
                 else:
-                    # Create new product
                     new_row = pd.DataFrame([{
                         "barcode": barcode.strip(),
                         "name": name,
@@ -125,22 +109,18 @@ def inventory_page():
                         "reorder_level": reorder_level
                     }])
                     
-                    # Append to existing dataframe
                     if df.empty:
                         df = new_row
                     else:
                         df = pd.concat([df, new_row], ignore_index=True)
                     
-                    # Save to branch-specific file
                     if save_products(df):
                         st.success(f"✅ Product '{name}' added successfully!")
-                        # Set refresh flag to reload page
-                        st.session_state.inventory_refresh = True
-                        st.rerun()
+                        st.info("📌 Scroll down to see the updated list")
                     else:
-                        st.error("❌ Failed to save product. Please check file permissions.")
+                        st.error("❌ Failed to save product.")
             else:
-                st.error("❌ Barcode, Name, and Price are required fields.")
+                st.error("❌ Barcode, Name, and Price are required.")
     
     st.markdown("---")
     
@@ -150,12 +130,10 @@ def inventory_page():
     st.markdown("## ✏️ Update Product")
     
     if not df.empty:
-        # Create a list of product names for selection
         product_names = df["name"].tolist()
         selected_product = st.selectbox("Select Product to Update", product_names, key="update_product_select")
         
         if selected_product:
-            # Get current product data
             product_data = df[df["name"] == selected_product].iloc[0]
             
             with st.form("update_product_form", clear_on_submit=False):
@@ -176,10 +154,8 @@ def inventory_page():
                 
                 with col_btn1:
                     if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
-                        # Find the index of the product to update
                         idx = df[df["name"] == selected_product].index[0]
                         
-                        # Update values
                         df.at[idx, "barcode"] = update_barcode.strip()
                         df.at[idx, "name"] = update_name
                         df.at[idx, "category"] = update_category if update_category else "Uncategorized"
@@ -188,12 +164,9 @@ def inventory_page():
                         df.at[idx, "stock"] = update_stock
                         df.at[idx, "reorder_level"] = update_reorder
                         
-                        # Save to branch-specific file
                         if save_products(df):
                             st.success(f"✅ Product '{update_name}' updated successfully!")
-                            # Set refresh flag to reload page
-                            st.session_state.inventory_refresh = True
-                            st.rerun()
+                            st.info("📌 Scroll down to see the updated list")
                         else:
                             st.error("❌ Failed to update product.")
                 
@@ -205,39 +178,23 @@ def inventory_page():
                         confirm = st.checkbox("I understand this action CANNOT be undone", key="delete_confirm")
                         
                         if confirm:
-                            # Remove product from dataframe
                             df = df[df["name"] != selected_product]
                             
-                            # Save to branch-specific file
                             if save_products(df):
                                 st.success(f"✅ Product '{selected_product}' deleted successfully!")
-                                # Set refresh flag to reload page
-                                st.session_state.inventory_refresh = True
-                                st.rerun()
+                                st.info("📌 Scroll down to see the updated list")
                             else:
                                 st.error("❌ Failed to delete product.")
     else:
         st.info("No products in inventory. Add your first product above.")
     
     # ==============================
-    # MANUAL REFRESH BUTTON
+    # REFRESH BUTTON - Manual only
     # ==============================
     st.markdown("---")
-    col1, col2 = st.columns(2)
+    st.caption("💡 After adding/updating/deleting, scroll down to see changes. Use the refresh button below if needed.")
     
-    with col1:
-        if st.button("🔄 Refresh Data", use_container_width=True):
-            st.session_state.inventory_refresh = True
-            st.rerun()
-    
-    with col2:
-        if st.button("🗑️ Clear All Products (Reset Branch)", use_container_width=True):
-            confirm = st.checkbox("⚠️ This will DELETE ALL products in this branch!", key="clear_all_confirm")
-            if confirm:
-                empty_df = pd.DataFrame(columns=[
-                    "barcode", "name", "category", "price", "cost", "stock", "reorder_level"
-                ])
-                save_products(empty_df)
-                st.success("✅ All products cleared!")
-                st.session_state.inventory_refresh = True
-                st.rerun()
+    if st.button("🔄 Refresh Page", use_container_width=True):
+        st.cache_data.clear()
+        # No rerun - user must click again or use browser refresh
+        st.info("✅ Cache cleared. Click the button again or refresh your browser to see changes.")
