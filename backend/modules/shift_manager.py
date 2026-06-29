@@ -1,8 +1,27 @@
+# backend/modules/shift_manager.py
 import pandas as pd
 import streamlit as st
 from pathlib import Path
 from datetime import datetime, timedelta
 from backend.core.db_adapter import load_shifts as db_load_shifts, save_shifts as db_save_shifts
+from decimal import Decimal
+
+
+# ==============================
+# HELPER: Convert to float safely
+# ==============================
+def to_float(value):
+    """Safely convert any value to float"""
+    if value is None:
+        return 0.0
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 # ==============================
@@ -56,7 +75,7 @@ def save_shifts(df):
 
 
 # ==============================
-# START SHIFT (Manager creates shift for cashier)
+# START SHIFT
 # ==============================
 def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_username, opening_cash=0):
     """Start a shift for a cashier (called by manager)"""
@@ -78,8 +97,8 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
         "cashier_name": cashier_name,
         "manager_username": manager_username,
         "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "end_time": None,  # Use None for PostgreSQL
-        "opening_cash": float(opening_cash),
+        "end_time": None,
+        "opening_cash": to_float(opening_cash),
         "closing_cash": 0.0,
         "cash_sales": 0.0,
         "credit_sales": 0.0,
@@ -100,43 +119,10 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
 
 
 # ==============================
-# CLOSE SHIFT (Legacy function for compatibility)
-# ==============================
-def close_shift(shift_id, closing_cash, total_sales, profit, transactions):
-    """Close a cashier shift (legacy compatibility function)"""
-    df = load_shifts()
-    
-    idx = df[df["shift_id"] == shift_id].index
-    if len(idx) == 0:
-        return False
-    
-    i = idx[0]
-    
-    df.at[i, "end_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    df.at[i, "closing_cash"] = float(closing_cash)
-    df.at[i, "total_revenue"] = float(total_sales)
-    df.at[i, "profit"] = float(profit)
-    df.at[i, "transactions"] = int(transactions)
-    
-    # Calculate variance: Actual cash - Expected cash
-    expected_cash = (df.at[i, "opening_cash"] + 
-                     df.at[i, "cash_sales"] + 
-                     df.at[i, "debt_payments"] - 
-                     df.at[i, "expenses"])
-    
-    df.at[i, "variance"] = float(closing_cash) - expected_cash
-    df.at[i, "status"] = "CLOSED"
-    
-    save_shifts(df)
-    
-    return True
-
-
-# ==============================
-# END SHIFT (New function)
+# END SHIFT - COMPLETELY FIXED
 # ==============================
 def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes=""):
-    """End a cashier shift"""
+    """End a cashier shift - COMPLETELY FIXED for Decimal conversion"""
     df = load_shifts()
     
     idx = df[df["shift_id"] == shift_id].index
@@ -145,20 +131,30 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
     
     i = idx[0]
     
+    # Convert ALL values to float using to_float()
+    closing_cash_float = to_float(closing_cash)
+    total_sales_float = to_float(total_sales)
+    profit_float = to_float(profit)
+    transactions_int = int(to_float(transactions))
+    
+    # Set end time and basic values
     df.at[i, "end_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    df.at[i, "closing_cash"] = float(closing_cash)
-    df.at[i, "total_revenue"] = float(total_sales)
-    df.at[i, "profit"] = float(profit)
-    df.at[i, "transactions"] = int(transactions)
+    df.at[i, "closing_cash"] = closing_cash_float
+    df.at[i, "total_revenue"] = total_sales_float
+    df.at[i, "profit"] = profit_float
+    df.at[i, "transactions"] = transactions_int
     df.at[i, "notes"] = notes if notes else None
     
-    # Calculate variance: Actual cash - Expected cash
-    expected_cash = (df.at[i, "opening_cash"] + 
-                     df.at[i, "cash_sales"] + 
-                     df.at[i, "debt_payments"] - 
-                     df.at[i, "expenses"])
+    # Calculate expected cash - convert ALL to float using to_float()
+    opening_cash = to_float(df.at[i, "opening_cash"])
+    cash_sales = to_float(df.at[i, "cash_sales"])
+    debt_payments = to_float(df.at[i, "debt_payments"])
+    expenses = to_float(df.at[i, "expenses"])
     
-    df.at[i, "variance"] = float(closing_cash) - expected_cash
+    expected_cash = opening_cash + cash_sales + debt_payments - expenses
+    
+    # Calculate variance using float values
+    df.at[i, "variance"] = closing_cash_float - expected_cash
     df.at[i, "status"] = "CLOSED"
     
     save_shifts(df)
@@ -167,7 +163,15 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
 
 
 # ==============================
-# UPDATE SHIFT STATS (during POS transactions)
+# CLOSE SHIFT (Legacy function)
+# ==============================
+def close_shift(shift_id, closing_cash, total_sales, profit, transactions):
+    """Close a cashier shift (legacy compatibility function)"""
+    return end_shift(shift_id, closing_cash, total_sales, profit, transactions)
+
+
+# ==============================
+# UPDATE SHIFT STATS
 # ==============================
 def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, expenses=0, transactions=0):
     """Update shift statistics during the shift"""
@@ -179,19 +183,26 @@ def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, 
     
     i = idx[0]
     
-    if cash_sales:
-        df.at[i, "cash_sales"] += float(cash_sales)
-    if credit_sales:
-        df.at[i, "credit_sales"] += float(credit_sales)
-    if debt_payments:
-        df.at[i, "debt_payments"] += float(debt_payments)
-    if expenses:
-        df.at[i, "expenses"] += float(expenses)
-    if transactions:
-        df.at[i, "transactions"] += int(transactions)
+    # Convert to float using to_float()
+    cash_sales_float = to_float(cash_sales)
+    credit_sales_float = to_float(credit_sales)
+    debt_payments_float = to_float(debt_payments)
+    expenses_float = to_float(expenses)
+    transactions_int = int(to_float(transactions))
+    
+    if cash_sales_float:
+        df.at[i, "cash_sales"] = to_float(df.at[i, "cash_sales"]) + cash_sales_float
+    if credit_sales_float:
+        df.at[i, "credit_sales"] = to_float(df.at[i, "credit_sales"]) + credit_sales_float
+    if debt_payments_float:
+        df.at[i, "debt_payments"] = to_float(df.at[i, "debt_payments"]) + debt_payments_float
+    if expenses_float:
+        df.at[i, "expenses"] = to_float(df.at[i, "expenses"]) + expenses_float
+    if transactions_int:
+        df.at[i, "transactions"] = int(to_float(df.at[i, "transactions"])) + transactions_int
     
     # Update total revenue
-    df.at[i, "total_revenue"] = df.at[i, "cash_sales"] + df.at[i, "credit_sales"]
+    df.at[i, "total_revenue"] = to_float(df.at[i, "cash_sales"]) + to_float(df.at[i, "credit_sales"])
     
     save_shifts(df)
     return True
@@ -232,7 +243,7 @@ def get_active_shifts_by_branch(branch_id):
 
 
 # ==============================
-# GET ALL ACTIVE SHIFTS (for manager)
+# GET ALL ACTIVE SHIFTS
 # ==============================
 def get_all_active_shifts():
     """Get all active shifts across all branches"""
@@ -256,13 +267,13 @@ def get_shift_summary(shift_id):
     
     shift_dict = shift.iloc[0].to_dict()
     
-    # Calculate expected cash
-    shift_dict["expected_cash"] = (
-        shift_dict.get("opening_cash", 0) + 
-        shift_dict.get("cash_sales", 0) + 
-        shift_dict.get("debt_payments", 0) - 
-        shift_dict.get("expenses", 0)
-    )
+    # Calculate expected cash - convert to float
+    opening_cash = to_float(shift_dict.get("opening_cash", 0))
+    cash_sales = to_float(shift_dict.get("cash_sales", 0))
+    debt_payments = to_float(shift_dict.get("debt_payments", 0))
+    expenses = to_float(shift_dict.get("expenses", 0))
+    
+    shift_dict["expected_cash"] = opening_cash + cash_sales + debt_payments - expenses
     
     return shift_dict
 
@@ -310,7 +321,6 @@ def get_cashier_shift_history(cashier_username, limit=10):
 # ==============================
 # COMPATIBILITY FUNCTIONS
 # ==============================
-
 def init_shift_file():
     """Compatibility function - no longer needed with PostgreSQL"""
     print("📦 Shift data stored in PostgreSQL - no CSV file needed")
