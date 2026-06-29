@@ -121,7 +121,7 @@ def inventory_page():
                     # Save to branch-specific file
                     if save_products(df):
                         st.success(f"✅ Product '{name}' added successfully!")
-                        st.cache_data.clear()
+                        #st.cache_data.clear()
                         # Show message but DON'T auto-rerun - user can refresh manually
                     else:
                         st.error("❌ Failed to save product. Please check file permissions.")
