@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 import os
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 # ==============================
 # IMPORT VALIDATION MODULE
@@ -109,7 +109,7 @@ def get_default_config():
         "pool_min_conn": 1,
         "pool_max_conn": 10,
         "connect_timeout": 30,
-        "sslmode": "disable"
+        "sslmode": sslmode
     }
 
 def load_db_config():
@@ -122,6 +122,12 @@ def load_db_config():
             print("✅ Using database URL from environment")
             parsed = urlparse(database_url)
             
+            # Extract sslmode from URL query params
+            query_params = parse_qs(parsed.query)
+            sslmode = query_params.get('sslmode', ['require'])[0]
+            
+            print(f"🔐 Using sslmode: {sslmode}")
+            
             return {
                 "host": parsed.hostname,
                 "port": parsed.port or 5432,
@@ -131,7 +137,7 @@ def load_db_config():
                 "pool_min_conn": 1,
                 "pool_max_conn": 10,
                 "connect_timeout": 30,
-                "sslmode": "disable"
+                "sslmode": sslmode
             }
         
         # Try local config file
@@ -140,14 +146,16 @@ def load_db_config():
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
                 config.setdefault("connect_timeout", 30)
-                config.setdefault("sslmode", "disable")
+                config.setdefault("sslmode", "require")
                 return config
                 
     except Exception as e:
         print(f"⚠️ Error loading database config: {e}")
     
     print("⚠️ Using default database config")
-    return get_default_config()
+    config = get_default_config()
+    config["sslmode"] = "require"
+    return config
 
 def save_db_config(config):
     """Save database configuration"""
