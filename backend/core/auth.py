@@ -1,4 +1,4 @@
-# backend/core/auth.py - COMPLETE FIXED VERSION
+# backend/core/auth.py - COMPLETE FIXED VERSION WITH PLAIN TEXT SUPPORT
 import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_users, save_users
@@ -237,15 +237,15 @@ def get_password_strength_score(password):
 
 
 # ==============================
-# INIT USERS - FIXED
+# INIT USERS - WITH PLAIN TEXT SUPPORT
 # ==============================
 
 def create_default_users():
-    """Create default users list"""
+    """Create default users list with PLAIN TEXT passwords (temporary)"""
     return pd.DataFrame([
         {
             "username": "admin",
-            "password": hash_password("admin123"),
+            "password": "admin123",  # Plain text for testing
             "role": "owner",
             "branch_id": "HO",
             "full_name": "System Administrator",
@@ -262,7 +262,7 @@ def create_default_users():
         },
         {
             "username": "manager",
-            "password": hash_password("manager123"),
+            "password": "manager123",  # Plain text for testing
             "role": "manager",
             "branch_id": "HO",
             "full_name": "Store Manager",
@@ -279,7 +279,7 @@ def create_default_users():
         },
         {
             "username": "cashier",
-            "password": hash_password("cash123"),
+            "password": "cash123",  # Plain text for testing
             "role": "cashier",
             "branch_id": "HO",
             "full_name": "Cashier",
@@ -336,11 +336,14 @@ def init_users():
 
 
 # ==============================
-# LOGIN FUNCTIONS - FIXED
+# LOGIN FUNCTIONS - SUPPORTS BOTH PLAIN AND HASHED
 # ==============================
 
 def check_login(username, password):
-    """Standard login check with rate limiting - FIXED"""
+    """
+    Standard login check with rate limiting.
+    Supports both plain text and hashed passwords.
+    """
     try:
         logger.info(f"Login attempt for user: {username}")
         
@@ -368,11 +371,28 @@ def check_login(username, password):
             df["active"] = True
             save_users(df)
         
-        # Hash the password
-        hashed = hash_password(password)
-        logger.info(f"Password hash for {username}: {hashed[:20]}...")
+        # Try plain text first (for new users or plain text passwords)
+        user = df[
+            (df["username"] == username) &
+            (df["password"] == password) &
+            (df["active"] == True)
+        ]
         
-        # Find user with matching username and password
+        if not user.empty:
+            logger.info(f"✅ Login successful (plain text) for: {username}")
+            # Convert to hashed password for security
+            try:
+                hashed = hash_password(password)
+                idx = user.index[0]
+                df.loc[idx, "password"] = hashed
+                save_users(df)
+                logger.info(f"✅ Updated password to hashed for: {username}")
+            except Exception as e:
+                logger.warning(f"Could not update to hashed password: {e}")
+            return process_login_user(user, df)
+        
+        # Try hashed password (for existing users)
+        hashed = hash_password(password)
         user = df[
             (df["username"] == username) &
             (df["password"] == hashed) &
@@ -380,8 +400,19 @@ def check_login(username, password):
         ]
         
         if not user.empty:
-            logger.info(f"✅ Login successful for: {username}")
+            logger.info(f"✅ Login successful (hashed) for: {username}")
             return process_login_user(user, df)
+        
+        # Check if user exists but inactive
+        inactive_user = df[
+            (df["username"] == username) &
+            (df["active"] == False)
+        ]
+        
+        if not inactive_user.empty:
+            logger.warning(f"❌ Login blocked - user inactive: {username}")
+            st.error("User account is deactivated. Please contact administrator.")
+            return False, None
         
         # Check if user exists but password doesn't match
         user_exists = df[df["username"] == username]
@@ -468,8 +499,37 @@ def check_mobile_login(username, password):
             df["mobile_enabled"] = True
             save_users(df)
         
-        hashed = hash_password(password)
+        # Try plain text first
+        user = df[
+            (df["username"] == username) &
+            (df["password"] == password) &
+            (df["active"] == True) &
+            (df["mobile_enabled"] == True)
+        ]
         
+        if not user.empty:
+            role = user.iloc[0]["role"]
+            
+            if not can_use_mobile(role):
+                return False, None, "Mobile access not enabled for this role"
+            
+            branch_id = user.iloc[0].get("branch_id", "HO")
+            full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
+            whatsapp = user.iloc[0].get("whatsapp", "")
+            
+            idx = user.index[0]
+            df.loc[idx, "last_mobile_login"] = datetime.now().isoformat()
+            save_users(df)
+            
+            st.session_state.user_full_name = full_name
+            st.session_state.user_branch = branch_id
+            st.session_state.whatsapp_number = whatsapp if whatsapp else None
+            st.session_state.mobile_mode = True
+            
+            return True, role, "Mobile login successful"
+        
+        # Try hashed password
+        hashed = hash_password(password)
         user = df[
             (df["username"] == username) &
             (df["password"] == hashed) &
@@ -539,7 +599,7 @@ def create_user(username, password, role, branch_id="HO", full_name="", phone=""
         
         new_user = pd.DataFrame([{
             "username": username,
-            "password": hash_password(password),
+            "password": hash_password(password),  # Hash new passwords
             "role": role,
             "branch_id": branch_id,
             "full_name": full_name if full_name else username,
@@ -818,6 +878,7 @@ def import_users_from_csv(csv_data):
             return False, "CSV must contain password column"
         
         for idx, row in df.iterrows():
+            # Hash passwords if not already hashed
             if len(row["password"]) != 64:
                 df.loc[idx, "password"] = hash_password(row["password"])
         
