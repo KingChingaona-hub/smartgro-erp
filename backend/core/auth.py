@@ -18,12 +18,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==============================
+# SESSION STATE INITIALIZATION
+# ==============================
+def init_auth_session_state():
+    """Initialize auth-related session state variables"""
+    if "auth_initialized" not in st.session_state:
+        st.session_state.auth_initialized = False
+    if "auth_users_loaded" not in st.session_state:
+        st.session_state.auth_users_loaded = False
+    if "auth_last_check" not in st.session_state:
+        st.session_state.auth_last_check = None
+
+
+# ==============================
 # RATE LIMITING
 # ==============================
 _login_attempts = defaultdict(int)
 _login_lockout = {}
 _LOCKOUT_TIME = 300  # 5 minutes
 _MAX_ATTEMPTS = 5
+
 
 # ==============================
 # USER ROLES AND PERMISSIONS
@@ -267,11 +281,22 @@ def get_password_strength_score(password):
 
 
 # ==============================
-# INIT USERS - PostgreSQL VERSION WITH FALLBACK
+# INIT USERS - WITH LOOP PREVENTION
 # ==============================
 
 def init_users():
-    """Initialize default users if none exist - with fallback for plain text"""
+    """
+    Initialize default users if none exist - with loop prevention.
+    Uses session state to prevent multiple initializations.
+    """
+    # Initialize session state if needed
+    init_auth_session_state()
+    
+    # CRITICAL: Check if we've already initialized in this session
+    if st.session_state.get("auth_initialized", False):
+        logger.info("✅ Users already initialized in this session, skipping...")
+        return load_users()
+    
     try:
         logger.info("Initializing users...")
         df = load_users()
@@ -282,11 +307,16 @@ def init_users():
             default_users = create_default_users()
             save_users(default_users)
             logger.info("✅ Default users created successfully!")
+            # Mark as initialized to prevent loops
+            st.session_state.auth_initialized = True
+            st.session_state.auth_users_loaded = True
             return default_users
         
         # Check if we have at least one admin user
         if "admin" in df["username"].values:
             logger.info("✅ Users already exist. Found admin user.")
+            st.session_state.auth_initialized = True
+            st.session_state.auth_users_loaded = True
             return df
         
         # If no admin, add default users
@@ -298,6 +328,8 @@ def init_users():
         combined_df = combined_df.drop_duplicates(subset=["username"], keep="last")
         save_users(combined_df)
         logger.info("✅ Default users added successfully!")
+        st.session_state.auth_initialized = True
+        st.session_state.auth_users_loaded = True
         return combined_df
         
     except Exception as e:
@@ -307,7 +339,7 @@ def init_users():
             logger.info("Attempting emergency user creation...")
             emergency_users = pd.DataFrame([{
                 "username": "admin",
-                "password": "admin123",  # Plain text for emergency
+                "password": hash_password("admin123"),
                 "role": "owner",
                 "branch_id": "HO",
                 "full_name": "Emergency Admin",
@@ -324,6 +356,8 @@ def init_users():
             }])
             save_users(emergency_users)
             logger.info("✅ Emergency admin user created!")
+            st.session_state.auth_initialized = True
+            st.session_state.auth_users_loaded = True
             return emergency_users
         except Exception as e2:
             logger.error(f"❌ Emergency user creation failed: {e2}")
@@ -392,10 +426,20 @@ def create_default_users():
 # ==============================
 
 def check_login(username, password):
-    """Standard login check with rate limiting"""
+    """Standard login check with rate limiting and loop prevention"""
     try:
         logger.info(f"Login attempt for user: {username}")
-        df = load_users()
+        
+        # Initialize session state
+        init_auth_session_state()
+        
+        # Load users - use cached if available
+        if st.session_state.get("auth_users_loaded", False):
+            df = load_users()
+        else:
+            df = load_users()
+            if not df.empty:
+                st.session_state.auth_users_loaded = True
         
         # Check if account is locked out
         if username in _login_lockout:
@@ -409,11 +453,20 @@ def check_login(username, password):
                 del _login_lockout[username]
                 _login_attempts[username] = 0
         
+        # If no users, initialize them (only once)
         if df.empty:
             logger.warning("No users found in database! Creating default users...")
-            df = init_users()
+            # Only init if not already initialized
+            if not st.session_state.get("auth_initialized", False):
+                df = init_users()
+            else:
+                logger.warning("Users already initialized but still empty!")
+                st.error("System error: Users not found. Please contact administrator.")
+                return False, None
+            
             if df.empty:
                 logger.error("❌ Failed to create default users!")
+                st.error("Failed to create users. Please check database connection.")
                 return False, None
         
         # Ensure required columns exist
@@ -489,6 +542,7 @@ def check_login(username, password):
         
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
+        st.error(f"Login error: {str(e)}")
         return False, None
 
 
@@ -893,7 +947,6 @@ def unlock_account(username):
 
 def generate_mobile_session_token(username):
     """Generate a session token for mobile authentication"""
-    import secrets
     token = secrets.token_urlsafe(32)
     
     df = load_users()
@@ -927,32 +980,8 @@ def revoke_mobile_session(username):
 
 
 # ==============================
-# ROLE HELPERS
+# ROLE HELPERS (Duplicate removed)
 # ==============================
-
-def get_role_color(role):
-    """Get color for role badge"""
-    colors = {
-        "owner": "#FF6B6B",
-        "manager": "#4ECDC4",
-        "cashier": "#45B7D1",
-        "viewer": "#96CEB4",
-        "mobile_user": "#FFEAA7"
-    }
-    return colors.get(role, "#666666")
-
-
-def get_role_icon(role):
-    """Get icon for role badge"""
-    icons = {
-        "owner": "👑",
-        "manager": "📊",
-        "cashier": "🛒",
-        "viewer": "👁️",
-        "mobile_user": "📱"
-    }
-    return icons.get(role, "👤")
-
 
 def get_role_description(role):
     """Get description for role"""
@@ -986,3 +1015,10 @@ def import_users_from_csv(csv_data):
         return True, "Users imported successfully"
     except Exception as e:
         return False, f"Import failed: {str(e)}"
+
+
+# ==============================
+# AUTO-INITIALIZE ON IMPORT
+# ==============================
+# This runs when the module is imported
+init_auth_session_state()
