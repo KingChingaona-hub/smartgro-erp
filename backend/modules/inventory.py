@@ -121,8 +121,6 @@ def inventory_page():
                     # Save to branch-specific file
                     if save_products(df):
                         st.success(f"✅ Product '{name}' added successfully!")
-                        #st.cache_data.clear()
-                        # Show message but DON'T auto-rerun - user can refresh manually
                     else:
                         st.error("❌ Failed to save product. Please check file permissions.")
             else:
@@ -177,14 +175,18 @@ def inventory_page():
                         # Save to branch-specific file
                         if save_products(df):
                             st.success(f"✅ Product '{update_name}' updated successfully!")
-                            #st.cache_data.clear()
                         else:
                             st.error("❌ Failed to update product.")
                 
                 with col_btn2:
-                    if st.form_submit_button("🗑️ Delete Product", use_container_width=True):
+                    # Delete button with confirmation
+                    delete_clicked = st.form_submit_button("🗑️ Delete Product", use_container_width=True)
+                    
+                    if delete_clicked:
+                        # Show warning and confirmation checkbox
                         st.warning("⚠️ Check the box below to confirm deletion")
-                        confirm = st.checkbox("I understand this action CANNOT be undone")
+                        confirm = st.checkbox("I understand this action CANNOT be undone", key="delete_confirm")
+                        
                         if confirm:
                             # Remove product from dataframe
                             df = df[df["name"] != selected_product]
@@ -192,7 +194,8 @@ def inventory_page():
                             # Save to branch-specific file
                             if save_products(df):
                                 st.success(f"✅ Product '{selected_product}' deleted successfully!")
-                                #st.cache_data.clear()
+                                # Refresh the page to show updated list
+                                st.rerun()
                             else:
                                 st.error("❌ Failed to delete product.")
     else:
@@ -205,17 +208,15 @@ def inventory_page():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🔄 Refresh Page (After Adding/Updating)", use_container_width=True, type="primary"):
-            #st.cache_data.clear()
-            st.success("✅ Cache cleared! Page will refresh on next action.")
+        if st.button("🔄 Refresh Data", use_container_width=True):
+            st.success("✅ Data refreshed!")
     
     with col2:
         if st.button("🗑️ Clear All Products (Reset Branch)", use_container_width=True):
-            confirm = st.checkbox("⚠️ This will DELETE ALL products in this branch!")
+            confirm = st.checkbox("⚠️ This will DELETE ALL products in this branch!", key="clear_all_confirm")
             if confirm:
                 empty_df = pd.DataFrame(columns=[
                     "barcode", "name", "category", "price", "cost", "stock", "reorder_level"
                 ])
                 save_products(empty_df)
-                st.success("✅ All products cleared! Refresh the page.")
-                #st.rerun()
+                st.success("✅ All products cleared! Click 'Refresh Data' to see changes.")
