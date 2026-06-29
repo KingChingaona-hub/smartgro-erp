@@ -692,7 +692,7 @@ def save_sales(df, branch_id=None):
                 return False
             
             validation_errors = []
-            for _, row in df.iterrows():
+            for idx, row in df.iterrows():
                 # Validate sale data
                 data = row.to_dict()
                 is_valid, errors, clean_data = validate_sale_data(data)
@@ -3549,7 +3549,9 @@ def load_users():
                     "last_login", "last_mobile_login", "device_info", 
                     "two_factor_enabled", "session_token"
                 ])
+                print(f"✅ Loaded {len(df)} users successfully")
                 return df
+            print("⚠️ No users found in database")
             return pd.DataFrame(columns=[
                 "username", "password", "role", "branch_id", "full_name", 
                 "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
@@ -3557,7 +3559,7 @@ def load_users():
                 "two_factor_enabled", "session_token"
             ])
     except Exception as e:
-        print(f"⚠️ Error loading users: {e}")
+        print(f"❌ Error loading users: {e}")
         return pd.DataFrame(columns=[
             "username", "password", "role", "branch_id", "full_name", 
             "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
@@ -3572,9 +3574,12 @@ def save_users(df):
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
+                print("❌ No database connection")
                 return False
             
             validation_errors = []
+            saved_count = 0
+            
             for idx, row in df.iterrows():
                 data = row.to_dict()
                 is_valid, errors, clean_data = validate_user_data(data)
@@ -3593,52 +3598,59 @@ def save_users(df):
                 last_login = safe_timestamp(clean_data.get("last_login"))
                 last_mobile_login = safe_timestamp(clean_data.get("last_mobile_login"))
                 
-                cur.execute("""
-                    INSERT INTO users (username, password, role, branch_id, full_name, phone,
-                        active, mobile_enabled, whatsapp, receive_alerts,
-                        last_login, last_mobile_login, device_info,
-                        two_factor_enabled, session_token)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (username) DO UPDATE SET
-                        password = EXCLUDED.password,
-                        role = EXCLUDED.role,
-                        branch_id = EXCLUDED.branch_id,
-                        full_name = EXCLUDED.full_name,
-                        phone = EXCLUDED.phone,
-                        active = EXCLUDED.active,
-                        mobile_enabled = EXCLUDED.mobile_enabled,
-                        whatsapp = EXCLUDED.whatsapp,
-                        receive_alerts = EXCLUDED.receive_alerts,
-                        last_login = EXCLUDED.last_login,
-                        last_mobile_login = EXCLUDED.last_mobile_login,
-                        device_info = EXCLUDED.device_info,
-                        two_factor_enabled = EXCLUDED.two_factor_enabled,
-                        session_token = EXCLUDED.session_token
-                """, (
-                    clean_data.get("username", ""),
-                    clean_data.get("password", ""),
-                    clean_data.get("role", "cashier"),
-                    clean_data.get("branch_id", "HO"),
-                    clean_data.get("full_name", clean_data.get("username", "")),
-                    clean_data.get("phone", ""),
-                    clean_data.get("active", True),
-                    clean_data.get("mobile_enabled", True),
-                    clean_data.get("whatsapp", ""),
-                    clean_data.get("receive_alerts", False),
-                    last_login,
-                    last_mobile_login,
-                    clean_data.get("device_info", ""),
-                    clean_data.get("two_factor_enabled", False),
-                    clean_data.get("session_token", "")
-                ))
+                try:
+                    cur.execute("""
+                        INSERT INTO users (username, password, role, branch_id, full_name, phone,
+                            active, mobile_enabled, whatsapp, receive_alerts,
+                            last_login, last_mobile_login, device_info,
+                            two_factor_enabled, session_token)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (username) DO UPDATE SET
+                            password = EXCLUDED.password,
+                            role = EXCLUDED.role,
+                            branch_id = EXCLUDED.branch_id,
+                            full_name = EXCLUDED.full_name,
+                            phone = EXCLUDED.phone,
+                            active = EXCLUDED.active,
+                            mobile_enabled = EXCLUDED.mobile_enabled,
+                            whatsapp = EXCLUDED.whatsapp,
+                            receive_alerts = EXCLUDED.receive_alerts,
+                            last_login = EXCLUDED.last_login,
+                            last_mobile_login = EXCLUDED.last_mobile_login,
+                            device_info = EXCLUDED.device_info,
+                            two_factor_enabled = EXCLUDED.two_factor_enabled,
+                            session_token = EXCLUDED.session_token
+                    """, (
+                        clean_data.get("username", ""),
+                        clean_data.get("password", ""),
+                        clean_data.get("role", "cashier"),
+                        clean_data.get("branch_id", "HO"),
+                        clean_data.get("full_name", clean_data.get("username", "")),
+                        clean_data.get("phone", ""),
+                        clean_data.get("active", True),
+                        clean_data.get("mobile_enabled", True),
+                        clean_data.get("whatsapp", ""),
+                        clean_data.get("receive_alerts", False),
+                        last_login,
+                        last_mobile_login,
+                        clean_data.get("device_info", ""),
+                        clean_data.get("two_factor_enabled", False),
+                        clean_data.get("session_token", "")
+                    ))
+                    saved_count += 1
+                except Exception as e:
+                    print(f"❌ Error saving user {clean_data.get('username', 'unknown')}: {e}")
+                    validation_errors.append(f"Row {idx}: Database error - {str(e)}")
             
             if validation_errors:
                 print(f"⚠️ Validation errors: {validation_errors}")
             
             conn.commit()
+            print(f"✅ Saved {saved_count} users successfully")
             return True
+            
     except Exception as e:
-        print(f"⚠️ Error saving users: {e}")
+        print(f"❌ Error saving users: {e}")
         return False
 
 def init_users():
