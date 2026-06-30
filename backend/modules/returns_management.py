@@ -4,6 +4,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
+import os
 
 from backend.core.db_adapter import (
     load_sales,
@@ -23,7 +24,6 @@ DATA_DIR = Path("data")
 RETURNS_FILE = DATA_DIR / "returns.csv"
 REFUNDS_FILE = DATA_DIR / "refunds.csv"
 STORE_CREDIT_FILE = DATA_DIR / "store_credit.csv"
-WARRANTY_FILE = DATA_DIR / "warranty_registrations.csv"
 
 
 # ==============================
@@ -33,6 +33,7 @@ def init_returns_files():
     """Initialize returns-related files"""
     DATA_DIR.mkdir(exist_ok=True)
     
+    # Returns file
     if not RETURNS_FILE.exists():
         df = pd.DataFrame(columns=[
             "return_id", "receipt_no", "sale_id", "return_date", "customer_name",
@@ -41,36 +42,36 @@ def init_returns_files():
             "store_credit_id", "processed_by", "processed_date", "notes", "branch_code"
         ])
         df.to_csv(RETURNS_FILE, index=False)
+        print(f"✅ Created returns file: {RETURNS_FILE}")
     
+    # Refunds file
     if not REFUNDS_FILE.exists():
         df = pd.DataFrame(columns=[
             "refund_id", "return_id", "receipt_no", "refund_date", "customer_name",
             "amount", "refund_method", "reference_no", "processed_by", "notes", "branch_code"
         ])
         df.to_csv(REFUNDS_FILE, index=False)
+        print(f"✅ Created refunds file: {REFUNDS_FILE}")
     
+    # Store credit file
     if not STORE_CREDIT_FILE.exists():
         df = pd.DataFrame(columns=[
             "credit_id", "customer_name", "customer_phone", "amount", "remaining_balance",
             "issued_date", "expiry_date", "status", "issued_by", "used_transactions", "branch_code"
         ])
         df.to_csv(STORE_CREDIT_FILE, index=False)
-    
-    if not WARRANTY_FILE.exists():
-        df = pd.DataFrame(columns=[
-            "warranty_id", "receipt_no", "customer_name", "customer_phone",
-            "product_barcode", "product_name", "purchase_date", "warranty_months",
-            "expiry_date", "status", "claimed_date", "notes", "branch_code"
-        ])
-        df.to_csv(WARRANTY_FILE, index=False)
+        print(f"✅ Created store credit file: {STORE_CREDIT_FILE}")
 
 
 def load_returns():
     """Load all returns"""
     init_returns_files()
     try:
-        return pd.read_csv(RETURNS_FILE)
-    except:
+        df = pd.read_csv(RETURNS_FILE)
+        print(f"📂 Loaded {len(df)} returns from {RETURNS_FILE}")
+        return df
+    except Exception as e:
+        print(f"⚠️ Error loading returns: {e}")
         return pd.DataFrame(columns=[
             "return_id", "receipt_no", "sale_id", "return_date", "customer_name",
             "customer_phone", "product_barcode", "product_name", "quantity_returned",
@@ -81,8 +82,13 @@ def load_returns():
 
 def save_returns(df):
     """Save returns to file"""
-    df.to_csv(RETURNS_FILE, index=False)
-    print(f"✅ Saved {len(df)} returns to {RETURNS_FILE}")
+    try:
+        df.to_csv(RETURNS_FILE, index=False)
+        print(f"💾 Saved {len(df)} returns to {RETURNS_FILE}")
+        return True
+    except Exception as e:
+        print(f"❌ Error saving returns: {e}")
+        return False
 
 
 def load_refunds():
@@ -117,6 +123,11 @@ def load_store_credit():
 def save_store_credit(df):
     """Save store credit records"""
     df.to_csv(STORE_CREDIT_FILE, index=False)
+
+
+def get_current_branch():
+    """Get current branch from session state"""
+    return st.session_state.get("user_branch", "HO")
 
 
 # ==============================
@@ -190,10 +201,13 @@ def get_sales_items_grouped(sale_row):
 
 
 # ==============================
-# PROCESS RETURN - SIMPLIFIED WORKING VERSION
+# PROCESS RETURN - COMPLETE FIXED
 # ==============================
 def process_return(receipt_no, items_to_return, return_reason, condition, refund_method, notes=""):
     """Process a return and update everything"""
+    
+    # Initialize files
+    init_returns_files()
     
     # Load data
     sales_df = load_sales()
@@ -343,6 +357,12 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     save_refunds(refunds_df)
     
     # ============================================================
+    # VERIFY SAVE
+    # ============================================================
+    verify_df = load_returns()
+    print(f"✅ VERIFIED: {len(verify_df)} returns in file")
+    
+    # ============================================================
     # BUILD SUMMARY
     # ============================================================
     summary = f"""
@@ -460,6 +480,16 @@ def returns_management_dashboard():
         return
     
     init_returns_files()
+    
+    # Debug: Show returns file status
+    with st.expander("📋 Debug: Returns File Status"):
+        if RETURNS_FILE.exists():
+            debug_df = pd.read_csv(RETURNS_FILE)
+            st.success(f"✅ Returns file exists with {len(debug_df)} records")
+            if not debug_df.empty:
+                st.dataframe(debug_df.tail(5))
+        else:
+            st.error("❌ Returns file does not exist!")
     
     sample_receipts = get_sample_receipts()
     if sample_receipts:
