@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from datetime import datetime
 from io import BytesIO
 import base64
@@ -23,53 +21,34 @@ from backend.core.db_adapter import load_products
 # BARCODE GENERATION FUNCTIONS
 # ==============================
 
-def generate_barcode_image(barcode_number, width=200, height=100):
-    """Generate a simple barcode image using matplotlib"""
+def generate_barcode_image(barcode_number, width=300, height=120):
+    """Generate a simple barcode using HTML/CSS (no matplotlib needed)"""
     try:
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as patches
-        
-        # Convert barcode to binary representation (simple)
         barcode_str = str(barcode_number)
         
-        fig, ax = plt.subplots(figsize=(width/100, height/100))
-        ax.set_xlim(0, width)
-        ax.set_ylim(0, height)
-        ax.axis('off')
-        
-        # Generate bars based on barcode digits
-        bar_width = width / (len(barcode_str) * 2 + 2)
-        x_pos = 10
-        
-        # Start marker (thick bar)
-        ax.add_patch(patches.Rectangle((x_pos, 10), bar_width * 2, height - 20, facecolor='black'))
-        x_pos += bar_width * 3
-        
+        # Create bar pattern based on digits
+        bars_html = ""
         for digit in barcode_str:
             digit_val = int(digit)
-            bar_height = height - 20
-            
             # Each digit creates a pattern of bars
-            for i in range(4):
-                if (digit_val >> i) & 1:
-                    ax.add_patch(patches.Rectangle((x_pos, 10), bar_width, bar_height, facecolor='black'))
-                x_pos += bar_width
-            
-            x_pos += bar_width
+            bar_height = 30 + (digit_val / 9) * 50
+            bars_html += f'<div style="width:6px;height:{bar_height}px;background:black;display:inline-block;margin:0 1px;"></div>'
         
-        # End marker
-        ax.add_patch(patches.Rectangle((x_pos, 10), bar_width * 2, height - 20, facecolor='black'))
+        html = f"""
+        <div style="width:{width}px;height:{height}px;background:white;padding:15px;border:1px solid #ddd;border-radius:8px;text-align:center;margin:10px auto;">
+            <div style="display:flex;justify-content:center;align-items:flex-end;height:{height-50}px;gap:2px;padding:5px 0;">
+                {bars_html}
+            </div>
+            <div style="text-align:center;font-size:14px;font-weight:bold;margin-top:8px;font-family:monospace;letter-spacing:2px;">
+                {barcode_str}
+            </div>
+            <div style="text-align:center;font-size:10px;color:#999;margin-top:4px;">
+                Scan me
+            </div>
+        </div>
+        """
         
-        # Add barcode number text
-        ax.text(width/2, 15, str(barcode_number), ha='center', va='center', fontsize=10, fontweight='bold')
-        
-        # Save to buffer
-        buffer = BytesIO()
-        plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        buffer.seek(0)
-        
-        return buffer
+        return html
     except Exception as e:
         print(f"Error generating barcode: {e}")
         return None
@@ -321,18 +300,17 @@ def barcode_generator_page():
             with col2:
                 st.markdown("### 🖨️ Barcode Preview")
                 
-                # Generate barcode image
-                barcode_img = generate_barcode_image(product['barcode'])
-                if barcode_img:
-                    st.image(barcode_img, use_column_width=True)
+                # Generate barcode HTML
+                barcode_html = generate_barcode_image(product['barcode'])
+                if barcode_html:
+                    st.components.v1.html(barcode_html, height=200)
                     
-                    # Download button
-                    barcode_data = barcode_img.getvalue()
+                    # Download button for HTML barcode
                     st.download_button(
                         label="📥 Download Barcode (PNG)",
-                        data=barcode_data,
-                        file_name=f"barcode_{product['barcode']}.png",
-                        mime="image/png",
+                        data=barcode_html.encode('utf-8'),
+                        file_name=f"barcode_{product['barcode']}.html",
+                        mime="text/html",
                         use_container_width=True
                     )
                 else:
