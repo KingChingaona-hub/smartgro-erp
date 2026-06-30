@@ -376,7 +376,7 @@ def get_sales_items_grouped(sale_row):
 # RETURN FUNCTIONS
 # ==============================
 def process_return(receipt_no, items_to_return, return_reason, condition, refund_method, notes=""):
-    """Process a return and update inventory"""
+    """Process a return and update inventory AND sales"""
     sales_df = load_sales()
     products_df = load_products()
     returns_df = load_returns()
@@ -419,6 +419,9 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     store_credit_id = None
     return_ids = []
     
+    # Track which products were returned for stock update
+    returned_products = []
+    
     for return_item in items_to_return:
         matching_item = None
         for item in sale_items:
@@ -432,6 +435,14 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         return_qty = min(int(return_item["quantity"]), int(matching_item["quantity"]))
         refund_amount = float(matching_item["price"]) * return_qty
         total_refund += refund_amount
+        
+        # Track returned product
+        returned_products.append({
+            "barcode": str(return_item.get("barcode", "")),
+            "name": str(return_item.get("name", "")),
+            "quantity": return_qty,
+            "price": float(matching_item["price"])
+        })
         
         return_id = f"RET{len(returns_df)+1:06d}"
         return_ids.append(return_id)
@@ -460,18 +471,56 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         
         returns_df = pd.concat([returns_df, new_return], ignore_index=True)
         
+        # ============================================================
+        # UPDATE STOCK - ADD RETURNED QUANTITY BACK TO INVENTORY
+        # ============================================================
         product_barcode = str(return_item.get("barcode", ""))
         if product_barcode:
+            # Find product by barcode
             product_idx = products_df[products_df["barcode"].astype(str) == product_barcode].index
             if len(product_idx) > 0:
                 current_stock = float(products_df.loc[product_idx[0], "stock"])
                 products_df.loc[product_idx[0], "stock"] = current_stock + return_qty
+                print(f"✅ Stock updated: {return_item.get('name')} +{return_qty} (was {current_stock}, now {current_stock + return_qty})")
             else:
+                # Try by product name
                 product_idx = products_df[products_df["name"].astype(str).str.lower() == str(return_item.get("name", "")).lower()].index
                 if len(product_idx) > 0:
                     current_stock = float(products_df.loc[product_idx[0], "stock"])
                     products_df.loc[product_idx[0], "stock"] = current_stock + return_qty
+                    print(f"✅ Stock updated (by name): {return_item.get('name')} +{return_qty}")
     
+    # ============================================================
+    # UPDATE SALES - ADD RETURN AS NEGATIVE SALE (RETURN ENTRY)
+    # ============================================================
+    if returned_products:
+        return_receipt_no = f"RET-{receipt_no_str}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        for product in returned_products:
+            # Create a negative sale entry to reflect the return
+            return_sale = pd.DataFrame([{
+                "branch_id": current_branch,
+                "sale_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "receipt_no": return_receipt_no,
+                "barcode": product["barcode"],
+                "product_name": product["name"],
+                "items": -product["quantity"],  # Negative quantity for return
+                "total": -(product["price"] * product["quantity"]),  # Negative total
+                "profit": 0,  # No profit on return
+                "payment_method": refund_method,
+                "customer_name": customer_name,
+                "customer_phone": customer_phone,
+                "final_total": -total_refund,  # Negative final total
+                "shift_id": st.session_state.get("shift_id", ""),
+                "cashier": st.session_state.get("username", "system"),
+                "return_id": ",".join(return_ids)
+            }])
+            
+            # Append to sales dataframe
+            sales_df = pd.concat([sales_df, return_sale], ignore_index=True)
+            print(f"✅ Return sale recorded: {product['name']} -{product['quantity']} units")
+    
+    # Handle refund
     if refund_method == "STORE_CREDIT":
         store_credit_id = create_store_credit(customer_name, customer_phone, total_refund)
         for return_id in return_ids:
@@ -499,12 +548,35 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
             except:
                 pass
     
+    # ============================================================
+    # SAVE ALL CHANGES
+    # ============================================================
     save_products(products_df)
+    save_sales(sales_df)  # Save updated sales with return entries
     save_returns(returns_df)
     save_refunds(refunds_df)
     
-    return True, f"Return processed successfully! Refund amount: ${total_refund:.2f}"
-
+    # ============================================================
+    # RETURN SUMMARY
+    # ============================================================
+    summary = f"""
+    ✅ Return processed successfully!
+    
+    📋 Return Summary:
+    • Receipt: {receipt_no_str}
+    • Customer: {customer_name}
+    • Items Returned: {len(returned_products)}
+    • Refund Amount: ${total_refund:.2f}
+    • Refund Method: {refund_method}
+    
+    📦 Stock Updated:
+    """
+    for p in returned_products:
+        summary += f"   • {p['name']}: +{p['quantity']} units (back in stock)\n"
+    
+    summary += f"\n📊 Sales Updated: Return entry recorded with negative sale"
+    
+    return True, summary
 
 def create_store_credit(customer_name, customer_phone, amount, expiry_days=365):
     """Create store credit for customer"""
