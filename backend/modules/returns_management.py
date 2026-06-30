@@ -223,101 +223,87 @@ def search_sale_by_receipt(receipt_no):
     """
     Search for a sale by receipt number.
     Handles both string and numeric receipt numbers.
-    Receipt numbers like 20260630073656 (timestamp format) are stored as integers.
     """
     sales_df = load_sales()
     
     if sales_df.empty:
         return None
     
-    # Convert search term to string and strip
+    # Convert search term to string
     search_term = str(receipt_no).strip()
     
-    # Try to convert search term to numeric for comparison
-    search_numeric = None
+    # Try to convert to int for numeric comparison
+    search_int = None
     try:
-        search_numeric = int(search_term)
+        search_int = int(float(search_term))
     except:
         pass
     
-    # Check receipt_no column (primary)
-    if "receipt_no" in sales_df.columns:
-        # Try direct numeric comparison first (most reliable for timestamp receipts)
-        if search_numeric is not None:
-            matches = sales_df[sales_df["receipt_no"] == search_numeric]
-            if not matches.empty:
-                return matches
-        
-        # Try string comparison after converting to string
-        receipt_strings = sales_df["receipt_no"].astype(str).str.strip()
-        matches = sales_df[receipt_strings == search_term]
-        if not matches.empty:
-            return matches
-        
-        # Try partial match (for timestamp format like 20260630073656)
-        matches = sales_df[receipt_strings.str.contains(search_term, na=False)]
-        if not matches.empty:
-            return matches
-        
-        # Try removing any .0 suffix
-        search_term_clean = search_term.replace('.0', '')
-        matches = sales_df[receipt_strings.str.contains(search_term_clean, na=False)]
+    if "receipt_no" not in sales_df.columns:
+        return None
+    
+    # Try exact string match (receipt_no is already string from load_sales)
+    matches = sales_df[sales_df["receipt_no"] == search_term]
+    if not matches.empty:
+        return matches
+    
+    # Try numeric comparison
+    if search_int is not None:
+        matches = sales_df[sales_df["receipt_no"] == str(search_int)]
         if not matches.empty:
             return matches
     
-    # Try other possible column names
-    receipt_columns = ["receipt_number", "invoice_no", "sale_id", "id"]
-    for col in receipt_columns:
-        if col in sales_df.columns:
-            # Try numeric comparison first
-            if search_numeric is not None:
-                matches = sales_df[sales_df[col] == search_numeric]
-                if not matches.empty:
-                    return matches
-            
-            # Try string comparison
-            col_strings = sales_df[col].astype(str).str.strip()
-            matches = sales_df[col_strings == search_term]
-            if not matches.empty:
-                return matches
+    # Try partial match
+    matches = sales_df[sales_df["receipt_no"].str.contains(search_term, na=False)]
+    if not matches.empty:
+        return matches
+    
+    # Try without .0 suffix
+    search_clean = search_term.replace('.0', '')
+    if search_clean != search_term:
+        matches = sales_df[sales_df["receipt_no"].str.contains(search_clean, na=False)]
+        if not matches.empty:
+            return matches
     
     return None
 
 
 def get_sale_items(sale_row):
-    """Extract items from sale row - handles different formats"""
+    """Extract items from a single sale row"""
     items = []
     
+    # Check if this row already has product info
+    if "barcode" in sale_row.index and ("product_name" in sale_row.index or "name" in sale_row.index):
+        name_col = "product_name" if "product_name" in sale_row.index else "name"
+        qty = int(sale_row.get("items", 1))
+        total = float(sale_row.get("total", 0))
+        price = total / qty if qty > 0 else 0
+        
+        return [{
+            "name": str(sale_row[name_col]),
+            "barcode": str(sale_row.get("barcode", "")),
+            "quantity": qty,
+            "price": price,
+            "total": total
+        }]
+    
+    # Try to parse items from string
     if "items" in sale_row.index:
         items_data = sale_row["items"]
-    elif "cart_items" in sale_row.index:
-        items_data = sale_row["cart_items"]
-    elif "products" in sale_row.index:
-        items_data = sale_row["products"]
-    else:
-        if "barcode" in sale_row.index and "name" in sale_row.index:
-            return [{
-                "name": str(sale_row["name"]),
-                "barcode": str(sale_row["barcode"]),
-                "quantity": int(sale_row.get("items", 1)) if "items" in sale_row.index else 1,
-                "price": float(sale_row.get("price", sale_row.get("total", 0))) if "price" in sale_row.index else float(sale_row.get("total", 0)),
-                "total": float(sale_row.get("total", 0))
-            }]
-        return []
-    
-    if isinstance(items_data, str):
-        try:
-            items = eval(items_data)
-        except:
+        if isinstance(items_data, str):
             try:
-                items = json.loads(items_data)
+                items = eval(items_data)
             except:
-                return []
-    elif isinstance(items_data, list):
-        items = items_data
-    elif isinstance(items_data, dict):
-        items = [items_data]
+                try:
+                    items = json.loads(items_data)
+                except:
+                    return []
+        elif isinstance(items_data, list):
+            items = items_data
+        elif isinstance(items_data, dict):
+            items = [items_data]
     
+    # Format items
     formatted_items = []
     for item in items:
         formatted_item = {
@@ -333,7 +319,8 @@ def get_sale_items(sale_row):
 
 
 def get_sales_items_grouped(sale_row):
-    """Get items from a sale row, grouped by product"""
+    """Get all items from a sale, grouped by product"""
+    
     receipt_no = sale_row.get("receipt_no")
     if not receipt_no:
         return get_sale_items(sale_row)
@@ -341,40 +328,37 @@ def get_sales_items_grouped(sale_row):
     sales_df = load_sales()
     receipt_no_str = str(receipt_no).strip()
     
-    # Handle numeric comparison for receipt numbers
-    receipt_numeric = None
-    try:
-        receipt_numeric = int(receipt_no_str)
-    except:
-        pass
+    # Find all rows with this receipt number
+    all_sale_rows = sales_df[sales_df["receipt_no"] == receipt_no_str]
     
-    # Try to find all rows with this receipt number
-    all_sale_rows = pd.DataFrame()
-    
-    if receipt_numeric is not None:
-        all_sale_rows = sales_df[sales_df["receipt_no"] == receipt_numeric]
-    
+    # If no match, try numeric
     if all_sale_rows.empty:
-        receipt_strings = sales_df["receipt_no"].astype(str).str.strip()
-        all_sale_rows = sales_df[receipt_strings == receipt_no_str]
+        try:
+            receipt_int = int(receipt_no_str)
+            all_sale_rows = sales_df[sales_df["receipt_no"] == str(receipt_int)]
+        except:
+            pass
     
+    # If still no match, try contains
     if all_sale_rows.empty:
-        all_sale_rows = sales_df[sales_df["receipt_no"].astype(str).str.contains(receipt_no_str, na=False)]
+        all_sale_rows = sales_df[sales_df["receipt_no"].str.contains(receipt_no_str, na=False)]
     
+    # If we have multiple rows, group them
     if len(all_sale_rows) > 1:
         grouped = {}
         for _, row in all_sale_rows.iterrows():
             barcode = str(row.get("barcode", ""))
-            name = str(row.get("name", "Unknown"))
+            name = str(row.get("product_name", row.get("name", "Unknown")))
             qty = int(row.get("items", 1))
             total = float(row.get("total", 0))
             price = total / qty if qty > 0 else 0
             
-            if barcode in grouped:
-                grouped[barcode]["quantity"] += qty
-                grouped[barcode]["total"] += total
+            key = barcode if barcode else name
+            if key in grouped:
+                grouped[key]["quantity"] += qty
+                grouped[key]["total"] += total
             else:
-                grouped[barcode] = {
+                grouped[key] = {
                     "name": name,
                     "barcode": barcode,
                     "quantity": qty,
@@ -384,6 +368,7 @@ def get_sales_items_grouped(sale_row):
         
         return list(grouped.values())
     else:
+        # Single row or no rows
         return get_sale_items(sale_row)
 
 
@@ -713,7 +698,7 @@ def get_sample_receipts():
         return []
     
     if "receipt_no" in sales_df.columns:
-        receipts = sales_df["receipt_no"].tail(10).apply(convert_scientific_to_normal).tolist()
+        receipts = sales_df["receipt_no"].tail(10).tolist()
         return receipts
     return []
 
@@ -774,7 +759,7 @@ def returns_management_dashboard():
                 
                 if not sales_df.empty and "receipt_no" in sales_df.columns:
                     st.info("Available receipt numbers in system:")
-                    recent = sales_df["receipt_no"].tail(5).apply(convert_scientific_to_normal).tolist()
+                    recent = sales_df["receipt_no"].tail(5).tolist()
                     for r in recent:
                         st.code(f"• {r}")
             else:
