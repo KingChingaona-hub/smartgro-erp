@@ -28,7 +28,6 @@ def convert_scientific_to_normal(value):
     try:
         value_str = str(value).strip()
         if 'E' in value_str.upper():
-            # Convert scientific notation to integer
             float_val = float(value_str)
             if float_val.is_integer():
                 return str(int(float_val))
@@ -129,10 +128,8 @@ def load_returns():
     """Load all returns"""
     init_returns_files()
     df = pd.read_csv(RETURNS_FILE)
-    # Convert receipt_no from scientific notation if needed
     if "receipt_no" in df.columns:
         df["receipt_no"] = df["receipt_no"].astype(str).apply(convert_scientific_to_normal)
-    # Filter by current branch if branch_code column exists
     if "branch_code" in df.columns and not df.empty:
         current_branch = get_current_branch()
         df = df[df["branch_code"] == current_branch]
@@ -141,7 +138,6 @@ def load_returns():
 
 def save_returns(df):
     """Save returns to file"""
-    # Add branch code
     if "branch_code" not in df.columns:
         df["branch_code"] = get_current_branch()
     else:
@@ -213,10 +209,14 @@ def get_current_branch():
 
 
 # ==============================
-# HELPER FUNCTIONS
+# RECEIPT SEARCH - FIXED
 # ==============================
 def search_sale_by_receipt(receipt_no):
-    """Search for a sale by receipt number - handles scientific notation and timestamp format"""
+    """
+    Search for a sale by receipt number.
+    Handles both string and numeric receipt numbers.
+    Receipt numbers like 20260630073656 (timestamp format) are stored as integers.
+    """
     from backend.core.database import load_sales
     
     sales_df = load_sales()
@@ -227,53 +227,50 @@ def search_sale_by_receipt(receipt_no):
     # Convert search term to string and strip
     search_term = str(receipt_no).strip()
     
-    # Also try to convert to numeric for scientific notation comparison
+    # Try to convert search term to numeric for comparison
     search_numeric = None
     try:
-        # Try to parse as number (handles both regular numbers and scientific notation)
-        search_numeric = int(float(search_term))
+        search_numeric = int(search_term)
     except:
         pass
     
     # Check receipt_no column (primary)
     if "receipt_no" in sales_df.columns:
-        # Convert column to string for comparison and fix scientific notation
-        receipt_strings = sales_df["receipt_no"].astype(str).apply(convert_scientific_to_normal).str.strip()
+        # Try direct numeric comparison first (most reliable for timestamp receipts)
+        if search_numeric is not None:
+            matches = sales_df[sales_df["receipt_no"] == search_numeric]
+            if not matches.empty:
+                return matches
         
-        # Try exact match as string
+        # Try string comparison after converting to string
+        receipt_strings = sales_df["receipt_no"].astype(str).str.strip()
         matches = sales_df[receipt_strings == search_term]
         if not matches.empty:
             return matches
         
-        # Try matching by numeric value (handles scientific notation like 2.02605E+13)
-        if search_numeric:
-            for idx, row in sales_df.iterrows():
-                try:
-                    stored_receipt = str(row["receipt_no"]).strip()
-                    # Check if stored is scientific notation
-                    if 'E' in stored_receipt.upper():
-                        stored_numeric = int(float(stored_receipt))
-                        if stored_numeric == search_numeric:
-                            return sales_df.iloc[[idx]]
-                except:
-                    pass
-        
-        # Try partial match (in case of timestamp format)
+        # Try partial match (for timestamp format like 20260630073656)
         matches = sales_df[receipt_strings.str.contains(search_term, na=False)]
         if not matches.empty:
             return matches
         
-        # Try removing any .0 suffix that might appear
+        # Try removing any .0 suffix
         search_term_clean = search_term.replace('.0', '')
         matches = sales_df[receipt_strings.str.contains(search_term_clean, na=False)]
         if not matches.empty:
             return matches
     
     # Try other possible column names
-    receipt_columns = ["receipt_number", "invoice_no", "sale_id"]
+    receipt_columns = ["receipt_number", "invoice_no", "sale_id", "id"]
     for col in receipt_columns:
         if col in sales_df.columns:
-            col_strings = sales_df[col].astype(str).apply(convert_scientific_to_normal).str.strip()
+            # Try numeric comparison first
+            if search_numeric is not None:
+                matches = sales_df[sales_df[col] == search_numeric]
+                if not matches.empty:
+                    return matches
+            
+            # Try string comparison
+            col_strings = sales_df[col].astype(str).str.strip()
             matches = sales_df[col_strings == search_term]
             if not matches.empty:
                 return matches
@@ -285,7 +282,6 @@ def get_sale_items(sale_row):
     """Extract items from sale row - handles different formats"""
     items = []
     
-    # Try different possible column names for items
     if "items" in sale_row.index:
         items_data = sale_row["items"]
     elif "cart_items" in sale_row.index:
@@ -293,8 +289,6 @@ def get_sale_items(sale_row):
     elif "products" in sale_row.index:
         items_data = sale_row["products"]
     else:
-        # If no items column, try to infer from barcode/name pattern
-        # This handles the case where each row is one item
         if "barcode" in sale_row.index and "name" in sale_row.index:
             return [{
                 "name": str(sale_row["name"]),
@@ -305,7 +299,6 @@ def get_sale_items(sale_row):
             }]
         return []
     
-    # Parse items based on type
     if isinstance(items_data, str):
         try:
             items = eval(items_data)
@@ -319,7 +312,6 @@ def get_sale_items(sale_row):
     elif isinstance(items_data, dict):
         items = [items_data]
     
-    # Ensure each item has required fields
     formatted_items = []
     for item in items:
         formatted_item = {
@@ -335,19 +327,37 @@ def get_sale_items(sale_row):
 
 
 def get_sales_items_grouped(sale_row):
-    """Get items from a sale row, grouped by product (for cases where sale has multiple rows per item)"""
+    """Get items from a sale row, grouped by product"""
     from backend.core.database import load_sales
     
     receipt_no = sale_row.get("receipt_no")
     if not receipt_no:
         return get_sale_items(sale_row)
     
-    # Get all rows with same receipt number
     sales_df = load_sales()
-    all_sale_rows = sales_df[sales_df["receipt_no"].astype(str).apply(convert_scientific_to_normal) == convert_scientific_to_normal(str(receipt_no))]
+    receipt_no_str = str(receipt_no).strip()
+    
+    # Handle numeric comparison for receipt numbers
+    receipt_numeric = None
+    try:
+        receipt_numeric = int(receipt_no_str)
+    except:
+        pass
+    
+    # Try to find all rows with this receipt number
+    all_sale_rows = pd.DataFrame()
+    
+    if receipt_numeric is not None:
+        all_sale_rows = sales_df[sales_df["receipt_no"] == receipt_numeric]
+    
+    if all_sale_rows.empty:
+        receipt_strings = sales_df["receipt_no"].astype(str).str.strip()
+        all_sale_rows = sales_df[receipt_strings == receipt_no_str]
+    
+    if all_sale_rows.empty:
+        all_sale_rows = sales_df[sales_df["receipt_no"].astype(str).str.contains(receipt_no_str, na=False)]
     
     if len(all_sale_rows) > 1:
-        # Group by barcode/name
         grouped = {}
         for _, row in all_sale_rows.iterrows():
             barcode = str(row.get("barcode", ""))
@@ -386,19 +396,13 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     refunds_df = load_refunds()
     current_branch = get_current_branch()
     
-    # Convert receipt_no to string for comparison
     receipt_no_str = str(receipt_no).strip()
     
-    # Get original sale
     original_sale = search_sale_by_receipt(receipt_no_str)
     
     if original_sale is None or original_sale.empty:
         return False, f"Receipt '{receipt_no_str}' not found. Please check the receipt number."
     
-    # Get all rows for this receipt (in case of multiple rows)
-    all_sale_rows = sales_df[sales_df["receipt_no"].astype(str).apply(convert_scientific_to_normal) == convert_scientific_to_normal(receipt_no_str)]
-    
-    # Get customer info
     sale_row = original_sale.iloc[0]
     customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
     if pd.isna(customer_name) or customer_name == "":
@@ -408,10 +412,8 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     if pd.isna(customer_phone):
         customer_phone = ""
     
-    # Get sale ID
     sale_id = sale_row.get("sale_id", sale_row.get("id", receipt_no_str))
     
-    # Check if within return period (30 days)
     sale_date_str = sale_row.get("date", sale_row.get("sale_date", ""))
     if sale_date_str:
         try:
@@ -421,7 +423,6 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         except:
             pass
     
-    # Get sale items (grouped)
     sale_items = get_sales_items_grouped(sale_row)
     
     if not sale_items:
@@ -431,9 +432,7 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     store_credit_id = None
     return_ids = []
     
-    # Process each returned item
     for return_item in items_to_return:
-        # Find matching item in sale
         matching_item = None
         for item in sale_items:
             if str(item.get("barcode", "")) == str(return_item.get("barcode", "")) or item.get("name") == return_item.get("name"):
@@ -447,7 +446,6 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         refund_amount = float(matching_item["price"]) * return_qty
         total_refund += refund_amount
         
-        # Create return record
         return_id = f"RET{len(returns_df)+1:06d}"
         return_ids.append(return_id)
         
@@ -475,31 +473,23 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         
         returns_df = pd.concat([returns_df, new_return], ignore_index=True)
         
-        # Update inventory (add back returned stock)
         product_barcode = str(return_item.get("barcode", ""))
         if product_barcode:
-            # Find product by barcode
             product_idx = products_df[products_df["barcode"].astype(str) == product_barcode].index
             if len(product_idx) > 0:
                 current_stock = float(products_df.loc[product_idx[0], "stock"])
                 products_df.loc[product_idx[0], "stock"] = current_stock + return_qty
             else:
-                # Try by product name
                 product_idx = products_df[products_df["name"].astype(str).str.lower() == str(return_item.get("name", "")).lower()].index
                 if len(product_idx) > 0:
                     current_stock = float(products_df.loc[product_idx[0], "stock"])
                     products_df.loc[product_idx[0], "stock"] = current_stock + return_qty
     
-    # Handle refund
     if refund_method == "STORE_CREDIT":
-        # Create store credit
         store_credit_id = create_store_credit(customer_name, customer_phone, total_refund)
-        
-        # Update return records with store credit ID
         for return_id in return_ids:
             returns_df.loc[returns_df["return_id"] == return_id, "store_credit_id"] = store_credit_id
     else:
-        # Record cash/other refund
         refund_id = f"REF{len(refunds_df)+1:06d}"
         new_refund = pd.DataFrame([{
             "refund_id": refund_id,
@@ -516,14 +506,12 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         }])
         refunds_df = pd.concat([refunds_df, new_refund], ignore_index=True)
         
-        # Record cash movement (negative for refund)
         if refund_method == "CASH":
             try:
                 record_cash_movement(-total_refund, f"REFUND-{receipt_no_str}", "REFUND", st.session_state.get("shift_id", ""))
             except:
                 pass
     
-    # Save all changes
     save_products(products_df)
     save_returns(returns_df)
     save_refunds(refunds_df)
@@ -564,7 +552,6 @@ def use_store_credit(customer_phone, amount, receipt_no):
     
     credits_df = load_store_credit()
     
-    # Find active credits for customer
     active_credits = credits_df[
         (credits_df["customer_phone"].astype(str) == str(customer_phone)) & 
         (credits_df["status"] == "ACTIVE") &
@@ -574,19 +561,16 @@ def use_store_credit(customer_phone, amount, receipt_no):
     if active_credits.empty:
         return False, 0, "No active store credit found"
     
-    # Use oldest credit first
     credit = active_credits.sort_values("issued_date").iloc[0]
     idx = credit.name
     
     used_amount = min(float(amount), float(credit["remaining_balance"]))
     new_balance = float(credit["remaining_balance"]) - used_amount
     
-    # Update credit
     credits_df.loc[idx, "remaining_balance"] = new_balance
     if new_balance <= 0:
         credits_df.loc[idx, "status"] = "USED"
     
-    # Update used transactions
     used_transactions = credit["used_transactions"]
     if pd.isna(used_transactions) or used_transactions == "":
         used_transactions = receipt_no
@@ -623,7 +607,6 @@ def register_warranty(receipt_no, product_barcode, product_name, customer_name, 
     sales_df = load_sales()
     current_branch = get_current_branch()
     
-    # Get purchase date from receipt
     sale = search_sale_by_receipt(receipt_no)
     if sale is not None and not sale.empty:
         date_col = None
@@ -733,7 +716,6 @@ def get_sample_receipts():
         return []
     
     if "receipt_no" in sales_df.columns:
-        # Convert to normal format for display
         receipts = sales_df["receipt_no"].tail(10).apply(convert_scientific_to_normal).tolist()
         return receipts
     return []
@@ -750,14 +732,12 @@ def returns_management_dashboard():
     
     role = st.session_state.get("role", "cashier")
     
-    # Only managers and owners can process returns
     if role not in ["owner", "manager"]:
         st.error("❌ Access Denied. Only managers and owners can process returns.")
         return
     
     init_returns_files()
     
-    # Show sample receipts for testing
     sample_receipts = get_sample_receipts()
     if sample_receipts:
         with st.expander("📋 Recent Receipt Numbers (for testing)"):
@@ -765,9 +745,6 @@ def returns_management_dashboard():
             for r in sample_receipts[:5]:
                 st.code(f"• {r}")
     
-    # ==============================
-    # TABS
-    # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔄 Process Return",
         "💰 Store Credit",
@@ -776,9 +753,6 @@ def returns_management_dashboard():
         "📜 Return History"
     ])
     
-    # ==============================
-    # TAB 1: PROCESS RETURN
-    # ==============================
     with tab1:
         st.markdown("## 🔄 Process Customer Return")
         st.caption("Enter the receipt number to find the original sale")
@@ -798,23 +772,19 @@ def returns_management_dashboard():
             
             sales_df = load_sales()
             
-            # Search for the sale
             original_sale = search_sale_by_receipt(receipt_no)
             
             if original_sale is None or original_sale.empty:
                 st.error(f"❌ Receipt '{receipt_no}' not found.")
                 
-                # Show what's available
                 if not sales_df.empty and "receipt_no" in sales_df.columns:
                     st.info("Available receipt numbers in system:")
                     recent = sales_df["receipt_no"].tail(5).apply(convert_scientific_to_normal).tolist()
                     for r in recent:
                         st.code(f"• {r}")
             else:
-                # Display original sale info
                 sale_row = original_sale.iloc[0]
                 
-                # Get customer info
                 customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
                 if pd.isna(customer_name) or customer_name == "":
                     customer_name = "Walk-in Customer"
@@ -835,7 +805,6 @@ def returns_management_dashboard():
                 with col3:
                     st.info(f"**Date:** {str(sale_date)[:16] if sale_date != 'Unknown' else 'Unknown'}")
                 
-                # Display items from original sale
                 st.markdown("### Items from Original Sale")
                 
                 sale_items = get_sales_items_grouped(sale_row)
@@ -843,13 +812,11 @@ def returns_management_dashboard():
                 if not sale_items:
                     st.error("Could not parse items from this sale.")
                 else:
-                    # Display items in a table
                     items_df = pd.DataFrame(sale_items)
                     display_df = items_df[["name", "quantity", "price", "total"]].copy()
                     display_df.columns = ["Product", "Quantity", "Price", "Total"]
                     st.dataframe(display_df, use_container_width=True, hide_index=True)
                     
-                    # Select items to return
                     st.markdown("### Select Items to Return")
                     
                     return_items = []
@@ -933,9 +900,6 @@ def returns_management_dashboard():
         else:
             st.info("🔍 Enter a receipt number and click 'Search Receipt' to begin processing a return")
     
-    # ==============================
-    # TAB 2: STORE CREDIT
-    # ==============================
     with tab2:
         st.markdown("## 💳 Store Credit Management")
         st.caption("Issue and manage store credit for customers")
@@ -970,7 +934,6 @@ def returns_management_dashboard():
                 if balance > 0:
                     st.success(f"💰 Available Store Credit: **${balance:.2f}**")
                     
-                    # Show credit details
                     credits_df = load_store_credit()
                     customer_credits = credits_df[
                         (credits_df["customer_phone"].astype(str) == str(check_phone)) & 
@@ -990,7 +953,6 @@ def returns_management_dashboard():
                 else:
                     st.info("No store credit found for this customer")
         
-        # Store credit history
         st.markdown("---")
         st.markdown("### 📋 Store Credit History")
         
@@ -1004,9 +966,6 @@ def returns_management_dashboard():
         else:
             st.info("No store credit records found")
     
-    # ==============================
-    # TAB 3: WARRANTY CHECK
-    # ==============================
     with tab3:
         st.markdown("## 📋 Warranty Management")
         st.caption("Register warranties and check product warranty status")
@@ -1061,7 +1020,6 @@ def returns_management_dashboard():
                 else:
                     st.error("Please enter product barcode")
         
-        # Active warranties list
         st.markdown("---")
         st.markdown("### 📋 Active Warranties")
         
@@ -1081,9 +1039,6 @@ def returns_management_dashboard():
         else:
             st.info("No warranty records found")
     
-    # ==============================
-    # TAB 4: RETURN ANALYTICS
-    # ==============================
     with tab4:
         st.markdown("## 📊 Return Analytics")
         
@@ -1102,7 +1057,6 @@ def returns_management_dashboard():
         
         st.markdown("---")
         
-        # Returns by reason
         returns_df = load_returns()
         
         if not returns_df.empty:
@@ -1120,7 +1074,6 @@ def returns_management_dashboard():
             )
             st.plotly_chart(fig_reason, use_container_width=True)
             
-            # Returns over time
             st.markdown("### Returns Over Time")
             
             returns_df["return_date"] = pd.to_datetime(returns_df["return_date"])
@@ -1141,7 +1094,6 @@ def returns_management_dashboard():
             )
             st.plotly_chart(fig_trend, use_container_width=True)
             
-            # Top returned products
             st.markdown("### Top Returned Products")
             
             top_products = returns_df.groupby("product_name").agg({
@@ -1160,16 +1112,12 @@ def returns_management_dashboard():
         else:
             st.info("No return data available")
     
-    # ==============================
-    # TAB 5: RETURN HISTORY
-    # ==============================
     with tab5:
         st.markdown("## 📜 Return History")
         
         returns_df = load_returns()
         
         if not returns_df.empty:
-            # Filter options
             col1, col2 = st.columns(2)
             
             with col1:
@@ -1196,7 +1144,6 @@ def returns_management_dashboard():
                 }
             )
             
-            # Export
             csv = filtered_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Returns Data (CSV)",
