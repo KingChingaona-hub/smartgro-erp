@@ -4,7 +4,6 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
-import os
 
 from backend.core.db_adapter import (
     load_sales,
@@ -33,13 +32,13 @@ def init_returns_files():
     """Initialize returns-related files"""
     DATA_DIR.mkdir(exist_ok=True)
     
-    # Returns file
+    # Returns file - MATCHING YOUR EXACT STRUCTURE
     if not RETURNS_FILE.exists():
         df = pd.DataFrame(columns=[
-            "return_id", "receipt_no", "sale_id", "return_date", "customer_name",
-            "customer_phone", "product_barcode", "product_name", "quantity_returned",
-            "refund_amount", "return_reason", "condition", "status", "refund_method",
-            "store_credit_id", "processed_by", "processed_date", "notes", "branch_code"
+            "return_id", "receipt_no", "return_date", "customer_name", "customer_phone",
+            "product_barcode", "product_name", "quantity_returned", "refund_amount",
+            "return_reason", "condition", "status", "refund_method", "store_credit_id",
+            "processed_by", "processed_date", "notes"
         ])
         df.to_csv(RETURNS_FILE, index=False)
         print(f"✅ Created returns file: {RETURNS_FILE}")
@@ -51,7 +50,6 @@ def init_returns_files():
             "amount", "refund_method", "reference_no", "processed_by", "notes", "branch_code"
         ])
         df.to_csv(REFUNDS_FILE, index=False)
-        print(f"✅ Created refunds file: {REFUNDS_FILE}")
     
     # Store credit file
     if not STORE_CREDIT_FILE.exists():
@@ -60,7 +58,6 @@ def init_returns_files():
             "issued_date", "expiry_date", "status", "issued_by", "used_transactions", "branch_code"
         ])
         df.to_csv(STORE_CREDIT_FILE, index=False)
-        print(f"✅ Created store credit file: {STORE_CREDIT_FILE}")
 
 
 def load_returns():
@@ -73,10 +70,10 @@ def load_returns():
     except Exception as e:
         print(f"⚠️ Error loading returns: {e}")
         return pd.DataFrame(columns=[
-            "return_id", "receipt_no", "sale_id", "return_date", "customer_name",
-            "customer_phone", "product_barcode", "product_name", "quantity_returned",
-            "refund_amount", "return_reason", "condition", "status", "refund_method",
-            "store_credit_id", "processed_by", "processed_date", "notes", "branch_code"
+            "return_id", "receipt_no", "return_date", "customer_name", "customer_phone",
+            "product_barcode", "product_name", "quantity_returned", "refund_amount",
+            "return_reason", "condition", "status", "refund_method", "store_credit_id",
+            "processed_by", "processed_date", "notes"
         ])
 
 
@@ -245,14 +242,13 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
             "price": price
         })
         
-        # Create return record
+        # Create return record - MATCHING YOUR EXACT STRUCTURE
         return_id = f"RET{len(returns_df)+1:06d}"
         return_ids.append(return_id)
         
         new_return = pd.DataFrame([{
             "return_id": return_id,
             "receipt_no": receipt_no_str,
-            "sale_id": str(sale_row.get("id", receipt_no_str)),
             "return_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "customer_name": str(customer_name),
             "customer_phone": str(customer_phone),
@@ -267,8 +263,7 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
             "store_credit_id": "",
             "processed_by": st.session_state.get("username", "system"),
             "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "notes": notes,
-            "branch_code": current_branch
+            "notes": notes
         }])
         
         returns_df = pd.concat([returns_df, new_return], ignore_index=True)
