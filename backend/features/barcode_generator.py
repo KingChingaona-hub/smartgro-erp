@@ -22,27 +22,26 @@ from backend.core.db_adapter import load_products
 # ==============================
 
 def generate_barcode_image(barcode_number, width=300, height=120):
-    """Generate a simple barcode using HTML/CSS (no matplotlib needed)"""
+    """Generate a simple barcode using HTML/CSS"""
     try:
         barcode_str = str(barcode_number)
         
-        # Create bar pattern based on digits
-        bars_html = ""
+        # Create bar pattern
+        bars = ""
         for digit in barcode_str:
             digit_val = int(digit)
-            # Each digit creates a pattern of bars
             bar_height = 30 + (digit_val / 9) * 50
-            bars_html += f'<div style="width:6px;height:{bar_height}px;background:black;display:inline-block;margin:0 1px;"></div>'
+            bars += f'<div style="width:6px;height:{bar_height}px;background:black;display:inline-block;margin:0 1px;"></div>'
         
         html = f"""
-        <div style="width:{width}px;height:{height}px;background:white;padding:15px;border:1px solid #ddd;border-radius:8px;text-align:center;margin:10px auto;">
-            <div style="display:flex;justify-content:center;align-items:flex-end;height:{height-50}px;gap:2px;padding:5px 0;">
-                {bars_html}
+        <div style="background:white;padding:20px;border:1px solid #ddd;border-radius:8px;text-align:center;margin:10px 0;">
+            <div style="display:flex;justify-content:center;align-items:flex-end;height:80px;gap:2px;padding:5px 0;">
+                {bars}
             </div>
-            <div style="text-align:center;font-size:14px;font-weight:bold;margin-top:8px;font-family:monospace;letter-spacing:2px;">
+            <div style="font-size:16px;font-weight:bold;font-family:monospace;letter-spacing:2px;margin-top:10px;">
                 {barcode_str}
             </div>
-            <div style="text-align:center;font-size:10px;color:#999;margin-top:4px;">
+            <div style="font-size:10px;color:#999;margin-top:4px;">
                 Scan me
             </div>
         </div>
@@ -303,11 +302,11 @@ def barcode_generator_page():
                 # Generate barcode HTML
                 barcode_html = generate_barcode_image(product['barcode'])
                 if barcode_html:
-                    st.components.v1.html(barcode_html, height=200)
+                    st.markdown(barcode_html, unsafe_allow_html=True)
                     
                     # Download button for HTML barcode
                     st.download_button(
-                        label="📥 Download Barcode (PNG)",
+                        label="📥 Download Barcode (HTML)",
                         data=barcode_html.encode('utf-8'),
                         file_name=f"barcode_{product['barcode']}.html",
                         mime="text/html",
