@@ -656,12 +656,16 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
             cur.execute(query, params)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                df = pd.DataFrame(rows)
+                # Ensure receipt_no is string for consistent searching
+                if "receipt_no" in df.columns:
+                    df["receipt_no"] = df["receipt_no"].astype(str).str.strip()
+                return df
             return pd.DataFrame()
     except Exception as e:
         print(f"⚠️ Error loading sales: {e}")
         return pd.DataFrame()
-
+    
 def save_sales(df, branch_id=None):
     """
     Save sales to database with validation

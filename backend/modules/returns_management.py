@@ -6,7 +6,15 @@ from pathlib import Path
 import json
 import uuid
 
-from backend.core.db_adapter import load_sales, load_products, save_products, load_customers, save_customers, get_current_branch
+# ALL IMPORTS FIXED - Using db_adapter instead of database
+from backend.core.db_adapter import (
+    load_sales,
+    load_products,
+    save_products,
+    load_customers,
+    save_customers,
+    get_current_branch
+)
 from backend.modules.cash_register import record_cash_movement
 
 # ==============================
@@ -204,7 +212,7 @@ def save_warranties(df):
 
 def get_current_branch():
     """Get current branch from session state"""
-    from backend.core.database import get_current_branch as db_get_branch
+    from backend.core.db_adapter import get_current_branch as db_get_branch
     return db_get_branch()
 
 
@@ -217,8 +225,6 @@ def search_sale_by_receipt(receipt_no):
     Handles both string and numeric receipt numbers.
     Receipt numbers like 20260630073656 (timestamp format) are stored as integers.
     """
-    from backend.core.database import load_sales
-    
     sales_df = load_sales()
     
     if sales_df.empty:
@@ -328,8 +334,6 @@ def get_sale_items(sale_row):
 
 def get_sales_items_grouped(sale_row):
     """Get items from a sale row, grouped by product"""
-    from backend.core.database import load_sales
-    
     receipt_no = sale_row.get("receipt_no")
     if not receipt_no:
         return get_sale_items(sale_row)
@@ -388,8 +392,6 @@ def get_sales_items_grouped(sale_row):
 # ==============================
 def process_return(receipt_no, items_to_return, return_reason, condition, refund_method, notes=""):
     """Process a return and update inventory"""
-    from backend.core.database import load_sales, load_products, save_products
-    
     sales_df = load_sales()
     products_df = load_products()
     returns_df = load_returns()
@@ -601,10 +603,7 @@ def get_customer_store_credit(customer_phone):
 
 def register_warranty(receipt_no, product_barcode, product_name, customer_name, customer_phone, warranty_months=12):
     """Register a product warranty"""
-    from backend.core.database import load_sales
-    
     warranties_df = load_warranties()
-    sales_df = load_sales()
     current_branch = get_current_branch()
     
     sale = search_sale_by_receipt(receipt_no)
@@ -709,8 +708,6 @@ def get_return_summary():
 
 def get_sample_receipts():
     """Get sample receipts for testing"""
-    from backend.core.database import load_sales
-    
     sales_df = load_sales()
     if sales_df.empty:
         return []
@@ -768,8 +765,6 @@ def returns_management_dashboard():
             search_clicked = st.button("🔍 Search Receipt", use_container_width=True)
         
         if receipt_no and search_clicked:
-            from backend.core.database import load_sales
-            
             sales_df = load_sales()
             
             original_sale = search_sale_by_receipt(receipt_no)
