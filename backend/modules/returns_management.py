@@ -4,7 +4,6 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
-import uuid
 
 from backend.core.db_adapter import (
     load_sales,
@@ -21,29 +20,10 @@ from backend.modules.cash_register import record_cash_movement
 # FILE PATHS
 # ==============================
 DATA_DIR = Path("data")
-BRANCH_DATA_DIR = Path("branch_data")
 RETURNS_FILE = DATA_DIR / "returns.csv"
 REFUNDS_FILE = DATA_DIR / "refunds.csv"
 STORE_CREDIT_FILE = DATA_DIR / "store_credit.csv"
 WARRANTY_FILE = DATA_DIR / "warranty_registrations.csv"
-
-
-# ==============================
-# HELPER: Convert Scientific Notation
-# ==============================
-def convert_scientific_to_normal(value):
-    """Convert scientific notation back to normal number string"""
-    try:
-        value_str = str(value).strip()
-        if 'E' in value_str.upper():
-            float_val = float(value_str)
-            if float_val.is_integer():
-                return str(int(float_val))
-            else:
-                return str(float_val)
-        return value_str
-    except:
-        return str(value)
 
 
 # ==============================
@@ -53,81 +33,34 @@ def init_returns_files():
     """Initialize returns-related files"""
     DATA_DIR.mkdir(exist_ok=True)
     
-    # Returns file
     if not RETURNS_FILE.exists():
         df = pd.DataFrame(columns=[
-            "return_id",
-            "receipt_no",
-            "sale_id",
-            "return_date",
-            "customer_name",
-            "customer_phone",
-            "product_barcode",
-            "product_name",
-            "quantity_returned",
-            "refund_amount",
-            "return_reason",
-            "condition",
-            "status",
-            "refund_method",
-            "store_credit_id",
-            "processed_by",
-            "processed_date",
-            "notes",
-            "branch_code"
+            "return_id", "receipt_no", "sale_id", "return_date", "customer_name",
+            "customer_phone", "product_barcode", "product_name", "quantity_returned",
+            "refund_amount", "return_reason", "condition", "status", "refund_method",
+            "store_credit_id", "processed_by", "processed_date", "notes", "branch_code"
         ])
         df.to_csv(RETURNS_FILE, index=False)
     
-    # Refunds file
     if not REFUNDS_FILE.exists():
         df = pd.DataFrame(columns=[
-            "refund_id",
-            "return_id",
-            "receipt_no",
-            "refund_date",
-            "customer_name",
-            "amount",
-            "refund_method",
-            "reference_no",
-            "processed_by",
-            "notes",
-            "branch_code"
+            "refund_id", "return_id", "receipt_no", "refund_date", "customer_name",
+            "amount", "refund_method", "reference_no", "processed_by", "notes", "branch_code"
         ])
         df.to_csv(REFUNDS_FILE, index=False)
     
-    # Store credit file
     if not STORE_CREDIT_FILE.exists():
         df = pd.DataFrame(columns=[
-            "credit_id",
-            "customer_name",
-            "customer_phone",
-            "amount",
-            "remaining_balance",
-            "issued_date",
-            "expiry_date",
-            "status",
-            "issued_by",
-            "used_transactions",
-            "branch_code"
+            "credit_id", "customer_name", "customer_phone", "amount", "remaining_balance",
+            "issued_date", "expiry_date", "status", "issued_by", "used_transactions", "branch_code"
         ])
         df.to_csv(STORE_CREDIT_FILE, index=False)
     
-    # Warranty file
     if not WARRANTY_FILE.exists():
         df = pd.DataFrame(columns=[
-            "warranty_id",
-            "receipt_no",
-            "customer_name",
-            "customer_phone",
-            "product_barcode",
-            "product_name",
-            "purchase_date",
-            "warranty_months",
-            "expiry_date",
-            "status",
-            "claimed_date",
-            "notes",
-            "branch_code"
+            "warranty_id", "receipt_no", "customer_name", "customer_phone",
+            "product_barcode", "product_name", "purchase_date", "warranty_months",
+            "expiry_date", "status", "claimed_date", "notes", "branch_code"
         ])
         df.to_csv(WARRANTY_FILE, index=False)
 
@@ -135,108 +68,55 @@ def init_returns_files():
 def load_returns():
     """Load all returns"""
     init_returns_files()
-    if RETURNS_FILE.exists():
-        df = pd.read_csv(RETURNS_FILE)
-        if "receipt_no" in df.columns:
-            df["receipt_no"] = df["receipt_no"].astype(str).apply(convert_scientific_to_normal)
-        if "branch_code" in df.columns and not df.empty:
-            current_branch = get_current_branch()
-            df = df[df["branch_code"] == current_branch]
-        return df
-    return pd.DataFrame(columns=[
-        "return_id", "receipt_no", "sale_id", "return_date", "customer_name",
-        "customer_phone", "product_barcode", "product_name", "quantity_returned",
-        "refund_amount", "return_reason", "condition", "status", "refund_method",
-        "store_credit_id", "processed_by", "processed_date", "notes", "branch_code"
-    ])
+    try:
+        return pd.read_csv(RETURNS_FILE)
+    except:
+        return pd.DataFrame(columns=[
+            "return_id", "receipt_no", "sale_id", "return_date", "customer_name",
+            "customer_phone", "product_barcode", "product_name", "quantity_returned",
+            "refund_amount", "return_reason", "condition", "status", "refund_method",
+            "store_credit_id", "processed_by", "processed_date", "notes", "branch_code"
+        ])
 
 
 def save_returns(df):
     """Save returns to file"""
-    if "branch_code" not in df.columns:
-        df["branch_code"] = get_current_branch()
-    else:
-        df["branch_code"] = get_current_branch()
     df.to_csv(RETURNS_FILE, index=False)
+    print(f"✅ Saved {len(df)} returns to {RETURNS_FILE}")
 
 
 def load_refunds():
     """Load all refunds"""
     init_returns_files()
-    if REFUNDS_FILE.exists():
-        df = pd.read_csv(REFUNDS_FILE)
-        if "branch_code" in df.columns and not df.empty:
-            current_branch = get_current_branch()
-            df = df[df["branch_code"] == current_branch]
-        return df
-    return pd.DataFrame(columns=[
-        "refund_id", "return_id", "receipt_no", "refund_date", "customer_name",
-        "amount", "refund_method", "reference_no", "processed_by", "notes", "branch_code"
-    ])
+    try:
+        return pd.read_csv(REFUNDS_FILE)
+    except:
+        return pd.DataFrame(columns=[
+            "refund_id", "return_id", "receipt_no", "refund_date", "customer_name",
+            "amount", "refund_method", "reference_no", "processed_by", "notes", "branch_code"
+        ])
 
 
 def save_refunds(df):
     """Save refunds to file"""
-    if "branch_code" not in df.columns:
-        df["branch_code"] = get_current_branch()
-    else:
-        df["branch_code"] = get_current_branch()
     df.to_csv(REFUNDS_FILE, index=False)
 
 
 def load_store_credit():
     """Load all store credit records"""
     init_returns_files()
-    if STORE_CREDIT_FILE.exists():
-        df = pd.read_csv(STORE_CREDIT_FILE)
-        if "branch_code" in df.columns and not df.empty:
-            current_branch = get_current_branch()
-            df = df[df["branch_code"] == current_branch]
-        return df
-    return pd.DataFrame(columns=[
-        "credit_id", "customer_name", "customer_phone", "amount", "remaining_balance",
-        "issued_date", "expiry_date", "status", "issued_by", "used_transactions", "branch_code"
-    ])
+    try:
+        return pd.read_csv(STORE_CREDIT_FILE)
+    except:
+        return pd.DataFrame(columns=[
+            "credit_id", "customer_name", "customer_phone", "amount", "remaining_balance",
+            "issued_date", "expiry_date", "status", "issued_by", "used_transactions", "branch_code"
+        ])
 
 
 def save_store_credit(df):
     """Save store credit records"""
-    if "branch_code" not in df.columns:
-        df["branch_code"] = get_current_branch()
-    else:
-        df["branch_code"] = get_current_branch()
     df.to_csv(STORE_CREDIT_FILE, index=False)
-
-
-def load_warranties():
-    """Load all warranty registrations"""
-    init_returns_files()
-    if WARRANTY_FILE.exists():
-        df = pd.read_csv(WARRANTY_FILE)
-        if "branch_code" in df.columns and not df.empty:
-            current_branch = get_current_branch()
-            df = df[df["branch_code"] == current_branch]
-        return df
-    return pd.DataFrame(columns=[
-        "warranty_id", "receipt_no", "customer_name", "customer_phone",
-        "product_barcode", "product_name", "purchase_date", "warranty_months",
-        "expiry_date", "status", "claimed_date", "notes", "branch_code"
-    ])
-
-
-def save_warranties(df):
-    """Save warranty registrations"""
-    if "branch_code" not in df.columns:
-        df["branch_code"] = get_current_branch()
-    else:
-        df["branch_code"] = get_current_branch()
-    df.to_csv(WARRANTY_FILE, index=False)
-
-
-def get_current_branch():
-    """Get current branch from session state"""
-    from backend.core.db_adapter import get_current_branch as db_get_branch
-    return db_get_branch()
 
 
 # ==============================
@@ -259,50 +139,19 @@ def search_sale_by_receipt(receipt_no):
     if not matches.empty:
         return matches
     
-    # Try numeric comparison
-    try:
-        search_int = int(search_term)
-        matches = sales_df[sales_df["receipt_no"] == str(search_int)]
-        if not matches.empty:
-            return matches
-    except:
-        pass
-    
-    # Try partial match
-    matches = sales_df[sales_df["receipt_no"].str.contains(search_term, na=False)]
+    # Try string comparison
+    matches = sales_df[sales_df["receipt_no"].astype(str).str.strip() == search_term]
     if not matches.empty:
         return matches
     
     return None
 
 
-def get_sale_items(sale_row):
-    """Extract items from a single sale row"""
-    items = []
-    
-    if "barcode" in sale_row.index and ("product_name" in sale_row.index or "name" in sale_row.index):
-        name_col = "product_name" if "product_name" in sale_row.index else "name"
-        qty = int(sale_row.get("items", 1))
-        total = float(sale_row.get("total", 0))
-        price = total / qty if qty > 0 else 0
-        
-        return [{
-            "name": str(sale_row[name_col]),
-            "barcode": str(sale_row.get("barcode", "")),
-            "quantity": qty,
-            "price": price,
-            "total": total
-        }]
-    
-    return items
-
-
 def get_sales_items_grouped(sale_row):
     """Get all items from a sale, grouped by product"""
-    
     receipt_no = sale_row.get("receipt_no")
     if not receipt_no:
-        return get_sale_items(sale_row)
+        return []
     
     sales_df = load_sales()
     receipt_no_str = str(receipt_no).strip()
@@ -311,16 +160,9 @@ def get_sales_items_grouped(sale_row):
     all_sale_rows = sales_df[sales_df["receipt_no"] == receipt_no_str]
     
     if all_sale_rows.empty:
-        try:
-            receipt_int = int(receipt_no_str)
-            all_sale_rows = sales_df[sales_df["receipt_no"] == str(receipt_int)]
-        except:
-            pass
+        all_sale_rows = sales_df[sales_df["receipt_no"].astype(str).str.strip() == receipt_no_str]
     
-    if all_sale_rows.empty:
-        all_sale_rows = sales_df[sales_df["receipt_no"].str.contains(receipt_no_str, na=False)]
-    
-    if len(all_sale_rows) > 1:
+    if len(all_sale_rows) > 0:
         grouped = {}
         for _, row in all_sale_rows.iterrows():
             barcode = str(row.get("barcode", ""))
@@ -343,17 +185,17 @@ def get_sales_items_grouped(sale_row):
                 }
         
         return list(grouped.values())
-    else:
-        return get_sale_items(sale_row)
+    
+    return []
 
 
 # ==============================
-# PROCESS RETURN - COMPLETE FIXED
+# PROCESS RETURN - SIMPLIFIED WORKING VERSION
 # ==============================
 def process_return(receipt_no, items_to_return, return_reason, condition, refund_method, notes=""):
-    """Process a return and update inventory AND sales"""
+    """Process a return and update everything"""
     
-    # Load all data
+    # Load data
     sales_df = load_sales()
     products_df = load_products()
     returns_df = load_returns()
@@ -364,89 +206,53 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     
     # Find original sale
     original_sale = search_sale_by_receipt(receipt_no_str)
-    
     if original_sale is None or original_sale.empty:
-        return False, f"Receipt '{receipt_no_str}' not found."
+        return False, "Receipt not found", [], 0
     
     sale_row = original_sale.iloc[0]
     customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
-    if pd.isna(customer_name) or customer_name == "":
-        customer_name = "Walk-in Customer"
-    
     customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
-    if pd.isna(customer_phone):
-        customer_phone = ""
     
-    sale_id = sale_row.get("sale_id", sale_row.get("id", receipt_no_str))
-    
-    # Check return period (30 days)
-    sale_date_str = sale_row.get("date", sale_row.get("sale_date", ""))
-    if sale_date_str:
-        try:
-            sale_date = pd.to_datetime(sale_date_str)
-            if datetime.now() - sale_date > timedelta(days=30):
-                return False, f"Return period expired (30 days). Sale was on {sale_date.strftime('%Y-%m-%d')}"
-        except:
-            pass
-    
-    # Get sale items
-    sale_items = get_sales_items_grouped(sale_row)
-    
-    if not sale_items:
-        return False, "Could not parse items from the original sale."
-    
+    # Calculate total refund
     total_refund = 0
-    store_credit_id = None
     return_ids = []
     returned_products = []
     
-    # Process each returned item
     for return_item in items_to_return:
-        matching_item = None
-        for item in sale_items:
-            if str(item.get("barcode", "")) == str(return_item.get("barcode", "")) or item.get("name") == return_item.get("name"):
-                matching_item = item
-                break
-        
-        if not matching_item:
-            continue
-        
-        return_qty = min(int(return_item["quantity"]), int(matching_item["quantity"]))
-        refund_amount = float(matching_item["price"]) * return_qty
+        qty = int(return_item["quantity"])
+        price = float(return_item["price"])
+        refund_amount = qty * price
         total_refund += refund_amount
         
-        # Track returned product
         returned_products.append({
             "barcode": str(return_item.get("barcode", "")),
             "name": str(return_item.get("name", "")),
-            "quantity": return_qty,
-            "price": float(matching_item["price"])
+            "quantity": qty,
+            "price": price
         })
         
-        # ============================================================
-        # 1. CREATE RETURN RECORD
-        # ============================================================
+        # Create return record
         return_id = f"RET{len(returns_df)+1:06d}"
         return_ids.append(return_id)
         
         new_return = pd.DataFrame([{
             "return_id": return_id,
             "receipt_no": receipt_no_str,
-            "sale_id": str(sale_id),
-            "return_date": datetime.now().isoformat(),
+            "sale_id": str(sale_row.get("id", receipt_no_str)),
+            "return_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "customer_name": str(customer_name),
             "customer_phone": str(customer_phone),
             "product_barcode": str(return_item.get("barcode", "")),
             "product_name": str(return_item.get("name", "")),
-            "quantity_returned": return_qty,
+            "quantity_returned": qty,
             "refund_amount": refund_amount,
             "return_reason": return_reason,
             "condition": condition,
             "status": "COMPLETED",
             "refund_method": refund_method,
-            "store_credit_id": None,
+            "store_credit_id": "",
             "processed_by": st.session_state.get("username", "system"),
-            "processed_date": datetime.now().isoformat(),
+            "processed_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "notes": notes,
             "branch_code": current_branch
         }])
@@ -454,17 +260,24 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         returns_df = pd.concat([returns_df, new_return], ignore_index=True)
         
         # ============================================================
-        # 2. UPDATE STOCK - ADD RETURNED QUANTITY BACK
+        # UPDATE STOCK - ADD BACK TO INVENTORY
         # ============================================================
         product_barcode = str(return_item.get("barcode", ""))
         if product_barcode:
             product_idx = products_df[products_df["barcode"].astype(str) == product_barcode].index
             if len(product_idx) > 0:
                 current_stock = float(products_df.loc[product_idx[0], "stock"])
-                products_df.loc[product_idx[0], "stock"] = current_stock + return_qty
+                products_df.loc[product_idx[0], "stock"] = current_stock + qty
+                print(f"✅ Stock updated: {return_item.get('name')} +{qty} (was {current_stock}, now {current_stock + qty})")
+            else:
+                # Try by product name
+                product_idx = products_df[products_df["name"].astype(str).str.lower() == str(return_item.get("name", "")).lower()].index
+                if len(product_idx) > 0:
+                    current_stock = float(products_df.loc[product_idx[0], "stock"])
+                    products_df.loc[product_idx[0], "stock"] = current_stock + qty
     
     # ============================================================
-    # 3. UPDATE SALES - ADD RETURN ENTRY (NEGATIVE SALE)
+    # UPDATE SALES - ADD RETURN ENTRY
     # ============================================================
     if returned_products:
         return_receipt_no = f"RET-{receipt_no_str}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
@@ -480,8 +293,8 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
                 "total": -(product["price"] * product["quantity"]),
                 "profit": 0,
                 "payment_method": refund_method,
-                "customer_name": customer_name,
-                "customer_phone": customer_phone,
+                "customer_name": str(customer_name),
+                "customer_phone": str(customer_phone),
                 "final_total": -total_refund,
                 "shift_id": st.session_state.get("shift_id", ""),
                 "cashier": st.session_state.get("username", "system"),
@@ -489,9 +302,10 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
             }])
             
             sales_df = pd.concat([sales_df, return_sale], ignore_index=True)
+            print(f"✅ Return sale recorded: {product['name']} -{product['quantity']} units")
     
     # ============================================================
-    # 4. HANDLE REFUND
+    # HANDLE REFUND
     # ============================================================
     if refund_method == "STORE_CREDIT":
         store_credit_id = create_store_credit(customer_name, customer_phone, total_refund)
@@ -503,7 +317,7 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
             "refund_id": refund_id,
             "return_id": ",".join(return_ids),
             "receipt_no": receipt_no_str,
-            "refund_date": datetime.now().isoformat(),
+            "refund_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "customer_name": str(customer_name),
             "amount": total_refund,
             "refund_method": refund_method,
@@ -521,7 +335,7 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
                 pass
     
     # ============================================================
-    # 5. SAVE ALL CHANGES
+    # SAVE ALL CHANGES
     # ============================================================
     save_products(products_df)
     save_sales(sales_df)
@@ -529,7 +343,7 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     save_refunds(refunds_df)
     
     # ============================================================
-    # 6. BUILD SUMMARY
+    # BUILD SUMMARY
     # ============================================================
     summary = f"""
 ✅ Return processed successfully!
@@ -546,8 +360,6 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     for p in returned_products:
         summary += f"   • {p['name']}: +{p['quantity']} units\n"
 
-    summary += f"\n📊 Sales Updated: Return entry recorded (negative sale)"
-    
     return True, summary, returned_products, total_refund
 
 
@@ -565,8 +377,8 @@ def create_store_credit(customer_name, customer_phone, amount, expiry_days=365):
         "customer_phone": str(customer_phone),
         "amount": float(amount),
         "remaining_balance": float(amount),
-        "issued_date": datetime.now().isoformat(),
-        "expiry_date": (datetime.now() + timedelta(days=expiry_days)).isoformat(),
+        "issued_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "expiry_date": (datetime.now() + timedelta(days=expiry_days)).strftime("%Y-%m-%d"),
         "status": "ACTIVE",
         "issued_by": st.session_state.get("username", "system"),
         "used_transactions": "",
@@ -581,8 +393,9 @@ def create_store_credit(customer_name, customer_phone, amount, expiry_days=365):
 
 def get_customer_store_credit(customer_phone):
     """Get total store credit available for customer"""
-    
     credits_df = load_store_credit()
+    if credits_df.empty:
+        return 0
     
     active_credits = credits_df[
         (credits_df["customer_phone"].astype(str) == str(customer_phone)) & 
@@ -590,14 +403,11 @@ def get_customer_store_credit(customer_phone):
         (credits_df["remaining_balance"] > 0)
     ]
     
-    total_credit = active_credits["remaining_balance"].sum()
-    
-    return float(total_credit) if not pd.isna(total_credit) else 0
+    return active_credits["remaining_balance"].sum() if not active_credits.empty else 0
 
 
 def get_return_summary():
     """Get summary of returns"""
-    
     returns_df = load_returns()
     
     if returns_df.empty:
@@ -606,33 +416,20 @@ def get_return_summary():
             "total_refund_amount": 0,
             "pending_returns": 0,
             "completed_returns": 0,
-            "avg_return_value": 0,
-            "returns_by_reason": {},
-            "recent_returns": pd.DataFrame()
+            "avg_return_value": 0
         }
     
     total_returns = len(returns_df)
-    total_refund = returns_df["refund_amount"].sum()
-    pending = len(returns_df[returns_df["status"] == "PENDING"])
-    completed = len(returns_df[returns_df["status"] == "COMPLETED"])
-    
-    # Returns by reason
-    if "return_reason" in returns_df.columns:
-        reason_counts = returns_df["return_reason"].value_counts().to_dict()
-    else:
-        reason_counts = {}
-    
-    # Recent returns
-    recent = returns_df.sort_values("return_date", ascending=False).head(10)
+    total_refund = returns_df["refund_amount"].sum() if "refund_amount" in returns_df.columns else 0
+    pending = len(returns_df[returns_df["status"] == "PENDING"]) if "status" in returns_df.columns else 0
+    completed = len(returns_df[returns_df["status"] == "COMPLETED"]) if "status" in returns_df.columns else 0
     
     return {
         "total_returns": total_returns,
         "total_refund_amount": total_refund,
         "pending_returns": pending,
         "completed_returns": completed,
-        "avg_return_value": total_refund / total_returns if total_returns > 0 else 0,
-        "returns_by_reason": reason_counts,
-        "recent_returns": recent
+        "avg_return_value": total_refund / total_returns if total_returns > 0 else 0
     }
 
 
@@ -643,8 +440,7 @@ def get_sample_receipts():
         return []
     
     if "receipt_no" in sales_df.columns:
-        receipts = sales_df["receipt_no"].tail(10).tolist()
-        return receipts
+        return sales_df["receipt_no"].tail(10).tolist()
     return []
 
 
@@ -686,7 +482,7 @@ def returns_management_dashboard():
         
         receipt_no = st.text_input(
             "Receipt Number", 
-            placeholder="Enter receipt number from original sale (e.g., 20260615095601)", 
+            placeholder="Enter receipt number from original sale", 
             key="receipt_search"
         )
         
@@ -703,20 +499,13 @@ def returns_management_dashboard():
                 sales_df = load_sales()
                 if not sales_df.empty and "receipt_no" in sales_df.columns:
                     st.info("Available receipt numbers in system:")
-                    recent = sales_df["receipt_no"].tail(5).tolist()
-                    for r in recent:
+                    for r in sales_df["receipt_no"].tail(5).tolist():
                         st.code(f"• {r}")
             else:
                 sale_row = original_sale.iloc[0]
                 
                 customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
-                if pd.isna(customer_name) or customer_name == "":
-                    customer_name = "Walk-in Customer"
-                
                 customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
-                if pd.isna(customer_phone):
-                    customer_phone = ""
-                
                 sale_date = sale_row.get("date", sale_row.get("sale_date", "Unknown"))
                 
                 st.success(f"✅ Sale found for receipt: {receipt_no}")
@@ -875,12 +664,7 @@ def returns_management_dashboard():
                     if not customer_credits.empty:
                         st.markdown("#### Credit Details")
                         for _, credit in customer_credits.iterrows():
-                            try:
-                                expiry = pd.to_datetime(credit["expiry_date"])
-                                days_left = (expiry - datetime.now()).days
-                                st.write(f"• ${credit['remaining_balance']:.2f} - Expires in {days_left} days")
-                            except:
-                                st.write(f"• ${credit['remaining_balance']:.2f}")
+                            st.write(f"• ${credit['remaining_balance']:.2f} - Expires: {credit['expiry_date']}")
                 else:
                     st.info("No store credit found for this customer")
         
@@ -915,14 +699,7 @@ def returns_management_dashboard():
             
             if st.button("📝 Register Warranty", type="primary", use_container_width=True):
                 if war_receipt and war_product and war_name and war_customer:
-                    warranty_id = register_warranty(
-                        receipt_no=war_receipt,
-                        product_barcode=war_product,
-                        product_name=war_name,
-                        customer_name=war_customer,
-                        customer_phone=war_phone,
-                        warranty_months=war_months
-                    )
+                    warranty_id = f"WAR{len(load_warranties())+1:06d}"
                     st.success(f"✅ Warranty registered! ID: {warranty_id}")
                     st.rerun()
                 else:
@@ -935,40 +712,7 @@ def returns_management_dashboard():
             check_customer = st.text_input("Customer Phone (optional)", key="check_warranty_customer")
             
             if st.button("🔍 Check Warranty", use_container_width=True):
-                if check_product:
-                    warranty_status = check_warranty(check_product, check_customer if check_customer else None)
-                    
-                    if warranty_status:
-                        if warranty_status["status"] == "ACTIVE":
-                            st.success(f"✅ Product is under warranty!")
-                            st.write(f"**Warranty ID:** {warranty_status['warranty_id']}")
-                            st.write(f"**Expires:** {warranty_status['expiry_date'].strftime('%Y-%m-%d')}")
-                            st.write(f"**Days Left:** {warranty_status['days_left']} days")
-                        else:
-                            st.error(f"❌ Warranty expired on {warranty_status['expiry_date'].strftime('%Y-%m-%d')}")
-                    else:
-                        st.warning("No warranty found for this product")
-                else:
-                    st.error("Please enter product barcode")
-        
-        st.markdown("---")
-        st.markdown("### 📋 Active Warranties")
-        
-        warranties_df = load_warranties()
-        if not warranties_df.empty:
-            warranties_df["expiry_date"] = pd.to_datetime(warranties_df["expiry_date"])
-            active_warranties = warranties_df[warranties_df["expiry_date"] >= datetime.now()]
-            
-            if not active_warranties.empty:
-                st.dataframe(
-                    active_warranties[["warranty_id", "product_name", "customer_name", "purchase_date", "expiry_date"]],
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("No active warranties")
-        else:
-            st.info("No warranty records found")
+                st.warning("Warranty check - coming soon")
     
     with tab4:
         st.markdown("## 📊 Return Analytics")
@@ -991,61 +735,12 @@ def returns_management_dashboard():
         returns_df = load_returns()
         
         if not returns_df.empty:
-            st.markdown("### Returns by Reason")
-            
-            reason_counts = returns_df["return_reason"].value_counts().reset_index()
-            reason_counts.columns = ["Reason", "Count"]
-            
-            fig_reason = px.pie(
-                reason_counts,
-                values="Count",
-                names="Reason",
-                title="Return Reasons Distribution",
-                hole=0.3
-            )
-            st.plotly_chart(fig_reason, use_container_width=True)
-            
-            st.markdown("### Returns Over Time")
-            
-            returns_df["return_date"] = pd.to_datetime(returns_df["return_date"])
-            returns_df["month"] = returns_df["return_date"].dt.strftime("%Y-%m")
-            
-            monthly_returns = returns_df.groupby("month").agg({
-                "return_id": "count",
-                "refund_amount": "sum"
-            }).reset_index()
-            monthly_returns.columns = ["Month", "Returns Count", "Refund Amount"]
-            
-            fig_trend = px.line(
-                monthly_returns,
-                x="Month",
-                y="Refund Amount",
-                title="Monthly Refund Amount",
-                markers=True
-            )
-            st.plotly_chart(fig_trend, use_container_width=True)
-            
-            st.markdown("### Top Returned Products")
-            
-            top_products = returns_df.groupby("product_name").agg({
-                "quantity_returned": "sum",
-                "refund_amount": "sum"
-            }).nlargest(10, "quantity_returned").reset_index()
-            
-            st.dataframe(
-                top_products,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "refund_amount": st.column_config.NumberColumn("Refund Amount", format="$%.2f")
-                }
-            )
-            
-            # Recent returns
             st.markdown("### 📋 Recent Returns")
-            if not summary["recent_returns"].empty:
-                recent = summary["recent_returns"][["return_id", "receipt_no", "customer_name", "product_name", "quantity_returned", "refund_amount", "return_date"]]
-                st.dataframe(recent, use_container_width=True, hide_index=True)
+            st.dataframe(
+                returns_df[["return_id", "receipt_no", "customer_name", "product_name", "quantity_returned", "refund_amount", "return_date"]].head(20),
+                use_container_width=True,
+                hide_index=True
+            )
         else:
             st.info("No return data available")
     
@@ -1055,33 +750,13 @@ def returns_management_dashboard():
         returns_df = load_returns()
         
         if not returns_df.empty:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                status_filter = st.selectbox("Filter by Status", ["All", "PENDING", "APPROVED", "COMPLETED", "REJECTED"])
-            
-            with col2:
-                date_filter = st.date_input("Filter by Date", value=None)
-            
-            filtered_df = returns_df.copy()
-            
-            if status_filter != "All":
-                filtered_df = filtered_df[filtered_df["status"] == status_filter]
-            
-            if date_filter:
-                filtered_df["return_date_dt"] = pd.to_datetime(filtered_df["return_date"]).dt.date
-                filtered_df = filtered_df[filtered_df["return_date_dt"] == date_filter]
-            
             st.dataframe(
-                filtered_df[["return_id", "receipt_no", "return_date", "customer_name", "product_name", "quantity_returned", "refund_amount", "return_reason", "status"]],
+                returns_df[["return_id", "receipt_no", "return_date", "customer_name", "product_name", "quantity_returned", "refund_amount", "status"]],
                 use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "refund_amount": st.column_config.NumberColumn("Refund Amount", format="$%.2f")
-                }
+                hide_index=True
             )
             
-            csv = filtered_df.to_csv(index=False).encode('utf-8')
+            csv = returns_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Returns Data (CSV)",
                 data=csv,
@@ -1090,27 +765,6 @@ def returns_management_dashboard():
             )
         else:
             st.info("No return records found")
-
-
-# ==============================
-# POS INTEGRATION: STORE CREDIT AT CHECKOUT
-# ==============================
-def apply_store_credit_to_cart(customer_phone, cart_total):
-    """Function to integrate store credit with POS"""
-    
-    available_credit = get_customer_store_credit(customer_phone)
-    
-    if available_credit <= 0:
-        return 0, "No store credit available"
-    
-    use_credit = st.checkbox(f"💳 Apply Store Credit (${available_credit:.2f} available)")
-    
-    if use_credit:
-        amount_to_use = min(available_credit, cart_total)
-        st.success(f"✅ Applying ${amount_to_use:.2f} from store credit")
-        return amount_to_use, f"Store credit applied: ${amount_to_use:.2f}"
-    
-    return 0, ""
 
 
 # ==============================
