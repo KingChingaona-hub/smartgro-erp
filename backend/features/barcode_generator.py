@@ -322,7 +322,7 @@ def barcode_generator_page():
                 # Generate barcode image
                 barcode_img = generate_barcode_image(product['barcode'])
                 if barcode_img:
-                    st.image(barcode_img, use_container_width=True)
+                    st.image(barcode_img, use_column_width=True)
                     
                     # Download button
                     barcode_data = barcode_img.getvalue()
@@ -452,7 +452,7 @@ Stock: {product['stock']} units
                 # Generate QR code
                 qr_img = generate_qr_code(qr_data.strip())
                 if qr_img:
-                    st.image(qr_img, use_container_width=True)
+                    st.image(qr_img, use_column_width=True)
                     
                     # Download button
                     qr_data_bin = qr_img.getvalue()
