@@ -1,3 +1,4 @@
+# backend/modules/income.py
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -74,7 +75,7 @@ def record_income(income_source, description, amount, user="System"):
 
     save_income(df)
 
-    return True
+    return True, f"Income recorded: ${amount:.2f} - {description}"
 
 
 # ==============================
@@ -96,3 +97,59 @@ def get_monthly_income(month=None):
         df = df[df["date"].dt.strftime("%Y-%m") == current_month]
 
     return df["amount"].sum()
+
+
+# ==============================
+# GET INCOME BY SOURCE
+# ==============================
+def get_income_by_source(month=None):
+    """Get income grouped by source"""
+    df = load_income()
+    
+    if df.empty:
+        return pd.DataFrame()
+    
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    
+    if month:
+        df = df[df["date"].dt.strftime("%Y-%m") == month]
+    else:
+        current_month = datetime.now().strftime("%Y-%m")
+        df = df[df["date"].dt.strftime("%Y-%m") == current_month]
+    
+    source_summary = df.groupby("income_source")["amount"].sum().reset_index()
+    source_summary = source_summary.sort_values("amount", ascending=False)
+    
+    return source_summary
+
+
+# ==============================
+# GET INCOME TREND
+# ==============================
+def get_income_trend(months=12):
+    """Get monthly income trend"""
+    df = load_income()
+    
+    if df.empty:
+        return pd.DataFrame()
+    
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["month"] = df["date"].dt.strftime("%Y-%m")
+    
+    monthly_trend = df.groupby("month")["amount"].sum().reset_index()
+    monthly_trend = monthly_trend.sort_values("month").tail(months)
+    
+    return monthly_trend
+
+
+# ==============================
+# DELETE INCOME
+# ==============================
+def delete_income(index):
+    """Delete an income record by index"""
+    df = load_income()
+    if index in df.index:
+        df = df.drop(index)
+        save_income(df)
+        return True
+    return False
