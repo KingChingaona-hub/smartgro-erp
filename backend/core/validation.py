@@ -18,8 +18,8 @@ PATTERNS = {
     "barcode": r'^[a-zA-Z0-9\-_]{4,50}$',
     "product_name": r'^[a-zA-Z0-9\s\-_\.]{2,200}$',
     "category": r'^[a-zA-Z0-9\s\-_]{2,100}$',
-    "amount": r'^\d+(\.\d{1,2})?$',
-    "quantity": r'^\d+$',
+    "amount": r'^-?\d+(\.\d{1,2})?$',  # Allow negative for returns
+    "quantity": r'^-?\d+$',  # Allow negative for returns
     "branch_code": r'^[A-Z0-9]{2,10}$',
     "receipt_no": r'^[a-zA-Z0-9\-_]{4,50}$',
     "customer_name": r'^[a-zA-Z0-9\s\-_\.]{2,100}$',
@@ -198,13 +198,17 @@ def validate_category(category: str) -> Tuple[bool, str]:
 
 
 def validate_amount(amount: Union[int, float, str]) -> Tuple[bool, float, str]:
-    """Validate amount value"""
+    """
+    Validate amount value.
+    Allows negative values for returns/refunds.
+    """
     try:
         if isinstance(amount, str):
             amount = float(amount)
         
-        if amount < 0:
-            return False, 0, "Amount cannot be negative"
+        # Allow negative amounts for returns/refunds
+        # if amount < 0:
+        #     return False, 0, "Amount cannot be negative"
         
         if amount > 999999999.99:
             return False, 0, "Amount too large"
@@ -218,13 +222,17 @@ def validate_amount(amount: Union[int, float, str]) -> Tuple[bool, float, str]:
 
 
 def validate_quantity(quantity: Union[int, str]) -> Tuple[bool, int, str]:
-    """Validate quantity value"""
+    """
+    Validate quantity value.
+    Allows negative values for returns (stock deduction).
+    """
     try:
         if isinstance(quantity, str):
             quantity = int(quantity)
         
-        if quantity < 0:
-            return False, 0, "Quantity cannot be negative"
+        # Allow negative quantities for returns
+        # if quantity < 0:
+        #     return False, 0, "Quantity cannot be negative"
         
         if quantity > 9999999:
             return False, 0, "Quantity too large"

@@ -109,7 +109,7 @@ def get_default_config():
         "pool_min_conn": 1,
         "pool_max_conn": 10,
         "connect_timeout": 30,
-        "sslmode": sslmode
+        "sslmode": "require"
     }
 
 def load_db_config():
@@ -186,7 +186,7 @@ def get_connection_pool():
                 user=config["user"],
                 password=config["password"],
                 connect_timeout=config.get("connect_timeout", 30),
-                sslmode=config.get("sslmode", "disable")
+                sslmode=config.get("sslmode", "require")
             )
             
             # Test the connection immediately
@@ -559,11 +559,11 @@ def save_products(df, branch_id=None):
         return False
 
 # ==============================
-# SALES FUNCTIONS WITH VALIDATION
+# SALES FUNCTIONS WITH VALIDATION - FIXED FOR RETURNS
 # ==============================
 
 def validate_sale_data(data):
-    """Validate sale data before saving"""
+    """Validate sale data before saving - Allows negative values for returns"""
     errors = {}
     
     # Validate receipt number
@@ -584,37 +584,37 @@ def validate_sale_data(data):
         if not valid:
             errors['name'] = msg
     
-    # Validate items quantity
+    # Validate items quantity - Allow negative for returns
     if 'items' in data:
         valid, qty, msg = validate_quantity(data['items'])
         if not valid:
             errors['items'] = msg
         else:
-            data['items'] = qty
+            data['items'] = qty  # Can be negative for returns
     
-    # Validate total amount
+    # Validate total amount - Allow negative for returns
     if 'total' in data:
         valid, amount, msg = validate_amount(data['total'])
         if not valid:
             errors['total'] = msg
         else:
-            data['total'] = amount
+            data['total'] = amount  # Can be negative for returns
     
-    # Validate profit
+    # Validate profit - Allow negative for returns
     if 'profit' in data:
         valid, amount, msg = validate_amount(data['profit'])
         if not valid:
             errors['profit'] = msg
         else:
-            data['profit'] = amount
+            data['profit'] = amount  # Can be negative for returns
     
-    # Validate final total
+    # Validate final total - Allow negative for returns
     if 'final_total' in data:
         valid, amount, msg = validate_amount(data['final_total'])
         if not valid:
             errors['final_total'] = msg
         else:
-            data['final_total'] = amount
+            data['final_total'] = amount  # Can be negative for returns
     
     # Validate customer name if present
     if 'customer' in data and data['customer']:
@@ -668,7 +668,7 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
     
 def save_sales(df, branch_id=None):
     """
-    Save sales to database with validation
+    Save sales to database with validation - Allows negative values for returns
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -682,11 +682,11 @@ def save_sales(df, branch_id=None):
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df['date'] = df['date'].fillna(datetime.now())
     
-    # Replace NaN values with defaults for numeric columns
+    # Replace NaN values with defaults for numeric columns (allow negative)
     numeric_cols = ['items', 'total', 'profit', 'final_total']
     for col in numeric_cols:
         if col in df.columns:
-            df[col] = df[col].fillna(0)
+            df[col] = df[col].fillna(0)  # Keep negative values, don't convert to positive
     
     # Replace NaN values with empty string for string columns
     string_cols = ['receipt_no', 'barcode', 'name', 'payment_method', 'customer', 
@@ -729,6 +729,13 @@ def save_sales(df, branch_id=None):
                 shift_id = str(clean_data.get('shift_id', ''))
                 if not shift_id and active_shift_id:
                     shift_id = str(active_shift_id)
+                
+                # Check if this is a return (negative items or negative total)
+                is_return = False
+                if 'items' in clean_data and clean_data['items'] < 0:
+                    is_return = True
+                if 'total' in clean_data and clean_data['total'] < 0:
+                    is_return = True
                 
                 cur.execute("""
                     INSERT INTO sales (branch_id, sale_date, receipt_no, barcode, product_name, 
