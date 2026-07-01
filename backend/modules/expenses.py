@@ -1,3 +1,4 @@
+# backend/modules/expenses.py
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -187,13 +188,10 @@ def save_recurring_expenses(df):
 # ==============================
 # RECORD EXPENSE
 # ==============================
-# In expenses.py, update the record_expense function:
-
 def record_expense(expense_type, category, description, amount, vendor="", 
                    payment_method="CASH", user="System", notes=""):
     df = load_expenses()
 
-    # Ensure amount is a float
     try:
         amount_float = float(amount)
     except (ValueError, TypeError):
@@ -214,13 +212,74 @@ def record_expense(expense_type, category, description, amount, vendor="",
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_expenses(df)
 
-    # Update budget actuals (if function exists)
     try:
         update_budget_actuals(category, amount_float)
     except:
         pass
 
-    return True
+    return True, f"Expense recorded: ${amount_float:.2f} - {description}"
+
+
+# ==============================
+# DELETE EXPENSE - FIXED
+# ==============================
+def delete_expense_by_id(date_str, category, amount, description=""):
+    """Delete an expense record by its unique combination of fields"""
+    try:
+        df = load_expenses()
+        
+        if df.empty:
+            return False
+        
+        # Convert date string to match format in dataframe
+        df["date_short"] = df["date"].str[:16]
+        search_date = date_str[:16]
+        
+        # Find matching records
+        mask = (
+            (df["date_short"] == search_date) & 
+            (df["category"] == category) & 
+            (abs(df["amount"] - float(amount)) < 0.01)
+        )
+        
+        if description:
+            mask = mask & (df["description"] == description)
+        
+        matching_indices = df[mask].index.tolist()
+        
+        if not matching_indices:
+            return False
+        
+        df = df.drop(matching_indices[0])
+        df = df.drop(columns=["date_short"], errors="ignore")
+        df = df.reset_index(drop=True)
+        save_expenses(df)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error deleting expense: {e}")
+        return False
+
+
+# ==============================
+# DELETE EXPENSE BY INDEX (Legacy)
+# ==============================
+def delete_expense(index):
+    """Delete an expense record by index"""
+    try:
+        df = load_expenses()
+        
+        if index in df.index:
+            df = df.drop(index)
+            df = df.reset_index(drop=True)
+            save_expenses(df)
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f"Error deleting expense: {e}")
+        return False
 
 
 # ==============================
@@ -445,11 +504,9 @@ def get_monthly_trend(months=12):
     if df.empty:
         return pd.DataFrame()
 
-    # Filter last N months
     cutoff = datetime.now() - pd.DateOffset(months=months)
     df = df[df["date"] >= cutoff]
 
-    # Group by month
     df["year_month"] = df["date"].dt.strftime("%Y-%m")
     monthly_trend = df.groupby("year_month")["amount"].sum().reset_index()
     monthly_trend.columns = ["Month", "Total Expenses"]
