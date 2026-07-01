@@ -13,7 +13,7 @@ from backend.modules.expenses import (
 
 
 def expenses_page():
-    """Expenses Management Page - FIXED: No infinite loop, proper delete"""
+    """Expenses Management Page - FIXED: No infinite loop, proper delete, unique keys"""
     
     st.title("💸 Business Expenses")
     st.caption("Record and track all business expenses")
@@ -158,7 +158,7 @@ def expenses_page():
         )
         
         # ==============================
-        # DELETE RECORD - FIXED
+        # DELETE RECORD - FIXED with unique keys
         # ==============================
         with st.expander("🗑️ Delete Expense Record"):
             st.warning("⚠️ This action cannot be undone")
@@ -189,7 +189,7 @@ def expenses_page():
                 selected_record = st.selectbox(
                     "Select Record to Delete", 
                     record_options, 
-                    key="delete_select"
+                    key="delete_select_expense"  # UNIQUE KEY
                 )
                 
                 if selected_record:
@@ -206,7 +206,7 @@ def expenses_page():
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("🗑️ Confirm Delete", type="secondary", use_container_width=True):
+                        if st.button("🗑️ Confirm Delete", type="secondary", use_container_width=True, key="confirm_delete_expense"):
                             success = delete_expense_by_id(
                                 date_str=record_to_delete["date"],
                                 category=record_to_delete["category"],
@@ -223,7 +223,7 @@ def expenses_page():
                                 st.error("❌ Failed to delete record. Please try the alternative method below.")
                     
                     with col2:
-                        if st.button("❌ Cancel", use_container_width=True):
+                        if st.button("❌ Cancel", use_container_width=True, key="cancel_delete_expense"):
                             st.info("Deletion cancelled")
                 
                 # ==============================
@@ -243,7 +243,7 @@ def expenses_page():
                     selected_index_record = st.selectbox(
                         "Select Record by Row Number", 
                         index_options, 
-                        key="delete_index_select"
+                        key="delete_index_select_expense"  # UNIQUE KEY
                     )
                     
                     if selected_index_record:
@@ -254,7 +254,7 @@ def expenses_page():
                         
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.button("🗑️ Delete by Index", type="secondary", use_container_width=True):
+                            if st.button("🗑️ Delete by Index", type="secondary", use_container_width=True, key="confirm_delete_index_expense"):
                                 success = delete_expense(actual_idx)
                                 if success:
                                     st.success("✅ Expense record deleted successfully!")
@@ -263,7 +263,7 @@ def expenses_page():
                                     st.error("❌ Failed to delete record")
                         
                         with col2:
-                            if st.button("❌ Cancel", use_container_width=True):
+                            if st.button("❌ Cancel", use_container_width=True, key="cancel_delete_index_expense"):
                                 st.info("Deletion cancelled")
         
         # Export
@@ -274,7 +274,8 @@ def expenses_page():
             data=csv,
             file_name=f"expenses_data_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
+            key="download_expenses_csv"  # UNIQUE KEY
         )
     else:
         st.info("No expenses recorded yet.")
