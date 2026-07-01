@@ -1,3 +1,4 @@
+# backend/modules/expenses_dashboard.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -20,10 +21,41 @@ from backend.modules.expenses import (
 
 
 def expenses_dashboard():
-    """Enhanced Expenses Dashboard with Budgeting and Analytics"""
+    """Enhanced Expenses Dashboard with Budgeting and Analytics - FIXED: No infinite loops"""
     
     st.title("📊 Expenses Management Dashboard")
     st.caption("Track spending, manage budgets, and control costs")
+    
+    # ==============================
+    # SESSION STATE INIT
+    # ==============================
+    if "dashboard_expense_recorded" not in st.session_state:
+        st.session_state.dashboard_expense_recorded = False
+    if "dashboard_expense_message" not in st.session_state:
+        st.session_state.dashboard_expense_message = ""
+    if "dashboard_expense_success" not in st.session_state:
+        st.session_state.dashboard_expense_success = False
+    if "dashboard_category_added" not in st.session_state:
+        st.session_state.dashboard_category_added = False
+    if "dashboard_category_message" not in st.session_state:
+        st.session_state.dashboard_category_message = ""
+
+    # ==============================
+    # DISPLAY MESSAGES FROM SESSION STATE
+    # ==============================
+    if st.session_state.dashboard_expense_success and st.session_state.dashboard_expense_message:
+        st.success(f"✅ {st.session_state.dashboard_expense_message}")
+        st.balloons()
+        st.session_state.dashboard_expense_success = False
+        st.session_state.dashboard_expense_message = ""
+    
+    if st.session_state.dashboard_category_added and st.session_state.dashboard_category_message:
+        st.success(f"✅ {st.session_state.dashboard_category_message}")
+        st.session_state.dashboard_category_added = False
+        st.session_state.dashboard_category_message = ""
+
+    # Load categories
+    categories = load_expense_categories()
     
     # ==============================
     # EXPENSE TABS
@@ -37,54 +69,82 @@ def expenses_dashboard():
     ])
     
     # ==============================
-    # TAB 1: RECORD EXPENSE
+    # TAB 1: RECORD EXPENSE - FIXED
     # ==============================
     with tab1:
         st.markdown("## 📝 Record New Expense")
         
-        categories = load_expense_categories()
+        with st.form(key="dashboard_expense_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                expense_type = st.selectbox("Expense Type", ["Operational", "Capital", "Recurring", "One-time"], key="dash_exp_type")
+                category = st.selectbox("Category", categories, key="dash_exp_category")
+                description = st.text_input("Description *", key="dash_exp_desc")
+            
+            with col2:
+                amount = st.number_input("Amount ($) *", min_value=0.01, step=10.0, value=0.01, key="dash_exp_amount")
+                vendor = st.text_input("Vendor/Supplier", key="dash_exp_vendor", placeholder="e.g., Econet, ZESA...")
+                payment_method = st.selectbox("Payment Method", ["CASH", "BANK TRANSFER", "CARD", "ECOCASH"], key="dash_exp_payment")
+            
+            notes = st.text_area("Notes", key="dash_exp_notes", placeholder="Additional details...")
+            
+            submitted = st.form_submit_button("💰 Record Expense", type="primary", use_container_width=True)
+            
+            if submitted:
+                if description and amount > 0:
+                    success, message = record_expense(
+                        expense_type=expense_type,
+                        category=category,
+                        description=description,
+                        amount=amount,
+                        vendor=vendor,
+                        payment_method=payment_method,
+                        user=st.session_state.get("username", "System"),
+                        notes=notes
+                    )
+                    if success:
+                        st.session_state.dashboard_expense_success = True
+                        st.session_state.dashboard_expense_message = message
+                        st.success(f"✅ {message}")
+                        st.balloons()
+                    else:
+                        st.error(f"❌ Failed to record expense: {message}")
+                else:
+                    st.error("Please enter description and amount")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            expense_type = st.selectbox("Expense Type", ["Operational", "Capital", "Recurring", "One-time"], key="exp_type")
-            category = st.selectbox("Category", categories, key="exp_category")
-            description = st.text_input("Description *", key="exp_desc")
-            amount = st.number_input("Amount ($) *", min_value=0.01, step=10.0, key="exp_amount")
-        
-        with col2:
-            vendor = st.text_input("Vendor/Supplier", key="exp_vendor", placeholder="e.g., Econet, ZESA...")
-            payment_method = st.selectbox("Payment Method", ["CASH", "BANK TRANSFER", "CARD", "ECOCASH"], key="exp_payment")
-            department = st.selectbox("Department/Cost Center", ["General", "Sales", "Operations", "Admin"], key="exp_dept")
-            notes = st.text_area("Notes", key="exp_notes", placeholder="Additional details...")
-        
-        # Add new category option
+        # ==============================
+        # ADD NEW CATEGORY - FIXED (No infinite loop)
+        # ==============================
         with st.expander("➕ Add New Category"):
-            new_category = st.text_input("New Category Name", key="new_category")
-            if st.button("Add Category", key="add_category_btn"):
-                if new_category:
-                    add_expense_category(new_category)
-                    st.success(f"Category '{new_category}' added!")
-                    st.rerun()
-        
-        if st.button("💰 Record Expense", type="primary", use_container_width=True):
-            if description and amount > 0:
-                record_expense(
-                    expense_type=expense_type,
-                    category=category,
-                    description=description,
-                    amount=amount,
-                    vendor=vendor,
-                    payment_method=payment_method,
-                    department=department,
-                    notes=notes,
-                    user=st.session_state.get("username", "System")
+            with st.form(key="dashboard_add_category_form", clear_on_submit=True):
+                new_category = st.text_input(
+                    "New Category Name", 
+                    key="dash_new_category_input",
+                    placeholder="Enter new category name..."
                 )
-                st.balloons()
-                st.success(f"✅ Expense recorded: ${amount:.2f} - {description}")
-                st.rerun()
-            else:
-                st.error("Please enter description and amount")
+                
+                add_category_submitted = st.form_submit_button(
+                    "➕ Add Category", 
+                    type="primary",
+                    use_container_width=True
+                )
+                
+                if add_category_submitted:
+                    if new_category and new_category.strip():
+                        if new_category.strip() not in categories:
+                            success = add_expense_category(new_category.strip())
+                            if success:
+                                st.session_state.dashboard_category_added = True
+                                st.session_state.dashboard_category_message = f"Category '{new_category.strip()}' added successfully!"
+                                st.success(f"✅ Category '{new_category.strip()}' added!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to add category. Please try again.")
+                        else:
+                            st.warning(f"⚠️ Category '{new_category.strip()}' already exists!")
+                    else:
+                        st.error("❌ Please enter a category name")
     
     # ==============================
     # TAB 2: BUDGET VS ACTUAL
@@ -102,13 +162,18 @@ def expenses_dashboard():
         # Budget input section
         st.markdown("### 🎯 Set Budget")
         
-        categories = load_expense_categories()
-        selected_cat = st.selectbox("Select Category", categories, key="budget_cat")
-        budget_amount = st.number_input("Budget Amount ($)", min_value=0.0, step=100.0, key="budget_amount_input")
-        
-        if st.button("Set Budget", key="set_budget_btn"):
-            set_budget(budget_year, budget_month, selected_cat, budget_amount)
-            st.success(f"Budget set for {selected_cat}: ${budget_amount:.2f}")
+        with st.form(key="set_budget_form", clear_on_submit=True):
+            selected_cat = st.selectbox("Select Category", categories, key="budget_cat")
+            budget_amount = st.number_input("Budget Amount ($)", min_value=0.0, step=100.0, key="budget_amount_input")
+            
+            set_budget_submitted = st.form_submit_button("Set Budget", type="primary", use_container_width=True)
+            
+            if set_budget_submitted:
+                if budget_amount > 0:
+                    set_budget(budget_year, budget_month, selected_cat, budget_amount)
+                    st.success(f"✅ Budget set for {selected_cat}: ${budget_amount:.2f}")
+                else:
+                    st.error("Please enter a budget amount greater than 0")
         
         st.markdown("---")
         
@@ -268,37 +333,42 @@ def expenses_dashboard():
         
         # Create recurring expense
         with st.expander("➕ Add Recurring Expense", expanded=True):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                rec_description = st.text_input("Description", key="rec_desc")
-                rec_category = st.selectbox("Category", load_expense_categories(), key="rec_cat")
-                rec_amount = st.number_input("Amount ($)", min_value=0.01, step=10.0, key="rec_amount")
-            
-            with col2:
-                rec_frequency = st.selectbox("Frequency", ["Monthly", "Weekly", "Quarterly", "Yearly"], key="rec_freq")
-                rec_day = st.number_input("Day of Month", min_value=1, max_value=28, value=1, key="rec_day")
-                rec_vendor = st.text_input("Vendor", key="rec_vendor")
-                rec_notes = st.text_area("Notes", key="rec_notes")
-            
-            if st.button("💾 Save Recurring Expense", key="save_recurring"):
-                if rec_description and rec_amount > 0:
-                    add_recurring_expense(
-                        description=rec_description,
-                        category=rec_category,
-                        amount=rec_amount,
-                        frequency=rec_frequency,
-                        day_of_month=rec_day,
-                        vendor=rec_vendor,
-                        notes=rec_notes
-                    )
-                    st.success(f"Recurring expense '{rec_description}' added!")
-                    st.rerun()
+            with st.form(key="add_recurring_form", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    rec_description = st.text_input("Description", key="rec_desc")
+                    rec_category = st.selectbox("Category", categories, key="rec_cat")
+                    rec_amount = st.number_input("Amount ($)", min_value=0.01, step=10.0, value=0.01, key="rec_amount")
+                
+                with col2:
+                    rec_frequency = st.selectbox("Frequency", ["Monthly", "Weekly", "Quarterly", "Yearly"], key="rec_freq")
+                    rec_day = st.number_input("Day of Month", min_value=1, max_value=28, value=1, key="rec_day")
+                    rec_vendor = st.text_input("Vendor", key="rec_vendor")
+                    rec_notes = st.text_area("Notes", key="rec_notes")
+                
+                submitted_recurring = st.form_submit_button("💾 Save Recurring Expense", type="primary", use_container_width=True)
+                
+                if submitted_recurring:
+                    if rec_description and rec_amount > 0:
+                        add_recurring_expense(
+                            description=rec_description,
+                            category=rec_category,
+                            amount=rec_amount,
+                            frequency=rec_frequency,
+                            day_of_month=rec_day,
+                            vendor=rec_vendor,
+                            notes=rec_notes
+                        )
+                        st.success(f"✅ Recurring expense '{rec_description}' added!")
+                        st.rerun()
+                    else:
+                        st.error("Please enter description and amount")
         
         # Process recurring expenses button
         st.markdown("---")
         
-        if st.button("🔄 Process Due Recurring Expenses", key="process_recurring"):
+        if st.button("🔄 Process Due Recurring Expenses", key="process_recurring_btn"):
             processed = process_recurring_expenses()
             if processed:
                 st.success(f"✅ Processed {len(processed)} recurring expenses: {', '.join(processed)}")
@@ -306,7 +376,6 @@ def expenses_dashboard():
                 st.info("No recurring expenses due today")
         
         # Display existing recurring expenses
-        from backend.modules.expenses import load_recurring_expenses
         recurring_df = load_recurring_expenses()
         
         if not recurring_df.empty:
@@ -332,13 +401,13 @@ def expenses_dashboard():
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                search_term = st.text_input("Search", placeholder="Description, vendor...", key="search_expenses")
+                search_term = st.text_input("Search", placeholder="Description, vendor...", key="search_expenses_dash")
             
             with col2:
-                cat_filter = st.selectbox("Category", ["All"] + load_expense_categories(), key="cat_filter")
+                cat_filter = st.selectbox("Category", ["All"] + categories, key="cat_filter_dash")
             
             with col3:
-                sort_by = st.selectbox("Sort By", ["Date (Newest)", "Amount (Highest)", "Amount (Lowest)"], key="sort_expenses")
+                sort_by = st.selectbox("Sort By", ["Date (Newest)", "Amount (Highest)", "Amount (Lowest)"], key="sort_expenses_dash")
             
             filtered_df = expenses_df.copy()
             
@@ -374,7 +443,8 @@ def expenses_dashboard():
                 label="📥 Download Expenses (CSV)",
                 data=csv,
                 file_name=f"expenses_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="download_expenses_dash"
             )
         else:
             st.info("No expenses recorded yet")
