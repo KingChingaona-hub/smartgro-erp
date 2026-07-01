@@ -456,17 +456,12 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
                     movement_type = "WRITE_OFF"
                     stock_reason = f"Write-off: {condition} from receipt {receipt_no}"
                     
-                    # Don't add to stock
-                    # Stock remains unchanged
-                    
                 elif condition.lower() in ["new", "unused", "like new"]:
-                    # GOOD CONDITION - Add back to stock
                     products_df.loc[product_idx[0], "stock"] = current_stock + qty
                     movement_type = "RETURN_STOCK"
                     stock_reason = f"Returned from receipt {receipt_no} - Condition: {condition}"
                     
                 else:
-                    # Default - Add back to stock for other conditions
                     products_df.loc[product_idx[0], "stock"] = current_stock + qty
                     movement_type = "RETURN_STOCK"
                     stock_reason = f"Returned from receipt {receipt_no} - Condition: {condition}"
@@ -507,15 +502,12 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
         
         # Handle refund
         if refund_method == "STORE_CREDIT":
-            # Check if store credit already exists for this customer
             existing_credit = check_existing_store_credit(customer_phone, customer_name)
             
             if existing_credit:
-                # Update existing credit
                 credit_id = update_store_credit(existing_credit, total_refund)
                 credit_msg = f"Updated existing credit {credit_id} (+${total_refund:.2f})"
             else:
-                # Create new credit
                 credit_id = create_store_credit(customer_name, customer_phone, total_refund)
                 credit_msg = f"Created new credit {credit_id} for ${total_refund:.2f}"
             
@@ -552,14 +544,12 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
         save_returns(returns_df)
         save_refunds(refunds_df)
         
-        # Build summary with write-off info
         summary = "Return processed successfully!\n\n"
         summary += f"📋 Receipt: {receipt_no}\n"
         summary += f"👤 Customer: {customer_name}\n"
         summary += f"💰 Total Refund: ${total_refund:.2f}\n"
         summary += f"📦 Refund Method: {refund_method}\n\n"
         
-        # Check if any items were written off
         written_off = [p for p in returned_products if any(
             item.get("condition", "").lower() in ["expired", "damaged", "broken", "faulty", "write-off"]
             for item in items if item.get("barcode") == p["barcode"]
@@ -1041,39 +1031,42 @@ def render_store_credit_tab():
     with col1:
         st.markdown("### Issue Store Credit")
         
-        customer = st.text_input("Customer Name", key="sc_name")
-        phone = st.text_input("Customer Phone", key="sc_phone")
-        amount = st.number_input("Credit Amount ($)", min_value=0.01, step=10.0, key="sc_amount")
-        expiry = st.number_input("Expiry (days)", min_value=1, max_value=730, value=365, key="sc_expiry")
-        notes = st.text_area("Notes", key="sc_notes")
-        
-        # Check if customer already has credit
-        if phone:
-            existing = check_existing_store_credit(phone, customer)
-            if existing:
-                st.info(f"ℹ️ Customer already has active store credit: {existing}")
-        
-        if st.button("💰 Issue Store Credit", type="primary", use_container_width=True):
-            if customer and phone and amount > 0:
-                # Check for existing credit first
+        # Use a form to prevent duplicate submissions
+        with st.form(key="store_credit_form"):
+            customer = st.text_input("Customer Name", key="sc_name")
+            phone = st.text_input("Customer Phone", key="sc_phone")
+            amount = st.number_input("Credit Amount ($)", min_value=0.01, step=10.0, key="sc_amount")
+            expiry = st.number_input("Expiry (days)", min_value=1, max_value=730, value=365, key="sc_expiry")
+            notes = st.text_area("Notes", key="sc_notes")
+            
+            # Check if customer already has credit
+            if phone:
                 existing = check_existing_store_credit(phone, customer)
-                
                 if existing:
-                    credit_id = update_store_credit(existing, amount)
-                    if credit_id:
-                        st.success(f"✅ Store credit updated! ID: {credit_id} (+${amount:.2f})")
-                        st.rerun()
+                    st.info(f"ℹ️ Customer already has active store credit: {existing}")
+            
+            submitted = st.form_submit_button("💰 Issue Store Credit", type="primary", use_container_width=True)
+            
+            if submitted:
+                if customer and phone and amount > 0:
+                    existing = check_existing_store_credit(phone, customer)
+                    
+                    if existing:
+                        credit_id = update_store_credit(existing, amount)
+                        if credit_id:
+                            st.success(f"✅ Store credit updated! ID: {credit_id} (+${amount:.2f})")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to update store credit")
                     else:
-                        st.error("❌ Failed to update store credit")
+                        credit_id = create_store_credit(customer, phone, amount, expiry)
+                        if credit_id:
+                            st.success(f"✅ Store credit issued! ID: {credit_id}")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to issue store credit")
                 else:
-                    credit_id = create_store_credit(customer, phone, amount, expiry)
-                    if credit_id:
-                        st.success(f"✅ Store credit issued! ID: {credit_id}")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to issue store credit")
-            else:
-                st.error("Please fill all required fields")
+                    st.error("Please fill all required fields")
     
     with col2:
         st.markdown("### Check Store Credit Balance")
@@ -1095,8 +1088,9 @@ def render_store_credit_tab():
                 
                 if not customer_credits.empty:
                     st.markdown("#### Credit Details")
-                    for _, credit in customer_credits.iterrows():
-                        st.write(f"• ${credit['remaining_balance']:.2f} - Expires: {credit['expiry_date']}")
+                    with st.container():
+                        for _, credit in customer_credits.iterrows():
+                            st.write(f"• ${credit['remaining_balance']:.2f} - Expires: {credit['expiry_date']}")
             else:
                 st.info("No active store credit found")
     
