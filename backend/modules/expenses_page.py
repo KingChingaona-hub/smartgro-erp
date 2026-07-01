@@ -8,12 +8,13 @@ from backend.modules.expenses import (
     get_monthly_expenses, 
     load_expense_categories,
     delete_expense_by_id,
-    delete_expense
+    delete_expense,
+    add_expense_category
 )
 
 
 def expenses_page():
-    """Expenses Management Page - FIXED: No infinite loop, proper delete, unique keys"""
+    """Expenses Management Page - FIXED: No infinite loops, proper category management"""
     
     st.title("💸 Business Expenses")
     st.caption("Record and track all business expenses")
@@ -27,6 +28,10 @@ def expenses_page():
         st.session_state.expense_message = ""
     if "expense_success" not in st.session_state:
         st.session_state.expense_success = False
+    if "category_added" not in st.session_state:
+        st.session_state.category_added = False
+    if "category_message" not in st.session_state:
+        st.session_state.category_message = ""
 
     # ==============================
     # DISPLAY MESSAGES FROM SESSION STATE
@@ -36,13 +41,21 @@ def expenses_page():
         st.balloons()
         st.session_state.expense_success = False
         st.session_state.expense_message = ""
+    
+    if st.session_state.category_added and st.session_state.category_message:
+        st.success(f"✅ {st.session_state.category_message}")
+        st.session_state.category_added = False
+        st.session_state.category_message = ""
+
+    # ==============================
+    # LOAD CATEGORIES
+    # ==============================
+    categories = load_expense_categories()
 
     # ==============================
     # INPUT FORM
     # ==============================
     st.subheader("➕ Record Expense")
-    
-    categories = load_expense_categories()
     
     with st.form(key="expense_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -118,6 +131,39 @@ def expenses_page():
                 st.error("Please enter description and amount")
 
     # ==============================
+    # ADD NEW CATEGORY - FIXED (No infinite loop)
+    # ==============================
+    with st.expander("➕ Add New Category"):
+        with st.form(key="add_category_form", clear_on_submit=True):
+            new_category = st.text_input(
+                "New Category Name", 
+                key="new_category_input",
+                placeholder="Enter new category name..."
+            )
+            
+            add_category_submitted = st.form_submit_button(
+                "➕ Add Category", 
+                type="primary",
+                use_container_width=True
+            )
+            
+            if add_category_submitted:
+                if new_category and new_category.strip():
+                    if new_category.strip() not in categories:
+                        success = add_expense_category(new_category.strip())
+                        if success:
+                            st.session_state.category_added = True
+                            st.session_state.category_message = f"Category '{new_category.strip()}' added successfully!"
+                            st.success(f"✅ Category '{new_category.strip()}' added!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to add category. Please try again.")
+                    else:
+                        st.warning(f"⚠️ Category '{new_category.strip()}' already exists!")
+                else:
+                    st.error("❌ Please enter a category name")
+
+    # ==============================
     # SUMMARY
     # ==============================
     st.markdown("---")
@@ -189,7 +235,7 @@ def expenses_page():
                 selected_record = st.selectbox(
                     "Select Record to Delete", 
                     record_options, 
-                    key="delete_select_expense"  # UNIQUE KEY
+                    key="delete_select_expense"
                 )
                 
                 if selected_record:
@@ -243,7 +289,7 @@ def expenses_page():
                     selected_index_record = st.selectbox(
                         "Select Record by Row Number", 
                         index_options, 
-                        key="delete_index_select_expense"  # UNIQUE KEY
+                        key="delete_index_select_expense"
                     )
                     
                     if selected_index_record:
@@ -275,7 +321,7 @@ def expenses_page():
             file_name=f"expenses_data_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
             use_container_width=True,
-            key="download_expenses_csv"  # UNIQUE KEY
+            key="download_expenses_csv"
         )
     else:
         st.info("No expenses recorded yet.")
