@@ -223,7 +223,7 @@ def record_expense(expense_type, category, description, amount, vendor="",
 # ==============================
 # DELETE EXPENSE - FIXED
 # ==============================
-def delete_expense_by_id(date_str, category, amount, description=""):
+def delete_expense_by_id(date_str, category, amount, description="", expense_type="", vendor=""):
     """Delete an expense record by its unique combination of fields"""
     try:
         df = load_expenses()
@@ -235,21 +235,39 @@ def delete_expense_by_id(date_str, category, amount, description=""):
         df["date_short"] = df["date"].str[:16]
         search_date = date_str[:16]
         
-        # Find matching records
+        # Build matching criteria
         mask = (
             (df["date_short"] == search_date) & 
             (df["category"] == category) & 
             (abs(df["amount"] - float(amount)) < 0.01)
         )
         
+        # Add optional filters if provided
         if description:
-            mask = mask & (df["description"] == description)
+            mask = mask & (df["description"].str.contains(description[:20], case=False, na=False))
+        
+        if expense_type:
+            mask = mask & (df["expense_type"] == expense_type)
+        
+        if vendor:
+            mask = mask & (df["vendor"].str.contains(vendor[:20], case=False, na=False))
         
         matching_indices = df[mask].index.tolist()
         
         if not matching_indices:
-            return False
+            # Try a more lenient match - just by date, category and amount
+            mask_lenient = (
+                (df["date_short"] == search_date) & 
+                (df["category"] == category) & 
+                (abs(df["amount"] - float(amount)) < 0.01)
+            )
+            matching_indices = df[mask_lenient].index.tolist()
+            
+            if not matching_indices:
+                print(f"No matching expense found for {search_date} - {category} - ${amount}")
+                return False
         
+        # Delete the first matching record
         df = df.drop(matching_indices[0])
         df = df.drop(columns=["date_short"], errors="ignore")
         df = df.reset_index(drop=True)
@@ -263,19 +281,26 @@ def delete_expense_by_id(date_str, category, amount, description=""):
 
 
 # ==============================
-# DELETE EXPENSE BY INDEX (Legacy)
+# DELETE EXPENSE BY INDEX - FIXED
 # ==============================
 def delete_expense(index):
     """Delete an expense record by index"""
     try:
         df = load_expenses()
         
+        # Check if index exists
         if index in df.index:
+            # Get the record for logging
+            record = df.loc[index]
+            print(f"Deleting expense: {record['date']} - {record['category']} - ${record['amount']}")
+            
+            # Drop the record
             df = df.drop(index)
             df = df.reset_index(drop=True)
             save_expenses(df)
             return True
         else:
+            print(f"Index {index} not found in expenses dataframe")
             return False
     except Exception as e:
         print(f"Error deleting expense: {e}")

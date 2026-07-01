@@ -13,7 +13,7 @@ from backend.modules.expenses import (
 
 
 def expenses_page():
-    """Expenses Management Page - FIXED: No infinite loop"""
+    """Expenses Management Page - FIXED: No infinite loop, proper delete"""
     
     st.title("💸 Business Expenses")
     st.caption("Record and track all business expenses")
@@ -158,12 +158,15 @@ def expenses_page():
         )
         
         # ==============================
-        # DELETE RECORD
+        # DELETE RECORD - FIXED
         # ==============================
         with st.expander("🗑️ Delete Expense Record"):
             st.warning("⚠️ This action cannot be undone")
             
             if not df.empty:
+                # Method 1: Delete by selection
+                st.markdown("### Select Record to Delete")
+                
                 record_options = []
                 record_data = []
                 
@@ -171,14 +174,16 @@ def expenses_page():
                 
                 for idx, row in df_sorted_for_select.iterrows():
                     date_str = pd.to_datetime(row["date"]).strftime("%Y-%m-%d %H:%M")
-                    display_text = f"{date_str} - {row['category']} - ${row['amount']:.2f}"
+                    display_text = f"{date_str} - {row['category']} - {row['description'][:20]}... - ${row['amount']:.2f}"
                     record_options.append(display_text)
                     
                     record_data.append({
                         "date": row["date"],
                         "category": row["category"],
                         "amount": row["amount"],
-                        "description": row.get("description", "")
+                        "description": row.get("description", ""),
+                        "expense_type": row.get("expense_type", ""),
+                        "vendor": row.get("vendor", "")
                     })
                 
                 selected_record = st.selectbox(
@@ -191,7 +196,13 @@ def expenses_page():
                     selected_idx = record_options.index(selected_record)
                     record_to_delete = record_data[selected_idx]
                     
-                    st.info(f"⚠️ You are about to delete: {selected_record}")
+                    st.info(f"""
+                    ⚠️ **You are about to delete:**
+                    - Date: {pd.to_datetime(record_to_delete['date']).strftime('%Y-%m-%d %H:%M')}
+                    - Category: {record_to_delete['category']}
+                    - Amount: ${record_to_delete['amount']:.2f}
+                    - Description: {record_to_delete['description'][:50]}
+                    """)
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -200,18 +211,60 @@ def expenses_page():
                                 date_str=record_to_delete["date"],
                                 category=record_to_delete["category"],
                                 amount=record_to_delete["amount"],
-                                description=record_to_delete["description"]
+                                description=record_to_delete["description"],
+                                expense_type=record_to_delete["expense_type"],
+                                vendor=record_to_delete["vendor"]
                             )
                             
                             if success:
                                 st.success("✅ Expense record deleted successfully!")
                                 st.rerun()
                             else:
-                                st.error("❌ Failed to delete record. Please try again.")
+                                st.error("❌ Failed to delete record. Please try the alternative method below.")
                     
                     with col2:
                         if st.button("❌ Cancel", use_container_width=True):
                             st.info("Deletion cancelled")
+                
+                # ==============================
+                # ALTERNATIVE: Delete by Index
+                # ==============================
+                st.markdown("---")
+                st.markdown("### 🔧 Alternative: Delete by Row Number")
+                st.caption("If the above doesn't work, use this method:")
+                
+                # Show index options
+                index_options = []
+                for idx, row in df_sorted_for_select.iterrows():
+                    date_str = pd.to_datetime(row["date"]).strftime("%Y-%m-%d %H:%M")
+                    index_options.append(f"Row {idx} - {date_str} - {row['category']} - ${row['amount']:.2f}")
+                
+                if index_options:
+                    selected_index_record = st.selectbox(
+                        "Select Record by Row Number", 
+                        index_options, 
+                        key="delete_index_select"
+                    )
+                    
+                    if selected_index_record:
+                        # Extract the index from the selection
+                        actual_idx = int(selected_index_record.split(" - ")[0].replace("Row ", ""))
+                        
+                        st.info(f"⚠️ You are about to delete: {selected_index_record}")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("🗑️ Delete by Index", type="secondary", use_container_width=True):
+                                success = delete_expense(actual_idx)
+                                if success:
+                                    st.success("✅ Expense record deleted successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to delete record")
+                        
+                        with col2:
+                            if st.button("❌ Cancel", use_container_width=True):
+                                st.info("Deletion cancelled")
         
         # Export
         st.markdown("---")
