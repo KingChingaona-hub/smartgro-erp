@@ -1,3 +1,4 @@
+# backend/modules/cash_dashboard.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -58,7 +59,7 @@ def cash_dashboard():
     ])
     
     # ==============================
-    # TAB 1: SHIFT MANAGEMENT - BRANCH LEVEL (FIXED)
+    # TAB 1: SHIFT MANAGEMENT - BRANCH LEVEL (FIXED - No infinite loop)
     # ==============================
     with tab1:
         st.markdown("## 🔄 Shift Management")
@@ -67,6 +68,7 @@ def cash_dashboard():
         active_shift = get_active_shift_for_branch(user_branch)
         is_shift_active = active_shift is not None
         shift_id = active_shift.get("shift_id") if is_shift_active else None
+        shift_name = active_shift.get("shift_name", "N/A") if is_shift_active else "N/A"
         
         # Display branch info
         st.info(f"📍 **Branch:** {user_branch} | **Role:** {user_role.upper()}")
@@ -125,7 +127,8 @@ def cash_dashboard():
                     start_time_str = str(start_time) if start_time else "N/A"
                 
                 st.markdown(f"""
-                **Shift ID:** `{active_shift.get('shift_id')}`  
+                **Shift Name:** `{shift_name}`  
+                **Shift ID:** `{shift_id}`  
                 **Started by:** {active_shift.get('cashier_name', 'Unknown')}  
                 **Start Time:** {start_time_str}  
                 **Opening Cash:** ${active_shift.get('opening_cash', 0):.2f}  
@@ -196,6 +199,7 @@ def cash_dashboard():
                                 st.session_state.active_shift_id = None
                                 st.session_state.branch_shift_active = False
                                 
+                                # Only rerun after all processing is complete
                                 st.rerun()
                             else:
                                 st.error(f"❌ Failed to close shift: {result}")
@@ -213,7 +217,11 @@ def cash_dashboard():
             branch_shifts = shifts_df[shifts_df["branch_id"] == user_branch]
             
             if not branch_shifts.empty:
-                display_shifts = branch_shifts[["shift_id", "cashier_name", "start_time", "end_time", "opening_cash", "closing_cash", "cash_sales", "variance", "status"]].sort_values("start_time", ascending=False).head(20)
+                # Display with shift_name column if it exists
+                display_cols = ["shift_id", "shift_name", "cashier_name", "start_time", "end_time", "opening_cash", "closing_cash", "cash_sales", "variance", "status"]
+                available_cols = [col for col in display_cols if col in branch_shifts.columns]
+                
+                display_shifts = branch_shifts[available_cols].sort_values("start_time", ascending=False).head(20)
                 
                 # Format timestamps
                 for col in ["start_time", "end_time"]:
@@ -247,7 +255,7 @@ def cash_dashboard():
             
             all_active = get_all_active_shifts()
             if not all_active.empty:
-                display_active = all_active[["shift_id", "branch_id", "branch_name", "cashier_name", "start_time", "opening_cash"]]
+                display_active = all_active[["shift_id", "shift_name", "branch_id", "branch_name", "cashier_name", "start_time", "opening_cash"]]
                 st.dataframe(display_active, use_container_width=True, hide_index=True)
             else:
                 st.info("No active shifts in any branch")
@@ -509,3 +517,10 @@ def cash_dashboard():
             )
         else:
             st.error("No data for today")
+
+
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    cash_dashboard()
