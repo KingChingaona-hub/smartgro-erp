@@ -514,7 +514,6 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
             for rid in return_ids:
                 returns_df.loc[returns_df["return_id"] == rid, "store_credit_id"] = credit_id
             
-            # Show message but don't rerun
             st.info(f"💳 {credit_msg}")
             
         else:
@@ -1056,24 +1055,12 @@ def render_store_credit_tab():
                         credit_id = update_store_credit(existing, amount)
                         if credit_id:
                             st.success(f"✅ Store credit updated! ID: {credit_id} (+${amount:.2f})")
-                            # Clear form fields by resetting session state
-                            for key in ["sc_name", "sc_phone", "sc_notes"]:
-                                if key in st.session_state:
-                                    st.session_state[key] = ""
-                            st.session_state.sc_amount = 0.01
-                            st.session_state.sc_expiry = 365
                         else:
                             st.error("❌ Failed to update store credit")
                     else:
                         credit_id = create_store_credit(customer, phone, amount, expiry)
                         if credit_id:
                             st.success(f"✅ Store credit issued! ID: {credit_id}")
-                            # Clear form fields
-                            for key in ["sc_name", "sc_phone", "sc_notes"]:
-                                if key in st.session_state:
-                                    st.session_state[key] = ""
-                            st.session_state.sc_amount = 0.01
-                            st.session_state.sc_expiry = 365
                         else:
                             st.error("❌ Failed to issue store credit")
                 else:
