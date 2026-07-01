@@ -131,7 +131,6 @@ def load_store_credit():
     init_files()
     try:
         df = pd.read_csv(STORE_CREDIT_FILE)
-        # Ensure notes column exists
         if "notes" not in df.columns:
             df["notes"] = ""
         return df
@@ -676,12 +675,11 @@ def use_store_credit(phone, amount, receipt_no, notes=""):
     try:
         credits_df = load_store_credit()
         
-        # Find active credits for this customer
         active_credits = credits_df[
             (credits_df["customer_phone"].astype(str) == str(phone)) &
             (credits_df["status"] == "ACTIVE") &
             (credits_df["remaining_balance"] > 0)
-        ].sort_values("expiry_date")  # Use oldest first
+        ].sort_values("expiry_date")
         
         if active_credits.empty:
             return False, 0, "No active store credit found"
@@ -696,26 +694,22 @@ def use_store_credit(phone, amount, receipt_no, notes=""):
             current_balance = float(credit["remaining_balance"])
             
             if remaining_to_use >= current_balance:
-                # Use entire credit
                 credits_df.loc[idx, "remaining_balance"] = 0
                 credits_df.loc[idx, "status"] = "USED"
                 total_used += current_balance
                 remaining_to_use -= current_balance
                 
-                # Update used transactions
                 used_trans = str(credit["used_transactions"])
                 if used_trans and used_trans != "nan":
                     credits_df.loc[idx, "used_transactions"] = f"{used_trans}, {receipt_no}"
                 else:
                     credits_df.loc[idx, "used_transactions"] = receipt_no
             else:
-                # Use partial credit
                 new_balance = current_balance - remaining_to_use
                 credits_df.loc[idx, "remaining_balance"] = new_balance
                 total_used += remaining_to_use
                 remaining_to_use = 0
                 
-                # Update used transactions
                 used_trans = str(credit["used_transactions"])
                 if used_trans and used_trans != "nan":
                     credits_df.loc[idx, "used_transactions"] = f"{used_trans}, {receipt_no}"
@@ -838,51 +832,58 @@ def render_process_return_tab():
         st.session_state.return_items = []
     if "return_quantities" not in st.session_state:
         st.session_state.return_quantities = {}
+    if "return_search_triggered" not in st.session_state:
+        st.session_state.return_search_triggered = False
+    if "return_processed" not in st.session_state:
+        st.session_state.return_processed = False
+    if "return_result" not in st.session_state:
+        st.session_state.return_result = None
     
     # ============================================================
     # STEP 1: SEARCH RECEIPT
     # ============================================================
     if st.session_state.return_step == "search":
         
-        receipt_no = st.text_input(
-            "Receipt Number",
-            placeholder="Enter receipt number from original sale",
-            key="return_receipt_input",
-            value=st.session_state.return_receipt
-        )
-        
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            search_clicked = st.button("🔍 Search Receipt", use_container_width=True)
-        
-        if receipt_no and search_clicked:
-            original_sale = find_sale_by_receipt(receipt_no)
+        with st.form(key="search_receipt_form"):
+            receipt_no = st.text_input(
+                "Receipt Number",
+                placeholder="Enter receipt number from original sale",
+                key="return_receipt_input",
+                value=st.session_state.return_receipt
+            )
             
-            if original_sale is None or original_sale.empty:
-                st.error(f"❌ Receipt '{receipt_no}' not found.")
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                search_clicked = st.form_submit_button("🔍 Search Receipt", use_container_width=True)
+            
+            if search_clicked and receipt_no:
+                original_sale = find_sale_by_receipt(receipt_no)
                 
-                sales_df = load_sales()
-                if not sales_df.empty and "receipt_no" in sales_df.columns:
-                    st.info("Available receipt numbers in system:")
-                    for r in sales_df["receipt_no"].tail(5).tolist():
-                        st.code(f"• {r}")
-            else:
-                sale_row = original_sale.iloc[0]
-                
-                sale_date = sale_row.get("date", sale_row.get("sale_date", ""))
-                is_valid, period_msg = check_return_period(sale_date)
-                
-                if not is_valid:
-                    st.error(f"⚠️ {period_msg}")
-                    return
-                
-                st.session_state.return_receipt = receipt_no
-                st.session_state.return_sale_data = sale_row
-                st.session_state.return_step = "select"
-                st.rerun()
-        
-        elif not receipt_no:
-            st.info("🔍 Enter a receipt number and click 'Search Receipt'")
+                if original_sale is None or original_sale.empty:
+                    st.error(f"❌ Receipt '{receipt_no}' not found.")
+                    
+                    sales_df = load_sales()
+                    if not sales_df.empty and "receipt_no" in sales_df.columns:
+                        st.info("Available receipt numbers in system:")
+                        for r in sales_df["receipt_no"].tail(5).tolist():
+                            st.code(f"• {r}")
+                else:
+                    sale_row = original_sale.iloc[0]
+                    
+                    sale_date = sale_row.get("date", sale_row.get("sale_date", ""))
+                    is_valid, period_msg = check_return_period(sale_date)
+                    
+                    if not is_valid:
+                        st.error(f"⚠️ {period_msg}")
+                    else:
+                        st.session_state.return_receipt = receipt_no
+                        st.session_state.return_sale_data = sale_row
+                        st.session_state.return_step = "select"
+                        st.session_state.return_search_triggered = True
+                        st.rerun()
+            
+            elif not receipt_no:
+                st.info("🔍 Enter a receipt number and click 'Search Receipt'")
     
     # ============================================================
     # STEP 2: SELECT ITEMS
@@ -891,6 +892,12 @@ def render_process_return_tab():
         
         sale_row = st.session_state.return_sale_data
         receipt_no = st.session_state.return_receipt
+        
+        if sale_row is None:
+            st.error("No sale data found. Please search again.")
+            st.session_state.return_step = "search"
+            st.rerun()
+            return
         
         customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
         customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
@@ -1014,6 +1021,12 @@ def render_process_return_tab():
         sale_row = st.session_state.return_sale_data
         selected_items = st.session_state.return_items
         
+        if not selected_items:
+            st.error("No items selected. Please go back and select items.")
+            st.session_state.return_step = "select"
+            st.rerun()
+            return
+        
         customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
         customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
         
@@ -1039,50 +1052,51 @@ def render_process_return_tab():
         st.markdown("---")
         st.markdown("### Return Details")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            reason = st.selectbox(
-                "Return Reason",
-                ["Damaged Product", "Wrong Item", "Changed Mind", "Defective", "Expired", "Other"],
-                key="return_reason_confirm"
-            )
-            condition = st.selectbox(
-                "Product Condition",
-                ["New/Unused", "Like New", "Used - Good", "Used - Fair", "Damaged", "Expired"],
-                key="return_condition_confirm"
-            )
-        
-        with col2:
-            refund_method = st.selectbox(
-                "Refund Method",
-                ["CASH", "STORE_CREDIT", "CARD", "ECOCASH"],
-                key="return_method_confirm"
-            )
-            notes = st.text_area("Notes", placeholder="Additional information...", key="return_notes_confirm")
-        
-        # Show write-off warning if applicable
-        if condition.lower() in ["damaged", "expired", "broken", "faulty"]:
-            st.warning(f"⚠️ **Write-Off Notice:** Items marked as '{condition}' will be written off and will NOT be added back to stock.")
-        
-        if refund_method == "STORE_CREDIT":
-            st.info("💳 Store credit will be issued to customer")
+        # Use a form to prevent double submission
+        with st.form(key="process_return_form"):
+            col1, col2 = st.columns(2)
             
-            # Check existing credit
-            existing = check_existing_store_credit(customer_phone, customer_name)
-            if existing:
-                st.info(f"ℹ️ Customer already has store credit {existing}. This return will be added to existing credit.")
-        
-        # Navigation buttons
-        col1, col2 = st.columns(2)
-        
-        with col1:
+            with col1:
+                reason = st.selectbox(
+                    "Return Reason",
+                    ["Damaged Product", "Wrong Item", "Changed Mind", "Defective", "Expired", "Other"],
+                    key="return_reason_confirm"
+                )
+                condition = st.selectbox(
+                    "Product Condition",
+                    ["New/Unused", "Like New", "Used - Good", "Used - Fair", "Damaged", "Expired"],
+                    key="return_condition_confirm"
+                )
+            
+            with col2:
+                refund_method = st.selectbox(
+                    "Refund Method",
+                    ["CASH", "STORE_CREDIT", "CARD", "ECOCASH"],
+                    key="return_method_confirm"
+                )
+                notes = st.text_area("Notes", placeholder="Additional information...", key="return_notes_confirm")
+            
+            # Show write-off warning if applicable
+            if condition.lower() in ["damaged", "expired", "broken", "faulty"]:
+                st.warning(f"⚠️ **Write-Off Notice:** Items marked as '{condition}' will be written off and will NOT be added back to stock.")
+            
+            if refund_method == "STORE_CREDIT":
+                st.info("💳 Store credit will be issued to customer")
+                
+                # Check existing credit
+                existing = check_existing_store_credit(customer_phone, customer_name)
+                if existing:
+                    st.info(f"ℹ️ Customer already has store credit {existing}. This return will be added to existing credit.")
+            
+            # Back button outside form
             if st.button("⬅️ Back to Selection", use_container_width=True):
                 st.session_state.return_step = "select"
                 st.rerun()
-        
-        with col2:
-            if st.button("✅ CONFIRM & PROCESS RETURN", type="primary", use_container_width=True):
+            
+            # Submit button
+            submitted = st.form_submit_button("✅ CONFIRM & PROCESS RETURN", type="primary", use_container_width=True)
+            
+            if submitted:
                 with st.spinner("Processing return..."):
                     success, message, returned_products, refund_total = process_return(
                         receipt_no=receipt_no,
@@ -1097,13 +1111,11 @@ def render_process_return_tab():
                         st.success(f"✅ {message}")
                         
                         if returned_products:
-                            # Show which items were written off vs returned to stock
                             st.markdown("### 📦 Stock Update Summary")
                             for p in returned_products:
-                                # Check if this item was written off
                                 is_write_off = False
                                 for item in selected_items:
-                                    if item.get("barcode") == p["barcode"] and item.get("condition", "").lower() in ["damaged", "expired", "broken", "faulty"]:
+                                    if item.get("barcode") == p["barcode"] and condition.lower() in ["damaged", "expired", "broken", "faulty"]:
                                         is_write_off = True
                                         break
                                 
@@ -1112,14 +1124,16 @@ def render_process_return_tab():
                                 else:
                                     st.success(f"✅ {p['name']}: +{p['quantity']} units returned to stock")
                         
+                        st.balloons()
+                        
                         # Reset for next return
                         st.session_state.return_step = "search"
                         st.session_state.return_receipt = ""
                         st.session_state.return_sale_data = None
                         st.session_state.return_items = []
                         st.session_state.return_quantities = {}
+                        st.session_state.return_processed = True
                         
-                        st.balloons()
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
@@ -1129,6 +1143,12 @@ def render_store_credit_tab():
     """Render the Store Credit tab with full CRUD - Issue, Use, Edit, Delete, History"""
     
     st.markdown("## 💳 Store Credit Management")
+    
+    # Initialize session state for edit/delete
+    if "edit_credit_id" not in st.session_state:
+        st.session_state.edit_credit_id = None
+    if "delete_credit_id" not in st.session_state:
+        st.session_state.delete_credit_id = None
     
     # ============================================================
     # TABS FOR STORE CREDIT OPERATIONS
@@ -1172,7 +1192,6 @@ def render_store_credit_tab():
                     credit_id = create_store_credit(customer, phone, amount, expiry, notes)
                     if credit_id:
                         st.success(f"✅ Store credit issued! ID: {credit_id} (${amount:.2f})")
-                        st.rerun()
                     else:
                         st.error("❌ Failed to issue store credit")
                 else:
@@ -1208,7 +1227,6 @@ def render_store_credit_tab():
             
             if submitted:
                 if use_phone and use_amount > 0:
-                    # Check balance first
                     available = get_customer_store_credit(use_phone)
                     
                     if available <= 0:
@@ -1221,7 +1239,6 @@ def render_store_credit_tab():
                             st.success(f"✅ {message}")
                             new_balance = get_customer_store_credit(use_phone)
                             st.info(f"💰 Remaining balance: ${new_balance:.2f}")
-                            st.rerun()
                         else:
                             st.error(f"❌ {message}")
                 else:
@@ -1238,7 +1255,6 @@ def render_store_credit_tab():
         if credits_df.empty:
             st.info("No store credit records found")
         else:
-            # Filter by customer
             search_phone = st.text_input("Search by Customer Phone", key="mng_phone", placeholder="Enter phone to filter...")
             
             filtered_df = credits_df.copy()
@@ -1248,7 +1264,6 @@ def render_store_credit_tab():
             if filtered_df.empty:
                 st.info("No credits found for this customer")
             else:
-                # Show active credits first
                 active_df = filtered_df[filtered_df["status"] == "ACTIVE"]
                 used_df = filtered_df[filtered_df["status"] == "USED"]
                 expired_df = filtered_df[filtered_df["status"] == "EXPIRED"]
@@ -1269,18 +1284,15 @@ def render_store_credit_tab():
                                     st.write(f"**Notes:** {credit['notes']}")
                             
                             with col2:
-                                # Edit button
                                 if st.button(f"✏️ Edit", key=f"edit_{credit['credit_id']}"):
                                     st.session_state.edit_credit_id = credit['credit_id']
                                     st.rerun()
                             
                             with col3:
-                                # Delete button
                                 if st.button(f"🗑️ Delete", key=f"del_{credit['credit_id']}"):
                                     st.session_state.delete_credit_id = credit['credit_id']
                                     st.rerun()
                 
-                # Show used/expired credits
                 if not used_df.empty:
                     st.markdown("#### 🔵 Used Credits")
                     for _, credit in used_df.iterrows():
@@ -1410,7 +1422,6 @@ def render_store_credit_tab():
         if credits_df.empty:
             st.info("No store credit records found")
         else:
-            # Summary stats
             total_issued = credits_df["amount"].sum()
             total_remaining = credits_df["remaining_balance"].sum()
             active_count = len(credits_df[credits_df["status"] == "ACTIVE"])
@@ -1425,7 +1436,6 @@ def render_store_credit_tab():
             
             st.markdown("---")
             
-            # Show all credits
             display_df = credits_df[["credit_id", "customer_name", "customer_phone", "amount", "remaining_balance", "status", "issued_date", "expiry_date", "notes"]]
             st.dataframe(
                 display_df.sort_values("issued_date", ascending=False),
@@ -1437,7 +1447,6 @@ def render_store_credit_tab():
                 }
             )
             
-            # Export
             csv = credits_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Store Credit Data (CSV)",
@@ -1480,7 +1489,6 @@ def render_return_analytics_tab():
     else:
         st.info("No return data available")
     
-    # Write-offs summary
     write_offs_df = load_write_offs()
     if not write_offs_df.empty:
         st.markdown("### 📝 Write-Off Summary")
