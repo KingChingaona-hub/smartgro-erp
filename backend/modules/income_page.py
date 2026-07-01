@@ -6,7 +6,7 @@ from datetime import datetime
 
 
 def income_page():
-    """Income Management Page - FIXED: No infinite loop on delete"""
+    """Income Management Page - FIXED: No infinite loops"""
     
     st.title("💰 Business Income")
     st.caption("Record and track all business income")
@@ -20,30 +20,19 @@ def income_page():
         st.session_state.income_message = ""
     if "income_success" not in st.session_state:
         st.session_state.income_success = False
-    if "delete_triggered" not in st.session_state:
-        st.session_state.delete_triggered = False
-    if "delete_success" not in st.session_state:
-        st.session_state.delete_success = False
 
     # ==============================
-    # HANDLE DELETE ACTION (Outside form to prevent loop)
+    # DISPLAY MESSAGES FROM SESSION STATE
     # ==============================
-    # Check if delete was triggered
-    if st.session_state.delete_triggered:
-        # Reset the flag immediately to prevent reprocessing
-        st.session_state.delete_triggered = False
-        
-        # Show success/error message
-        if st.session_state.delete_success:
-            st.success("✅ Income record deleted successfully!")
-        else:
-            st.error("❌ Failed to delete record")
-        
-        # Clear the flags
-        st.session_state.delete_success = False
-
+    if st.session_state.income_success and st.session_state.income_message:
+        st.success(f"✅ {st.session_state.income_message}")
+        st.balloons()
+        # Clear the message after displaying
+        st.session_state.income_success = False
+        st.session_state.income_message = ""
+    
     # ==============================
-    # INPUT FORM
+    # INPUT FORM - NO st.rerun() inside
     # ==============================
     st.subheader("➕ Record Income")
 
@@ -102,10 +91,12 @@ def income_page():
                     st.session_state.get("username", "System")
                 )
                 if success:
+                    # Store in session state instead of calling st.rerun()
+                    st.session_state.income_success = True
+                    st.session_state.income_message = message
                     st.success(f"✅ {message}")
                     st.balloons()
-                    # Clear the form by forcing a rerun only once
-                    st.rerun()
+                    # NO st.rerun() here - let the form naturally clear
                 else:
                     st.error(f"❌ Failed to record income: {message}")
 
@@ -187,7 +178,7 @@ def income_page():
         )
         
         # ==============================
-        # DELETE RECORD - FIXED: No infinite loop
+        # DELETE RECORD
         # ==============================
         with st.expander("🗑️ Delete Income Record"):
             st.warning("⚠️ This action cannot be undone")
@@ -206,20 +197,16 @@ def income_page():
                     key="delete_select"
                 )
                 
-                # Get the index of the selected record
                 selected_idx = record_options.index(selected_record) if selected_record else -1
                 
-                # Delete button - with confirmation
                 if st.button("🗑️ Delete Selected Record", type="secondary", use_container_width=True):
                     if selected_idx >= 0:
                         actual_idx = record_indices[selected_idx]
-                        
-                        # Attempt to delete
                         success = delete_income(actual_idx)
                         
                         if success:
                             st.success("✅ Income record deleted successfully!")
-                            # Use rerun but with a flag to prevent loops
+                            # Use rerun here - it's safe because it's not inside a form
                             st.rerun()
                         else:
                             st.error("❌ Failed to delete record")
