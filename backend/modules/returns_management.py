@@ -46,7 +46,7 @@ REFUND_COLUMNS = [
 
 STORE_CREDIT_COLUMNS = [
     "credit_id", "customer_name", "customer_phone", "amount", "remaining_balance",
-    "issued_date", "expiry_date", "status", "issued_by", "branch_id", "used_transactions"
+    "issued_date", "expiry_date", "status", "issued_by", "branch_id", "used_transactions", "notes"
 ]
 
 STOCK_MOVEMENT_COLUMNS = [
@@ -130,7 +130,11 @@ def load_store_credit():
     """Load store credit data"""
     init_files()
     try:
-        return pd.read_csv(STORE_CREDIT_FILE)
+        df = pd.read_csv(STORE_CREDIT_FILE)
+        # Ensure notes column exists
+        if "notes" not in df.columns:
+            df["notes"] = ""
+        return df
     except:
         return pd.DataFrame(columns=STORE_CREDIT_COLUMNS)
 
@@ -567,6 +571,9 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
         return False, f"Error processing return: {str(e)}", [], 0
 
 
+# ==============================
+# STORE CREDIT FUNCTIONS
+# ==============================
 def check_existing_store_credit(phone, name):
     """Check if customer already has active store credit"""
     try:
@@ -590,7 +597,7 @@ def check_existing_store_credit(phone, name):
         return None
 
 
-def create_store_credit(customer_name, customer_phone, amount, expiry_days=365):
+def create_store_credit(customer_name, customer_phone, amount, expiry_days=365, notes=""):
     """Create store credit for customer"""
     try:
         credits_df = load_store_credit()
@@ -609,7 +616,8 @@ def create_store_credit(customer_name, customer_phone, amount, expiry_days=365):
             "status": "ACTIVE",
             "issued_by": st.session_state.get("username", "system"),
             "branch_id": str(current_branch),
-            "used_transactions": ""
+            "used_transactions": "",
+            "notes": notes
         }])
         
         credits_df = pd.concat([credits_df, new_credit], ignore_index=True)
@@ -661,6 +669,102 @@ def get_customer_store_credit(phone):
         return active["remaining_balance"].sum() if not active.empty else 0
     except:
         return 0
+
+
+def use_store_credit(phone, amount, receipt_no, notes=""):
+    """Use store credit for a purchase"""
+    try:
+        credits_df = load_store_credit()
+        
+        # Find active credits for this customer
+        active_credits = credits_df[
+            (credits_df["customer_phone"].astype(str) == str(phone)) &
+            (credits_df["status"] == "ACTIVE") &
+            (credits_df["remaining_balance"] > 0)
+        ].sort_values("expiry_date")  # Use oldest first
+        
+        if active_credits.empty:
+            return False, 0, "No active store credit found"
+        
+        total_used = 0
+        remaining_to_use = float(amount)
+        
+        for idx, credit in active_credits.iterrows():
+            if remaining_to_use <= 0:
+                break
+            
+            current_balance = float(credit["remaining_balance"])
+            
+            if remaining_to_use >= current_balance:
+                # Use entire credit
+                credits_df.loc[idx, "remaining_balance"] = 0
+                credits_df.loc[idx, "status"] = "USED"
+                total_used += current_balance
+                remaining_to_use -= current_balance
+                
+                # Update used transactions
+                used_trans = str(credit["used_transactions"])
+                if used_trans and used_trans != "nan":
+                    credits_df.loc[idx, "used_transactions"] = f"{used_trans}, {receipt_no}"
+                else:
+                    credits_df.loc[idx, "used_transactions"] = receipt_no
+            else:
+                # Use partial credit
+                new_balance = current_balance - remaining_to_use
+                credits_df.loc[idx, "remaining_balance"] = new_balance
+                total_used += remaining_to_use
+                remaining_to_use = 0
+                
+                # Update used transactions
+                used_trans = str(credit["used_transactions"])
+                if used_trans and used_trans != "nan":
+                    credits_df.loc[idx, "used_transactions"] = f"{used_trans}, {receipt_no}"
+                else:
+                    credits_df.loc[idx, "used_transactions"] = receipt_no
+        
+        if total_used > 0:
+            save_store_credit(credits_df)
+            return True, total_used, f"Used ${total_used:.2f} from store credit"
+        else:
+            return False, 0, "Could not use store credit"
+            
+    except Exception as e:
+        logger.error(f"Error using store credit: {e}")
+        return False, 0, f"Error: {str(e)}"
+
+
+def edit_store_credit(credit_id, amount, balance, expiry_date, status, notes):
+    """Edit store credit details"""
+    try:
+        credits_df = load_store_credit()
+        idx = credits_df[credits_df["credit_id"] == credit_id].index
+        
+        if len(idx) > 0:
+            credits_df.loc[idx[0], "amount"] = float(amount)
+            credits_df.loc[idx[0], "remaining_balance"] = float(balance)
+            credits_df.loc[idx[0], "expiry_date"] = expiry_date
+            credits_df.loc[idx[0], "status"] = status
+            credits_df.loc[idx[0], "notes"] = notes
+            
+            save_store_credit(credits_df)
+            return True, "Credit updated successfully"
+        
+        return False, "Credit not found"
+    except Exception as e:
+        logger.error(f"Error editing store credit: {e}")
+        return False, f"Error: {str(e)}"
+
+
+def delete_store_credit(credit_id):
+    """Delete store credit"""
+    try:
+        credits_df = load_store_credit()
+        credits_df = credits_df[credits_df["credit_id"] != credit_id]
+        save_store_credit(credits_df)
+        return True, "Credit deleted successfully"
+    except Exception as e:
+        logger.error(f"Error deleting store credit: {e}")
+        return False, f"Error: {str(e)}"
 
 
 def get_return_stats():
@@ -1022,87 +1126,325 @@ def render_process_return_tab():
 
 
 def render_store_credit_tab():
-    """Render the Store Credit tab - NO RERUN LOOP"""
+    """Render the Store Credit tab with full CRUD - Issue, Use, Edit, Delete, History"""
     
     st.markdown("## 💳 Store Credit Management")
     
-    col1, col2 = st.columns(2)
+    # ============================================================
+    # TABS FOR STORE CREDIT OPERATIONS
+    # ============================================================
+    credit_tab1, credit_tab2, credit_tab3, credit_tab4 = st.tabs([
+        "💰 Issue Credit",
+        "💳 Use Credit",
+        "✏️ Manage Credits",
+        "📋 Credit History"
+    ])
     
-    with col1:
-        st.markdown("### Issue Store Credit")
+    # ============================================================
+    # TAB 1: ISSUE CREDIT
+    # ============================================================
+    with credit_tab1:
+        st.markdown("### Issue New Store Credit")
         
-        # Use a form to prevent duplicate submissions
-        with st.form(key="store_credit_form"):
-            customer = st.text_input("Customer Name", key="sc_name")
-            phone = st.text_input("Customer Phone", key="sc_phone")
-            amount = st.number_input("Credit Amount ($)", min_value=0.01, step=10.0, key="sc_amount")
-            expiry = st.number_input("Expiry (days)", min_value=1, max_value=730, value=365, key="sc_expiry")
-            notes = st.text_area("Notes", key="sc_notes")
+        with st.form(key="issue_store_credit_form"):
+            col1, col2 = st.columns(2)
             
-            # Check if customer already has credit (display only)
+            with col1:
+                customer = st.text_input("Customer Name", key="isc_name")
+                phone = st.text_input("Customer Phone", key="isc_phone")
+            
+            with col2:
+                amount = st.number_input("Credit Amount ($)", min_value=0.01, step=10.0, key="isc_amount")
+                expiry = st.number_input("Expiry (days)", min_value=1, max_value=730, value=365, key="isc_expiry")
+            
+            notes = st.text_area("Notes", key="isc_notes")
+            
+            # Check if customer already has credit
             if phone:
                 existing = check_existing_store_credit(phone, customer)
                 if existing:
-                    st.info(f"ℹ️ Customer already has active store credit: {existing}")
+                    st.info(f"ℹ️ Customer already has active store credit. New credit will be added separately.")
             
             submitted = st.form_submit_button("💰 Issue Store Credit", type="primary", use_container_width=True)
             
             if submitted:
                 if customer and phone and amount > 0:
-                    existing = check_existing_store_credit(phone, customer)
-                    
-                    if existing:
-                        credit_id = update_store_credit(existing, amount)
-                        if credit_id:
-                            st.success(f"✅ Store credit updated! ID: {credit_id} (+${amount:.2f})")
-                        else:
-                            st.error("❌ Failed to update store credit")
+                    credit_id = create_store_credit(customer, phone, amount, expiry, notes)
+                    if credit_id:
+                        st.success(f"✅ Store credit issued! ID: {credit_id} (${amount:.2f})")
+                        st.rerun()
                     else:
-                        credit_id = create_store_credit(customer, phone, amount, expiry)
-                        if credit_id:
-                            st.success(f"✅ Store credit issued! ID: {credit_id}")
-                        else:
-                            st.error("❌ Failed to issue store credit")
+                        st.error("❌ Failed to issue store credit")
                 else:
                     st.error("Please fill all required fields")
     
-    with col2:
-        st.markdown("### Check Store Credit Balance")
+    # ============================================================
+    # TAB 2: USE CREDIT
+    # ============================================================
+    with credit_tab2:
+        st.markdown("### Use Store Credit")
+        st.caption("Deduct store credit when customer makes a purchase")
         
-        check_phone = st.text_input("Customer Phone", key="sc_check_phone")
-        
-        if check_phone:
-            balance = get_customer_store_credit(check_phone)
+        with st.form(key="use_store_credit_form"):
+            col1, col2 = st.columns(2)
             
-            if balance > 0:
-                st.success(f"💰 Available Store Credit: **${balance:.2f}**")
-                
-                credits_df = load_store_credit()
-                customer_credits = credits_df[
-                    (credits_df["customer_phone"].astype(str) == str(check_phone)) &
-                    (credits_df["status"] == "ACTIVE") &
-                    (credits_df["remaining_balance"] > 0)
-                ]
-                
-                if not customer_credits.empty:
-                    st.markdown("#### Credit Details")
-                    for _, credit in customer_credits.iterrows():
-                        st.write(f"• ${credit['remaining_balance']:.2f} - Expires: {credit['expiry_date']}")
+            with col1:
+                use_phone = st.text_input("Customer Phone", key="usc_phone")
+                use_receipt = st.text_input("Receipt Number", key="usc_receipt", placeholder="Current sale receipt")
+            
+            with col2:
+                use_amount = st.number_input("Amount to Use ($)", min_value=0.01, step=5.0, key="usc_amount")
+                use_notes = st.text_area("Notes", key="usc_notes", placeholder="e.g., Used for purchase of items")
+            
+            # Show available balance
+            if use_phone:
+                balance = get_customer_store_credit(use_phone)
+                if balance > 0:
+                    st.success(f"💰 Available Store Credit: **${balance:.2f}**")
+                else:
+                    st.info("No active store credit found for this customer")
+            
+            submitted = st.form_submit_button("💳 Use Store Credit", type="primary", use_container_width=True)
+            
+            if submitted:
+                if use_phone and use_amount > 0:
+                    # Check balance first
+                    available = get_customer_store_credit(use_phone)
+                    
+                    if available <= 0:
+                        st.error("❌ No store credit available for this customer")
+                    elif use_amount > available:
+                        st.error(f"❌ Insufficient credit. Available: ${available:.2f}")
+                    else:
+                        success, used_amount, message = use_store_credit(use_phone, use_amount, use_receipt, use_notes)
+                        if success:
+                            st.success(f"✅ {message}")
+                            new_balance = get_customer_store_credit(use_phone)
+                            st.info(f"💰 Remaining balance: ${new_balance:.2f}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+                else:
+                    st.error("Please enter customer phone and amount")
+    
+    # ============================================================
+    # TAB 3: MANAGE CREDITS (Edit/Delete)
+    # ============================================================
+    with credit_tab3:
+        st.markdown("### Manage Store Credits")
+        
+        credits_df = load_store_credit()
+        
+        if credits_df.empty:
+            st.info("No store credit records found")
+        else:
+            # Filter by customer
+            search_phone = st.text_input("Search by Customer Phone", key="mng_phone", placeholder="Enter phone to filter...")
+            
+            filtered_df = credits_df.copy()
+            if search_phone:
+                filtered_df = filtered_df[filtered_df["customer_phone"].astype(str).str.contains(search_phone, na=False)]
+            
+            if filtered_df.empty:
+                st.info("No credits found for this customer")
             else:
-                st.info("No active store credit found")
+                # Show active credits first
+                active_df = filtered_df[filtered_df["status"] == "ACTIVE"]
+                used_df = filtered_df[filtered_df["status"] == "USED"]
+                expired_df = filtered_df[filtered_df["status"] == "EXPIRED"]
+                
+                if not active_df.empty:
+                    st.markdown("#### 🟢 Active Credits")
+                    for idx, credit in active_df.iterrows():
+                        with st.expander(f"💳 {credit['credit_id']} - {credit['customer_name']} - ${credit['remaining_balance']:.2f}"):
+                            col1, col2, col3 = st.columns([2, 1, 1])
+                            
+                            with col1:
+                                st.write(f"**Phone:** {credit['customer_phone']}")
+                                st.write(f"**Amount:** ${credit['amount']:.2f}")
+                                st.write(f"**Remaining:** ${credit['remaining_balance']:.2f}")
+                                st.write(f"**Expires:** {credit['expiry_date']}")
+                                st.write(f"**Issued:** {credit['issued_date']}")
+                                if credit.get("notes"):
+                                    st.write(f"**Notes:** {credit['notes']}")
+                            
+                            with col2:
+                                # Edit button
+                                if st.button(f"✏️ Edit", key=f"edit_{credit['credit_id']}"):
+                                    st.session_state.edit_credit_id = credit['credit_id']
+                                    st.rerun()
+                            
+                            with col3:
+                                # Delete button
+                                if st.button(f"🗑️ Delete", key=f"del_{credit['credit_id']}"):
+                                    st.session_state.delete_credit_id = credit['credit_id']
+                                    st.rerun()
+                
+                # Show used/expired credits
+                if not used_df.empty:
+                    st.markdown("#### 🔵 Used Credits")
+                    for _, credit in used_df.iterrows():
+                        with st.expander(f"🔵 {credit['credit_id']} - {credit['customer_name']} - USED"):
+                            st.write(f"**Amount:** ${credit['amount']:.2f}")
+                            st.write(f"**Used:** {credit['used_transactions']}")
+                            if credit.get("notes"):
+                                st.write(f"**Notes:** {credit['notes']}")
+                
+                if not expired_df.empty:
+                    st.markdown("#### 🔴 Expired Credits")
+                    for _, credit in expired_df.iterrows():
+                        with st.expander(f"🔴 {credit['credit_id']} - {credit['customer_name']} - EXPIRED"):
+                            st.write(f"**Amount:** ${credit['amount']:.2f}")
+                            st.write(f"**Remaining:** ${credit['remaining_balance']:.2f}")
+                            st.write(f"**Expired:** {credit['expiry_date']}")
+                            if credit.get("notes"):
+                                st.write(f"**Notes:** {credit['notes']}")
+        
+        # ============================================================
+        # EDIT CREDIT MODAL
+        # ============================================================
+        if st.session_state.get("edit_credit_id"):
+            credit_id = st.session_state.edit_credit_id
+            credits_df = load_store_credit()
+            credit = credits_df[credits_df["credit_id"] == credit_id]
+            
+            if not credit.empty:
+                credit_data = credit.iloc[0]
+                
+                st.markdown("---")
+                st.markdown(f"### ✏️ Edit Credit: {credit_id}")
+                
+                with st.form(key="edit_credit_form"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        edit_amount = st.number_input(
+                            "Total Amount ($)",
+                            value=float(credit_data["amount"]),
+                            min_value=0.01,
+                            step=10.0,
+                            key="edit_amount"
+                        )
+                        edit_balance = st.number_input(
+                            "Remaining Balance ($)",
+                            value=float(credit_data["remaining_balance"]),
+                            min_value=0.0,
+                            step=5.0,
+                            key="edit_balance"
+                        )
+                    
+                    with col2:
+                        edit_expiry = st.date_input(
+                            "Expiry Date",
+                            value=pd.to_datetime(credit_data["expiry_date"]).date(),
+                            key="edit_expiry"
+                        )
+                        edit_status = st.selectbox(
+                            "Status",
+                            ["ACTIVE", "USED", "EXPIRED"],
+                            index=["ACTIVE", "USED", "EXPIRED"].index(credit_data["status"]),
+                            key="edit_status"
+                        )
+                    
+                    edit_notes = st.text_area("Notes", value=credit_data.get("notes", ""), key="edit_notes")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                            success, message = edit_store_credit(
+                                credit_id=credit_id,
+                                amount=edit_amount,
+                                balance=edit_balance,
+                                expiry_date=edit_expiry.strftime("%Y-%m-%d"),
+                                status=edit_status,
+                                notes=edit_notes
+                            )
+                            if success:
+                                st.success(f"✅ {message}")
+                                st.session_state.edit_credit_id = None
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+                    
+                    with col2:
+                        if st.form_submit_button("❌ Cancel", use_container_width=True):
+                            st.session_state.edit_credit_id = None
+                            st.rerun()
+        
+        # ============================================================
+        # DELETE CREDIT CONFIRMATION
+        # ============================================================
+        if st.session_state.get("delete_credit_id"):
+            credit_id = st.session_state.delete_credit_id
+            
+            st.markdown("---")
+            st.warning(f"⚠️ Are you sure you want to delete credit: {credit_id}?")
+            st.caption("This action cannot be undone.")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("✅ Yes, Delete", type="primary", use_container_width=True):
+                    success, message = delete_store_credit(credit_id)
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.session_state.delete_credit_id = None
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+            
+            with col2:
+                if st.button("❌ Cancel", use_container_width=True):
+                    st.session_state.delete_credit_id = None
+                    st.rerun()
     
-    st.markdown("---")
-    st.markdown("### 📋 Store Credit History")
-    
-    credits_df = load_store_credit()
-    if not credits_df.empty:
-        st.dataframe(
-            credits_df[["credit_id", "customer_name", "customer_phone", "amount", "remaining_balance", "status", "issued_date", "expiry_date"]].head(20),
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("No store credit records found")
+    # ============================================================
+    # TAB 4: CREDIT HISTORY
+    # ============================================================
+    with credit_tab4:
+        st.markdown("### 📋 Store Credit History")
+        
+        credits_df = load_store_credit()
+        
+        if credits_df.empty:
+            st.info("No store credit records found")
+        else:
+            # Summary stats
+            total_issued = credits_df["amount"].sum()
+            total_remaining = credits_df["remaining_balance"].sum()
+            active_count = len(credits_df[credits_df["status"] == "ACTIVE"])
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("💰 Total Issued", f"${total_issued:,.2f}")
+            with col2:
+                st.metric("💳 Available", f"${total_remaining:,.2f}")
+            with col3:
+                st.metric("🟢 Active Credits", active_count)
+            
+            st.markdown("---")
+            
+            # Show all credits
+            display_df = credits_df[["credit_id", "customer_name", "customer_phone", "amount", "remaining_balance", "status", "issued_date", "expiry_date", "notes"]]
+            st.dataframe(
+                display_df.sort_values("issued_date", ascending=False),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
+                    "remaining_balance": st.column_config.NumberColumn("Balance", format="$%.2f")
+                }
+            )
+            
+            # Export
+            csv = credits_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Store Credit Data (CSV)",
+                data=csv,
+                file_name=f"store_credit_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
 
 
 def render_return_analytics_tab():
