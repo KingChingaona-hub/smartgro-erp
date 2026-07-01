@@ -27,6 +27,7 @@ RETURNS_FILE = DATA_DIR / "returns.csv"
 REFUNDS_FILE = DATA_DIR / "refunds.csv"
 STORE_CREDIT_FILE = DATA_DIR / "store_credit.csv"
 STOCK_MOVEMENT_FILE = DATA_DIR / "stock_movements.csv"
+WRITE_OFF_FILE = DATA_DIR / "write_offs.csv"
 
 RETURN_PERIOD_DAYS = 30
 ALLOWED_RETURN_ROLES = {"owner", "manager", "admin"}
@@ -53,6 +54,11 @@ STOCK_MOVEMENT_COLUMNS = [
     "reference", "reason", "created_by", "created_date", "branch_id"
 ]
 
+WRITE_OFF_COLUMNS = [
+    "write_off_id", "product_barcode", "product_name", "quantity", "reason",
+    "reference", "created_by", "created_date", "branch_id", "notes"
+]
+
 
 # ==============================
 # FILE OPERATIONS
@@ -73,6 +79,9 @@ def init_files():
         
         if not STOCK_MOVEMENT_FILE.exists():
             pd.DataFrame(columns=STOCK_MOVEMENT_COLUMNS).to_csv(STOCK_MOVEMENT_FILE, index=False)
+        
+        if not WRITE_OFF_FILE.exists():
+            pd.DataFrame(columns=WRITE_OFF_COLUMNS).to_csv(WRITE_OFF_FILE, index=False)
             
     except Exception as e:
         logger.error(f"Error initializing files: {e}")
@@ -152,6 +161,25 @@ def save_stock_movements(df):
         return True
     except Exception as e:
         logger.error(f"Error saving stock movements: {e}")
+        return False
+
+
+def load_write_offs():
+    """Load write-offs data"""
+    init_files()
+    try:
+        return pd.read_csv(WRITE_OFF_FILE)
+    except:
+        return pd.DataFrame(columns=WRITE_OFF_COLUMNS)
+
+
+def save_write_offs(df):
+    """Save write-offs data"""
+    try:
+        df.to_csv(WRITE_OFF_FILE, index=False)
+        return True
+    except Exception as e:
+        logger.error(f"Error saving write-offs: {e}")
         return False
 
 
@@ -289,6 +317,33 @@ def record_stock_movement(barcode, name, quantity, movement_type, reference, rea
         return False
 
 
+def record_write_off(barcode, name, quantity, reason, reference, branch_id, notes=""):
+    """Record a write-off for damaged/expired items"""
+    try:
+        write_offs_df = load_write_offs()
+        
+        write_off_id = f"WO{len(write_offs_df)+1:08d}"
+        
+        new_write_off = pd.DataFrame([{
+            "write_off_id": write_off_id,
+            "product_barcode": str(barcode),
+            "product_name": str(name),
+            "quantity": quantity,
+            "reason": reason,
+            "reference": str(reference),
+            "created_by": st.session_state.get("username", "system"),
+            "created_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "branch_id": str(branch_id),
+            "notes": notes
+        }])
+        
+        write_offs_df = pd.concat([write_offs_df, new_write_off], ignore_index=True)
+        save_write_offs(write_offs_df)
+        return True
+    except:
+        return False
+
+
 def generate_return_id():
     """Generate unique return ID using UUID"""
     return f"RET-{uuid.uuid4().hex[:8].upper()}"
@@ -378,25 +433,45 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
             
             returns_df = pd.concat([returns_df, new_return], ignore_index=True)
             
-            # Update stock based on condition
+            # ============================================================
+            # STOCK HANDLING BASED ON CONDITION
+            # ============================================================
             product_idx = products_df[products_df["barcode"].astype(str) == barcode].index
             
             if len(product_idx) > 0:
                 current_stock = float(products_df.loc[product_idx[0], "stock"])
                 
-                if condition.lower() in ["new", "unused", "like new"]:
+                # WRITE-OFF: For expired or damaged items - DO NOT add back to stock
+                if condition.lower() in ["expired", "damaged", "broken", "faulty", "write-off"]:
+                    # Record as write-off, stock remains unchanged
+                    record_write_off(
+                        barcode=barcode,
+                        name=name,
+                        quantity=qty,
+                        reason=f"Return - {condition}",
+                        reference=receipt_no,
+                        branch_id=current_branch,
+                        notes=f"Returned as {condition} from receipt {receipt_no}"
+                    )
+                    movement_type = "WRITE_OFF"
+                    stock_reason = f"Write-off: {condition} from receipt {receipt_no}"
+                    
+                    # Don't add to stock
+                    # Stock remains unchanged
+                    
+                elif condition.lower() in ["new", "unused", "like new"]:
+                    # GOOD CONDITION - Add back to stock
                     products_df.loc[product_idx[0], "stock"] = current_stock + qty
                     movement_type = "RETURN_STOCK"
                     stock_reason = f"Returned from receipt {receipt_no} - Condition: {condition}"
-                elif condition.lower() in ["damaged", "broken", "faulty"]:
-                    # Don't add to regular stock, just record
-                    movement_type = "RETURN_DAMAGED"
-                    stock_reason = f"Damaged return from receipt {receipt_no}"
+                    
                 else:
+                    # Default - Add back to stock for other conditions
                     products_df.loc[product_idx[0], "stock"] = current_stock + qty
                     movement_type = "RETURN_STOCK"
                     stock_reason = f"Returned from receipt {receipt_no} - Condition: {condition}"
                 
+                # Record stock movement
                 record_stock_movement(
                     barcode=barcode,
                     name=name,
@@ -432,9 +507,23 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
         
         # Handle refund
         if refund_method == "STORE_CREDIT":
-            credit_id = create_store_credit(customer_name, customer_phone, total_refund)
+            # Check if store credit already exists for this customer
+            existing_credit = check_existing_store_credit(customer_phone, customer_name)
+            
+            if existing_credit:
+                # Update existing credit
+                credit_id = update_store_credit(existing_credit, total_refund)
+                credit_msg = f"Updated existing credit {credit_id} (+${total_refund:.2f})"
+            else:
+                # Create new credit
+                credit_id = create_store_credit(customer_name, customer_phone, total_refund)
+                credit_msg = f"Created new credit {credit_id} for ${total_refund:.2f}"
+            
             for rid in return_ids:
                 returns_df.loc[returns_df["return_id"] == rid, "store_credit_id"] = credit_id
+            
+            st.info(f"💳 {credit_msg}")
+            
         else:
             refund_id = f"REF{len(refunds_df)+1:08d}"
             new_refund = pd.DataFrame([{
@@ -463,11 +552,52 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
         save_returns(returns_df)
         save_refunds(refunds_df)
         
-        return True, "Return processed successfully", returned_products, total_refund
+        # Build summary with write-off info
+        summary = "Return processed successfully!\n\n"
+        summary += f"📋 Receipt: {receipt_no}\n"
+        summary += f"👤 Customer: {customer_name}\n"
+        summary += f"💰 Total Refund: ${total_refund:.2f}\n"
+        summary += f"📦 Refund Method: {refund_method}\n\n"
+        
+        # Check if any items were written off
+        written_off = [p for p in returned_products if any(
+            item.get("condition", "").lower() in ["expired", "damaged", "broken", "faulty", "write-off"]
+            for item in items if item.get("barcode") == p["barcode"]
+        )]
+        
+        if written_off:
+            summary += "⚠️ WRITE-OFF ITEMS (Not returned to stock):\n"
+            for p in written_off:
+                summary += f"   • {p['name']}: {p['quantity']} units - {condition}\n"
+        
+        return True, summary, returned_products, total_refund
         
     except Exception as e:
         logger.error(f"Error processing return: {e}")
         return False, f"Error processing return: {str(e)}", [], 0
+
+
+def check_existing_store_credit(phone, name):
+    """Check if customer already has active store credit"""
+    try:
+        credits_df = load_store_credit()
+        if credits_df.empty:
+            return None
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        active = credits_df[
+            (credits_df["customer_phone"].astype(str) == str(phone)) &
+            (credits_df["status"] == "ACTIVE") &
+            (credits_df["expiry_date"] >= today)
+        ]
+        
+        if not active.empty:
+            return active.iloc[0]["credit_id"]
+        
+        return None
+    except:
+        return None
 
 
 def create_store_credit(customer_name, customer_phone, amount, expiry_days=365):
@@ -496,6 +626,28 @@ def create_store_credit(customer_name, customer_phone, amount, expiry_days=365):
         save_store_credit(credits_df)
         
         return credit_id
+    except:
+        return None
+
+
+def update_store_credit(credit_id, additional_amount):
+    """Update existing store credit with additional amount"""
+    try:
+        credits_df = load_store_credit()
+        idx = credits_df[credits_df["credit_id"] == credit_id].index
+        
+        if len(idx) > 0:
+            current_balance = float(credits_df.loc[idx[0], "remaining_balance"])
+            current_amount = float(credits_df.loc[idx[0], "amount"])
+            
+            credits_df.loc[idx[0], "amount"] = current_amount + float(additional_amount)
+            credits_df.loc[idx[0], "remaining_balance"] = current_balance + float(additional_amount)
+            credits_df.loc[idx[0], "issued_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            save_store_credit(credits_df)
+            return credit_id
+        
+        return None
     except:
         return None
 
@@ -541,6 +693,22 @@ def get_return_stats():
         }
     except:
         return {"total": 0, "refund_amount": 0, "completed": 0, "pending": 0, "avg_value": 0}
+
+
+def get_write_off_stats():
+    """Get write-off statistics"""
+    try:
+        write_offs_df = load_write_offs()
+        
+        if write_offs_df.empty:
+            return {"total": 0, "items": 0}
+        
+        return {
+            "total": len(write_offs_df),
+            "items": write_offs_df["quantity"].sum() if "quantity" in write_offs_df.columns else 0
+        }
+    except:
+        return {"total": 0, "items": 0}
 
 
 def get_sample_receipts():
@@ -673,6 +841,13 @@ def render_process_return_tab():
         st.markdown("### Select Items to Return")
         st.info(f"💡 Enter quantities (max: available quantity)")
         
+        # Show condition options with write-off explanation
+        st.markdown("**Condition Guidelines:**")
+        st.caption("• **New/Unused** - Returns to stock (full refund)")
+        st.caption("• **Used - Good** - Returns to stock (full refund)")
+        st.caption("• **Damaged/Broken** - Written off (stock not affected, full refund)")
+        st.caption("• **Expired** - Written off (stock not affected, full refund)")
+        
         # Quantity selection
         selected_items = []
         has_selection = False
@@ -780,7 +955,7 @@ def render_process_return_tab():
             )
             condition = st.selectbox(
                 "Product Condition",
-                ["New/Unused", "Like New", "Used - Good", "Used - Fair", "Damaged"],
+                ["New/Unused", "Like New", "Used - Good", "Used - Fair", "Damaged", "Expired"],
                 key="return_condition_confirm"
             )
         
@@ -792,8 +967,17 @@ def render_process_return_tab():
             )
             notes = st.text_area("Notes", placeholder="Additional information...", key="return_notes_confirm")
         
+        # Show write-off warning if applicable
+        if condition.lower() in ["damaged", "expired", "broken", "faulty"]:
+            st.warning(f"⚠️ **Write-Off Notice:** Items marked as '{condition}' will be written off and will NOT be added back to stock.")
+        
         if refund_method == "STORE_CREDIT":
             st.info("💳 Store credit will be issued to customer")
+            
+            # Check existing credit
+            existing = check_existing_store_credit(customer_phone, customer_name)
+            if existing:
+                st.info(f"ℹ️ Customer already has store credit {existing}. This return will be added to existing credit.")
         
         # Navigation buttons
         col1, col2 = st.columns(2)
@@ -819,9 +1003,20 @@ def render_process_return_tab():
                         st.success(f"✅ {message}")
                         
                         if returned_products:
-                            st.markdown("### 📦 Stock Updated")
+                            # Show which items were written off vs returned to stock
+                            st.markdown("### 📦 Stock Update Summary")
                             for p in returned_products:
-                                st.write(f"✅ {p['name']}: +{p['quantity']} units returned")
+                                # Check if this item was written off
+                                is_write_off = False
+                                for item in selected_items:
+                                    if item.get("barcode") == p["barcode"] and item.get("condition", "").lower() in ["damaged", "expired", "broken", "faulty"]:
+                                        is_write_off = True
+                                        break
+                                
+                                if is_write_off:
+                                    st.warning(f"📝 {p['name']}: {p['quantity']} units - WRITTEN OFF (not added to stock)")
+                                else:
+                                    st.success(f"✅ {p['name']}: +{p['quantity']} units returned to stock")
                         
                         # Reset for next return
                         st.session_state.return_step = "search"
@@ -852,14 +1047,31 @@ def render_store_credit_tab():
         expiry = st.number_input("Expiry (days)", min_value=1, max_value=730, value=365, key="sc_expiry")
         notes = st.text_area("Notes", key="sc_notes")
         
+        # Check if customer already has credit
+        if phone:
+            existing = check_existing_store_credit(phone, customer)
+            if existing:
+                st.info(f"ℹ️ Customer already has active store credit: {existing}")
+        
         if st.button("💰 Issue Store Credit", type="primary", use_container_width=True):
             if customer and phone and amount > 0:
-                credit_id = create_store_credit(customer, phone, amount, expiry)
-                if credit_id:
-                    st.success(f"✅ Store credit issued! ID: {credit_id}")
-                    st.rerun()
+                # Check for existing credit first
+                existing = check_existing_store_credit(phone, customer)
+                
+                if existing:
+                    credit_id = update_store_credit(existing, amount)
+                    if credit_id:
+                        st.success(f"✅ Store credit updated! ID: {credit_id} (+${amount:.2f})")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update store credit")
                 else:
-                    st.error("❌ Failed to issue store credit")
+                    credit_id = create_store_credit(customer, phone, amount, expiry)
+                    if credit_id:
+                        st.success(f"✅ Store credit issued! ID: {credit_id}")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to issue store credit")
             else:
                 st.error("Please fill all required fields")
     
@@ -908,8 +1120,9 @@ def render_return_analytics_tab():
     st.markdown("## 📊 Return Analytics")
     
     stats = get_return_stats()
+    write_off_stats = get_write_off_stats()
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("📦 Total Returns", stats["total"])
     with col2:
@@ -918,6 +1131,8 @@ def render_return_analytics_tab():
         st.metric("⏳ Pending", stats["pending"])
     with col4:
         st.metric("📊 Avg Return", f"${stats['avg_value']:.2f}")
+    with col5:
+        st.metric("📝 Write-Offs", write_off_stats["total"])
     
     st.markdown("---")
     
@@ -931,6 +1146,18 @@ def render_return_analytics_tab():
         )
     else:
         st.info("No return data available")
+    
+    # Write-offs summary
+    write_offs_df = load_write_offs()
+    if not write_offs_df.empty:
+        st.markdown("### 📝 Write-Off Summary")
+        st.dataframe(
+            write_offs_df[["write_off_id", "product_name", "quantity", "reason", "created_date"]].head(20),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("No write-offs recorded")
 
 
 def render_return_history_tab():
@@ -956,6 +1183,27 @@ def render_return_history_tab():
         )
     else:
         st.info("No return records found")
+    
+    st.markdown("---")
+    st.markdown("### 📝 Write-Off History")
+    
+    write_offs_df = load_write_offs()
+    if not write_offs_df.empty:
+        st.dataframe(
+            write_offs_df[["write_off_id", "product_name", "quantity", "reason", "created_date"]],
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        csv = write_offs_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Write-Off Data (CSV)",
+            data=csv,
+            file_name=f"write_offs_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("No write-off records found")
 
 
 # ==============================
