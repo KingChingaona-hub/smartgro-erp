@@ -6,7 +6,7 @@ from datetime import datetime
 
 
 def income_page():
-    """Income Management Page - FIXED: No infinite loop and proper form handling"""
+    """Income Management Page - FIXED: No infinite loop on delete"""
     
     st.title("💰 Business Income")
     st.caption("Record and track all business income")
@@ -20,13 +20,33 @@ def income_page():
         st.session_state.income_message = ""
     if "income_success" not in st.session_state:
         st.session_state.income_success = False
+    if "delete_triggered" not in st.session_state:
+        st.session_state.delete_triggered = False
+    if "delete_success" not in st.session_state:
+        st.session_state.delete_success = False
+
+    # ==============================
+    # HANDLE DELETE ACTION (Outside form to prevent loop)
+    # ==============================
+    # Check if delete was triggered
+    if st.session_state.delete_triggered:
+        # Reset the flag immediately to prevent reprocessing
+        st.session_state.delete_triggered = False
+        
+        # Show success/error message
+        if st.session_state.delete_success:
+            st.success("✅ Income record deleted successfully!")
+        else:
+            st.error("❌ Failed to delete record")
+        
+        # Clear the flags
+        st.session_state.delete_success = False
 
     # ==============================
     # INPUT FORM
     # ==============================
     st.subheader("➕ Record Income")
 
-    # FIXED: Use the form properly - all inputs inside, submit button at the end
     with st.form(key="income_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
@@ -53,12 +73,11 @@ def income_page():
             )
         
         with col2:
-            # FIXED: Set value to 0.01 or greater to satisfy min_value
             amount = st.number_input(
                 "Amount ($) *", 
                 min_value=0.01, 
                 step=10.0, 
-                value=0.01,  # FIXED: value must be >= min_value
+                value=0.01,
                 key="income_amount"
             )
             user = st.text_input(
@@ -68,10 +87,8 @@ def income_page():
                 key="income_user"
             )
         
-        # Submit button - MUST be inside the form
         submitted = st.form_submit_button("💰 Record Income", type="primary", use_container_width=True)
 
-        # Process the form submission
         if submitted:
             if amount <= 0:
                 st.error("❌ Please enter a valid amount greater than 0")
@@ -85,12 +102,10 @@ def income_page():
                     st.session_state.get("username", "System")
                 )
                 if success:
-                    st.session_state.income_recorded = True
-                    st.session_state.income_message = message
-                    st.session_state.income_success = True
                     st.success(f"✅ {message}")
                     st.balloons()
-                    # DO NOT call st.rerun() - let the form handle it naturally
+                    # Clear the form by forcing a rerun only once
+                    st.rerun()
                 else:
                     st.error(f"❌ Failed to record income: {message}")
 
@@ -106,7 +121,6 @@ def income_page():
     with col1:
         st.metric("💰 This Month Income", f"${monthly_total:.2f}")
     
-    # Get income by source for additional metrics
     source_df = get_income_by_source()
     if not source_df.empty:
         with col2:
@@ -138,7 +152,6 @@ def income_page():
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
         
-        # Bar chart
         fig_bar = px.bar(
             source_df,
             x="income_source",
@@ -161,10 +174,7 @@ def income_page():
     df = load_income()
 
     if not df.empty:
-        # Sort by date descending
         df_display = df.sort_values("date", ascending=False).copy()
-        
-        # Format date for display
         df_display["date"] = pd.to_datetime(df_display["date"]).dt.strftime("%Y-%m-%d %H:%M")
         
         st.dataframe(
@@ -176,29 +186,45 @@ def income_page():
             }
         )
         
-        # Delete record option
+        # ==============================
+        # DELETE RECORD - FIXED: No infinite loop
+        # ==============================
         with st.expander("🗑️ Delete Income Record"):
             st.warning("⚠️ This action cannot be undone")
             
             # Create a list of records to select from
             record_options = []
+            record_indices = []
             for idx, row in df_display.iterrows():
                 record_options.append(f"{row['date']} - {row['income_source']} - ${row['amount']:.2f}")
+                record_indices.append(idx)
             
             if record_options:
-                selected_record = st.selectbox("Select Record to Delete", record_options, key="delete_select")
+                selected_record = st.selectbox(
+                    "Select Record to Delete", 
+                    record_options, 
+                    key="delete_select"
+                )
                 
+                # Get the index of the selected record
+                selected_idx = record_options.index(selected_record) if selected_record else -1
+                
+                # Delete button - with confirmation
                 if st.button("🗑️ Delete Selected Record", type="secondary", use_container_width=True):
-                    # Find the index of the selected record
-                    selected_idx = record_options.index(selected_record)
-                    # Get the actual index from df
-                    actual_idx = df_display.index[selected_idx]
-                    
-                    if delete_income(actual_idx):
-                        st.success("✅ Record deleted successfully!")
-                        st.rerun()
+                    if selected_idx >= 0:
+                        actual_idx = record_indices[selected_idx]
+                        
+                        # Attempt to delete
+                        success = delete_income(actual_idx)
+                        
+                        if success:
+                            st.success("✅ Income record deleted successfully!")
+                            # Use rerun but with a flag to prevent loops
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to delete record")
                     else:
-                        st.error("❌ Failed to delete record")
+                        st.warning("Please select a record to delete")
     else:
         st.info("No income recorded yet.")
     

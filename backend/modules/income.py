@@ -79,6 +79,27 @@ def record_income(income_source, description, amount, user="System"):
 
 
 # ==============================
+# DELETE INCOME - FIXED
+# ==============================
+def delete_income(index):
+    """Delete an income record by index"""
+    try:
+        df = load_income()
+        
+        # Check if index exists
+        if index in df.index:
+            df = df.drop(index)
+            save_income(df)
+            return True
+        else:
+            print(f"Index {index} not found in income dataframe")
+            return False
+    except Exception as e:
+        print(f"Error deleting income: {e}")
+        return False
+
+
+# ==============================
 # MONTHLY TOTAL
 # ==============================
 def get_monthly_income(month=None):
@@ -140,16 +161,3 @@ def get_income_trend(months=12):
     monthly_trend = monthly_trend.sort_values("month").tail(months)
     
     return monthly_trend
-
-
-# ==============================
-# DELETE INCOME
-# ==============================
-def delete_income(index):
-    """Delete an income record by index"""
-    df = load_income()
-    if index in df.index:
-        df = df.drop(index)
-        save_income(df)
-        return True
-    return False
