@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime  # FIXED: Added datetime import
 
 from backend.modules.income import load_income, get_monthly_income, get_income_by_source, get_income_trend
 
