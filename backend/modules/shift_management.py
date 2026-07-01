@@ -22,7 +22,7 @@ from backend.modules.shift_manager import (
 
 
 def shift_management_page():
-    """Main shift management page - Branch Level (FIXED - No infinite loop)"""
+    """Main shift management page - Branch Level (FIXED)"""
     
     st.title("🕐 Shift Management")
     st.caption("Manage branch shifts, track performance, and monitor activity")
@@ -37,13 +37,16 @@ def shift_management_page():
     # Check if user can manage shifts (manager, admin, owner)
     can_manage_shifts = user_role in ["owner", "manager", "admin"]
     
+    # Load shifts data - FIXED: Load here so it's available everywhere
+    shifts_df = load_shifts()
+    
     # Get the active shift for this branch
     active_shift = get_active_shift_for_branch(user_branch)
     is_shift_active = active_shift is not None
     shift_id = active_shift.get("shift_id") if is_shift_active else None
     
     # ==============================
-    # SIDEBAR - Shift Controls (FIXED - No auto-rerun)
+    # SIDEBAR - Shift Controls
     # ==============================
     st.sidebar.header("🔄 Shift Controls")
     st.sidebar.info(f"📍 **Branch:** {user_branch}")
@@ -91,7 +94,6 @@ def shift_management_page():
                         # Update session state
                         st.session_state.active_shift_id = result
                         st.session_state.branch_shift_active = True
-                        # Use st.rerun() here - it's safe because it's outside the form
                         st.rerun()
                     else:
                         st.sidebar.error(f"❌ {message}")
@@ -129,7 +131,7 @@ def shift_management_page():
     ])
     
     # ==============================
-    # TAB 1: ACTIVE SHIFTS - BRANCH LEVEL (FIXED)
+    # TAB 1: ACTIVE SHIFTS
     # ==============================
     with tab1:
         st.markdown("## 🟢 Active Shifts")
@@ -306,11 +308,12 @@ def shift_management_page():
         
         with col2:
             # Get cashiers for this branch
-            all_cashiers = []
+            all_cashiers = ["All"]
             if not shifts_df.empty and "cashier_name" in shifts_df.columns and "branch_id" in shifts_df.columns:
                 branch_cashiers = shifts_df[shifts_df["branch_id"] == user_branch]
-                all_cashiers = ["All"] + sorted(branch_cashiers["cashier_name"].unique().tolist())
-            selected_cashier = st.selectbox("Cashier", all_cashiers if all_cashiers else ["All"])
+                if not branch_cashiers.empty:
+                    all_cashiers = ["All"] + sorted(branch_cashiers["cashier_name"].unique().tolist())
+            selected_cashier = st.selectbox("Cashier", all_cashiers)
         
         with col3:
             statuses = ["All", "OPEN", "CLOSED"]
@@ -440,6 +443,8 @@ def shift_management_page():
                 st.metric("📋 Transactions", cash_summary.get('transactions_count', 0))
             with col4:
                 st.metric("📊 Variance", f"${cash_summary.get('variance', 0):,.2f}")
+        else:
+            st.info("No cash summary data available")
         
         # Daily trend - branch specific
         st.markdown("### 📈 Daily Shift Performance")
@@ -470,6 +475,8 @@ def shift_management_page():
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No shift data available for this branch")
+        else:
+            st.info("No shift data available")
     
     # ==============================
     # TAB 4: SHIFT PERFORMANCE - BRANCH LEVEL
