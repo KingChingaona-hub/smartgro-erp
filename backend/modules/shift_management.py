@@ -1,3 +1,4 @@
+# backend/modules/shift_management.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -21,7 +22,7 @@ from backend.modules.shift_manager import (
 
 
 def shift_management_page():
-    """Main shift management page - Branch Level (FIXED)"""
+    """Main shift management page - Branch Level (FIXED - No infinite loop)"""
     
     st.title("🕐 Shift Management")
     st.caption("Manage branch shifts, track performance, and monitor activity")
@@ -42,7 +43,7 @@ def shift_management_page():
     shift_id = active_shift.get("shift_id") if is_shift_active else None
     
     # ==============================
-    # SIDEBAR - Shift Controls
+    # SIDEBAR - Shift Controls (FIXED - No auto-rerun)
     # ==============================
     st.sidebar.header("🔄 Shift Controls")
     st.sidebar.info(f"📍 **Branch:** {user_branch}")
@@ -90,6 +91,7 @@ def shift_management_page():
                         # Update session state
                         st.session_state.active_shift_id = result
                         st.session_state.branch_shift_active = True
+                        # Use st.rerun() here - it's safe because it's outside the form
                         st.rerun()
                     else:
                         st.sidebar.error(f"❌ {message}")
