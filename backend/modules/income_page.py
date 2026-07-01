@@ -2,10 +2,11 @@
 import streamlit as st
 from backend.modules.income import record_income, load_income, get_monthly_income, get_income_by_source, delete_income
 import pandas as pd
+from datetime import datetime
 
 
 def income_page():
-    """Income Management Page - FIXED: No infinite loop"""
+    """Income Management Page - FIXED: No infinite loop and proper form handling"""
     
     st.title("💰 Business Income")
     st.caption("Record and track all business income")
@@ -25,6 +26,7 @@ def income_page():
     # ==============================
     st.subheader("➕ Record Income")
 
+    # FIXED: Use the form properly - all inputs inside, submit button at the end
     with st.form(key="income_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
@@ -40,17 +42,36 @@ def income_page():
                     "Interest Income",
                     "Rental Income",
                     "Other"
-                ]
+                ],
+                key="income_source_select"
             )
 
-            description = st.text_input("Description *", placeholder="Brief description of income")
+            description = st.text_input(
+                "Description *", 
+                placeholder="Brief description of income",
+                key="income_description"
+            )
         
         with col2:
-            amount = st.number_input("Amount ($) *", min_value=0.01, step=10.0, value=0.0)
-            user = st.text_input("Recorded By", value=st.session_state.get("username", "System"), disabled=True)
+            # FIXED: Set value to 0.01 or greater to satisfy min_value
+            amount = st.number_input(
+                "Amount ($) *", 
+                min_value=0.01, 
+                step=10.0, 
+                value=0.01,  # FIXED: value must be >= min_value
+                key="income_amount"
+            )
+            user = st.text_input(
+                "Recorded By", 
+                value=st.session_state.get("username", "System"), 
+                disabled=True,
+                key="income_user"
+            )
         
+        # Submit button - MUST be inside the form
         submitted = st.form_submit_button("💰 Record Income", type="primary", use_container_width=True)
 
+        # Process the form submission
         if submitted:
             if amount <= 0:
                 st.error("❌ Please enter a valid amount greater than 0")
@@ -165,7 +186,7 @@ def income_page():
                 record_options.append(f"{row['date']} - {row['income_source']} - ${row['amount']:.2f}")
             
             if record_options:
-                selected_record = st.selectbox("Select Record to Delete", record_options)
+                selected_record = st.selectbox("Select Record to Delete", record_options, key="delete_select")
                 
                 if st.button("🗑️ Delete Selected Record", type="secondary", use_container_width=True):
                     # Find the index of the selected record
