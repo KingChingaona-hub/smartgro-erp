@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
+import os
 
 from backend.core.db_adapter import (
     load_sales,
@@ -64,6 +65,7 @@ def load_returns():
     init_returns_files()
     try:
         df = pd.read_csv(RETURNS_FILE)
+        print(f"📂 Loaded {len(df)} returns from {RETURNS_FILE}")
         return df
     except Exception as e:
         print(f"⚠️ Error loading returns: {e}")
@@ -80,6 +82,10 @@ def save_returns(df):
     try:
         df.to_csv(RETURNS_FILE, index=False)
         print(f"💾 Saved {len(df)} returns to {RETURNS_FILE}")
+        # Verify file was written
+        if RETURNS_FILE.exists():
+            size = RETURNS_FILE.stat().st_size
+            print(f"   File size: {size} bytes")
         return True
     except Exception as e:
         print(f"❌ Error saving returns: {e}")
@@ -162,10 +168,18 @@ def get_sales_items_grouped(sale_row):
 
 
 # ==============================
-# PROCESS RETURN - SIMPLIFIED
+# PROCESS RETURN - WITH DEBUG
 # ==============================
 def process_return(receipt_no, items_to_return, return_reason, condition, refund_method, notes=""):
     """Process a return and update everything"""
+    
+    print("=" * 60)
+    print("🔍 PROCESS_RETURN CALLED!")
+    print(f"   Receipt: {receipt_no}")
+    print(f"   Items to return: {items_to_return}")
+    print(f"   Reason: {return_reason}")
+    print(f"   Method: {refund_method}")
+    print("=" * 60)
     
     # Initialize files
     init_returns_files()
@@ -182,11 +196,15 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
     # Find original sale
     original_sale = search_sale_by_receipt(receipt_no_str)
     if original_sale is None or original_sale.empty:
+        print("❌ Receipt not found!")
         return False, "Receipt not found", [], 0
     
     sale_row = original_sale.iloc[0]
     customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
     customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
+    
+    print(f"👤 Customer: {customer_name}")
+    print(f"📞 Phone: {customer_phone}")
     
     # Calculate total refund
     total_refund = 0
@@ -198,6 +216,8 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
         price = float(return_item["price"])
         refund_amount = qty * price
         total_refund += refund_amount
+        
+        print(f"📦 Returning: {return_item['name']} x{qty} = ${refund_amount:.2f}")
         
         returned_products.append({
             "barcode": str(return_item.get("barcode", "")),
@@ -301,15 +321,32 @@ def process_return(receipt_no, items_to_return, return_reason, condition, refund
             except:
                 pass
     
-    # SAVE ALL CHANGES
+    # ============================================================
+    # SAVE ALL CHANGES - THIS IS CRITICAL
+    # ============================================================
+    print("\n💾 SAVING ALL CHANGES...")
+    
+    # Save products (stock update)
     save_products(products_df)
+    print("   ✅ Products saved")
+    
+    # Save sales (return entry)
     save_sales(sales_df)
+    print("   ✅ Sales saved")
+    
+    # Save returns (THIS IS WHAT WAS MISSING)
     save_returns(returns_df)
+    print("   ✅ Returns saved")
+    
+    # Save refunds
     save_refunds(refunds_df)
+    print("   ✅ Refunds saved")
     
     # VERIFY SAVE
     verify_df = load_returns()
     print(f"✅ VERIFIED: {len(verify_df)} returns in file")
+    if not verify_df.empty:
+        print(f"   Latest return: {verify_df.iloc[-1]['return_id']} - {verify_df.iloc[-1]['product_name']}")
     
     # BUILD SUMMARY
     summary = f"""
@@ -370,6 +407,23 @@ def load_store_credit():
 def save_store_credit(df):
     """Save store credit records"""
     df.to_csv(STORE_CREDIT_FILE, index=False)
+
+
+def load_refunds():
+    """Load all refunds"""
+    init_returns_files()
+    try:
+        return pd.read_csv(REFUNDS_FILE)
+    except:
+        return pd.DataFrame(columns=[
+            "refund_id", "return_id", "receipt_no", "refund_date", "customer_name",
+            "amount", "refund_method", "reference_no", "processed_by", "notes"
+        ])
+
+
+def save_refunds(df):
+    """Save refunds to file"""
+    df.to_csv(REFUNDS_FILE, index=False)
 
 
 def get_customer_store_credit(customer_phone):
@@ -521,10 +575,6 @@ def returns_management_dashboard():
                     
                     st.markdown("### Select Items to Return")
                     
-                    # Store selected items in session state
-                    if "return_selected_items" not in st.session_state:
-                        st.session_state.return_selected_items = []
-                    
                     return_items = []
                     for idx, item in enumerate(sale_items):
                         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
@@ -584,7 +634,7 @@ def returns_management_dashboard():
                         if refund_method == "STORE_CREDIT":
                             st.info("💳 Store credit will be issued to customer for future purchases")
                         
-                        # RETURN BUTTON - THIS IS THE KEY
+                        # PROCESS RETURN BUTTON
                         if st.button("✅ PROCESS RETURN", type="primary", use_container_width=True):
                             with st.spinner("Processing return..."):
                                 success, message, returned_products, refund_total = process_return(
@@ -605,6 +655,7 @@ def returns_management_dashboard():
                                         for p in returned_products:
                                             st.write(f"✅ {p['name']}: +{p['quantity']} units returned to stock")
                                     
+                                    # Force refresh to show updated data
                                     st.balloons()
                                     st.rerun()
                                 else:
