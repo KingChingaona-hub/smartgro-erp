@@ -16,7 +16,8 @@ from backend.modules.expenses import (
     get_top_expenses,
     add_recurring_expense,
     process_recurring_expenses,
-    add_expense_category
+    add_expense_category,
+    load_recurring_expenses  # FIXED: Added this import
 )
 
 
@@ -448,3 +449,10 @@ def expenses_dashboard():
             )
         else:
             st.info("No expenses recorded yet")
+
+
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    expenses_dashboard()
