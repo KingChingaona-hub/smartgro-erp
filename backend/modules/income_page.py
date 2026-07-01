@@ -1,12 +1,12 @@
 # backend/modules/income_page.py
 import streamlit as st
-from backend.modules.income import record_income, load_income, get_monthly_income, get_income_by_source, delete_income
+from backend.modules.income import record_income, load_income, get_monthly_income, get_income_by_source, delete_income, delete_income_by_id
 import pandas as pd
 from datetime import datetime
 
 
 def income_page():
-    """Income Management Page - FIXED: No infinite loops, proper delete"""
+    """Income Management Page - FIXED: Proper delete using unique identifiers"""
     
     st.title("💰 Business Income")
     st.caption("Record and track all business income")
@@ -20,8 +20,6 @@ def income_page():
         st.session_state.income_message = ""
     if "income_success" not in st.session_state:
         st.session_state.income_success = False
-    if "delete_triggered" not in st.session_state:
-        st.session_state.delete_triggered = False
 
     # ==============================
     # DISPLAY MESSAGES FROM SESSION STATE
@@ -31,7 +29,7 @@ def income_page():
         st.balloons()
         st.session_state.income_success = False
         st.session_state.income_message = ""
-    
+
     # ==============================
     # INPUT FORM
     # ==============================
@@ -164,12 +162,9 @@ def income_page():
     df = load_income()
 
     if not df.empty:
-        # IMPORTANT: Keep original index - use df directly, not sorted copy
-        # Create display version with formatted date
+        # Create display version
         df_display = df.copy()
         df_display["date_display"] = pd.to_datetime(df_display["date"]).dt.strftime("%Y-%m-%d %H:%M")
-        
-        # Show the dataframe (sorted for display only)
         df_sorted = df_display.sort_values("date", ascending=False)
         
         st.dataframe(
@@ -183,23 +178,30 @@ def income_page():
         )
         
         # ==============================
-        # DELETE RECORD - FIXED: Use original df indices
+        # DELETE RECORD - FIXED: Use delete_income_by_id
         # ==============================
         with st.expander("🗑️ Delete Income Record"):
             st.warning("⚠️ This action cannot be undone")
             
             if not df.empty:
-                # Create a list of records from the ORIGINAL dataframe (not sorted)
+                # Create a list of records to select from with unique identifiers
                 record_options = []
-                record_indices = []
+                record_data = []  # Store the actual data for deletion
                 
-                # Sort by date for display but keep original indices
                 df_sorted_for_select = df.sort_values("date", ascending=False)
                 
                 for idx, row in df_sorted_for_select.iterrows():
                     date_str = pd.to_datetime(row["date"]).strftime("%Y-%m-%d %H:%M")
-                    record_options.append(f"{date_str} - {row['income_source']} - ${row['amount']:.2f}")
-                    record_indices.append(idx)  # This is the ORIGINAL index from df
+                    display_text = f"{date_str} - {row['income_source']} - ${row['amount']:.2f}"
+                    record_options.append(display_text)
+                    
+                    # Store the unique identifier data
+                    record_data.append({
+                        "date": row["date"],
+                        "income_source": row["income_source"],
+                        "amount": row["amount"],
+                        "description": row.get("description", "")
+                    })
                 
                 selected_record = st.selectbox(
                     "Select Record to Delete", 
@@ -209,7 +211,7 @@ def income_page():
                 
                 if selected_record:
                     selected_idx = record_options.index(selected_record)
-                    actual_row_index = record_indices[selected_idx]
+                    record_to_delete = record_data[selected_idx]
                     
                     # Show what will be deleted
                     st.info(f"⚠️ You are about to delete: {selected_record}")
@@ -217,14 +219,19 @@ def income_page():
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("🗑️ Confirm Delete", type="secondary", use_container_width=True):
-                            # Call delete with the correct index from the original DataFrame
-                            success = delete_income(actual_row_index)
+                            # Use the safer delete_by_id method
+                            success = delete_income_by_id(
+                                date_str=record_to_delete["date"],
+                                income_source=record_to_delete["income_source"],
+                                amount=record_to_delete["amount"],
+                                description=record_to_delete["description"]
+                            )
                             
                             if success:
                                 st.success("✅ Income record deleted successfully!")
                                 st.rerun()
                             else:
-                                st.error("❌ Failed to delete record")
+                                st.error("❌ Failed to delete record. Please try again.")
                     
                     with col2:
                         if st.button("❌ Cancel", use_container_width=True):

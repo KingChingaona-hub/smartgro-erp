@@ -79,21 +79,83 @@ def record_income(income_source, description, amount, user="System"):
 
 
 # ==============================
-# DELETE INCOME - FIXED
+# DELETE INCOME - FIXED: Delete by unique identifier (date + source + amount)
 # ==============================
-def delete_income(index):
-    """Delete an income record by index"""
+def delete_income_by_id(date_str, income_source, amount, description=""):
+    """
+    Delete an income record by its unique combination of fields.
+    This is safer than using index which can change.
+    """
     try:
         df = load_income()
         
-        # Check if index exists
+        if df.empty:
+            return False
+        
+        # Convert date string to match format in dataframe
+        # The date in df is stored as "YYYY-MM-DD HH:MM:SS"
+        # The date_str might be "YYYY-MM-DD HH:MM"
+        # So we need to match the first 16 characters
+        df["date_short"] = df["date"].str[:16]
+        search_date = date_str[:16]
+        
+        # Find matching records
+        mask = (
+            (df["date_short"] == search_date) & 
+            (df["income_source"] == income_source) & 
+            (abs(df["amount"] - float(amount)) < 0.01)  # Float comparison with tolerance
+        )
+        
+        if description:
+            mask = mask & (df["description"] == description)
+        
+        matching_indices = df[mask].index.tolist()
+        
+        if not matching_indices:
+            print(f"No matching record found for {date_str} - {income_source} - ${amount}")
+            return False
+        
+        # Delete the first matching record
+        df = df.drop(matching_indices[0])
+        df = df.drop(columns=["date_short"], errors="ignore")
+        df = df.reset_index(drop=True)
+        save_income(df)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error deleting income by ID: {e}")
+        return False
+
+
+# ==============================
+# DELETE INCOME BY INDEX (Legacy - keep for compatibility)
+# ==============================
+def delete_income(index):
+    """Delete an income record by index - FIXED to handle index properly"""
+    try:
+        df = load_income()
+        
+        # Check if index exists in the dataframe
         if index in df.index:
+            # Get the record details for logging
+            record = df.loc[index]
+            print(f"Deleting record at index {index}: {record['date']} - {record['income_source']} - ${record['amount']}")
+            
+            # Drop the specific row
             df = df.drop(index)
+            
+            # Reset index to maintain clean indexing
+            df = df.reset_index(drop=True)
+            
+            # Save the updated dataframe
             save_income(df)
+            
             return True
         else:
-            print(f"Index {index} not found in income dataframe")
+            print(f"Index {index} not found in income dataframe. Available indices: {df.index.tolist()}")
             return False
+            
     except Exception as e:
         print(f"Error deleting income: {e}")
         return False
