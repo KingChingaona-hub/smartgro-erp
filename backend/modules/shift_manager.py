@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 from pathlib import Path
 from datetime import datetime, timedelta
-from backend.core.db_adapter import load_shifts as db_load_shifts, save_shifts as db_save_shifts
+from backend.core.db_adapter import load_shifts as db_load_shifts, save_shifts as db_save_shifts, load_users
 from decimal import Decimal
 
 
@@ -75,26 +75,64 @@ def save_shifts(df):
 
 
 # ==============================
-# START SHIFT
+# GET USER BRANCH
+# ==============================
+def get_user_branch(username):
+    """Get the branch ID for a user"""
+    users_df = load_users()
+    
+    if users_df.empty:
+        return "HO"
+    
+    user = users_df[users_df["username"] == username]
+    if user.empty:
+        return "HO"
+    
+    return user.iloc[0].get("branch_id", "HO")
+
+
+# ==============================
+# START SHIFT - BRANCH LEVEL (FIXED)
 # ==============================
 def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_username, opening_cash=0):
-    """Start a shift for a cashier (called by manager)"""
+    """
+    Start a shift for a BRANCH.
+    A shift is active at the branch level, not per cashier.
+    Multiple cashiers can work under the same branch shift.
+    
+    Args:
+        cashier_username: Username of the person starting the shift
+        cashier_name: Full name of the person starting the shift
+        branch_id: Branch ID where the shift is starting
+        branch_name: Branch name
+        manager_username: Username of the manager starting the shift
+        opening_cash: Opening cash amount
+    
+    Returns:
+        (bool, str): Success status and shift_id or error message
+    """
     df = load_shifts()
     
-    # Check if cashier already has an active shift
-    if "cashier_username" in df.columns and "status" in df.columns:
-        active_shift = df[(df["cashier_username"] == cashier_username) & (df["status"] == "OPEN")]
+    # Check if there's already an ACTIVE shift for this branch
+    if "branch_id" in df.columns and "status" in df.columns:
+        # Look for any OPEN shift in this branch
+        active_shift = df[(df["branch_id"] == branch_id) & (df["status"] == "OPEN")]
+        
         if not active_shift.empty:
-            return False, f"Cashier {cashier_name} already has an active shift"
+            # Shift already exists for this branch - return the existing shift
+            shift_id = active_shift.iloc[0]["shift_id"]
+            existing_cashier = active_shift.iloc[0].get("cashier_name", "Unknown")
+            return True, shift_id, f"Shift already active in this branch (started by {existing_cashier})"
     
+    # No active shift for this branch - create a new one
     shift_id = datetime.now().strftime("%Y%m%d%H%M%S")
     
     new_shift = pd.DataFrame([{
         "shift_id": shift_id,
         "branch_id": branch_id,
         "branch_name": branch_name,
-        "cashier_username": cashier_username,
-        "cashier_name": cashier_name,
+        "cashier_username": cashier_username,  # The person who started the shift
+        "cashier_name": cashier_name,          # The person who started the shift
         "manager_username": manager_username,
         "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "end_time": None,
@@ -115,14 +153,14 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
     df = pd.concat([df, new_shift], ignore_index=True)
     save_shifts(df)
     
-    return True, shift_id
+    return True, shift_id, "Shift started successfully!"
 
 
 # ==============================
 # END SHIFT - COMPLETELY FIXED
 # ==============================
 def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes=""):
-    """End a cashier shift - COMPLETELY FIXED for Decimal conversion"""
+    """End a branch shift"""
     df = load_shifts()
     
     idx = df[df["shift_id"] == shift_id].index
@@ -166,7 +204,7 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
 # CLOSE SHIFT (Legacy function)
 # ==============================
 def close_shift(shift_id, closing_cash, total_sales, profit, transactions):
-    """Close a cashier shift (legacy compatibility function)"""
+    """Close a shift (legacy compatibility function)"""
     return end_shift(shift_id, closing_cash, total_sales, profit, transactions)
 
 
@@ -209,25 +247,71 @@ def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, 
 
 
 # ==============================
-# GET ACTIVE SHIFT FOR CASHIER
+# GET ACTIVE SHIFT FOR BRANCH (FIXED)
 # ==============================
-def get_active_shift_for_cashier(cashier_username):
-    """Get active shift for a specific cashier"""
+def get_active_shift_for_branch(branch_id):
+    """
+    Get the active shift for a branch (if any)
+    
+    Args:
+        branch_id: Branch ID to check
+    
+    Returns:
+        dict or None: Active shift data or None if no active shift
+    """
     df = load_shifts()
-    if "cashier_username" in df.columns and "status" in df.columns:
-        active = df[(df["cashier_username"] == cashier_username) & (df["status"] == "OPEN")]
+    if "branch_id" in df.columns and "status" in df.columns:
+        active = df[(df["branch_id"] == branch_id) & (df["status"] == "OPEN")]
         if not active.empty:
             return active.iloc[0].to_dict()
     return None
 
 
 # ==============================
-# CHECK IF CASHIER CAN LOGIN
+# GET ACTIVE SHIFT FOR CASHIER (FIXED - Branch Level)
+# ==============================
+def get_active_shift_for_cashier(cashier_username):
+    """
+    Get active shift for a cashier.
+    Now returns the branch's active shift, not a cashier-specific shift.
+    
+    Args:
+        cashier_username: Username of the cashier
+    
+    Returns:
+        dict or None: Active shift data or None
+    """
+    # Get the cashier's branch
+    branch_id = get_user_branch(cashier_username)
+    
+    # Return the active shift for this branch
+    return get_active_shift_for_branch(branch_id)
+
+
+# ==============================
+# CHECK IF CASHIER CAN LOGIN (FIXED)
 # ==============================
 def can_cashier_login(cashier_username):
-    """Check if a cashier has an active shift to log in"""
-    active_shift = get_active_shift_for_cashier(cashier_username)
-    return active_shift is not None, active_shift
+    """
+    Check if a cashier can log in.
+    Returns (True, active_shift) if there's an active shift in their branch.
+    
+    Args:
+        cashier_username: Username of the cashier
+    
+    Returns:
+        (bool, dict): True if can login, and the active shift data
+    """
+    # Get the cashier's branch
+    branch_id = get_user_branch(cashier_username)
+    
+    # Check if there's an active shift in this branch
+    active_shift = get_active_shift_for_branch(branch_id)
+    
+    if active_shift:
+        return True, active_shift
+    else:
+        return False, None
 
 
 # ==============================
@@ -252,6 +336,25 @@ def get_all_active_shifts():
         active = df[df["status"] == "OPEN"]
         return active
     return pd.DataFrame()
+
+
+# ==============================
+# IS SHIFT ACTIVE IN BRANCH
+# ==============================
+def is_shift_active_in_branch(branch_id):
+    """Check if there's an active shift in a branch"""
+    return get_active_shift_for_branch(branch_id) is not None
+
+
+# ==============================
+# GET BRANCH_ACTIVE_SHIFT_ID
+# ==============================
+def get_branch_active_shift_id(branch_id):
+    """Get the active shift ID for a branch"""
+    active_shift = get_active_shift_for_branch(branch_id)
+    if active_shift:
+        return active_shift.get("shift_id")
+    return None
 
 
 # ==============================
@@ -303,19 +406,100 @@ def get_shifts_by_date(date=None):
 # GET CASHIER SHIFT HISTORY
 # ==============================
 def get_cashier_shift_history(cashier_username, limit=10):
-    """Get shift history for a specific cashier"""
+    """
+    Get shift history for a specific cashier.
+    Returns shifts that the cashier was part of (as cashier or manager).
+    
+    Args:
+        cashier_username: Username of the cashier
+        limit: Maximum number of shifts to return
+    
+    Returns:
+        DataFrame: Shift history
+    """
     df = load_shifts()
     
     if df.empty:
         return df
     
     if "cashier_username" in df.columns:
+        # Get shifts where this user was the cashier
         cashier_shifts = df[df["cashier_username"] == cashier_username]
+        
+        # Also get shifts where this user was the manager (for managers)
+        if "manager_username" in df.columns:
+            manager_shifts = df[df["manager_username"] == cashier_username]
+            cashier_shifts = pd.concat([cashier_shifts, manager_shifts], ignore_index=True)
+        
         if not cashier_shifts.empty and "start_time" in cashier_shifts.columns:
-            cashier_shifts = cashier_shifts.sort_values("start_time", ascending=False).head(limit)
+            cashier_shifts = cashier_shifts.sort_values("start_time", ascending=False).drop_duplicates(subset=["shift_id"]).head(limit)
         return cashier_shifts
     
     return df
+
+
+# ==============================
+# GET SHIFT CASHIERS (New function)
+# ==============================
+def get_shift_cashiers(shift_id):
+    """
+    Get all cashiers who worked under a shift.
+    For now, returns the cashier who started the shift.
+    In the future, this could be extended to track all cashiers.
+    
+    Args:
+        shift_id: Shift ID
+    
+    Returns:
+        list: List of cashier names
+    """
+    df = load_shifts()
+    shift = df[df["shift_id"] == shift_id]
+    if shift.empty:
+        return []
+    
+    cashier_name = shift.iloc[0].get("cashier_name", "Unknown")
+    return [cashier_name]
+
+
+# ==============================
+# GET_SHIFT_STATS (For Dashboard)
+# ==============================
+def get_shift_stats():
+    """
+    Get statistics about all shifts.
+    
+    Returns:
+        dict: Statistics including total, active, closed shifts
+    """
+    df = load_shifts()
+    
+    if df.empty:
+        return {
+            "total": 0,
+            "active": 0,
+            "closed": 0,
+            "total_revenue": 0,
+            "total_profit": 0,
+            "total_transactions": 0
+        }
+    
+    total = len(df)
+    active = len(df[df["status"] == "OPEN"]) if "status" in df.columns else 0
+    closed = len(df[df["status"] == "CLOSED"]) if "status" in df.columns else 0
+    
+    total_revenue = to_float(df["total_revenue"].sum()) if "total_revenue" in df.columns else 0
+    total_profit = to_float(df["profit"].sum()) if "profit" in df.columns else 0
+    total_transactions = int(to_float(df["transactions"].sum())) if "transactions" in df.columns else 0
+    
+    return {
+        "total": total,
+        "active": active,
+        "closed": closed,
+        "total_revenue": total_revenue,
+        "total_profit": total_profit,
+        "total_transactions": total_transactions
+    }
 
 
 # ==============================
@@ -325,3 +509,18 @@ def init_shift_file():
     """Compatibility function - no longer needed with PostgreSQL"""
     print("📦 Shift data stored in PostgreSQL - no CSV file needed")
     return load_shifts()
+
+
+def get_current_branch_shift():
+    """
+    Get the active shift for the current user's branch.
+    Uses session state to determine the current branch.
+    
+    Returns:
+        dict or None: Active shift data
+    """
+    try:
+        branch_id = st.session_state.get("user_branch", "HO")
+        return get_active_shift_for_branch(branch_id)
+    except:
+        return None

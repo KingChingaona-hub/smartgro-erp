@@ -2,6 +2,24 @@ import pandas as pd
 import streamlit as st
 from pathlib import Path
 from datetime import datetime, timedelta
+from decimal import Decimal
+
+# ==============================
+# HELPER: Convert to float safely
+# ==============================
+def to_float(value):
+    """Safely convert any value to float"""
+    if value is None:
+        return 0.0
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
 
 # ==============================
 # FILE SETUP
@@ -25,6 +43,8 @@ def init_cash_register():
         df = pd.DataFrame(columns=[
             "date",
             "shift_id",
+            "branch_id",        # NEW: Track branch
+            "branch_name",      # NEW: Track branch name
             "type",           # OPENING, CASH_SALE, CREDIT_SALE, DEBT_PAYMENT, EXPENSE, CLOSING, PETTY_CASH, DEPOSIT
             "amount",
             "receipt_no",
@@ -40,6 +60,7 @@ def init_cash_register():
         df = pd.DataFrame(columns=[
             "date",
             "shift_id",
+            "branch_id",        # NEW: Track branch
             "description",
             "amount",
             "category",
@@ -54,6 +75,7 @@ def init_cash_register():
         df = pd.DataFrame(columns=[
             "date",
             "shift_id",
+            "branch_id",        # NEW: Track branch
             "amount",
             "bank_name",
             "reference_no",
@@ -67,6 +89,7 @@ def init_cash_register():
         df = pd.DataFrame(columns=[
             "date",
             "shift_id",
+            "branch_id",        # NEW: Track branch
             "float_amount",
             "notes"
         ])
@@ -82,10 +105,13 @@ def load_cash():
     
     try:
         df = pd.read_csv(CASH_FILE)
-        required_cols = ["date", "shift_id", "type", "amount", "receipt_no", "customer_name", "payment_method", "note", "cashier"]
+        required_cols = ["date", "shift_id", "branch_id", "branch_name", "type", "amount", "receipt_no", "customer_name", "payment_method", "note", "cashier"]
         for col in required_cols:
             if col not in df.columns:
-                df[col] = ""
+                if col in ["branch_id", "branch_name"]:
+                    df[col] = "HO"
+                else:
+                    df[col] = ""
         
         df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
         
@@ -95,7 +121,7 @@ def load_cash():
         return df
     except Exception as e:
         print(f"Error loading cash: {e}")
-        return pd.DataFrame(columns=["date", "shift_id", "type", "amount", "receipt_no", "customer_name", "payment_method", "note", "cashier"])
+        return pd.DataFrame(columns=["date", "shift_id", "branch_id", "branch_name", "type", "amount", "receipt_no", "customer_name", "payment_method", "note", "cashier"])
 
 
 def save_cash(df):
@@ -104,25 +130,47 @@ def save_cash(df):
 
 
 # ==============================
+# GET CURRENT BRANCH INFO
+# ==============================
+def get_current_branch_info():
+    """Get current branch info from session state"""
+    try:
+        branch_id = st.session_state.get("user_branch", "HO")
+        branch_name = st.session_state.get("branch_name", "Head Office")
+        return branch_id, branch_name
+    except:
+        return "HO", "Head Office"
+
+
+# ==============================
 # RECORD CASH MOVEMENT
 # ==============================
 def record_cash_movement(amount, receipt_no, payment_method="CASH", shift_id="", customer_name="", note=""):
     """General cash movement recorder"""
-    record_cash_sale(amount, receipt_no, customer_name, shift_id, payment_method, note)
+    return record_cash_sale(amount, receipt_no, customer_name, shift_id, payment_method, note)
 
 
 # ==============================
-# RECORD CASH SALE
+# RECORD CASH SALE (FIXED)
 # ==============================
 def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", payment_method="CASH", note=""):
     """Record a physical cash sale (adds to cash in hand)"""
     df = load_cash()
     
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
+    # If no shift_id provided, try to get from session
+    if not shift_id:
+        shift_id = st.session_state.get("active_shift_id", "")
+    
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "CASH_SALE",
-        "amount": float(amount),
+        "amount": to_float(amount),
         "receipt_no": receipt_no,
         "customer_name": customer_name,
         "payment_method": payment_method,
@@ -136,17 +184,26 @@ def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", p
 
 
 # ==============================
-# RECORD CREDIT SALE
+# RECORD CREDIT SALE (FIXED)
 # ==============================
 def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
     """Record a credit sale (DOES NOT add to cash in hand)"""
     df = load_cash()
     
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
+    # If no shift_id provided, try to get from session
+    if not shift_id:
+        shift_id = st.session_state.get("active_shift_id", "")
+    
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "CREDIT_SALE",
-        "amount": float(amount),
+        "amount": to_float(amount),
         "receipt_no": receipt_no,
         "customer_name": customer_name,
         "payment_method": "CREDIT",
@@ -160,17 +217,26 @@ def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
 
 
 # ==============================
-# RECORD DEBT PAYMENT
+# RECORD DEBT PAYMENT (FIXED)
 # ==============================
 def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", note=""):
     """Record a debt payment (adds to cash in hand)"""
     df = load_cash()
     
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
+    # If no shift_id provided, try to get from session
+    if not shift_id:
+        shift_id = st.session_state.get("active_shift_id", "")
+    
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "DEBT_PAYMENT",
-        "amount": float(amount),
+        "amount": to_float(amount),
         "receipt_no": receipt_no,
         "customer_name": customer_name,
         "payment_method": "CASH",
@@ -184,18 +250,27 @@ def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", no
 
 
 # ==============================
-# RECORD PETTY CASH EXPENSE
+# RECORD PETTY CASH EXPENSE (FIXED)
 # ==============================
 def record_petty_cash(description, amount, category, shift_id="", approved_by="", notes=""):
     """Record petty cash expense (reduces cash in hand)"""
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
+    # If no shift_id provided, try to get from session
+    if not shift_id:
+        shift_id = st.session_state.get("active_shift_id", "")
+    
     # Record in main cash register
     df = load_cash()
     
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "PETTY_CASH",
-        "amount": -abs(float(amount)),
+        "amount": -abs(to_float(amount)),
         "receipt_no": "",
         "customer_name": "",
         "payment_method": "CASH",
@@ -211,8 +286,9 @@ def record_petty_cash(description, amount, category, shift_id="", approved_by=""
     petty_new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
         "description": description,
-        "amount": float(amount),
+        "amount": to_float(amount),
         "category": category,
         "approved_by": approved_by,
         "receipt_attachment": "",
@@ -231,22 +307,34 @@ def load_petty_cash():
         df = pd.read_csv(PETTY_CASH_FILE)
         if "amount" in df.columns:
             df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+        # Add branch_id if missing
+        if "branch_id" not in df.columns:
+            df["branch_id"] = "HO"
         return df
-    return pd.DataFrame(columns=["date", "shift_id", "description", "amount", "category", "approved_by", "receipt_attachment", "notes"])
+    return pd.DataFrame(columns=["date", "shift_id", "branch_id", "description", "amount", "category", "approved_by", "receipt_attachment", "notes"])
 
 
 # ==============================
-# RECORD BANK DEPOSIT
+# RECORD BANK DEPOSIT (FIXED)
 # ==============================
 def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes=""):
     """Record cash deposited to bank (reduces cash in hand)"""
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
+    # If no shift_id provided, try to get from session
+    if not shift_id:
+        shift_id = st.session_state.get("active_shift_id", "")
+    
     df = load_cash()
     
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "DEPOSIT",
-        "amount": -abs(float(amount)),
+        "amount": -abs(to_float(amount)),
         "receipt_no": reference_no,
         "customer_name": "",
         "payment_method": "BANK",
@@ -262,7 +350,8 @@ def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes="
     deposit_new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
-        "amount": float(amount),
+        "branch_id": branch_id,
+        "amount": to_float(amount),
         "bank_name": bank_name,
         "reference_no": reference_no,
         "deposited_by": st.session_state.get("username", "System"),
@@ -281,22 +370,29 @@ def load_bank_deposits():
         df = pd.read_csv(BANK_DEPOSITS_FILE)
         if "amount" in df.columns:
             df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+        if "branch_id" not in df.columns:
+            df["branch_id"] = "HO"
         return df
-    return pd.DataFrame(columns=["date", "shift_id", "amount", "bank_name", "reference_no", "deposited_by", "notes"])
+    return pd.DataFrame(columns=["date", "shift_id", "branch_id", "amount", "bank_name", "reference_no", "deposited_by", "notes"])
 
 
 # ==============================
-# SET OPENING CASH
+# SET OPENING CASH (FIXED)
 # ==============================
 def set_opening_cash(amount, shift_id=""):
     """Record opening cash at start of shift"""
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
     df = load_cash()
     
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "OPENING",
-        "amount": float(amount),
+        "amount": to_float(amount),
         "receipt_no": "",
         "customer_name": "",
         "payment_method": "",
@@ -310,17 +406,22 @@ def set_opening_cash(amount, shift_id=""):
 
 
 # ==============================
-# RECORD CLOSING CASH
+# RECORD CLOSING CASH (FIXED)
 # ==============================
 def record_closing_cash(amount, shift_id=""):
     """Record closing cash at end of shift"""
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
     df = load_cash()
     
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "CLOSING",
-        "amount": float(amount),
+        "amount": to_float(amount),
         "receipt_no": "",
         "customer_name": "",
         "payment_method": "",
@@ -334,17 +435,26 @@ def record_closing_cash(amount, shift_id=""):
 
 
 # ==============================
-# RECORD EXPENSE
+# RECORD EXPENSE (FIXED)
 # ==============================
 def record_cash_expense(amount, description, shift_id=""):
     """Record cash expense (reduces cash in hand)"""
+    # Get branch info
+    branch_id, branch_name = get_current_branch_info()
+    
+    # If no shift_id provided, try to get from session
+    if not shift_id:
+        shift_id = st.session_state.get("active_shift_id", "")
+    
     df = load_cash()
     
     new_row = {
         "date": datetime.now(),
         "shift_id": shift_id,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
         "type": "EXPENSE",
-        "amount": -abs(float(amount)),
+        "amount": -abs(to_float(amount)),
         "receipt_no": "",
         "customer_name": "",
         "payment_method": "CASH",
@@ -358,7 +468,7 @@ def record_cash_expense(amount, description, shift_id=""):
 
 
 # ==============================
-# GET CASH SUMMARY
+# GET CASH SUMMARY (FIXED - Corrected variance calculation)
 # ==============================
 def get_cash_summary(shift_id=None):
     """Get comprehensive cash summary for a shift or all time"""
@@ -384,19 +494,26 @@ def get_cash_summary(shift_id=None):
     if shift_id:
         df = df[df["shift_id"] == shift_id]
     
+    # Convert all amounts to float
+    df["amount"] = df["amount"].apply(to_float)
+    
     opening = df[df["type"] == "OPENING"]["amount"].sum()
     cash_sales = df[df["type"] == "CASH_SALE"]["amount"].sum()
     credit_sales = df[df["type"] == "CREDIT_SALE"]["amount"].sum()
     debt_payments = df[df["type"] == "DEBT_PAYMENT"]["amount"].sum()
-    petty_cash = df[df["type"] == "PETTY_CASH"]["amount"].sum()
-    deposits = df[df["type"] == "DEPOSIT"]["amount"].sum()
-    expenses = df[df["type"] == "EXPENSE"]["amount"].sum()
+    petty_cash = df[df["type"] == "PETTY_CASH"]["amount"].sum()  # This is negative
+    deposits = df[df["type"] == "DEPOSIT"]["amount"].sum()       # This is negative
+    expenses = df[df["type"] == "EXPENSE"]["amount"].sum()       # This is negative
     closing = df[df["type"] == "CLOSING"]["amount"].sum()
     
-    # Expected cash = Opening + Cash Sales + Debt Payments - (Petty Cash + Deposits + Expenses)
+    # Expected cash = Opening + Cash Sales + Debt Payments + Petty Cash + Deposits + Expenses
+    # Since Petty Cash, Deposits, and Expenses are stored as negative, they reduce the total
     expected_cash = opening + cash_sales + debt_payments + petty_cash + deposits + expenses
     
+    # Variance = Closing - Expected
     variance = closing - expected_cash if closing != 0 else 0
+    
+    # Net cash flow = Cash Sales + Debt Payments + Petty Cash + Deposits + Expenses (all negatives included)
     net_cash_flow = cash_sales + debt_payments + petty_cash + deposits + expenses
     
     return {
@@ -417,10 +534,10 @@ def get_cash_summary(shift_id=None):
 
 
 # ==============================
-# GET DAILY REPORT
+# GET DAILY REPORT (FIXED - Branch filtering)
 # ==============================
-def get_daily_report(date=None):
-    """Get cash report for a specific date"""
+def get_daily_report(date=None, branch_id=None):
+    """Get cash report for a specific date and branch"""
     df = load_cash()
     
     if df.empty:
@@ -429,9 +546,13 @@ def get_daily_report(date=None):
     if date is None:
         date = datetime.now().date()
     
-    # Filter by date
+    if branch_id is None:
+        branch_id, _ = get_current_branch_info()
+    
+    # Filter by date and branch
     df["date_only"] = df["date"].dt.date
     df = df[df["date_only"] == date]
+    df = df[df["branch_id"] == branch_id]
     
     if df.empty:
         return None
@@ -455,6 +576,7 @@ def get_daily_report(date=None):
     
     return {
         "date": date,
+        "branch_id": branch_id,
         "opening_cash": opening,
         "cash_sales": cash_sales,
         "credit_sales": credit_sales,
@@ -474,17 +596,21 @@ def get_daily_report(date=None):
 
 
 # ==============================
-# GET CASH FLOW
+# GET CASH FLOW (FIXED - Branch filtering)
 # ==============================
-def get_cash_flow(days=30):
-    """Get cash flow for last N days"""
+def get_cash_flow(days=30, branch_id=None):
+    """Get cash flow for last N days for a branch"""
     df = load_cash()
     
     if df.empty:
         return pd.DataFrame()
     
+    if branch_id is None:
+        branch_id, _ = get_current_branch_info()
+    
     cutoff = datetime.now() - timedelta(days=days)
     df = df[df["date"] >= cutoff]
+    df = df[df["branch_id"] == branch_id]
     
     # Group by date
     df["date_only"] = df["date"].dt.date
@@ -497,14 +623,19 @@ def get_cash_flow(days=30):
 
 
 # ==============================
-# GET CASHIER PERFORMANCE
+# GET CASHIER PERFORMANCE (FIXED - Branch filtering)
 # ==============================
-def get_cashier_performance():
-    """Get performance metrics by cashier"""
+def get_cashier_performance(branch_id=None):
+    """Get performance metrics by cashier for a branch"""
     df = load_cash()
     
     if df.empty:
         return pd.DataFrame()
+    
+    if branch_id is None:
+        branch_id, _ = get_current_branch_info()
+    
+    df = df[df["branch_id"] == branch_id]
     
     cashier_stats = df.groupby("cashier").agg({
         "amount": lambda x: x[x > 0].sum(),  # Total cash in
@@ -515,6 +646,43 @@ def get_cashier_performance():
     cashier_stats.columns = ["Cashier", "Total Cash In", "Transactions", "Shifts"]
     
     return cashier_stats
+
+
+# ==============================
+# GET BRANCH_CASH_SUMMARY (New function)
+# ==============================
+def get_branch_cash_summary(branch_id=None):
+    """Get cash summary for a specific branch"""
+    if branch_id is None:
+        branch_id, _ = get_current_branch_info()
+    
+    df = load_cash()
+    df = df[df["branch_id"] == branch_id]
+    
+    if df.empty:
+        return {
+            "branch_id": branch_id,
+            "total_cash_sales": 0,
+            "total_credit_sales": 0,
+            "total_debt_payments": 0,
+            "total_petty_cash": 0,
+            "total_deposits": 0,
+            "total_expenses": 0,
+            "total_revenue": 0,
+            "transaction_count": 0
+        }
+    
+    return {
+        "branch_id": branch_id,
+        "total_cash_sales": to_float(df[df["type"] == "CASH_SALE"]["amount"].sum()),
+        "total_credit_sales": to_float(df[df["type"] == "CREDIT_SALE"]["amount"].sum()),
+        "total_debt_payments": to_float(df[df["type"] == "DEBT_PAYMENT"]["amount"].sum()),
+        "total_petty_cash": to_float(df[df["type"] == "PETTY_CASH"]["amount"].sum()),
+        "total_deposits": to_float(df[df["type"] == "DEPOSIT"]["amount"].sum()),
+        "total_expenses": to_float(df[df["type"] == "EXPENSE"]["amount"].sum()),
+        "total_revenue": to_float(df[df["type"].isin(["CASH_SALE", "CREDIT_SALE"])]["amount"].sum()),
+        "transaction_count": len(df[df["type"].isin(["CASH_SALE", "CREDIT_SALE"])])
+    }
 
 
 # ==============================

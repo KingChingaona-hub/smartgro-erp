@@ -186,7 +186,7 @@ def get_connection_pool():
                 user=config["user"],
                 password=config["password"],
                 connect_timeout=config.get("connect_timeout", 30),
-                sslmode=config.get("sslmode", "require")
+                sslmode=config.get("sslmode", "disable")
             )
             
             # Test the connection immediately
@@ -335,27 +335,29 @@ def to_float(value):
         return 0.0
 
 # ==============================
-# GET ACTIVE SHIFT ID
+# GET ACTIVE SHIFT ID - BRANCH LEVEL (FIXED)
 # ==============================
-def get_active_shift_id():
+def get_active_shift_id(branch_id=None):
     """
-    Get the current active shift ID from session state or database.
+    Get the current active shift ID for a branch from session state or database.
     """
     try:
         import streamlit as st
+        
+        # If branch_id not provided, get from session
+        if branch_id is None:
+            branch_id = st.session_state.get("user_branch", "HO")
+        
         # Check session state first
         shift_id = st.session_state.get("active_shift_id", "")
-        if not shift_id:
-            shift_id = st.session_state.get("shift_id", "")
         if shift_id:
             return shift_id
         
-        # If not in session, check database for any active shift
-        shifts_df = load_shifts()
+        # If not in session, check database for active shift in this branch
+        shifts_df = load_shifts(branch_id=branch_id, status="OPEN")
         if not shifts_df.empty:
-            active = shifts_df[shifts_df["status"] == "OPEN"]
-            if not active.empty:
-                return active.iloc[0]["shift_id"]
+            return shifts_df.iloc[0]["shift_id"]
+        
         return ""
     except:
         return ""
@@ -559,11 +561,11 @@ def save_products(df, branch_id=None):
         return False
 
 # ==============================
-# SALES FUNCTIONS WITH VALIDATION - FIXED FOR RETURNS
+# SALES FUNCTIONS WITH VALIDATION
 # ==============================
 
 def validate_sale_data(data):
-    """Validate sale data before saving - Allows negative values for returns"""
+    """Validate sale data before saving"""
     errors = {}
     
     # Validate receipt number
@@ -584,37 +586,37 @@ def validate_sale_data(data):
         if not valid:
             errors['name'] = msg
     
-    # Validate items quantity - Allow negative for returns
+    # Validate items quantity
     if 'items' in data:
         valid, qty, msg = validate_quantity(data['items'])
         if not valid:
             errors['items'] = msg
         else:
-            data['items'] = qty  # Can be negative for returns
+            data['items'] = qty
     
-    # Validate total amount - Allow negative for returns
+    # Validate total amount
     if 'total' in data:
         valid, amount, msg = validate_amount(data['total'])
         if not valid:
             errors['total'] = msg
         else:
-            data['total'] = amount  # Can be negative for returns
+            data['total'] = amount
     
-    # Validate profit - Allow negative for returns
+    # Validate profit
     if 'profit' in data:
         valid, amount, msg = validate_amount(data['profit'])
         if not valid:
             errors['profit'] = msg
         else:
-            data['profit'] = amount  # Can be negative for returns
+            data['profit'] = amount
     
-    # Validate final total - Allow negative for returns
+    # Validate final total
     if 'final_total' in data:
         valid, amount, msg = validate_amount(data['final_total'])
         if not valid:
             errors['final_total'] = msg
         else:
-            data['final_total'] = amount  # Can be negative for returns
+            data['final_total'] = amount
     
     # Validate customer name if present
     if 'customer' in data and data['customer']:
@@ -668,7 +670,7 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
     
 def save_sales(df, branch_id=None):
     """
-    Save sales to database with validation - Allows negative values for returns
+    Save sales to database with validation
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -682,11 +684,11 @@ def save_sales(df, branch_id=None):
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df['date'] = df['date'].fillna(datetime.now())
     
-    # Replace NaN values with defaults for numeric columns (allow negative)
+    # Replace NaN values with defaults for numeric columns
     numeric_cols = ['items', 'total', 'profit', 'final_total']
     for col in numeric_cols:
         if col in df.columns:
-            df[col] = df[col].fillna(0)  # Keep negative values, don't convert to positive
+            df[col] = df[col].fillna(0)
     
     # Replace NaN values with empty string for string columns
     string_cols = ['receipt_no', 'barcode', 'name', 'payment_method', 'customer', 
@@ -695,8 +697,8 @@ def save_sales(df, branch_id=None):
         if col in df.columns:
             df[col] = df[col].fillna('')
     
-    # Get active shift ID if not already set
-    active_shift_id = get_active_shift_id()
+    # Get active shift ID - BRANCH LEVEL
+    active_shift_id = get_active_shift_id(branch_id)
     
     try:
         with get_db_cursor() as (cur, conn):
@@ -725,17 +727,10 @@ def save_sales(df, branch_id=None):
                     except:
                         sale_date = datetime.now()
                 
-                # Get shift_id
+                # Get shift_id - use branch shift ID
                 shift_id = str(clean_data.get('shift_id', ''))
                 if not shift_id and active_shift_id:
                     shift_id = str(active_shift_id)
-                
-                # Check if this is a return (negative items or negative total)
-                is_return = False
-                if 'items' in clean_data and clean_data['items'] < 0:
-                    is_return = True
-                if 'total' in clean_data and clean_data['total'] < 0:
-                    is_return = True
                 
                 cur.execute("""
                     INSERT INTO sales (branch_id, sale_date, receipt_no, barcode, product_name, 
@@ -1966,7 +1961,7 @@ def save_purchases(df, branch_id=None):
         return False
 
 # ==============================
-# CASH REGISTER FUNCTIONS WITH VALIDATION
+# CASH REGISTER FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)
 # ==============================
 
 def validate_cash_data(data):
@@ -2013,7 +2008,7 @@ def validate_cash_data(data):
     return len(errors) == 0, errors, data
 
 def load_cash(branch_id=None, shift_id=None):
-    """Load cash register entries"""
+    """Load cash register entries for a branch"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -2078,7 +2073,7 @@ def save_cash(df, branch_id=None):
         return False
 
 def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", payment_method="CASH", note=""):
-    """Record a cash sale with validation"""
+    """Record a cash sale with validation - BRANCH LEVEL"""
     # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
@@ -2098,7 +2093,7 @@ def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", p
     
     df = load_cash()
     
-    # If shift_id not provided, try to get active shift
+    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2119,7 +2114,7 @@ def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", p
     return True
 
 def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
-    """Record a credit sale with validation"""
+    """Record a credit sale with validation - BRANCH LEVEL"""
     # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
@@ -2138,7 +2133,7 @@ def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
     
     df = load_cash()
     
-    # If shift_id not provided, try to get active shift
+    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2159,7 +2154,7 @@ def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
     return True
 
 def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", note=""):
-    """Record a debt payment entry in cash register with validation"""
+    """Record a debt payment entry in cash register with validation - BRANCH LEVEL"""
     # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
@@ -2178,7 +2173,7 @@ def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", no
     
     df = load_cash()
     
-    # If shift_id not provided, try to get active shift
+    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2199,12 +2194,16 @@ def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", no
     return True
 
 def set_opening_cash(amount, shift_id=""):
-    """Set opening cash for a shift with validation"""
+    """Set opening cash for a shift with validation - BRANCH LEVEL"""
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"⚠️ Invalid amount: {msg}")
         return False
+    
+    # If shift_id not provided, get branch active shift
+    if not shift_id:
+        shift_id = get_active_shift_id()
     
     df = load_cash()
     
@@ -2225,12 +2224,16 @@ def set_opening_cash(amount, shift_id=""):
     return True
 
 def record_closing_cash(amount, shift_id=""):
-    """Record closing cash for a shift with validation"""
+    """Record closing cash for a shift with validation - BRANCH LEVEL"""
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"⚠️ Invalid amount: {msg}")
         return False
+    
+    # If shift_id not provided, get branch active shift
+    if not shift_id:
+        shift_id = get_active_shift_id()
     
     df = load_cash()
     
@@ -2251,7 +2254,7 @@ def record_closing_cash(amount, shift_id=""):
     return True
 
 def record_petty_cash(description, amount, category, shift_id="", approved_by="", notes=""):
-    """Record petty cash expense with validation"""
+    """Record petty cash expense with validation - BRANCH LEVEL"""
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
@@ -2264,11 +2267,11 @@ def record_petty_cash(description, amount, category, shift_id="", approved_by=""
         print(f"⚠️ Invalid category: {msg}")
         return False
     
-    df = load_cash()
-    
-    # If shift_id not provided, try to get active shift
+    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
+    
+    df = load_cash()
     
     new_row = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -2302,18 +2305,18 @@ def load_petty_cash():
         return pd.DataFrame()
 
 def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes=""):
-    """Record bank deposit with validation"""
+    """Record bank deposit with validation - BRANCH LEVEL"""
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"⚠️ Invalid amount: {msg}")
         return False
     
-    df = load_cash()
-    
-    # If shift_id not provided, try to get active shift
+    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
+    
+    df = load_cash()
     
     new_row = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -2347,7 +2350,7 @@ def load_bank_deposits():
         return pd.DataFrame()
 
 def get_cash_summary(shift_id=None):
-    """Get cash summary for a shift or all time"""
+    """Get cash summary for a shift or all time - BRANCH LEVEL"""
     df = load_cash()
     
     if df.empty:
@@ -2370,6 +2373,9 @@ def get_cash_summary(shift_id=None):
     if shift_id:
         df = df[df["shift_id"] == shift_id]
     
+    # Convert all amounts to float
+    df["amount"] = df["amount"].apply(to_float)
+    
     opening = df[df["type"] == "OPENING"]["amount"].sum()
     cash_sales = df[df["type"] == "CASH_SALE"]["amount"].sum()
     credit_sales = df[df["type"] == "CREDIT_SALE"]["amount"].sum()
@@ -2379,6 +2385,7 @@ def get_cash_summary(shift_id=None):
     expenses = df[df["type"] == "EXPENSE"]["amount"].sum()
     closing = df[df["type"] == "CLOSING"]["amount"].sum()
     
+    # Expected cash = Opening + Cash Sales + Debt Payments + Petty Cash + Deposits + Expenses
     expected_cash = opening + cash_sales + debt_payments + petty_cash + deposits + expenses
     variance = closing - expected_cash if closing != 0 else 0
     
@@ -2398,8 +2405,8 @@ def get_cash_summary(shift_id=None):
         "net_cash_flow": cash_sales + debt_payments + petty_cash + deposits + expenses
     }
 
-def get_daily_report(date=None):
-    """Get daily cash report"""
+def get_daily_report(date=None, branch_id=None):
+    """Get daily cash report for a branch"""
     df = load_cash()
     
     if df.empty:
@@ -2408,8 +2415,13 @@ def get_daily_report(date=None):
     if date is None:
         date = datetime.now().date()
     
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    # Filter by date and branch
     df["date_only"] = df["cash_date"].dt.date
     df = df[df["date_only"] == date]
+    df = df[df["branch_id"] == branch_id]
     
     if df.empty:
         return None
@@ -2427,6 +2439,7 @@ def get_daily_report(date=None):
     
     return {
         "date": date,
+        "branch_id": branch_id,
         "opening_cash": opening,
         "cash_sales": cash_sales,
         "credit_sales": credit_sales,
@@ -2440,28 +2453,40 @@ def get_daily_report(date=None):
         "total_transactions": len(df)
     }
 
-def get_cash_flow(days=30):
-    """Get cash flow for last N days"""
+def get_cash_flow(days=30, branch_id=None):
+    """Get cash flow for last N days for a branch"""
     df = load_cash()
     
     if df.empty:
         return pd.DataFrame()
     
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
     cutoff = datetime.now() - timedelta(days=days)
     df = df[df["cash_date"] >= cutoff]
+    df = df[df["branch_id"] == branch_id]
     
+    # Group by date
     df["date_only"] = df["cash_date"].dt.date
-    cash_flow = df.groupby("date_only").agg({"amount": "sum"}).reset_index()
+    cash_flow = df.groupby("date_only").agg({
+        "amount": "sum"
+    }).reset_index()
     cash_flow.columns = ["Date", "Net Cash Flow"]
     
     return cash_flow
 
-def get_cashier_performance():
-    """Get cashier performance metrics"""
+def get_cashier_performance(branch_id=None):
+    """Get cashier performance metrics for a branch"""
     df = load_cash()
     
     if df.empty:
         return pd.DataFrame()
+    
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    df = df[df["branch_id"] == branch_id]
     
     cashier_stats = df.groupby("cashier").agg({
         "amount": lambda x: x[x > 0].sum(),
@@ -2474,11 +2499,11 @@ def get_cashier_performance():
     return cashier_stats
 
 # ==============================
-# SHIFT FUNCTIONS WITH VALIDATION - FIXED
+# SHIFT FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)
 # ==============================
 
 def load_shifts(branch_id=None, status=None):
-    """Load shifts"""
+    """Load shifts for a branch"""
     query = "SELECT * FROM shifts WHERE 1=1"
     params = []
     
@@ -2506,7 +2531,7 @@ def load_shifts(branch_id=None, status=None):
 
 def save_shifts(df, branch_id=None):
     """
-    Save shifts to database with validation
+    Save shifts to database with validation - BRANCH LEVEL
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -2620,23 +2645,27 @@ def save_shifts(df, branch_id=None):
         return False
 
 def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_username, opening_cash=0):
-    """Start a new shift with validation"""
+    """Start a new shift with validation - BRANCH LEVEL (FIXED)"""
     # Validate input
     valid, msg = validate_username(cashier_username)
     if not valid:
-        return False, f"Invalid cashier username: {msg}"
+        return False, f"Invalid cashier username: {msg}", ""
     
     valid, amount, msg = validate_amount(opening_cash)
     if not valid:
-        return False, f"Invalid opening cash: {msg}"
+        return False, f"Invalid opening cash: {msg}", ""
     
     df = load_shifts()
     
-    # Check if cashier already has an active shift
-    active_shift = df[(df["cashier_username"] == cashier_username) & (df["status"] == "OPEN")]
-    if not active_shift.empty:
-        return False, f"Cashier {cashier_name} already has an active shift"
+    # Check if there's already an ACTIVE shift for this branch
+    if "branch_id" in df.columns and "status" in df.columns:
+        active_shift = df[(df["branch_id"] == branch_id) & (df["status"] == "OPEN")]
+        if not active_shift.empty:
+            shift_id = active_shift.iloc[0]["shift_id"]
+            existing_cashier = active_shift.iloc[0].get("cashier_name", "Unknown")
+            return True, shift_id, f"Shift already active in this branch (started by {existing_cashier})"
     
+    # No active shift for this branch - create a new one
     shift_id = datetime.now().strftime("%Y%m%d%H%M%S")
     
     new_shift = {
@@ -2665,10 +2694,10 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
     df = pd.concat([df, pd.DataFrame([new_shift])], ignore_index=True)
     save_shifts(df)
     
-    return True, shift_id
+    return True, shift_id, "Shift started successfully!"
 
 def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes=""):
-    """End a shift with validation"""
+    """End a shift with validation - BRANCH LEVEL"""
     # Validate input
     valid, amount, msg = validate_amount(closing_cash)
     if not valid:
@@ -2721,9 +2750,16 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
     return True, f"Shift {shift_id} closed"
 
 def can_cashier_login(cashier_username):
-    """Check if a cashier can login (has active shift)"""
+    """Check if a cashier can login - BRANCH LEVEL (FIXED)"""
+    # Get the cashier's branch
+    try:
+        import streamlit as st
+        branch_id = st.session_state.get("user_branch", "HO")
+    except:
+        branch_id = "HO"
+    
     df = load_shifts()
-    active = df[(df["cashier_username"] == cashier_username) & (df["status"] == "OPEN")]
+    active = df[(df["branch_id"] == branch_id) & (df["status"] == "OPEN")]
     if active.empty:
         return False, None
     return True, active.iloc[0].to_dict()

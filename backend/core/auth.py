@@ -1,10 +1,10 @@
-# backend/core/auth.py - COMPLETE FIXED VERSION WITH PLAIN TEXT SUPPORT
+# backend/core/auth.py - COMPLETE FIXED VERSION WITH BRANCH-LEVEL SHIFT SUPPORT
 import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_users, save_users
 from backend.utils.utils import hash_password
 from backend.utils.phone_utils import validate_zimbabwe_phone
-from backend.modules.shift_manager import can_cashier_login
+from backend.modules.shift_manager import can_cashier_login, get_active_shift_for_branch
 from datetime import datetime
 import logging
 from collections import defaultdict
@@ -28,6 +28,14 @@ def init_auth_session_state():
         st.session_state.auth_users_loaded = False
     if "auth_last_check" not in st.session_state:
         st.session_state.auth_last_check = None
+    if "active_shift_id" not in st.session_state:
+        st.session_state.active_shift_id = None
+    if "active_shift_branch" not in st.session_state:
+        st.session_state.active_shift_branch = None
+    if "active_shift_branch_name" not in st.session_state:
+        st.session_state.active_shift_branch_name = None
+    if "shift_started_by" not in st.session_state:
+        st.session_state.shift_started_by = None
 
 
 # ==============================
@@ -190,6 +198,11 @@ def get_role_icon(role):
 
 def get_role_color(role):
     return ROLES.get(role, {}).get("color", "#666666")
+
+
+def can_start_shift(role):
+    """Check if a user can start a shift (manager, admin, owner)"""
+    return role in ["owner", "manager", "admin"]
 
 
 # ==============================
@@ -450,16 +463,46 @@ def process_login_user(user, df):
         mobile_enabled = user.iloc[0].get("mobile_enabled", True)
         whatsapp = user.iloc[0].get("whatsapp", "")
         
-        # Cashier shift check
+        # ============================================================
+        # SHIFT CHECK - BRANCH LEVEL (FIXED)
+        # ============================================================
         if role == "cashier":
+            # Check if there's an active shift in the user's branch
             can_login, active_shift = can_cashier_login(user.iloc[0]["username"])
+            
             if not can_login:
-                st.error("No active shift assigned. Please ask your manager to start a shift.")
+                st.error("❌ No active shift in your branch. Please ask your manager to start a shift.")
                 return False, None
             
+            # Store shift information in session
             st.session_state.active_shift_id = active_shift.get("shift_id")
             st.session_state.active_shift_branch = active_shift.get("branch_id", branch_id)
             st.session_state.active_shift_branch_name = active_shift.get("branch_name", "")
+            st.session_state.shift_started_by = active_shift.get("cashier_name", "Unknown")
+            
+            logger.info(f"✅ Cashier {username} logged in under branch shift {active_shift.get('shift_id')}")
+        
+        # For non-cashier roles, check if they can start a shift
+        elif can_start_shift(role):
+            # Check if there's an active shift in this branch
+            active_shift = get_active_shift_for_branch(branch_id)
+            
+            if active_shift:
+                # Store the existing shift info
+                st.session_state.active_shift_id = active_shift.get("shift_id")
+                st.session_state.active_shift_branch = active_shift.get("branch_id", branch_id)
+                st.session_state.active_shift_branch_name = active_shift.get("branch_name", "")
+                st.session_state.shift_started_by = active_shift.get("cashier_name", "Unknown")
+                
+                logger.info(f"✅ Manager/Owner {username} logged in - branch shift {active_shift.get('shift_id')} is active")
+            else:
+                # No active shift - clear any stale shift data
+                st.session_state.active_shift_id = None
+                st.session_state.active_shift_branch = None
+                st.session_state.active_shift_branch_name = None
+                st.session_state.shift_started_by = None
+                
+                logger.info(f"ℹ️ No active shift in branch {branch_id}")
         
         # Store user info in session
         st.session_state.user_full_name = full_name
@@ -467,6 +510,7 @@ def process_login_user(user, df):
         st.session_state.mobile_enabled = mobile_enabled
         st.session_state.whatsapp_number = whatsapp if whatsapp else None
         st.session_state.mobile_mode = False
+        st.session_state.user_role = role
         
         # Update last login
         idx = user.index[0]
@@ -828,6 +872,43 @@ def unlock_account(username):
 
 
 # ==============================
+# SHIFT HELPER FUNCTIONS
+# ==============================
+
+def get_current_shift_status():
+    """Get current shift status for the logged-in user's branch"""
+    branch_id = st.session_state.get("user_branch", "HO")
+    active_shift = get_active_shift_for_branch(branch_id)
+    
+    if active_shift:
+        return {
+            "active": True,
+            "shift_id": active_shift.get("shift_id"),
+            "started_by": active_shift.get("cashier_name", "Unknown"),
+            "start_time": active_shift.get("start_time"),
+            "branch_name": active_shift.get("branch_name", ""),
+            "opening_cash": active_shift.get("opening_cash", 0)
+        }
+    else:
+        return {
+            "active": False,
+            "shift_id": None,
+            "started_by": None,
+            "start_time": None,
+            "branch_name": None,
+            "opening_cash": 0
+        }
+
+
+def clear_shift_session():
+    """Clear shift-related session data"""
+    st.session_state.active_shift_id = None
+    st.session_state.active_shift_branch = None
+    st.session_state.active_shift_branch_name = None
+    st.session_state.shift_started_by = None
+
+
+# ==============================
 # MOBILE AUTHENTICATION HELPERS
 # ==============================
 
@@ -900,3 +981,8 @@ init_auth_session_state()
 
 def get_role_description(role):
     return ROLES.get(role, {}).get("description", "No description")
+
+
+def is_authorized_to_start_shift(role):
+    """Check if user role can start a shift"""
+    return can_start_shift(role)

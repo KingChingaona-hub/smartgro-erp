@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 from backend.core.db_adapter import load_users, save_users
-from backend.core.auth import hash_password, ROLES
+from backend.core.auth import hash_password, ROLES, init_users
 from backend.utils.phone_utils import validate_zimbabwe_phone, format_phone_display
 from backend.core.db_adapter import load_branches
 import random
@@ -10,7 +10,7 @@ import string
 
 
 def user_management_page():
-    """User Management Page (Owner only) - Full CRUD Operations"""
+    """User Management Page (Owner only) - No Auto-Reruns"""
     
     st.title("👥 User Management")
     st.caption("Manage system users - Add, Edit, Delete, and Change Passwords")
@@ -23,29 +23,61 @@ def user_management_page():
     # ==============================
     # SESSION STATE INITIALIZATION
     # ==============================
-    if "user_management_loaded" not in st.session_state:
-        st.session_state.user_management_loaded = False
+    if "um_initialized" not in st.session_state:
+        st.session_state.um_initialized = False
     
-    if "user_management_message" not in st.session_state:
-        st.session_state.user_management_message = ""
+    if "um_message" not in st.session_state:
+        st.session_state.um_message = ""
     
-    if "user_management_message_type" not in st.session_state:
-        st.session_state.user_management_message_type = ""
+    if "um_message_type" not in st.session_state:
+        st.session_state.um_message_type = ""
+    
+    if "um_loading" not in st.session_state:
+        st.session_state.um_loading = False
     
     # ==============================
-    # LOAD DATA
+    # LOAD USERS - With Init Check
     # ==============================
     try:
+        # Only load users
         users_df = load_users()
         branches_df = load_branches()
-        st.session_state.user_management_loaded = True
+        
+        # If no users and not initialized, show create button
+        if users_df.empty and not st.session_state.um_initialized:
+            st.warning("⚠️ No users found in the system.")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Create Default Users", type="primary", use_container_width=True):
+                    st.session_state.um_loading = True
+                    with st.spinner("Creating default users..."):
+                        users_df = init_users()
+                        if not users_df.empty:
+                            st.session_state.um_message = "✅ Default users created successfully!"
+                            st.session_state.um_message_type = "success"
+                            st.session_state.um_initialized = True
+                        else:
+                            st.session_state.um_message = "❌ Failed to create default users."
+                            st.session_state.um_message_type = "error"
+                        st.session_state.um_loading = False
+                        st.rerun()
+            
+            with col2:
+                if st.button("🔄 Refresh", use_container_width=True):
+                    st.cache_data.clear()
+                    st.rerun()
+            return
+            
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
         return
     
-    # ==============================
-    # ENSURE REQUIRED COLUMNS EXIST
-    # ==============================
+    # Mark as initialized
+    if not users_df.empty:
+        st.session_state.um_initialized = True
+    
+    # Ensure required columns exist
     required_cols = ["username", "password", "role", "branch_id", "full_name", "phone", "active", "last_login"]
     for col in required_cols:
         if col not in users_df.columns:
@@ -57,37 +89,18 @@ def user_management_page():
                 users_df[col] = ""
     
     # ==============================
-    # CREATE DEFAULT USERS IF EMPTY
+    # DISPLAY MESSAGE
     # ==============================
-    if users_df.empty and not st.session_state.user_management_loaded:
-        st.warning("⚠️ No users found. Creating default users...")
-        try:
-            from backend.core.auth import init_users
-            users_df = init_users()
-            if users_df.empty:
-                st.error("❌ Failed to create default users.")
-                return
-            st.success("✅ Default users created!")
-            st.session_state.user_management_loaded = True
-            # Don't rerun, just refresh the dataframe
-            users_df = load_users()
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            return
-    
-    # ==============================
-    # DISPLAY MESSAGE IF EXISTS
-    # ==============================
-    if st.session_state.user_management_message:
-        if st.session_state.user_management_message_type == "success":
-            st.success(st.session_state.user_management_message)
-        elif st.session_state.user_management_message_type == "error":
-            st.error(st.session_state.user_management_message)
+    if st.session_state.um_message:
+        if st.session_state.um_message_type == "success":
+            st.success(st.session_state.um_message)
+        elif st.session_state.um_message_type == "error":
+            st.error(st.session_state.um_message)
         else:
-            st.info(st.session_state.user_management_message)
+            st.info(st.session_state.um_message)
         # Clear message after display
-        st.session_state.user_management_message = ""
-        st.session_state.user_management_message_type = ""
+        st.session_state.um_message = ""
+        st.session_state.um_message_type = ""
     
     # ==============================
     # TABS
@@ -135,7 +148,7 @@ def user_management_page():
                 use_container_width=True
             )
         else:
-            st.info("No users found. Please check database connection.")
+            st.info("No users found.")
     
     # ==============================
     # TAB 2: ADD NEW USER
@@ -172,20 +185,15 @@ def user_management_page():
             if submitted:
                 # Validate inputs
                 if not new_username:
-                    st.session_state.user_management_message = "❌ Username is required"
-                    st.session_state.user_management_message_type = "error"
+                    st.error("❌ Username is required")
                 elif len(new_username) < 3:
-                    st.session_state.user_management_message = "❌ Username must be at least 3 characters"
-                    st.session_state.user_management_message_type = "error"
+                    st.error("❌ Username must be at least 3 characters")
                 elif not new_password:
-                    st.session_state.user_management_message = "❌ Password is required"
-                    st.session_state.user_management_message_type = "error"
+                    st.error("❌ Password is required")
                 elif len(new_password) < 6:
-                    st.session_state.user_management_message = "❌ Password must be at least 6 characters"
-                    st.session_state.user_management_message_type = "error"
+                    st.error("❌ Password must be at least 6 characters")
                 elif new_username in users_df["username"].values:
-                    st.session_state.user_management_message = f"❌ Username '{new_username}' already exists!"
-                    st.session_state.user_management_message_type = "error"
+                    st.error(f"❌ Username '{new_username}' already exists!")
                 else:
                     # Validate phone if provided
                     phone_valid = True
@@ -193,8 +201,7 @@ def user_management_page():
                     if new_phone:
                         valid, standardized_phone, msg = validate_zimbabwe_phone(new_phone)
                         if not valid:
-                            st.session_state.user_management_message = f"❌ {msg}"
-                            st.session_state.user_management_message_type = "error"
+                            st.error(f"❌ {msg}")
                             phone_valid = False
                     
                     if phone_valid:
@@ -216,15 +223,13 @@ def user_management_page():
                             users_df = pd.concat([users_df, new_user], ignore_index=True)
                             save_users(users_df)
                             
-                            st.session_state.user_management_message = f"✅ User '{new_username}' created successfully! Password: {new_password}"
-                            st.session_state.user_management_message_type = "success"
-                            
-                            # Clear the form by rerunning the page
+                            st.success(f"✅ User '{new_username}' created successfully!")
+                            st.info(f"🔑 Password: {new_password}")
+                            st.balloons()
                             st.rerun()
                             
                         except Exception as e:
-                            st.session_state.user_management_message = f"❌ Error creating user: {str(e)}"
-                            st.session_state.user_management_message_type = "error"
+                            st.error(f"❌ Error creating user: {str(e)}")
     
     # ==============================
     # TAB 3: CHANGE PASSWORD
@@ -273,14 +278,11 @@ def user_management_page():
                     with col1:
                         if st.form_submit_button("🔐 Change Password", type="primary", use_container_width=True):
                             if not new_password:
-                                st.session_state.user_management_message = "❌ Please enter a new password"
-                                st.session_state.user_management_message_type = "error"
+                                st.error("❌ Please enter a new password")
                             elif len(new_password) < 6:
-                                st.session_state.user_management_message = "❌ Password must be at least 6 characters"
-                                st.session_state.user_management_message_type = "error"
+                                st.error("❌ Password must be at least 6 characters")
                             elif new_password != confirm_password:
-                                st.session_state.user_management_message = "❌ Passwords do not match"
-                                st.session_state.user_management_message_type = "error"
+                                st.error("❌ Passwords do not match")
                             else:
                                 try:
                                     # Update password with proper hashing
@@ -289,12 +291,11 @@ def user_management_page():
                                     users_df.loc[idx, "password"] = hashed_pw
                                     save_users(users_df)
                                     
-                                    st.session_state.user_management_message = f"✅ Password for '{selected_user}' changed successfully!"
-                                    st.session_state.user_management_message_type = "success"
+                                    st.success(f"✅ Password for '{selected_user}' changed successfully!")
+                                    st.info(f"🔑 New password: {new_password}")
                                     st.rerun()
                                 except Exception as e:
-                                    st.session_state.user_management_message = f"❌ Error changing password: {str(e)}"
-                                    st.session_state.user_management_message_type = "error"
+                                    st.error(f"❌ Error changing password: {str(e)}")
                     
                     with col2:
                         if st.form_submit_button("🎲 Generate Random Password", use_container_width=True):
@@ -309,12 +310,11 @@ def user_management_page():
                                 users_df.loc[idx, "password"] = hashed_pw
                                 save_users(users_df)
                                 
-                                st.session_state.user_management_message = f"✅ Password for '{selected_user}' changed to: **{random_password}**"
-                                st.session_state.user_management_message_type = "success"
+                                st.success(f"✅ Password for '{selected_user}' changed to: **{random_password}**")
+                                st.info("📋 Please provide this password to the user. They can change it later.")
                                 st.rerun()
                             except Exception as e:
-                                st.session_state.user_management_message = f"❌ Error generating password: {str(e)}"
-                                st.session_state.user_management_message_type = "error"
+                                st.error(f"❌ Error generating password: {str(e)}")
     
     # ==============================
     # TAB 4: DELETE/DEACTIVATE USER
@@ -359,31 +359,26 @@ def user_management_page():
                                 users_df.loc[idx, "active"] = not current_status
                                 save_users(users_df)
                                 new_status = "deactivated" if not current_status else "activated"
-                                st.session_state.user_management_message = f"✅ User '{user_to_manage}' {new_status} successfully!"
-                                st.session_state.user_management_message_type = "success"
+                                st.success(f"✅ User '{user_to_manage}' {new_status} successfully!")
                                 st.rerun()
                             except Exception as e:
-                                st.session_state.user_management_message = f"❌ Error updating user: {str(e)}"
-                                st.session_state.user_management_message_type = "error"
+                                st.error(f"❌ Error updating user: {str(e)}")
                     
                     with col2:
                         # Delete user
                         if st.button("🗑️ Delete User Permanently", use_container_width=True):
                             if user_to_manage in ["admin"]:
-                                st.session_state.user_management_message = "❌ Cannot delete the admin user!"
-                                st.session_state.user_management_message_type = "error"
+                                st.error("❌ Cannot delete the admin user!")
                             else:
                                 confirm = st.checkbox("⚠️ I understand this action CANNOT be undone")
                                 if confirm:
                                     try:
                                         users_df = users_df[users_df["username"] != user_to_manage]
                                         save_users(users_df)
-                                        st.session_state.user_management_message = f"✅ User '{user_to_manage}' deleted permanently!"
-                                        st.session_state.user_management_message_type = "success"
+                                        st.success(f"✅ User '{user_to_manage}' deleted permanently!")
                                         st.rerun()
                                     except Exception as e:
-                                        st.session_state.user_management_message = f"❌ Error deleting user: {str(e)}"
-                                        st.session_state.user_management_message_type = "error"
+                                        st.error(f"❌ Error deleting user: {str(e)}")
                     
                     # Quick actions
                     st.markdown("---")
@@ -400,12 +395,9 @@ def user_management_page():
                                 idx = users_df[users_df["username"] == user_to_manage].index[0]
                                 users_df.loc[idx, "password"] = hashed_pw
                                 save_users(users_df)
-                                st.session_state.user_management_message = f"✅ Password reset to: **{random_password}**"
-                                st.session_state.user_management_message_type = "success"
-                                st.rerun()
+                                st.success(f"✅ Password reset to: **{random_password}**")
                             except Exception as e:
-                                st.session_state.user_management_message = f"❌ Error: {str(e)}"
-                                st.session_state.user_management_message_type = "error"
+                                st.error(f"❌ Error: {str(e)}")
                     
                     with col2:
                         if st.button("🔄 Reactivate User", use_container_width=True):
@@ -413,12 +405,10 @@ def user_management_page():
                                 idx = users_df[users_df["username"] == user_to_manage].index[0]
                                 users_df.loc[idx, "active"] = True
                                 save_users(users_df)
-                                st.session_state.user_management_message = f"✅ User '{user_to_manage}' reactivated!"
-                                st.session_state.user_management_message_type = "success"
+                                st.success(f"✅ User '{user_to_manage}' reactivated!")
                                 st.rerun()
                             except Exception as e:
-                                st.session_state.user_management_message = f"❌ Error: {str(e)}"
-                                st.session_state.user_management_message_type = "error"
+                                st.error(f"❌ Error: {str(e)}")
                     
                     with col3:
                         if st.button("📝 Edit User Details", use_container_width=True):
@@ -486,13 +476,11 @@ def user_management_page():
                             users_df.loc[idx, "phone"] = ""
                         
                         save_users(users_df)
-                        st.session_state.user_management_message = f"✅ User '{edit_user}' updated successfully!"
-                        st.session_state.user_management_message_type = "success"
+                        st.success(f"✅ User '{edit_user}' updated successfully!")
                         st.session_state.editing_user = None
                         st.rerun()
                     except Exception as e:
-                        st.session_state.user_management_message = f"❌ Error updating user: {str(e)}"
-                        st.session_state.user_management_message_type = "error"
+                        st.error(f"❌ Error updating user: {str(e)}")
             
             with col2:
                 if st.form_submit_button("❌ Cancel", use_container_width=True):

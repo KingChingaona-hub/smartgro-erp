@@ -23,7 +23,11 @@ from backend.modules.shift_manager import (
     load_shifts,
     get_shift_summary,
     get_active_shifts_by_branch,
-    get_all_active_shifts
+    get_all_active_shifts,
+    get_active_shift_for_branch,
+    get_branch_active_shift_id,
+    is_shift_active_in_branch,
+    get_shift_stats
 )
 
 
@@ -32,6 +36,15 @@ def cash_dashboard():
     
     st.title("💰 Cash Register Management System")
     st.caption("Track shifts, manage cash flow, and control expenses")
+    
+    # Get current user and branch info
+    username = st.session_state.get("username", "system")
+    user_branch = st.session_state.get("user_branch", "HO")
+    user_role = st.session_state.get("role", "cashier")
+    full_name = st.session_state.get("user_full_name", username)
+    
+    # Check if user can manage shifts (manager, admin, owner)
+    can_manage_shifts = user_role in ["owner", "manager", "admin"]
     
     # ==============================
     # TABS
@@ -45,45 +58,82 @@ def cash_dashboard():
     ])
     
     # ==============================
-    # TAB 1: SHIFT MANAGEMENT
+    # TAB 1: SHIFT MANAGEMENT - BRANCH LEVEL (FIXED)
     # ==============================
     with tab1:
         st.markdown("## 🔄 Shift Management")
         
+        # Get the active shift for this branch
+        active_shift = get_active_shift_for_branch(user_branch)
+        is_shift_active = active_shift is not None
+        shift_id = active_shift.get("shift_id") if is_shift_active else None
+        
+        # Display branch info
+        st.info(f"📍 **Branch:** {user_branch} | **Role:** {user_role.upper()}")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.session_state.get("shift_id") is None:
-                opening = st.number_input("Opening Cash Amount", min_value=0.0, value=0.0, step=50.0, key="opening_cash")
-                
-                if st.button("🟢 Start Shift", type="primary", use_container_width=True):
-                    username = st.session_state.get("username", "system")
+            if not is_shift_active:
+                # No active shift - show start shift button (only for authorized users)
+                if can_manage_shifts:
+                    st.markdown("### 🟢 Start New Shift")
+                    st.caption("Only managers and owners can start shifts")
                     
-                    # Get branch info
-                    branch_id = st.session_state.get("user_branch", "HO")
-                    branch_name = st.session_state.get("branch_name", "Head Office")
-                    full_name = st.session_state.get("user_full_name", username)
-                    
-                    success, shift_id = start_shift(
-                        cashier_username=username,
-                        cashier_name=full_name,
-                        branch_id=branch_id,
-                        branch_name=branch_name,
-                        manager_username=username,
-                        opening_cash=opening
+                    opening = st.number_input(
+                        "Opening Cash Amount", 
+                        min_value=0.0, 
+                        value=0.0, 
+                        step=50.0, 
+                        key="opening_cash_input"
                     )
                     
-                    if success:
-                        st.session_state.shift_id = shift_id
-                        set_opening_cash(opening, shift_id)
-                        st.success(f"✅ Shift started successfully! Shift ID: {shift_id}")
-                        st.rerun()
-                    else:
-                        st.error(f"❌ Failed to start shift: {shift_id}")
+                    if st.button("🚀 Start Shift", type="primary", use_container_width=True):
+                        with st.spinner("Starting shift..."):
+                            success, result, message = start_shift(
+                                cashier_username=username,
+                                cashier_name=full_name,
+                                branch_id=user_branch,
+                                branch_name=st.session_state.get("branch_name", "Head Office"),
+                                manager_username=username,
+                                opening_cash=opening
+                            )
+                            
+                            if success:
+                                set_opening_cash(opening, result)
+                                st.session_state.shift_id = result
+                                st.session_state.active_shift_id = result
+                                st.session_state.active_shift_branch = user_branch
+                                st.session_state.branch_shift_active = True
+                                
+                                st.success(f"✅ Shift started successfully! Shift ID: {result}")
+                                st.info(f"📌 Opening Cash: ${opening:.2f}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Failed to start shift: {message}")
+                else:
+                    st.warning("⛔ No active shift in your branch. Please ask your manager to start a shift.")
+                    st.info("💡 Only managers and owners can start shifts.")
             else:
-                st.info(f"🟢 Shift ACTIVE | ID: {st.session_state.shift_id}")
+                # Active shift exists - show shift details
+                st.markdown("### 🟢 Active Shift")
                 
-                summary = get_cash_summary(st.session_state.shift_id)
+                start_time = active_shift.get("start_time")
+                if hasattr(start_time, 'strftime'):
+                    start_time_str = start_time.strftime("%Y-%m-%d %H:%M")
+                else:
+                    start_time_str = str(start_time) if start_time else "N/A"
+                
+                st.markdown(f"""
+                **Shift ID:** `{active_shift.get('shift_id')}`  
+                **Started by:** {active_shift.get('cashier_name', 'Unknown')}  
+                **Start Time:** {start_time_str}  
+                **Opening Cash:** ${active_shift.get('opening_cash', 0):.2f}  
+                **Branch:** {active_shift.get('branch_name', user_branch)}
+                """)
+                
+                # Show shift summary
+                summary = get_cash_summary(shift_id)
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -94,47 +144,113 @@ def cash_dashboard():
                     st.metric("Debt Payments", f"${summary['debt_payments']:.2f}")
         
         with col2:
-            if st.session_state.get("shift_id") is not None:
-                actual_cash = st.number_input("Actual Cash Counted", min_value=0.0, value=0.0, step=10.0, key="actual_cash")
-                
-                if st.button("🔴 Close Shift", type="secondary", use_container_width=True):
-                    summary = get_cash_summary(st.session_state.shift_id)
+            if is_shift_active:
+                # Only allow ending shift for authorized users
+                if can_manage_shifts:
+                    st.markdown("### 🔴 End Shift")
                     
-                    expected_cash = summary["opening_cash"] + summary["cash_sales"] + summary["debt_payments"] - summary["petty_cash"] - summary["deposits"] - summary["expenses"]
-                    variance = actual_cash - expected_cash
-                    
-                    success, result = end_shift(
-                        shift_id=st.session_state.shift_id,
-                        closing_cash=actual_cash,
-                        total_sales=summary["cash_sales"] + summary["credit_sales"],
-                        profit=summary["cash_sales"] * 0.3,
-                        transactions=summary["transactions_count"]
+                    actual_cash = st.number_input(
+                        "Actual Cash Counted", 
+                        min_value=0.0, 
+                        value=0.0, 
+                        step=10.0, 
+                        key="actual_cash_input"
                     )
                     
-                    if success:
-                        record_closing_cash(actual_cash, st.session_state.shift_id)
-                        
-                        st.success(f"✅ Shift closed!")
-                        st.info(f"Expected Cash: ${expected_cash:.2f}")
-                        
-                        if variance >= 0:
-                            st.success(f"✅ Cash Surplus: ${variance:.2f}")
-                        else:
-                            st.error(f"⚠️ Cash Shortage: ${abs(variance):.2f}")
-                        
-                        st.session_state.shift_id = None
-                        st.rerun()
-                    else:
-                        st.error(f"❌ Failed to close shift: {result}")
+                    notes = st.text_area("Shift Notes", placeholder="Any issues or comments...", key="shift_notes")
+                    
+                    if st.button("🔴 Close Shift", type="secondary", use_container_width=True):
+                        with st.spinner("Closing shift..."):
+                            summary = get_cash_summary(shift_id)
+                            
+                            expected_cash = (summary["opening_cash"] + 
+                                           summary["cash_sales"] + 
+                                           summary["debt_payments"] - 
+                                           summary["petty_cash"] - 
+                                           summary["deposits"] - 
+                                           summary["expenses"])
+                            variance = actual_cash - expected_cash
+                            
+                            success, result = end_shift(
+                                shift_id=shift_id,
+                                closing_cash=actual_cash,
+                                total_sales=summary["cash_sales"] + summary["credit_sales"],
+                                profit=summary["cash_sales"] * 0.3,
+                                transactions=summary["transactions_count"],
+                                notes=notes
+                            )
+                            
+                            if success:
+                                record_closing_cash(actual_cash, shift_id)
+                                
+                                st.success(f"✅ Shift closed!")
+                                st.info(f"💰 Expected Cash: ${expected_cash:.2f}")
+                                
+                                if variance >= 0:
+                                    st.success(f"✅ Cash Surplus: ${variance:.2f}")
+                                else:
+                                    st.error(f"⚠️ Cash Shortage: ${abs(variance):.2f}")
+                                
+                                # Clear session state
+                                st.session_state.shift_id = None
+                                st.session_state.active_shift_id = None
+                                st.session_state.branch_shift_active = False
+                                
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Failed to close shift: {result}")
+                else:
+                    st.info("💡 Only managers and owners can close shifts.")
+                    st.caption("Please ask your manager to close the shift.")
         
-        # Shift history
+        # Shift history - show all shifts for this branch
         st.markdown("---")
-        st.markdown("### 📋 Shift History")
+        st.markdown("### 📋 Shift History (This Branch)")
         
         shifts_df = load_shifts()
         if not shifts_df.empty:
-            display_shifts = shifts_df[["shift_id", "cashier_name", "start_time", "end_time", "opening_cash", "closing_cash", "cash_sales", "variance", "status"]].sort_values("start_time", ascending=False).head(10)
-            st.dataframe(display_shifts, use_container_width=True, hide_index=True)
+            # Filter for this branch
+            branch_shifts = shifts_df[shifts_df["branch_id"] == user_branch]
+            
+            if not branch_shifts.empty:
+                display_shifts = branch_shifts[["shift_id", "cashier_name", "start_time", "end_time", "opening_cash", "closing_cash", "cash_sales", "variance", "status"]].sort_values("start_time", ascending=False).head(20)
+                
+                # Format timestamps
+                for col in ["start_time", "end_time"]:
+                    if col in display_shifts.columns:
+                        display_shifts[col] = pd.to_datetime(display_shifts[col], errors="coerce")
+                        display_shifts[col] = display_shifts[col].dt.strftime("%Y-%m-%d %H:%M")
+                
+                st.dataframe(display_shifts, use_container_width=True, hide_index=True)
+                
+                # Summary stats for this branch
+                total_shifts = len(branch_shifts)
+                total_revenue = branch_shifts["total_revenue"].sum() if "total_revenue" in branch_shifts.columns else 0
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Shifts", total_shifts)
+                with col2:
+                    st.metric("Total Revenue", f"${total_revenue:,.2f}")
+                with col3:
+                    active_count = len(branch_shifts[branch_shifts["status"] == "OPEN"])
+                    st.metric("Active Shifts", active_count)
+            else:
+                st.info("No shift history found for this branch")
+        else:
+            st.info("No shift records found")
+        
+        # Show all active shifts across branches (for managers/owners)
+        if can_manage_shifts:
+            st.markdown("---")
+            st.markdown("### 🌐 All Active Shifts (All Branches)")
+            
+            all_active = get_all_active_shifts()
+            if not all_active.empty:
+                display_active = all_active[["shift_id", "branch_id", "branch_name", "cashier_name", "start_time", "opening_cash"]]
+                st.dataframe(display_active, use_container_width=True, hide_index=True)
+            else:
+                st.info("No active shifts in any branch")
     
     # ==============================
     # TAB 2: TODAY'S REPORT
@@ -264,13 +380,16 @@ def cash_dashboard():
             petty_category = st.selectbox("Category", ["Office Supplies", "Transport", "Refreshments", "Cleaning", "Maintenance", "Other"], key="petty_category")
             petty_notes = st.text_area("Notes", key="petty_notes")
         
+        # Use branch shift ID if available
+        shift_to_use = st.session_state.get("shift_id") or st.session_state.get("active_shift_id") or ""
+        
         if st.button("💰 Record Petty Cash", key="record_petty"):
             if petty_desc and petty_amount > 0:
                 record_petty_cash(
                     description=petty_desc,
                     amount=petty_amount,
                     category=petty_category,
-                    shift_id=st.session_state.get("shift_id", ""),
+                    shift_id=shift_to_use,
                     approved_by=st.session_state.get("username", "system"),
                     notes=petty_notes
                 )
@@ -310,12 +429,15 @@ def cash_dashboard():
             deposit_ref = st.text_input("Reference Number", key="deposit_ref", placeholder="Deposit slip number")
             deposit_notes = st.text_area("Notes", key="deposit_notes")
         
+        # Use branch shift ID if available
+        shift_to_use = st.session_state.get("shift_id") or st.session_state.get("active_shift_id") or ""
+        
         if st.button("💰 Record Bank Deposit", key="record_deposit"):
             if deposit_amount > 0:
                 record_bank_deposit(
                     amount=deposit_amount,
                     bank_name=deposit_bank,
-                    shift_id=st.session_state.get("shift_id", ""),
+                    shift_id=shift_to_use,
                     reference_no=deposit_ref,
                     notes=deposit_notes
                 )
@@ -351,6 +473,7 @@ def cash_dashboard():
             {'='*50}
             
             Date: {report['date']}
+            Branch: {user_branch}
             
             {'-'*30}
             CASH SUMMARY
