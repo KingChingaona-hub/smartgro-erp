@@ -3,7 +3,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime  # FIXED: Added datetime import
 
 from backend.modules.income import load_income, get_monthly_income, get_income_by_source, get_income_trend
 
@@ -154,10 +153,13 @@ def income_dashboard():
     )
 
     # ==============================
-    # EXPORT
+    # EXPORT - FIXED: Use pd.Timestamp.now()
     # ==============================
     st.markdown("---")
     st.subheader("📥 Export Data")
+    
+    # Get current date string
+    date_str = pd.Timestamp.now().strftime('%Y%m%d')
     
     col1, col2 = st.columns(2)
     
@@ -166,7 +168,7 @@ def income_dashboard():
         st.download_button(
             label="📥 Download Full Income Data (CSV)",
             data=csv,
-            file_name=f"income_data_full_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"income_data_full_{date_str}.csv",
             mime="text/csv",
             use_container_width=True
         )
@@ -177,7 +179,7 @@ def income_dashboard():
             st.download_button(
                 label="📥 Download Income by Source (CSV)",
                 data=csv_source,
-                file_name=f"income_by_source_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"income_by_source_{date_str}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
