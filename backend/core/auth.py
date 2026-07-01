@@ -455,11 +455,14 @@ def check_login(username, password):
 
 
 def process_login_user(user, df):
-    """Process a successful login"""
+    """Process a successful login - FIXED: username variable"""
     try:
+        # FIXED: Get username from the user data
+        username = user.iloc[0]["username"]
+        
         role = user.iloc[0]["role"]
         branch_id = user.iloc[0].get("branch_id", "HO")
-        full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
+        full_name = user.iloc[0].get("full_name", username)
         mobile_enabled = user.iloc[0].get("mobile_enabled", True)
         whatsapp = user.iloc[0].get("whatsapp", "")
         
@@ -468,7 +471,7 @@ def process_login_user(user, df):
         # ============================================================
         if role == "cashier":
             # Check if there's an active shift in the user's branch
-            can_login, active_shift = can_cashier_login(user.iloc[0]["username"])
+            can_login, active_shift = can_cashier_login(username)
             
             if not can_login:
                 st.error("❌ No active shift in your branch. Please ask your manager to start a shift.")
@@ -519,7 +522,7 @@ def process_login_user(user, df):
         df.loc[idx, "last_login"] = datetime.now().isoformat()
         save_users(df)
         
-        logger.info(f"✅ Login processed successfully for: {user.iloc[0]['username']}")
+        logger.info(f"✅ Login processed successfully for: {username}")
         return True, role
         
     except Exception as e:
