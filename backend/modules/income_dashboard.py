@@ -158,8 +158,8 @@ def income_dashboard():
     st.markdown("---")
     st.subheader("📥 Export Data")
     
-    # Get current date string
-    date_str = pd.Timestamp.now().strftime('%Y%m%d')
+    # Get current date as string using pandas
+    today_str = pd.Timestamp.now().strftime('%Y%m%d')
     
     col1, col2 = st.columns(2)
     
@@ -168,7 +168,7 @@ def income_dashboard():
         st.download_button(
             label="📥 Download Full Income Data (CSV)",
             data=csv,
-            file_name=f"income_data_full_{date_str}.csv",
+            file_name=f"income_data_full_{today_str}.csv",
             mime="text/csv",
             use_container_width=True
         )
@@ -179,7 +179,7 @@ def income_dashboard():
             st.download_button(
                 label="📥 Download Income by Source (CSV)",
                 data=csv_source,
-                file_name=f"income_by_source_{date_str}.csv",
+                file_name=f"income_by_source_{today_str}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
