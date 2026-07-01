@@ -880,6 +880,7 @@ def render_process_return_tab():
                         st.session_state.return_sale_data = sale_row
                         st.session_state.return_step = "select"
                         st.session_state.return_search_triggered = True
+                        st.rerun()
             
             elif not receipt_no:
                 st.info("🔍 Enter a receipt number and click 'Search Receipt'")
@@ -895,6 +896,7 @@ def render_process_return_tab():
         if sale_row is None:
             st.error("No sale data found. Please search again.")
             st.session_state.return_step = "search"
+            #st.rerun()
             return
         
         customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
@@ -919,6 +921,7 @@ def render_process_return_tab():
         if not sale_items:
             st.error("Could not parse items from this sale.")
             st.session_state.return_step = "search"
+            #st.rerun()
             return
         
         # Show items with availability
@@ -998,12 +1001,14 @@ def render_process_return_tab():
             if st.button("⬅️ Back to Search", use_container_width=True):
                 st.session_state.return_step = "search"
                 st.session_state.return_quantities = {}
+                #st.rerun()
         
         with col2:
             if has_selection:
                 if st.button("➡️ Continue to Confirm", type="primary", use_container_width=True):
                     st.session_state.return_items = selected_items
                     st.session_state.return_step = "confirm"
+                    #st.rerun()
             else:
                 st.warning("Please select at least one item to return")
     
@@ -1019,6 +1024,7 @@ def render_process_return_tab():
         if not selected_items:
             st.error("No items selected. Please go back and select items.")
             st.session_state.return_step = "select"
+            #st.rerun()
             return
         
         customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
@@ -1082,53 +1088,55 @@ def render_process_return_tab():
                 if existing:
                     st.info(f"ℹ️ Customer already has store credit {existing}. This return will be added to existing credit.")
             
-            # Submit button - MUST be st.form_submit_button
+            # Back button outside form
+            if st.button("⬅️ Back to Selection", use_container_width=True):
+                st.session_state.return_step = "select"
+                #st.rerun()
+            
+            # Submit button
             submitted = st.form_submit_button("✅ CONFIRM & PROCESS RETURN", type="primary", use_container_width=True)
-        
-        # Back button - OUTSIDE the form
-        if st.button("⬅️ Back to Selection", use_container_width=True):
-            st.session_state.return_step = "select"
-        
-        # Process the submission - OUTSIDE the form
-        if submitted:
-            with st.spinner("Processing return..."):
-                success, message, returned_products, refund_total = process_return(
-                    receipt_no=receipt_no,
-                    items=selected_items,
-                    reason=reason,
-                    condition=condition,
-                    refund_method=refund_method,
-                    notes=notes
-                )
-                
-                if success:
-                    st.success(f"✅ {message}")
+            
+            if submitted:
+                with st.spinner("Processing return..."):
+                    success, message, returned_products, refund_total = process_return(
+                        receipt_no=receipt_no,
+                        items=selected_items,
+                        reason=reason,
+                        condition=condition,
+                        refund_method=refund_method,
+                        notes=notes
+                    )
                     
-                    if returned_products:
-                        st.markdown("### 📦 Stock Update Summary")
-                        for p in returned_products:
-                            is_write_off = False
-                            for item in selected_items:
-                                if item.get("barcode") == p["barcode"] and condition.lower() in ["damaged", "expired", "broken", "faulty"]:
-                                    is_write_off = True
-                                    break
-                            
-                            if is_write_off:
-                                st.warning(f"📝 {p['name']}: {p['quantity']} units - WRITTEN OFF (not added to stock)")
-                            else:
-                                st.success(f"✅ {p['name']}: +{p['quantity']} units returned to stock")
-                    
-                    st.balloons()
-                    
-                    # Reset for next return
-                    st.session_state.return_step = "search"
-                    st.session_state.return_receipt = ""
-                    st.session_state.return_sale_data = None
-                    st.session_state.return_items = []
-                    st.session_state.return_quantities = {}
-                    st.session_state.return_processed = True
-                else:
-                    st.error(f"❌ {message}")
+                    if success:
+                        st.success(f"✅ {message}")
+                        
+                        if returned_products:
+                            st.markdown("### 📦 Stock Update Summary")
+                            for p in returned_products:
+                                is_write_off = False
+                                for item in selected_items:
+                                    if item.get("barcode") == p["barcode"] and condition.lower() in ["damaged", "expired", "broken", "faulty"]:
+                                        is_write_off = True
+                                        break
+                                
+                                if is_write_off:
+                                    st.warning(f"📝 {p['name']}: {p['quantity']} units - WRITTEN OFF (not added to stock)")
+                                else:
+                                    st.success(f"✅ {p['name']}: +{p['quantity']} units returned to stock")
+                        
+                        st.balloons()
+                        
+                        # Reset for next return
+                        st.session_state.return_step = "search"
+                        st.session_state.return_receipt = ""
+                        st.session_state.return_sale_data = None
+                        st.session_state.return_items = []
+                        st.session_state.return_quantities = {}
+                        st.session_state.return_processed = True
+                        
+                        #st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
 
 
 def render_store_credit_tab():
@@ -1278,10 +1286,12 @@ def render_store_credit_tab():
                             with col2:
                                 if st.button(f"✏️ Edit", key=f"edit_{credit['credit_id']}"):
                                     st.session_state.edit_credit_id = credit['credit_id']
+                                    #st.rerun()
                             
                             with col3:
                                 if st.button(f"🗑️ Delete", key=f"del_{credit['credit_id']}"):
                                     st.session_state.delete_credit_id = credit['credit_id']
+                                    #st.rerun()
                 
                 if not used_df.empty:
                     st.markdown("#### 🔵 Used Credits")
@@ -1365,12 +1375,14 @@ def render_store_credit_tab():
                             if success:
                                 st.success(f"✅ {message}")
                                 st.session_state.edit_credit_id = None
+                                #t.rerun()
                             else:
                                 st.error(f"❌ {message}")
                     
                     with col2:
                         if st.form_submit_button("❌ Cancel", use_container_width=True):
                             st.session_state.edit_credit_id = None
+                            #st.rerun()
         
         # ============================================================
         # DELETE CREDIT CONFIRMATION
@@ -1390,12 +1402,14 @@ def render_store_credit_tab():
                     if success:
                         st.success(f"✅ {message}")
                         st.session_state.delete_credit_id = None
+                        #st.rerun()
                     else:
                         st.error(f"❌ {message}")
             
             with col2:
                 if st.button("❌ Cancel", use_container_width=True):
                     st.session_state.delete_credit_id = None
+                    #st.rerun()
     
     # ============================================================
     # TAB 4: CREDIT HISTORY
