@@ -13,7 +13,8 @@ from backend.core.db_adapter import (
     load_purchases,
     load_customers,
     load_debtors,
-    load_products
+    load_products,
+    to_float
 )
 from backend.admin.security import get_audit_log
 
@@ -23,6 +24,7 @@ from backend.admin.security import get_audit_log
 DATA_DIR = Path("data")
 EXPORT_DIR = Path("exports")
 ACCOUNTING_FILE = DATA_DIR / "accounting_exports.csv"
+EXPENSES_FILE = DATA_DIR / "expenses.csv"
 
 
 # ==============================
@@ -55,16 +57,41 @@ def save_accounting_export(export_data):
 
 
 # ==============================
-# HELPER: Convert Decimal to float
+# DIRECT EXPENSES LOADER
 # ==============================
-def to_float(value):
-    """Safely convert Decimal or any value to float"""
-    if value is None:
-        return 0.0
+def load_expenses_direct():
+    """Load expenses directly from CSV file"""
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+        if not EXPENSES_FILE.exists():
+            print(f"⚠️ Expenses file not found: {EXPENSES_FILE}")
+            return pd.DataFrame()
+        
+        df = pd.read_csv(EXPENSES_FILE)
+        print(f"✅ Loaded {len(df)} expenses from CSV")
+        
+        if df.empty:
+            print("⚠️ Expenses file is empty")
+            return df
+        
+        # Ensure required columns
+        required_cols = ["date", "category", "amount", "description"]
+        for col in required_cols:
+            if col not in df.columns:
+                print(f"⚠️ Missing column: {col}")
+                df[col] = ""
+        
+        # Convert date to datetime
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        
+        # Convert amount to float
+        if "amount" in df.columns:
+            df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+        
+        return df
+    except Exception as e:
+        print(f"❌ Error loading expenses: {e}")
+        return pd.DataFrame()
 
 
 # ==============================
@@ -80,9 +107,6 @@ def get_sales_data(date_from, date_to):
     if sales_df.empty:
         print("⚠️ No sales data found in database!")
         return pd.DataFrame()
-    
-    # Show columns for debugging
-    print(f"📋 Sales columns: {list(sales_df.columns)}")
     
     # Determine date column
     date_col = None
@@ -109,23 +133,45 @@ def get_sales_data(date_from, date_to):
 
 
 def get_expenses_data(date_from, date_to):
-    """Get REAL expenses data"""
+    """Get REAL expenses data - Using direct loader"""
     
-    expenses_df = load_expenses()
+    expenses_df = load_expenses_direct()
     
     if expenses_df.empty:
+        print("⚠️ No expenses data found!")
         return pd.DataFrame()
     
-    date_col = "expense_date" if "expense_date" in expenses_df.columns else "date" if "date" in expenses_df.columns else None
+    # Find date column
+    date_col = None
+    for col in ["date", "expense_date", "created_at"]:
+        if col in expenses_df.columns:
+            date_col = col
+            break
     
     if date_col is None:
+        print("⚠️ No date column found in expenses data!")
         return pd.DataFrame()
     
+    # Find amount column
+    amount_col = None
+    for col in ["amount", "total", "value"]:
+        if col in expenses_df.columns:
+            amount_col = col
+            break
+    
+    if amount_col is None:
+        print("⚠️ No amount column found in expenses data!")
+        return pd.DataFrame()
+    
+    # Convert to datetime
     expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
     expenses_df = expenses_df.dropna(subset=[date_col])
     
+    # Filter by date range
     filtered = expenses_df[(expenses_df[date_col] >= pd.to_datetime(date_from)) & 
                            (expenses_df[date_col] <= pd.to_datetime(date_to))]
+    
+    print(f"📊 After date filter: {len(filtered)} expense records from {date_from} to {date_to}")
     
     return filtered
 
@@ -212,6 +258,75 @@ def export_to_pastel(sales_df, expenses_df, date_from, date_to):
 
 
 # ==============================
+# XERO EXPORT
+# ==============================
+def export_to_xero(sales_df, expenses_df, date_from, date_to):
+    """Export to Xero format"""
+    
+    total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
+    date_col = "sale_date" if "sale_date" in sales_df.columns else "date" if "date" in sales_df.columns else None
+    customer_col = "customer" if "customer" in sales_df.columns else "customer_name" if "customer_name" in sales_df.columns else "Walk-in"
+    
+    sales_export = []
+    
+    if not sales_df.empty and total_col:
+        for _, sale in sales_df.iterrows():
+            sale_date = sale.get(date_col, datetime.now())
+            if hasattr(sale_date, 'strftime'):
+                date_str = sale_date.strftime("%Y-%m-%d")
+            else:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+            
+            sales_export.append({
+                "InvoiceDate": date_str,
+                "InvoiceNumber": str(sale.get("receipt_no", "")),
+                "ContactName": str(sale.get(customer_col, "Walk-in")),
+                "TotalAmount": to_float(sale.get(total_col, 0)),
+                "PaymentMethod": str(sale.get("payment_method", "CASH")),
+                "Description": f"Sale receipt {sale.get('receipt_no', '')}"
+            })
+    
+    if not sales_export:
+        return ""
+    
+    df = pd.DataFrame(sales_export)
+    return df.to_csv(index=False)
+
+
+# ==============================
+# SAGE ONE EXPORT
+# ==============================
+def export_to_sage(sales_df, expenses_df, date_from, date_to):
+    """Export to Sage One format"""
+    
+    total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
+    date_col = "sale_date" if "sale_date" in sales_df.columns else "date" if "date" in sales_df.columns else None
+    
+    sales_export = []
+    
+    if not sales_df.empty and total_col:
+        for _, sale in sales_df.iterrows():
+            sale_date = sale.get(date_col, datetime.now())
+            if hasattr(sale_date, 'strftime'):
+                date_str = sale_date.strftime("%Y-%m-%d")
+            else:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+            
+            sales_export.append({
+                "Date": date_str,
+                "Reference": str(sale.get("receipt_no", "")),
+                "Amount": to_float(sale.get(total_col, 0)),
+                "Payment Method": str(sale.get("payment_method", "CASH"))
+            })
+    
+    if not sales_export:
+        return ""
+    
+    df = pd.DataFrame(sales_export)
+    return df.to_csv(index=False)
+
+
+# ==============================
 # ZIMRA E-FILING EXPORT
 # ==============================
 def export_to_zimra(sales_df, date_from, date_to):
@@ -257,7 +372,7 @@ def export_audit_trail(audit_df, date_from, date_to):
 
 
 # ==============================
-# ACCOUNTING DASHBOARD - WITH DEBUGGING
+# ACCOUNTING DASHBOARD
 # ==============================
 def accounting_sync_dashboard():
     """Accounting Software Sync Dashboard with REAL data"""
@@ -298,6 +413,10 @@ def accounting_sync_dashboard():
         st.write(f"**Sales records found:** {len(sales_df)}")
         st.write(f"**Sales columns:** {list(sales_df.columns) if not sales_df.empty else 'No data'}")
         st.write(f"**Expenses records found:** {len(expenses_df)}")
+        st.write(f"**Expenses columns:** {list(expenses_df.columns) if not expenses_df.empty else 'No data'}")
+        if not expenses_df.empty:
+            st.write("**Sample Expenses Data:**")
+            st.dataframe(expenses_df.head(3))
         if not sales_df.empty:
             st.write("**Sample Sales Data:**")
             st.dataframe(sales_df.head(3))
@@ -463,3 +582,10 @@ def accounting_sync_dashboard():
         )
     else:
         st.info("No export history yet")
+
+
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    accounting_sync_dashboard()
