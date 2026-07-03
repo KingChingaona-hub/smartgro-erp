@@ -57,40 +57,75 @@ def save_accounting_export(export_data):
 
 
 # ==============================
-# DIRECT EXPENSES LOADER
+# DIRECT EXPENSES LOADER - FIXED
 # ==============================
 def load_expenses_direct():
-    """Load expenses directly from CSV file"""
+    """Load expenses directly from CSV file with proper error handling"""
     try:
+        # Check if file exists
         if not EXPENSES_FILE.exists():
-            print(f"⚠️ Expenses file not found: {EXPENSES_FILE}")
+            print(f"⚠️ Expenses file not found: {EXPENSES_FILE.absolute()}")
             return pd.DataFrame()
         
+        # Check if file is empty
+        if EXPENSES_FILE.stat().st_size == 0:
+            print(f"⚠️ Expenses file is empty: {EXPENSES_FILE.absolute()}")
+            return pd.DataFrame()
+        
+        # Read the CSV
         df = pd.read_csv(EXPENSES_FILE)
         print(f"✅ Loaded {len(df)} expenses from CSV")
         
         if df.empty:
-            print("⚠️ Expenses file is empty")
+            print("⚠️ Expenses file has no data rows")
             return df
         
-        # Ensure required columns
-        required_cols = ["date", "category", "amount", "description"]
-        for col in required_cols:
-            if col not in df.columns:
-                print(f"⚠️ Missing column: {col}")
-                df[col] = ""
+        # Print columns for debugging
+        print(f"📊 Expenses columns: {df.columns.tolist()}")
+        print(f"📊 Sample data: {df.head(2)}")
+        
+        # Ensure required columns exist
+        if "date" not in df.columns:
+            print("⚠️ No 'date' column found in expenses")
+            # Try to find a date column
+            for col in df.columns:
+                if 'date' in col.lower():
+                    df.rename(columns={col: 'date'}, inplace=True)
+                    break
+        
+        if "amount" not in df.columns:
+            print("⚠️ No 'amount' column found in expenses")
+            # Try to find an amount column
+            for col in df.columns:
+                if 'amount' in col.lower() or 'total' in col.lower():
+                    df.rename(columns={col: 'amount'}, inplace=True)
+                    break
+        
+        if "category" not in df.columns:
+            print("⚠️ No 'category' column found in expenses")
+            # Try to find a category column
+            for col in df.columns:
+                if 'category' in col.lower() or 'type' in col.lower():
+                    df.rename(columns={col: 'category'}, inplace=True)
+                    break
         
         # Convert date to datetime
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"])
+            print(f"📊 Date range: {df['date'].min()} to {df['date'].max()}")
         
         # Convert amount to float
         if "amount" in df.columns:
             df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+            print(f"📊 Total expenses: ${df['amount'].sum():,.2f}")
         
         return df
+        
     except Exception as e:
         print(f"❌ Error loading expenses: {e}")
+        import traceback
+        traceback.print_exc()
         return pd.DataFrame()
 
 
@@ -102,10 +137,10 @@ def get_sales_data(date_from, date_to):
     
     sales_df = load_sales()
     
-    print(f"📊 Loaded {len(sales_df)} sales records from database")
+    print(f"📊 Loaded {len(sales_df)} sales records")
     
     if sales_df.empty:
-        print("⚠️ No sales data found in database!")
+        print("⚠️ No sales data found!")
         return pd.DataFrame()
     
     # Determine date column
@@ -127,18 +162,55 @@ def get_sales_data(date_from, date_to):
     filtered = sales_df[(sales_df[date_col] >= pd.to_datetime(date_from)) & 
                         (sales_df[date_col] <= pd.to_datetime(date_to))]
     
-    print(f"📊 After date filter: {len(filtered)} records from {date_from} to {date_to}")
+    print(f"📊 After date filter: {len(filtered)} records")
     
     return filtered
 
 
 def get_expenses_data(date_from, date_to):
-    """Get REAL expenses data - Using direct loader"""
+    """Get REAL expenses data - Using direct loader with debugging"""
     
+    print("=" * 60)
+    print("🔍 DEBUG: Loading expenses for accounting sync")
+    print("=" * 60)
+    
+    # Try direct loading first
     expenses_df = load_expenses_direct()
     
     if expenses_df.empty:
-        print("⚠️ No expenses data found!")
+        print("⚠️ No expenses found via direct loader")
+        
+        # Try using the module loader as fallback
+        try:
+            expenses_df = load_expenses()
+            print(f"📊 Module loader returned {len(expenses_df)} records")
+            
+            if not expenses_df.empty:
+                print(f"📊 Columns: {expenses_df.columns.tolist()}")
+        except Exception as e:
+            print(f"❌ Module loader error: {e}")
+    
+    if expenses_df.empty:
+        print("❌ No expenses data found anywhere!")
+        
+        # Check if the file exists
+        if EXPENSES_FILE.exists():
+            print(f"📁 File exists: {EXPENSES_FILE.absolute()}")
+            print(f"📁 File size: {EXPENSES_FILE.stat().st_size} bytes")
+            
+            # Try to read raw file
+            try:
+                with open(EXPENSES_FILE, 'r') as f:
+                    lines = f.readlines()
+                    print(f"📁 Total lines: {len(lines)}")
+                    if len(lines) > 1:
+                        print(f"📁 Header: {lines[0].strip()}")
+                        print(f"📁 First data row: {lines[1].strip()}")
+            except Exception as e:
+                print(f"❌ Error reading file: {e}")
+        else:
+            print(f"❌ File does not exist: {EXPENSES_FILE.absolute()}")
+        
         return pd.DataFrame()
     
     # Find date column
@@ -150,7 +222,7 @@ def get_expenses_data(date_from, date_to):
     
     if date_col is None:
         print("⚠️ No date column found in expenses data!")
-        return pd.DataFrame()
+        return expenses_df
     
     # Find amount column
     amount_col = None
@@ -161,17 +233,21 @@ def get_expenses_data(date_from, date_to):
     
     if amount_col is None:
         print("⚠️ No amount column found in expenses data!")
-        return pd.DataFrame()
+        return expenses_df
     
     # Convert to datetime
     expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
     expenses_df = expenses_df.dropna(subset=[date_col])
     
     # Filter by date range
-    filtered = expenses_df[(expenses_df[date_col] >= pd.to_datetime(date_from)) & 
-                           (expenses_df[date_col] <= pd.to_datetime(date_to))]
+    start_dt = pd.to_datetime(date_from)
+    end_dt = pd.to_datetime(date_to)
     
-    print(f"📊 After date filter: {len(filtered)} expense records from {date_from} to {date_to}")
+    filtered = expenses_df[(expenses_df[date_col] >= start_dt) & (expenses_df[date_col] <= end_dt)]
+    
+    print(f"📊 After date filter: {len(filtered)} expense records")
+    print(f"📊 Date range: {date_from} to {date_to}")
+    print(f"📊 Total expenses in period: ${filtered[amount_col].sum():,.2f}")
     
     return filtered
 
@@ -402,7 +478,7 @@ def accounting_sync_dashboard():
     # ==============================
     # LOAD REAL DATA
     # ==============================
-    with st.spinner("Loading data from database..."):
+    with st.spinner("Loading data..."):
         sales_df = get_sales_data(date_from, date_to)
         expenses_df = get_expenses_data(date_from, date_to)
     
@@ -411,15 +487,46 @@ def accounting_sync_dashboard():
     # ==============================
     with st.expander("🔧 Debug Info (Click to expand)"):
         st.write(f"**Sales records found:** {len(sales_df)}")
-        st.write(f"**Sales columns:** {list(sales_df.columns) if not sales_df.empty else 'No data'}")
         st.write(f"**Expenses records found:** {len(expenses_df)}")
-        st.write(f"**Expenses columns:** {list(expenses_df.columns) if not expenses_df.empty else 'No data'}")
+        
+        # Show expenses file info
+        st.write("---")
+        st.write("**Expenses File Info:**")
+        if EXPENSES_FILE.exists():
+            st.write(f"✅ File exists at: {EXPENSES_FILE.absolute()}")
+            st.write(f"📁 File size: {EXPENSES_FILE.stat().st_size} bytes")
+            
+            # Show raw file content
+            try:
+                with open(EXPENSES_FILE, 'r') as f:
+                    lines = f.readlines()
+                    st.write(f"📁 Total lines: {len(lines)}")
+                    if len(lines) > 0:
+                        st.write(f"📁 Header: {lines[0].strip()}")
+                    if len(lines) > 1:
+                        st.write(f"📁 First data row: {lines[1].strip()}")
+                    if len(lines) > 2:
+                        st.write(f"📁 Second data row: {lines[2].strip()}")
+            except Exception as e:
+                st.write(f"❌ Error reading file: {e}")
+        else:
+            st.error(f"❌ File does not exist: {EXPENSES_FILE.absolute()}")
+        
+        # Show expenses dataframe info
+        st.write("---")
+        st.write("**Expenses DataFrame Info:**")
         if not expenses_df.empty:
-            st.write("**Sample Expenses Data:**")
-            st.dataframe(expenses_df.head(3))
-        if not sales_df.empty:
-            st.write("**Sample Sales Data:**")
-            st.dataframe(sales_df.head(3))
+            st.write(f"✅ Loaded {len(expenses_df)} records")
+            st.write(f"📊 Columns: {list(expenses_df.columns)}")
+            st.write("**Sample Data:**")
+            st.dataframe(expenses_df.head(5))
+            
+            if "date" in expenses_df.columns and "amount" in expenses_df.columns:
+                st.write(f"📅 Date range: {expenses_df['date'].min()} to {expenses_df['date'].max()}")
+                st.write(f"💰 Total amount: ${expenses_df['amount'].sum():,.2f}")
+        else:
+            st.warning("⚠️ No expenses data loaded")
+            st.info("💡 Make sure expenses are recorded in the Expenses module first.")
     
     # ==============================
     # CALCULATE REAL METRICS
@@ -446,10 +553,6 @@ def accounting_sync_dashboard():
         st.metric("📈 Total Profit", f"${total_profit:,.2f}")
     with col4:
         st.metric("📊 Transactions", transaction_count)
-    
-    # Show if no data found
-    if total_sales == 0 and transaction_count == 0:
-        st.warning("⚠️ No sales data found for the selected period. Try expanding the date range or adding some sales first.")
     
     st.markdown("---")
     
@@ -483,7 +586,7 @@ def accounting_sync_dashboard():
         if sales_df.empty and export_format != "Audit Trail (CSV)":
             st.error("❌ No sales data found for the selected period. Please add sales or change the date range.")
         else:
-            with st.spinner("Generating export file with REAL data..."):
+            with st.spinner("Generating export file..."):
                 
                 export_data = None
                 export_filename = None
