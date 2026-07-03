@@ -7,7 +7,7 @@ from decimal import Decimal
 
 
 # ==============================
-# HELPER: Convert Decimal to float
+# HELPER: Convert Decimal to float safely
 # ==============================
 def to_float(value):
     """Safely convert Decimal or any value to float"""
@@ -17,6 +17,8 @@ def to_float(value):
         return float(value)
     if isinstance(value, (int, float)):
         return float(value)
+    if isinstance(value, pd.Series):
+        return float(value.sum()) if not value.empty else 0.0
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -114,38 +116,50 @@ def get_filtered_sales(year=None, month=None, quarter=None):
 
 def get_filtered_expenses(year=None, month=None, quarter=None):
     """Get filtered expenses data from database"""
-    expenses_df = load_expenses()
-    if expenses_df.empty:
+    try:
+        expenses_df = load_expenses()
+        if expenses_df.empty:
+            return pd.DataFrame()
+        
+        if "amount" in expenses_df.columns:
+            expenses_df["amount"] = pd.to_numeric(expenses_df["amount"], errors="coerce").fillna(0)
+        
+        return filter_by_period(expenses_df, year, month, quarter)
+    except Exception as e:
+        print(f"Error loading expenses: {e}")
         return pd.DataFrame()
-    
-    if "amount" in expenses_df.columns:
-        expenses_df["amount"] = pd.to_numeric(expenses_df["amount"], errors="coerce").fillna(0)
-    
-    return filter_by_period(expenses_df, year, month, quarter)
 
 
 def get_filtered_income(year=None, month=None, quarter=None):
     """Get filtered income data from database"""
-    income_df = load_income()
-    if income_df.empty:
+    try:
+        income_df = load_income()
+        if income_df.empty:
+            return pd.DataFrame()
+        
+        if "amount" in income_df.columns:
+            income_df["amount"] = pd.to_numeric(income_df["amount"], errors="coerce").fillna(0)
+        
+        return filter_by_period(income_df, year, month, quarter)
+    except Exception as e:
+        print(f"Error loading income: {e}")
         return pd.DataFrame()
-    
-    if "amount" in income_df.columns:
-        income_df["amount"] = pd.to_numeric(income_df["amount"], errors="coerce").fillna(0)
-    
-    return filter_by_period(income_df, year, month, quarter)
 
 
 def get_filtered_purchases(year=None, month=None, quarter=None):
     """Get filtered purchases data from database"""
-    purchases_df = load_purchases()
-    if purchases_df.empty:
+    try:
+        purchases_df = load_purchases()
+        if purchases_df.empty:
+            return pd.DataFrame()
+        
+        if "total_cost" in purchases_df.columns:
+            purchases_df["total_cost"] = pd.to_numeric(purchases_df["total_cost"], errors="coerce").fillna(0)
+        
+        return filter_by_period(purchases_df, year, month, quarter)
+    except Exception as e:
+        print(f"Error loading purchases: {e}")
         return pd.DataFrame()
-    
-    if "total_cost" in purchases_df.columns:
-        purchases_df["total_cost"] = pd.to_numeric(purchases_df["total_cost"], errors="coerce").fillna(0)
-    
-    return filter_by_period(purchases_df, year, month, quarter)
 
 
 # ==============================
@@ -421,7 +435,7 @@ def financial_forecast(months_ahead=6):
 
 
 # ==============================
-# BALANCE SHEET - USING REAL DATA
+# BALANCE SHEET - USING REAL DATA (FIXED)
 # ==============================
 def balance_sheet(as_at_date=None):
     """Generate simplified balance sheet from REAL data"""
@@ -436,8 +450,13 @@ def balance_sheet(as_at_date=None):
     sales_df = load_sales()
     total_col = get_total_column(sales_df)
     
+    # FIXED: Properly convert to float
+    total_sales = 0
+    if total_col and not sales_df.empty:
+        total_sales = to_float(sales_df[total_col].sum())
+    
     # Cash estimate (10% of total sales)
-    cash = to_float(sales_df[total_col].sum() * 0.1) if total_col and not sales_df.empty else 5000
+    cash = total_sales * 0.1 if total_sales > 0 else 5000
     
     # Inventory
     inventory = 0
@@ -448,7 +467,7 @@ def balance_sheet(as_at_date=None):
             inventory += stock * cost
     
     # Accounts Receivable (20% of sales)
-    accounts_receivable = to_float(sales_df[total_col].sum() * 0.2) if total_col and not sales_df.empty else 2000
+    accounts_receivable = total_sales * 0.2 if total_sales > 0 else 2000
     
     total_current_assets = cash + inventory + accounts_receivable
     
@@ -462,7 +481,11 @@ def balance_sheet(as_at_date=None):
     # LIABILITIES
     # Current Liabilities
     expenses_df = load_expenses()
-    accounts_payable = to_float(expenses_df["amount"].sum() * 0.3) if "amount" in expenses_df.columns and not expenses_df.empty else 1000
+    total_expenses = 0
+    if "amount" in expenses_df.columns and not expenses_df.empty:
+        total_expenses = to_float(expenses_df["amount"].sum())
+    
+    accounts_payable = total_expenses * 0.3 if total_expenses > 0 else 1000
     short_term_debt = 500
     
     total_current_liabilities = accounts_payable + short_term_debt
