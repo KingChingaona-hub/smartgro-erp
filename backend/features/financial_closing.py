@@ -103,7 +103,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
     # ============================================================
     print(f"📊 Sales columns: {sales_df.columns.tolist() if not sales_df.empty else 'EMPTY'}")
     print(f"📊 Expenses columns: {expenses_df.columns.tolist() if not expenses_df.empty else 'EMPTY'}")
-    print(f"📊 Purchases columns: {purchases_df.columns.tolist() if not purchases_df.empty else 'EMPTY'}")
+    print(f"📊 Expenses data sample: {expenses_df.head(3) if not expenses_df.empty else 'EMPTY'}")
     
     # ============================================================
     # SALES DATA
@@ -138,7 +138,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
                 transaction_count = period_sales[receipt_col].nunique() if receipt_col else len(period_sales)
     
     # ============================================================
-    # EXPENSES DATA - FIXED: Better column detection with debug
+    # EXPENSES DATA - FIXED: Handle CSV date format properly
     # ============================================================
     total_expenses = 0
     expense_categories = {}
@@ -147,52 +147,68 @@ def get_period_data(period_type, year, month=None, quarter=None):
         print(f"📊 Processing expenses data with {len(expenses_df)} rows")
         
         # Find the date column
-        expense_date_col = None
-        for col in expenses_df.columns:
-            if any(keyword in col.lower() for keyword in ['date', 'time', 'created', 'updated']):
-                expense_date_col = col
+        date_col = None
+        for col in ["date", "expense_date", "created_at"]:
+            if col in expenses_df.columns:
+                date_col = col
                 break
         
         # Find the amount column
         amount_col = None
-        for col in expenses_df.columns:
-            if any(keyword in col.lower() for keyword in ['amount', 'total', 'value', 'cost']):
+        for col in ["amount", "total", "value"]:
+            if col in expenses_df.columns:
                 amount_col = col
                 break
         
         # Find the category column
         category_col = None
-        for col in expenses_df.columns:
-            if any(keyword in col.lower() for keyword in ['category', 'type', 'expense_type']):
+        for col in ["category", "expense_type", "type"]:
+            if col in expenses_df.columns:
                 category_col = col
                 break
         
-        print(f"📊 Expense date column: {expense_date_col}")
+        print(f"📊 Expense date column: {date_col}")
         print(f"📊 Expense amount column: {amount_col}")
         print(f"📊 Expense category column: {category_col}")
         
-        if expense_date_col and amount_col:
-            # Convert date column
-            expenses_df[expense_date_col] = pd.to_datetime(expenses_df[expense_date_col], errors="coerce")
-            expenses_df = expenses_df.dropna(subset=[expense_date_col])
+        if date_col and amount_col:
+            # Convert date column to datetime - handle CSV format
+            try:
+                # Try parsing the date column (handles both ISO and standard formats)
+                expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
+            except Exception as e:
+                print(f"⚠️ Error converting date column: {e}")
+                # Try alternative format
+                try:
+                    expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+                except:
+                    pass
             
-            # Convert amount to numeric
-            expenses_df[amount_col] = pd.to_numeric(expenses_df[amount_col], errors="coerce").fillna(0)
+            # Drop rows with invalid dates
+            expenses_df = expenses_df.dropna(subset=[date_col])
             
-            # Filter by date range
-            period_expenses = expenses_df[(expenses_df[expense_date_col] >= start_date) & (expenses_df[expense_date_col] <= end_date)]
-            
-            print(f"📊 Period expenses: {len(period_expenses)} rows after date filter")
-            
-            if not period_expenses.empty:
-                total_expenses = to_float(period_expenses[amount_col].sum())
-                print(f"📊 Total expenses: ${total_expenses:,.2f}")
+            if expenses_df.empty:
+                print("⚠️ No valid dates found in expenses data")
+            else:
+                # Convert amount to numeric
+                expenses_df[amount_col] = pd.to_numeric(expenses_df[amount_col], errors="coerce").fillna(0)
                 
-                # Get expenses by category if category column exists
-                if category_col:
-                    category_summary = period_expenses.groupby(category_col)[amount_col].sum().to_dict()
-                    expense_categories = {str(k): to_float(v) for k, v in category_summary.items()}
-                    print(f"📊 Expense categories: {expense_categories}")
+                # Filter by date range
+                period_expenses = expenses_df[(expenses_df[date_col] >= start_date) & (expenses_df[date_col] <= end_date)]
+                
+                print(f"📊 Period expenses: {len(period_expenses)} rows after date filter")
+                
+                if not period_expenses.empty:
+                    total_expenses = to_float(period_expenses[amount_col].sum())
+                    print(f"📊 Total expenses: ${total_expenses:,.2f}")
+                    
+                    # Get expenses by category if category column exists
+                    if category_col:
+                        category_summary = period_expenses.groupby(category_col)[amount_col].sum().to_dict()
+                        expense_categories = {str(k): to_float(v) for k, v in category_summary.items()}
+                        print(f"📊 Expense categories: {expense_categories}")
+                else:
+                    print(f"⚠️ No expenses found for period {start_date} to {end_date}")
         else:
             print(f"⚠️ Could not find date or amount column in expenses data")
             print(f"   Available columns: {expenses_df.columns.tolist()}")
@@ -495,16 +511,26 @@ def financial_closing_dashboard():
         st.caption("Close the day's transactions and generate report")
         
         # Show debug info in an expander
-        with st.expander("🔧 Debug Information"):
-            st.write("**Checking expenses data...**")
+        with st.expander("🔧 Debug - Check Expenses Data"):
             expenses_df = load_expenses()
             if not expenses_df.empty:
                 st.write(f"✅ Expenses data loaded: {len(expenses_df)} records")
                 st.write(f"📊 Columns: {expenses_df.columns.tolist()}")
                 st.write("**Sample data:**")
-                st.dataframe(expenses_df.head(3))
+                st.dataframe(expenses_df.head(5))
+                
+                # Show date range
+                if "date" in expenses_df.columns:
+                    expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
+                    st.write(f"📅 Date range: {expenses_df['date'].min()} to {expenses_df['date'].max()}")
+                    
+                    # Show total expenses
+                    if "amount" in expenses_df.columns:
+                        total_exp = expenses_df["amount"].sum()
+                        st.write(f"💰 Total expenses (all time): ${total_exp:,.2f}")
             else:
                 st.warning("⚠️ No expenses data found!")
+                st.info("💡 Please record some expenses first in the Expenses module.")
         
         today_data = get_period_data("daily", datetime.now().year, datetime.now().month)
         today_data["period_type"] = "daily"
