@@ -2,7 +2,9 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from backend.core.db_adapter import load_sales, load_purchases, load_products, load_expenses, load_income
+from backend.core.db_adapter import load_sales, load_purchases, load_products
+from backend.modules.expenses import load_expenses
+from backend.modules.income import load_income
 from decimal import Decimal
 
 
@@ -118,15 +120,31 @@ def get_filtered_expenses(year=None, month=None, quarter=None):
     """Get filtered expenses data from database"""
     try:
         expenses_df = load_expenses()
-        if expenses_df.empty:
+        
+        # Check if expenses_df is None or empty
+        if expenses_df is None or expenses_df.empty:
+            print("⚠️ No expenses data found")
             return pd.DataFrame()
         
+        # Debug: print column names
+        print(f"📊 Expenses columns: {expenses_df.columns.tolist()}")
+        
+        # Check if amount column exists
         if "amount" in expenses_df.columns:
             expenses_df["amount"] = pd.to_numeric(expenses_df["amount"], errors="coerce").fillna(0)
+        else:
+            print("⚠️ No 'amount' column in expenses data")
+            # Try to find any numeric column that could be amount
+            numeric_cols = expenses_df.select_dtypes(include=[np.number]).columns.tolist()
+            if numeric_cols:
+                print(f"📊 Available numeric columns: {numeric_cols}")
+                expenses_df["amount"] = expenses_df[numeric_cols[0]].fillna(0)
+            else:
+                expenses_df["amount"] = 0
         
         return filter_by_period(expenses_df, year, month, quarter)
     except Exception as e:
-        print(f"Error loading expenses: {e}")
+        print(f"❌ Error loading expenses: {e}")
         return pd.DataFrame()
 
 
@@ -134,15 +152,31 @@ def get_filtered_income(year=None, month=None, quarter=None):
     """Get filtered income data from database"""
     try:
         income_df = load_income()
-        if income_df.empty:
+        
+        # Check if income_df is None or empty
+        if income_df is None or income_df.empty:
+            print("⚠️ No income data found")
             return pd.DataFrame()
         
+        # Debug: print column names
+        print(f"📊 Income columns: {income_df.columns.tolist()}")
+        
+        # Check if amount column exists
         if "amount" in income_df.columns:
             income_df["amount"] = pd.to_numeric(income_df["amount"], errors="coerce").fillna(0)
+        else:
+            print("⚠️ No 'amount' column in income data")
+            # Try to find any numeric column that could be amount
+            numeric_cols = income_df.select_dtypes(include=[np.number]).columns.tolist()
+            if numeric_cols:
+                print(f"📊 Available numeric columns: {numeric_cols}")
+                income_df["amount"] = income_df[numeric_cols[0]].fillna(0)
+            else:
+                income_df["amount"] = 0
         
         return filter_by_period(income_df, year, month, quarter)
     except Exception as e:
-        print(f"Error loading income: {e}")
+        print(f"❌ Error loading income: {e}")
         return pd.DataFrame()
 
 
@@ -150,7 +184,7 @@ def get_filtered_purchases(year=None, month=None, quarter=None):
     """Get filtered purchases data from database"""
     try:
         purchases_df = load_purchases()
-        if purchases_df.empty:
+        if purchases_df is None or purchases_df.empty:
             return pd.DataFrame()
         
         if "total_cost" in purchases_df.columns:
@@ -158,7 +192,7 @@ def get_filtered_purchases(year=None, month=None, quarter=None):
         
         return filter_by_period(purchases_df, year, month, quarter)
     except Exception as e:
-        print(f"Error loading purchases: {e}")
+        print(f"❌ Error loading purchases: {e}")
         return pd.DataFrame()
 
 
@@ -236,6 +270,10 @@ def profit_loss_account(year=None, month=None, quarter=None):
     
     income_df = get_filtered_income(year, month, quarter)
     expense_df = get_filtered_expenses(year, month, quarter)
+    
+    # Debug: Print totals
+    print(f"💰 Income total: {income_df['amount'].sum() if not income_df.empty else 0}")
+    print(f"💰 Expenses total: {expense_df['amount'].sum() if not expense_df.empty else 0}")
     
     # Other Income - Convert Decimal to float
     other_income = to_float(income_df["amount"].sum()) if "amount" in income_df.columns and not income_df.empty else 0
