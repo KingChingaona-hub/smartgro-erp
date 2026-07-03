@@ -41,6 +41,19 @@ def get_total_column(df):
 
 
 # ==============================
+# GET COST COLUMN NAME
+# ==============================
+def get_cost_column(df):
+    """Get the cost column name from dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["cost", "cost_price", "unit_cost", "purchase_price"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
 # GET DATE COLUMN NAME
 # ==============================
 def get_date_column(df):
@@ -54,6 +67,83 @@ def get_date_column(df):
 
 
 # ==============================
+# GET PRODUCT NAME COLUMN
+# ==============================
+def get_product_name_column(df):
+    """Get the product name column from dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["name", "product_name", "item_name", "product"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# GET QUANTITY COLUMN
+# ==============================
+def get_quantity_column(df):
+    """Get the quantity column from dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["items", "quantity", "qty", "item_count"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# CALCULATE COST OF GOODS SOLD FROM SALES DATA
+# ==============================
+def calculate_cogs_from_sales(year=None, month=None, quarter=None):
+    """
+    Calculate COGS directly from sales data by matching products with their costs.
+    This is more accurate than using purchases data alone.
+    """
+    sales_df = get_filtered_sales(year, month, quarter)
+    products_df = load_products()
+    
+    if sales_df.empty or products_df.empty:
+        return 0
+    
+    # Get product name column in sales
+    sales_product_col = get_product_name_column(sales_df)
+    # Get product name column in products
+    products_name_col = get_product_name_column(products_df)
+    # Get cost column in products
+    cost_col = get_cost_column(products_df)
+    # Get quantity column in sales
+    qty_col = get_quantity_column(sales_df)
+    
+    if not sales_product_col or not products_name_col or not cost_col:
+        return 0
+    
+    # If no quantity column, assume each row is 1 item
+    if not qty_col:
+        sales_df["items"] = 1
+        qty_col = "items"
+    
+    # Create a cost lookup dictionary
+    cost_lookup = {}
+    for _, row in products_df.iterrows():
+        product_name = str(row[products_name_col]).strip().lower()
+        cost = to_float(row[cost_col])
+        cost_lookup[product_name] = cost
+    
+    # Calculate COGS for each sale
+    total_cogs = 0
+    for _, row in sales_df.iterrows():
+        product_name = str(row[sales_product_col]).strip().lower()
+        quantity = int(to_float(row[qty_col]))
+        
+        # Find the cost for this product
+        cost = cost_lookup.get(product_name, 0)
+        total_cogs += cost * quantity
+    
+    return total_cogs
+
+
+# ==============================
 # CALCULATE CLOSING STOCK FOR A PERIOD
 # ==============================
 def calculate_closing_stock(year=None, month=None, quarter=None):
@@ -64,9 +154,14 @@ def calculate_closing_stock(year=None, month=None, quarter=None):
         return 0
     
     stock_values = []
+    cost_col = get_cost_column(products_df)
+    
+    if not cost_col:
+        return 0
+    
     for _, row in products_df.iterrows():
         stock = to_float(row.get("stock", 0))
-        cost = to_float(row.get("cost", 0))
+        cost = to_float(row.get(cost_col, 0))
         stock_values.append(stock * cost)
     
     return sum(stock_values)
@@ -232,7 +327,7 @@ def get_filtered_purchases(year=None, month=None, quarter=None):
 
 
 # ==============================
-# TRADING ACCOUNT - USING REAL DATA WITH PROPER OPENING STOCK
+# TRADING ACCOUNT - USING REAL DATA WITH CORRECT COGS
 # ==============================
 def trading_account(year=None, month=None, quarter=None):
     """Calculate trading account figures from REAL data"""
@@ -266,8 +361,15 @@ def trading_account(year=None, month=None, quarter=None):
     # CLOSING STOCK - Current period stock
     closing_stock = calculate_closing_stock(year, month, quarter)
     
-    # COST OF GOODS SOLD
-    cogs = opening_stock + net_purchases - closing_stock
+    # COST OF GOODS SOLD - Calculate from sales data (more accurate)
+    # This calculates the actual cost of goods sold based on sales
+    cogs_from_sales = calculate_cogs_from_sales(year, month, quarter)
+    
+    # Also calculate using traditional formula for comparison
+    cogs_traditional = opening_stock + net_purchases - closing_stock
+    
+    # Use the more accurate method (from sales) if available, otherwise fallback to traditional
+    cogs = cogs_from_sales if cogs_from_sales > 0 else cogs_traditional
     
     # GROSS PROFIT
     gross_profit = net_sales - cogs
@@ -283,6 +385,8 @@ def trading_account(year=None, month=None, quarter=None):
         "opening_stock": opening_stock,
         "closing_stock": closing_stock,
         "cogs": cogs,
+        "cogs_from_sales": cogs_from_sales,
+        "cogs_traditional": cogs_traditional,
         "gross_profit": gross_profit,
         "gross_margin": gross_margin
     }
@@ -521,10 +625,12 @@ def balance_sheet(as_at_date=None):
     # Inventory
     inventory = 0
     if not products_df.empty:
-        for _, row in products_df.iterrows():
-            stock = to_float(row.get("stock", 0))
-            cost = to_float(row.get("cost", 0))
-            inventory += stock * cost
+        cost_col = get_cost_column(products_df)
+        if cost_col:
+            for _, row in products_df.iterrows():
+                stock = to_float(row.get("stock", 0))
+                cost = to_float(row.get(cost_col, 0))
+                inventory += stock * cost
     
     # Accounts Receivable (20% of sales)
     accounts_receivable = total_sales * 0.2 if total_sales > 0 else 2000
