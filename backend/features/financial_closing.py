@@ -1,3 +1,4 @@
+# backend/modules/financial_closing.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -21,7 +22,8 @@ from backend.core.db_adapter import (
     load_debtors,
     load_cash,
     load_shifts,
-    get_cash_summary
+    get_cash_summary,
+    to_float
 )
 from backend.analytics.pl_engine import profit_loss_account
 from backend.admin.security import log_audit
@@ -97,7 +99,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
     products_df = load_products()
     
     # ============================================================
-    # SALES DATA
+    # SALES DATA - FIXED: Proper date filtering
     # ============================================================
     total_revenue = 0
     total_profit = 0
@@ -123,19 +125,56 @@ def get_period_data(period_type, year, month=None, quarter=None):
                 items_col = "items" if "items" in period_sales.columns else None
                 receipt_col = "receipt_no" if "receipt_no" in period_sales.columns else None
                 
-                total_revenue = float(period_sales[total_col].sum()) if total_col else 0
-                total_profit = float(period_sales[profit_col].sum()) if profit_col else 0
-                items_sold = float(period_sales[items_col].sum()) if items_col else 0
+                total_revenue = to_float(period_sales[total_col].sum()) if total_col else 0
+                total_profit = to_float(period_sales[profit_col].sum()) if profit_col else 0
+                items_sold = to_float(period_sales[items_col].sum()) if items_col else 0
                 transaction_count = period_sales[receipt_col].nunique() if receipt_col else len(period_sales)
     
     # ============================================================
-    # EXPENSES DATA
+    # EXPENSES DATA - FIXED: Proper loading and filtering
     # ============================================================
     total_expenses = 0
-    if not expenses_df.empty and "expense_date" in expenses_df.columns:
-        expenses_df["expense_date"] = pd.to_datetime(expenses_df["expense_date"], errors="coerce")
-        period_expenses = expenses_df[(expenses_df["expense_date"] >= start_date) & (expenses_df["expense_date"] <= end_date)]
-        total_expenses = float(period_expenses["amount"].sum()) if "amount" in period_expenses.columns and not period_expenses.empty else 0
+    expense_categories = {}
+    
+    if not expenses_df.empty:
+        # Find the date column
+        expense_date_col = None
+        for col in ["date", "expense_date", "created_at"]:
+            if col in expenses_df.columns:
+                expense_date_col = col
+                break
+        
+        # Find the amount column
+        amount_col = None
+        for col in ["amount", "total", "value"]:
+            if col in expenses_df.columns:
+                amount_col = col
+                break
+        
+        # Find the category column
+        category_col = None
+        for col in ["category", "expense_type", "type"]:
+            if col in expenses_df.columns:
+                category_col = col
+                break
+        
+        if expense_date_col and amount_col:
+            # Convert date column
+            expenses_df[expense_date_col] = pd.to_datetime(expenses_df[expense_date_col], errors="coerce")
+            expenses_df = expenses_df.dropna(subset=[expense_date_col])
+            
+            # Filter by date range
+            period_expenses = expenses_df[(expenses_df[expense_date_col] >= start_date) & (expenses_df[expense_date_col] <= end_date)]
+            
+            if not period_expenses.empty:
+                # Convert amount to float
+                period_expenses[amount_col] = pd.to_numeric(period_expenses[amount_col], errors="coerce").fillna(0)
+                total_expenses = to_float(period_expenses[amount_col].sum())
+                
+                # Get expenses by category if category column exists
+                if category_col:
+                    category_summary = period_expenses.groupby(category_col)[amount_col].sum().to_dict()
+                    expense_categories = {str(k): to_float(v) for k, v in category_summary.items()}
     
     # ============================================================
     # PURCHASES DATA
@@ -151,7 +190,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
         if date_col:
             purchases_df[date_col] = pd.to_datetime(purchases_df[date_col], errors="coerce")
             period_purchases = purchases_df[(purchases_df[date_col] >= start_date) & (purchases_df[date_col] <= end_date)]
-            total_purchases = float(period_purchases["total_cost"].sum()) if "total_cost" in period_purchases.columns and not period_purchases.empty else 0
+            total_purchases = to_float(period_purchases["total_cost"].sum()) if "total_cost" in period_purchases.columns and not period_purchases.empty else 0
     
     # ============================================================
     # NEW CUSTOMERS
@@ -177,6 +216,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
         "end_date": end_date,
         "total_revenue": total_revenue,
         "total_expenses": total_expenses,
+        "expense_categories": expense_categories,
         "net_profit": net_profit,
         "total_purchases": total_purchases,
         "transaction_count": transaction_count,
@@ -238,6 +278,25 @@ def generate_closing_report_pdf(data):
     ]))
     
     story.append(table)
+    
+    # Expenses by category
+    if data.get('expense_categories'):
+        story.append(Spacer(1, 20))
+        story.append(Paragraph("Expenses by Category", styles['Heading2']))
+        
+        exp_data = [["Category", "Amount"]]
+        for category, amount in sorted(data['expense_categories'].items(), key=lambda x: -x[1]):
+            exp_data.append([category, f"${amount:,.2f}"])
+        
+        exp_table = Table(exp_data, colWidths=[3*inch, 3*inch])
+        exp_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(exp_table)
+    
     doc.build(story)
     buffer.seek(0)
     
@@ -324,13 +383,26 @@ def generate_tax_report(year, tax_period="annual"):
             sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
             period_sales = sales_df[(sales_df[date_col] >= start_date) & (sales_df[date_col] <= end_date)]
             total_col = "final_total" if "final_total" in period_sales.columns else "total" if "total" in period_sales.columns else None
-            total_sales = float(period_sales[total_col].sum()) if total_col and not period_sales.empty else 0
+            total_sales = to_float(period_sales[total_col].sum()) if total_col and not period_sales.empty else 0
     
     total_expenses = 0
-    if not expenses_df.empty and "expense_date" in expenses_df.columns:
-        expenses_df["expense_date"] = pd.to_datetime(expenses_df["expense_date"], errors="coerce")
-        period_expenses = expenses_df[(expenses_df["expense_date"] >= start_date) & (expenses_df["expense_date"] <= end_date)]
-        total_expenses = float(period_expenses["amount"].sum()) if "amount" in period_expenses.columns and not period_expenses.empty else 0
+    if not expenses_df.empty:
+        date_col = None
+        for col in ["date", "expense_date"]:
+            if col in expenses_df.columns:
+                date_col = col
+                break
+        
+        amount_col = None
+        for col in ["amount", "total"]:
+            if col in expenses_df.columns:
+                amount_col = col
+                break
+        
+        if date_col and amount_col:
+            expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
+            period_expenses = expenses_df[(expenses_df[date_col] >= start_date) & (expenses_df[date_col] <= end_date)]
+            total_expenses = to_float(period_expenses[amount_col].sum()) if amount_col in period_expenses.columns and not period_expenses.empty else 0
     
     taxable_income = total_sales - total_expenses
     tax_rate = 0.25
@@ -583,3 +655,10 @@ def financial_closing_dashboard():
             st.dataframe(backup_df, use_container_width=True, hide_index=True)
         else:
             st.info("No backups found. Perform a closing to create backups.")
+
+
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    financial_closing_dashboard()
