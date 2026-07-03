@@ -82,6 +82,7 @@ def load_expenses_from_csv():
         
         # Print column info for debugging
         print(f"📊 Expense columns: {df.columns.tolist()}")
+        print(f"📊 Sample date: {df['date'].iloc[0] if 'date' in df.columns else 'No date column'}")
         
         # Ensure required columns exist
         if "date" not in df.columns:
@@ -105,10 +106,13 @@ def load_expenses_from_csv():
                     df.rename(columns={col: 'category'}, inplace=True)
                     break
         
-        # Convert date to datetime
+        # Convert date to datetime - handle the format properly
         if "date" in df.columns:
+            # Try multiple date formats
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            # Drop rows with invalid dates
             df = df.dropna(subset=["date"])
+            print(f"📊 Date range: {df['date'].min()} to {df['date'].max()}")
         
         # Convert amount to float
         if "amount" in df.columns:
@@ -153,8 +157,10 @@ def get_sales_data(date_from, date_to):
     sales_df = sales_df.dropna(subset=[date_col])
     
     # Filter by date range
-    filtered = sales_df[(sales_df[date_col] >= pd.to_datetime(date_from)) & 
-                        (sales_df[date_col] <= pd.to_datetime(date_to))]
+    start_dt = pd.to_datetime(date_from)
+    end_dt = pd.to_datetime(date_to) + timedelta(days=1) - timedelta(seconds=1)
+    
+    filtered = sales_df[(sales_df[date_col] >= start_dt) & (sales_df[date_col] <= end_dt)]
     
     print(f"📊 After date filter: {len(filtered)} records from {date_from} to {date_to}")
     
@@ -162,7 +168,7 @@ def get_sales_data(date_from, date_to):
 
 
 def get_expenses_data(date_from, date_to):
-    """Get expenses data - Direct CSV read with debugging"""
+    """Get expenses data - Direct CSV read with proper date filtering"""
     
     print("=" * 60)
     print("🔍 DEBUG: Loading expenses from CSV")
@@ -217,15 +223,23 @@ def get_expenses_data(date_from, date_to):
         print("⚠️ No amount column found in expenses data!")
         return expenses_df
     
-    # Filter by date range
-    start_dt = pd.to_datetime(date_from)
-    end_dt = pd.to_datetime(date_to)
+    # Ensure date is datetime
+    expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
+    expenses_df = expenses_df.dropna(subset=[date_col])
     
+    # Create date range with proper time handling
+    start_dt = pd.to_datetime(date_from)
+    end_dt = pd.to_datetime(date_to) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+    
+    print(f"📊 Filtering expenses from {start_dt} to {end_dt}")
+    print(f"📊 Total expenses before filter: {len(expenses_df)}")
+    
+    # Filter by date range
     filtered = expenses_df[(expenses_df[date_col] >= start_dt) & (expenses_df[date_col] <= end_dt)]
     
     print(f"📊 Expenses loaded: {len(expenses_df)} total records")
     print(f"📊 After date filter: {len(filtered)} records")
-    print(f"📊 Date range: {date_from} to {date_to}")
+    print(f"📊 Date range: {start_dt} to {end_dt}")
     print(f"📊 Total expenses in period: ${filtered[amount_col].sum():,.2f}")
     
     return filtered
@@ -499,6 +513,7 @@ def accounting_sync_dashboard():
             st.write("---")
             st.write("**✅ Expenses DataFrame:**")
             st.write(f"📊 Rows: {len(expenses_df)}")
+            st.write(f"📅 Date range: {expenses_df['date'].min()} to {expenses_df['date'].max()}")
             st.dataframe(expenses_df.head(5))
     
     # ==============================
