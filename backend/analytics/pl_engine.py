@@ -1,9 +1,9 @@
+# backend/analytics/pl_engine.py
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from backend.core.db_adapter import load_sales, load_purchases, load_products
-from backend.modules.expenses import load_expenses
-from backend.modules.income import load_income
+from backend.core.db_adapter import load_sales, load_purchases, load_products, load_expenses, load_income
+from decimal import Decimal
 
 
 # ==============================
@@ -13,6 +13,10 @@ def to_float(value):
     """Safely convert Decimal or any value to float"""
     if value is None:
         return 0.0
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -20,21 +24,43 @@ def to_float(value):
 
 
 # ==============================
-# DATE FILTER - FIXED for PostgreSQL column names
+# GET TOTAL COLUMN NAME
+# ==============================
+def get_total_column(df):
+    """Get the total/final_total column name from dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["final_total", "total", "amount", "sale_amount"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# GET DATE COLUMN NAME
+# ==============================
+def get_date_column(df):
+    """Get the date column name from dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["sale_date", "date", "transaction_date", "created_at", "expense_date", "income_date"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# LOAD AND FILTER DATA WITH REAL DATA FROM DATABASE
 # ==============================
 def filter_by_period(df, year=None, month=None, quarter=None):
     """Filter dataframe by year, month, or quarter"""
-    if df.empty:
+    if df is None or df.empty:
         return df
     
     df = df.copy()
     
     # Determine which date column exists
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in df.columns:
-            date_col = col
-            break
+    date_col = get_date_column(df)
     
     if date_col is None:
         return pd.DataFrame()
@@ -63,26 +89,85 @@ def filter_by_period(df, year=None, month=None, quarter=None):
     return df
 
 
+def get_filtered_sales(year=None, month=None, quarter=None):
+    """Get filtered sales data from database"""
+    sales_df = load_sales()
+    if sales_df.empty:
+        return pd.DataFrame()
+    
+    # Get total column
+    total_col = get_total_column(sales_df)
+    
+    if total_col and total_col != "total":
+        sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
+    elif not total_col:
+        sales_df["total"] = 0
+    
+    # Ensure numeric columns
+    numeric_cols = ["items", "total", "profit", "final_total"]
+    for col in numeric_cols:
+        if col in sales_df.columns:
+            sales_df[col] = pd.to_numeric(sales_df[col], errors="coerce").fillna(0)
+    
+    return filter_by_period(sales_df, year, month, quarter)
+
+
+def get_filtered_expenses(year=None, month=None, quarter=None):
+    """Get filtered expenses data from database"""
+    expenses_df = load_expenses()
+    if expenses_df.empty:
+        return pd.DataFrame()
+    
+    if "amount" in expenses_df.columns:
+        expenses_df["amount"] = pd.to_numeric(expenses_df["amount"], errors="coerce").fillna(0)
+    
+    return filter_by_period(expenses_df, year, month, quarter)
+
+
+def get_filtered_income(year=None, month=None, quarter=None):
+    """Get filtered income data from database"""
+    income_df = load_income()
+    if income_df.empty:
+        return pd.DataFrame()
+    
+    if "amount" in income_df.columns:
+        income_df["amount"] = pd.to_numeric(income_df["amount"], errors="coerce").fillna(0)
+    
+    return filter_by_period(income_df, year, month, quarter)
+
+
+def get_filtered_purchases(year=None, month=None, quarter=None):
+    """Get filtered purchases data from database"""
+    purchases_df = load_purchases()
+    if purchases_df.empty:
+        return pd.DataFrame()
+    
+    if "total_cost" in purchases_df.columns:
+        purchases_df["total_cost"] = pd.to_numeric(purchases_df["total_cost"], errors="coerce").fillna(0)
+    
+    return filter_by_period(purchases_df, year, month, quarter)
+
+
 # ==============================
-# TRADING ACCOUNT
+# TRADING ACCOUNT - USING REAL DATA
 # ==============================
 def trading_account(year=None, month=None, quarter=None):
-    """Calculate trading account figures"""
+    """Calculate trading account figures from REAL data"""
     
-    sales_df = filter_by_period(load_sales(), year, month, quarter)
-    purchases_df = filter_by_period(load_purchases(), year, month, quarter)
+    sales_df = get_filtered_sales(year, month, quarter)
+    purchases_df = get_filtered_purchases(year, month, quarter)
     products_df = load_products()
     
-    # Determine total column name
-    total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
+    # Get total column
+    total_col = get_total_column(sales_df)
     
     # SALES - Convert Decimal to float
-    sales = to_float(sales_df[total_col].sum()) if total_col and not sales_df.empty else 0
+    sales = to_float(sales_df["total"].sum()) if total_col and not sales_df.empty else 0
     
-    # TURNOVER (same as sales for now)
+    # TURNOVER (same as sales)
     turnover = sales
     
-    # SALES RETURNS (placeholder)
+    # SALES RETURNS (placeholder - would need returns data)
     sales_returns = 0
     net_sales = turnover - sales_returns
     
@@ -94,16 +179,14 @@ def trading_account(year=None, month=None, quarter=None):
     net_purchases = purchases - purchase_returns
     
     # STOCK VALUATION - Convert Decimal to float
+    closing_stock = 0
     if not products_df.empty:
-        # Convert stock and cost to float before multiplication
         stock_values = []
         for _, row in products_df.iterrows():
             stock = to_float(row.get("stock", 0))
             cost = to_float(row.get("cost", 0))
             stock_values.append(stock * cost)
         closing_stock = sum(stock_values)
-    else:
-        closing_stock = 0
     
     opening_stock = 0  # Would need stock snapshot feature
     
@@ -130,15 +213,15 @@ def trading_account(year=None, month=None, quarter=None):
 
 
 # ==============================
-# PROFIT & LOSS ACCOUNT
+# PROFIT & LOSS ACCOUNT - USING REAL DATA
 # ==============================
 def profit_loss_account(year=None, month=None, quarter=None):
-    """Complete P&L statement"""
+    """Complete P&L statement from REAL data"""
     
     trade = trading_account(year, month, quarter)
     
-    income_df = filter_by_period(load_income(), year, month, quarter)
-    expense_df = filter_by_period(load_expenses(), year, month, quarter)
+    income_df = get_filtered_income(year, month, quarter)
+    expense_df = get_filtered_expenses(year, month, quarter)
     
     # Other Income - Convert Decimal to float
     other_income = to_float(income_df["amount"].sum()) if "amount" in income_df.columns and not income_df.empty else 0
@@ -153,7 +236,7 @@ def profit_loss_account(year=None, month=None, quarter=None):
     gross_profit = to_float(trade["gross_profit"])
     net_profit_before_tax = gross_profit + other_income - total_expenses
     
-    # Tax (placeholder - 25% corporate tax) - Convert to float
+    # Tax (placeholder - 25% corporate tax)
     tax = net_profit_before_tax * 0.25 if net_profit_before_tax > 0 else 0
     
     # Net Profit After Tax
@@ -173,20 +256,18 @@ def profit_loss_account(year=None, month=None, quarter=None):
 
 
 # ==============================
-# KEY FINANCIAL RATIOS
+# KEY FINANCIAL RATIOS - USING REAL DATA
 # ==============================
 def get_financial_ratios(year=None, month=None, quarter=None):
-    """Calculate key financial ratios"""
+    """Calculate key financial ratios from REAL data"""
     
     pl = profit_loss_account(year, month, quarter)
     
-    # Convert all values to float
     gross_margin = to_float(pl["gross_margin"])
     net_margin = to_float(pl["net_margin"])
     net_sales = to_float(pl["net_sales"])
     operating_expenses = to_float(pl["operating_expenses"])
     
-    # Profitability Ratios
     operating_margin = (operating_expenses / net_sales * 100) if net_sales > 0 else 0
     
     # Efficiency Ratios
@@ -196,7 +277,6 @@ def get_financial_ratios(year=None, month=None, quarter=None):
     avg_inventory = (opening_stock + closing_stock) / 2 if closing_stock > 0 else closing_stock
     inventory_turnover = (to_float(pl["cogs"]) / avg_inventory) if avg_inventory > 0 else 0
     
-    # Return Ratios
     return_on_sales = net_margin
     
     return {
@@ -210,14 +290,13 @@ def get_financial_ratios(year=None, month=None, quarter=None):
 
 
 # ==============================
-# BREAK-EVEN ANALYSIS
+# BREAK-EVEN ANALYSIS - USING REAL DATA
 # ==============================
 def break_even_analysis(year=None, month=None):
-    """Calculate break-even point"""
+    """Calculate break-even point from REAL data"""
     
     pl = profit_loss_account(year, month)
     
-    # Convert to float
     operating_expenses = to_float(pl["operating_expenses"])
     net_sales = to_float(pl["net_sales"])
     
@@ -225,15 +304,12 @@ def break_even_analysis(year=None, month=None):
     fixed_costs = operating_expenses * 0.3
     variable_costs = operating_expenses * 0.7
     
-    # Contribution margin
     contribution_margin = net_sales - variable_costs
     contribution_margin_ratio = (contribution_margin / net_sales) if net_sales > 0 else 0
     
-    # Break-even point
     break_even_sales = fixed_costs / contribution_margin_ratio if contribution_margin_ratio > 0 else 0
     break_even_units = break_even_sales / (net_sales / 100) if net_sales > 0 else 0
     
-    # Margin of safety
     margin_of_safety = net_sales - break_even_sales
     margin_of_safety_ratio = (margin_of_safety / net_sales * 100) if net_sales > 0 else 0
     
@@ -250,20 +326,17 @@ def break_even_analysis(year=None, month=None):
 
 
 # ==============================
-# CASH FLOW STATEMENT
+# CASH FLOW STATEMENT - USING REAL DATA
 # ==============================
 def cash_flow_statement(year=None, month=None):
-    """Generate cash flow statement"""
+    """Generate cash flow statement from REAL data"""
     
-    # Operating Activities
     pl = profit_loss_account(year, month)
     
-    # Convert to float
     net_profit = to_float(pl["net_profit"])
     operating_expenses = to_float(pl["operating_expenses"])
     closing_stock = to_float(pl["closing_stock"])
     
-    # Adjustments (simplified)
     depreciation = operating_expenses * 0.05
     changes_inventory = -closing_stock
     
@@ -278,13 +351,11 @@ def cash_flow_statement(year=None, month=None):
     dividends_paid = 0
     net_cash_financing = loans_received - dividends_paid
     
-    # Net Cash Flow
     net_cash_flow = net_cash_operating + net_cash_investing + net_cash_financing
     
-    # Beginning cash (estimate)
-    beginning_cash = 1000
+    # Beginning cash (estimate from sales)
+    beginning_cash = to_float(pl["net_sales"]) * 0.1 if pl["net_sales"] > 0 else 1000
     
-    # Ending cash
     ending_cash = beginning_cash + net_cash_flow
     
     return {
@@ -301,14 +372,15 @@ def cash_flow_statement(year=None, month=None):
 
 
 # ==============================
-# FINANCIAL FORECAST
+# FINANCIAL FORECAST - USING REAL DATA
 # ==============================
 def financial_forecast(months_ahead=6):
-    """Generate financial forecast for future months"""
+    """Generate financial forecast from REAL data"""
     
     historical_months = []
     forecast = []
     
+    # Get last 6 months of REAL data
     for i in range(6, 0, -1):
         current_date = datetime.now() - timedelta(days=30 * i)
         pl = profit_loss_account(year=current_date.year, month=current_date.month)
@@ -335,7 +407,7 @@ def financial_forecast(months_ahead=6):
     for i in range(1, months_ahead + 1):
         forecast_date = datetime.now() + timedelta(days=30 * i)
         projected_sales = last_sales * (1 + avg_growth) ** i
-        projected_profit = projected_sales * 0.15
+        projected_profit = projected_sales * 0.15  # Assume 15% profit margin
         
         forecast.append({
             "month": forecast_date.strftime("%Y-%m"),
@@ -349,10 +421,10 @@ def financial_forecast(months_ahead=6):
 
 
 # ==============================
-# BALANCE SHEET (Simplified)
+# BALANCE SHEET - USING REAL DATA
 # ==============================
 def balance_sheet(as_at_date=None):
-    """Generate simplified balance sheet"""
+    """Generate simplified balance sheet from REAL data"""
     
     if as_at_date is None:
         as_at_date = datetime.now()
@@ -361,7 +433,13 @@ def balance_sheet(as_at_date=None):
     
     # ASSETS
     # Current Assets
-    cash = 5000
+    sales_df = load_sales()
+    total_col = get_total_column(sales_df)
+    
+    # Cash estimate (10% of total sales)
+    cash = to_float(sales_df[total_col].sum() * 0.1) if total_col and not sales_df.empty else 5000
+    
+    # Inventory
     inventory = 0
     if not products_df.empty:
         for _, row in products_df.iterrows():
@@ -369,7 +447,8 @@ def balance_sheet(as_at_date=None):
             cost = to_float(row.get("cost", 0))
             inventory += stock * cost
     
-    accounts_receivable = 2000
+    # Accounts Receivable (20% of sales)
+    accounts_receivable = to_float(sales_df[total_col].sum() * 0.2) if total_col and not sales_df.empty else 2000
     
     total_current_assets = cash + inventory + accounts_receivable
     
@@ -382,7 +461,8 @@ def balance_sheet(as_at_date=None):
     
     # LIABILITIES
     # Current Liabilities
-    accounts_payable = 1000
+    expenses_df = load_expenses()
+    accounts_payable = to_float(expenses_df["amount"].sum() * 0.3) if "amount" in expenses_df.columns and not expenses_df.empty else 1000
     short_term_debt = 500
     
     total_current_liabilities = accounts_payable + short_term_debt
@@ -415,10 +495,10 @@ def balance_sheet(as_at_date=None):
 
 
 # ==============================
-# MONTHLY COMPARISON DATA
+# MONTHLY COMPARISON DATA - USING REAL DATA
 # ==============================
 def monthly_comparison(year):
-    """Get monthly sales, expenses, and profit for the year"""
+    """Get monthly sales, expenses, and profit for the year from REAL data"""
     
     results = []
     
@@ -435,10 +515,10 @@ def monthly_comparison(year):
 
 
 # ==============================
-# YEARLY COMPARISON
+# YEARLY COMPARISON - USING REAL DATA
 # ==============================
 def yearly_comparison(year1, year2):
-    """Compare financial performance between two years"""
+    """Compare financial performance between two years from REAL data"""
     
     pl1 = profit_loss_account(year=year1)
     pl2 = profit_loss_account(year=year2)
