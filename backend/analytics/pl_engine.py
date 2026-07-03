@@ -54,6 +54,67 @@ def get_date_column(df):
 
 
 # ==============================
+# CALCULATE CLOSING STOCK FOR A PERIOD
+# ==============================
+def calculate_closing_stock(year=None, month=None, quarter=None):
+    """Calculate closing stock for a specific period"""
+    products_df = load_products()
+    
+    if products_df.empty:
+        return 0
+    
+    stock_values = []
+    for _, row in products_df.iterrows():
+        stock = to_float(row.get("stock", 0))
+        cost = to_float(row.get("cost", 0))
+        stock_values.append(stock * cost)
+    
+    return sum(stock_values)
+
+
+# ==============================
+# GET OPENING STOCK FROM PREVIOUS PERIOD
+# ==============================
+def get_opening_stock(year=None, month=None, quarter=None):
+    """
+    Calculate opening stock for a period.
+    Opening stock = Closing stock of the previous period.
+    """
+    # If no period specified, opening stock is 0
+    if year is None and month is None and quarter is None:
+        return 0
+    
+    # Calculate previous period
+    if month is not None:
+        # Monthly: previous month
+        prev_year = year
+        prev_month = month - 1
+        if prev_month == 0:
+            prev_month = 12
+            prev_year = year - 1
+        
+        # Get closing stock of previous month
+        return calculate_closing_stock(prev_year, prev_month)
+    
+    elif quarter is not None:
+        # Quarterly: previous quarter
+        prev_year = year
+        prev_quarter = quarter - 1
+        if prev_quarter == 0:
+            prev_quarter = 4
+            prev_year = year - 1
+        
+        return calculate_closing_stock(prev_year, None, prev_quarter)
+    
+    elif year is not None:
+        # Yearly: previous year
+        prev_year = year - 1
+        return calculate_closing_stock(prev_year, None, None)
+    
+    return 0
+
+
+# ==============================
 # LOAD AND FILTER DATA WITH REAL DATA FROM DATABASE
 # ==============================
 def filter_by_period(df, year=None, month=None, quarter=None):
@@ -121,30 +182,17 @@ def get_filtered_expenses(year=None, month=None, quarter=None):
     try:
         expenses_df = load_expenses()
         
-        # Check if expenses_df is None or empty
         if expenses_df is None or expenses_df.empty:
-            print("⚠️ No expenses data found")
             return pd.DataFrame()
         
-        # Debug: print column names
-        print(f"📊 Expenses columns: {expenses_df.columns.tolist()}")
-        
-        # Check if amount column exists
         if "amount" in expenses_df.columns:
             expenses_df["amount"] = pd.to_numeric(expenses_df["amount"], errors="coerce").fillna(0)
         else:
-            print("⚠️ No 'amount' column in expenses data")
-            # Try to find any numeric column that could be amount
-            numeric_cols = expenses_df.select_dtypes(include=[np.number]).columns.tolist()
-            if numeric_cols:
-                print(f"📊 Available numeric columns: {numeric_cols}")
-                expenses_df["amount"] = expenses_df[numeric_cols[0]].fillna(0)
-            else:
-                expenses_df["amount"] = 0
+            expenses_df["amount"] = 0
         
         return filter_by_period(expenses_df, year, month, quarter)
     except Exception as e:
-        print(f"❌ Error loading expenses: {e}")
+        print(f"Error loading expenses: {e}")
         return pd.DataFrame()
 
 
@@ -153,30 +201,17 @@ def get_filtered_income(year=None, month=None, quarter=None):
     try:
         income_df = load_income()
         
-        # Check if income_df is None or empty
         if income_df is None or income_df.empty:
-            print("⚠️ No income data found")
             return pd.DataFrame()
         
-        # Debug: print column names
-        print(f"📊 Income columns: {income_df.columns.tolist()}")
-        
-        # Check if amount column exists
         if "amount" in income_df.columns:
             income_df["amount"] = pd.to_numeric(income_df["amount"], errors="coerce").fillna(0)
         else:
-            print("⚠️ No 'amount' column in income data")
-            # Try to find any numeric column that could be amount
-            numeric_cols = income_df.select_dtypes(include=[np.number]).columns.tolist()
-            if numeric_cols:
-                print(f"📊 Available numeric columns: {numeric_cols}")
-                income_df["amount"] = income_df[numeric_cols[0]].fillna(0)
-            else:
-                income_df["amount"] = 0
+            income_df["amount"] = 0
         
         return filter_by_period(income_df, year, month, quarter)
     except Exception as e:
-        print(f"❌ Error loading income: {e}")
+        print(f"Error loading income: {e}")
         return pd.DataFrame()
 
 
@@ -192,19 +227,18 @@ def get_filtered_purchases(year=None, month=None, quarter=None):
         
         return filter_by_period(purchases_df, year, month, quarter)
     except Exception as e:
-        print(f"❌ Error loading purchases: {e}")
+        print(f"Error loading purchases: {e}")
         return pd.DataFrame()
 
 
 # ==============================
-# TRADING ACCOUNT - USING REAL DATA
+# TRADING ACCOUNT - USING REAL DATA WITH PROPER OPENING STOCK
 # ==============================
 def trading_account(year=None, month=None, quarter=None):
     """Calculate trading account figures from REAL data"""
     
     sales_df = get_filtered_sales(year, month, quarter)
     purchases_df = get_filtered_purchases(year, month, quarter)
-    products_df = load_products()
     
     # Get total column
     total_col = get_total_column(sales_df)
@@ -226,17 +260,11 @@ def trading_account(year=None, month=None, quarter=None):
     purchase_returns = 0
     net_purchases = purchases - purchase_returns
     
-    # STOCK VALUATION - Convert Decimal to float
-    closing_stock = 0
-    if not products_df.empty:
-        stock_values = []
-        for _, row in products_df.iterrows():
-            stock = to_float(row.get("stock", 0))
-            cost = to_float(row.get("cost", 0))
-            stock_values.append(stock * cost)
-        closing_stock = sum(stock_values)
+    # OPENING STOCK - Get from previous period
+    opening_stock = get_opening_stock(year, month, quarter)
     
-    opening_stock = 0  # Would need stock snapshot feature
+    # CLOSING STOCK - Current period stock
+    closing_stock = calculate_closing_stock(year, month, quarter)
     
     # COST OF GOODS SOLD
     cogs = opening_stock + net_purchases - closing_stock
@@ -270,10 +298,6 @@ def profit_loss_account(year=None, month=None, quarter=None):
     
     income_df = get_filtered_income(year, month, quarter)
     expense_df = get_filtered_expenses(year, month, quarter)
-    
-    # Debug: Print totals
-    print(f"💰 Income total: {income_df['amount'].sum() if not income_df.empty else 0}")
-    print(f"💰 Expenses total: {expense_df['amount'].sum() if not expense_df.empty else 0}")
     
     # Other Income - Convert Decimal to float
     other_income = to_float(income_df["amount"].sum()) if "amount" in income_df.columns and not income_df.empty else 0
@@ -323,7 +347,6 @@ def get_financial_ratios(year=None, month=None, quarter=None):
     operating_margin = (operating_expenses / net_sales * 100) if net_sales > 0 else 0
     
     # Efficiency Ratios
-    products_df = load_products()
     opening_stock = to_float(pl["opening_stock"])
     closing_stock = to_float(pl["closing_stock"])
     avg_inventory = (opening_stock + closing_stock) / 2 if closing_stock > 0 else closing_stock
@@ -473,7 +496,7 @@ def financial_forecast(months_ahead=6):
 
 
 # ==============================
-# BALANCE SHEET - USING REAL DATA (FIXED)
+# BALANCE SHEET - USING REAL DATA
 # ==============================
 def balance_sheet(as_at_date=None):
     """Generate simplified balance sheet from REAL data"""
@@ -488,7 +511,6 @@ def balance_sheet(as_at_date=None):
     sales_df = load_sales()
     total_col = get_total_column(sales_df)
     
-    # FIXED: Properly convert to float
     total_sales = 0
     if total_col and not sales_df.empty:
         total_sales = to_float(sales_df[total_col].sum())
