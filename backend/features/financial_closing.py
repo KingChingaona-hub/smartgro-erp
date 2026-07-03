@@ -1,4 +1,4 @@
-# backend/modules/financial_closing.py
+# backend/features/financial_closing.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -99,7 +99,14 @@ def get_period_data(period_type, year, month=None, quarter=None):
     products_df = load_products()
     
     # ============================================================
-    # SALES DATA - FIXED: Proper date filtering
+    # DEBUG: Print column names to see what we're working with
+    # ============================================================
+    print(f"📊 Sales columns: {sales_df.columns.tolist() if not sales_df.empty else 'EMPTY'}")
+    print(f"📊 Expenses columns: {expenses_df.columns.tolist() if not expenses_df.empty else 'EMPTY'}")
+    print(f"📊 Purchases columns: {purchases_df.columns.tolist() if not purchases_df.empty else 'EMPTY'}")
+    
+    # ============================================================
+    # SALES DATA
     # ============================================================
     total_revenue = 0
     total_profit = 0
@@ -131,50 +138,66 @@ def get_period_data(period_type, year, month=None, quarter=None):
                 transaction_count = period_sales[receipt_col].nunique() if receipt_col else len(period_sales)
     
     # ============================================================
-    # EXPENSES DATA - FIXED: Proper loading and filtering
+    # EXPENSES DATA - FIXED: Better column detection with debug
     # ============================================================
     total_expenses = 0
     expense_categories = {}
     
     if not expenses_df.empty:
+        print(f"📊 Processing expenses data with {len(expenses_df)} rows")
+        
         # Find the date column
         expense_date_col = None
-        for col in ["date", "expense_date", "created_at"]:
-            if col in expenses_df.columns:
+        for col in expenses_df.columns:
+            if any(keyword in col.lower() for keyword in ['date', 'time', 'created', 'updated']):
                 expense_date_col = col
                 break
         
         # Find the amount column
         amount_col = None
-        for col in ["amount", "total", "value"]:
-            if col in expenses_df.columns:
+        for col in expenses_df.columns:
+            if any(keyword in col.lower() for keyword in ['amount', 'total', 'value', 'cost']):
                 amount_col = col
                 break
         
         # Find the category column
         category_col = None
-        for col in ["category", "expense_type", "type"]:
-            if col in expenses_df.columns:
+        for col in expenses_df.columns:
+            if any(keyword in col.lower() for keyword in ['category', 'type', 'expense_type']):
                 category_col = col
                 break
+        
+        print(f"📊 Expense date column: {expense_date_col}")
+        print(f"📊 Expense amount column: {amount_col}")
+        print(f"📊 Expense category column: {category_col}")
         
         if expense_date_col and amount_col:
             # Convert date column
             expenses_df[expense_date_col] = pd.to_datetime(expenses_df[expense_date_col], errors="coerce")
             expenses_df = expenses_df.dropna(subset=[expense_date_col])
             
+            # Convert amount to numeric
+            expenses_df[amount_col] = pd.to_numeric(expenses_df[amount_col], errors="coerce").fillna(0)
+            
             # Filter by date range
             period_expenses = expenses_df[(expenses_df[expense_date_col] >= start_date) & (expenses_df[expense_date_col] <= end_date)]
             
+            print(f"📊 Period expenses: {len(period_expenses)} rows after date filter")
+            
             if not period_expenses.empty:
-                # Convert amount to float
-                period_expenses[amount_col] = pd.to_numeric(period_expenses[amount_col], errors="coerce").fillna(0)
                 total_expenses = to_float(period_expenses[amount_col].sum())
+                print(f"📊 Total expenses: ${total_expenses:,.2f}")
                 
                 # Get expenses by category if category column exists
                 if category_col:
                     category_summary = period_expenses.groupby(category_col)[amount_col].sum().to_dict()
                     expense_categories = {str(k): to_float(v) for k, v in category_summary.items()}
+                    print(f"📊 Expense categories: {expense_categories}")
+        else:
+            print(f"⚠️ Could not find date or amount column in expenses data")
+            print(f"   Available columns: {expenses_df.columns.tolist()}")
+    else:
+        print(f"⚠️ Expenses DataFrame is EMPTY")
     
     # ============================================================
     # PURCHASES DATA
@@ -470,6 +493,18 @@ def financial_closing_dashboard():
     with tab1:
         st.markdown("## 📅 End-of-Day Closing")
         st.caption("Close the day's transactions and generate report")
+        
+        # Show debug info in an expander
+        with st.expander("🔧 Debug Information"):
+            st.write("**Checking expenses data...**")
+            expenses_df = load_expenses()
+            if not expenses_df.empty:
+                st.write(f"✅ Expenses data loaded: {len(expenses_df)} records")
+                st.write(f"📊 Columns: {expenses_df.columns.tolist()}")
+                st.write("**Sample data:**")
+                st.dataframe(expenses_df.head(3))
+            else:
+                st.warning("⚠️ No expenses data found!")
         
         today_data = get_period_data("daily", datetime.now().year, datetime.now().month)
         today_data["period_type"] = "daily"
