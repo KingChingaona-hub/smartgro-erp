@@ -234,10 +234,10 @@ def get_po_details(po_number):
 
 
 # ==============================
-# PURCHASES PAGE
+# PURCHASES PAGE - FIXED: No infinite loops
 # ==============================
 def purchases_page():
-    """Enhanced Purchases Management Page with Auto-Stock Update"""
+    """Enhanced Purchases Management Page with Auto-Stock Update - FIXED: No infinite loops"""
     
     st.title("📦 Purchases & Suppliers Management")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
@@ -257,6 +257,22 @@ def purchases_page():
         st.session_state.stock_updated = False
     if "last_received_po" not in st.session_state:
         st.session_state.last_received_po = None
+    if "po_success_message" not in st.session_state:
+        st.session_state.po_success_message = ""
+    
+    # ==============================
+    # DISPLAY SUCCESS MESSAGES
+    # ==============================
+    if st.session_state.po_created and st.session_state.last_po_number:
+        st.success(f"✅ Purchase Order **{st.session_state.last_po_number}** created successfully!")
+        st.balloons()
+        st.session_state.po_created = False
+        st.session_state.po_success_message = ""
+    
+    if st.session_state.stock_updated and st.session_state.last_received_po:
+        st.success(f"✅ Stock for PO **{st.session_state.last_received_po}** has been added to inventory!")
+        st.balloons()
+        st.session_state.stock_updated = False
     
     # ==============================
     # TABS FOR DIFFERENT FUNCTIONS
@@ -269,17 +285,11 @@ def purchases_page():
     ])
     
     # ==============================
-    # TAB 1: CREATE PURCHASE ORDER
+    # TAB 1: CREATE PURCHASE ORDER - FIXED
     # ==============================
     with tab1:
         st.markdown("## 📝 Create Purchase Order")
         st.caption("Create a purchase order before receiving stock from suppliers")
-        
-        # Show success message if PO was just created
-        if st.session_state.po_created and st.session_state.last_po_number:
-            st.success(f"✅ Purchase Order **{st.session_state.last_po_number}** created successfully!")
-            st.balloons()
-            st.session_state.po_created = False
         
         if products_df.empty:
             st.warning("⚠️ No products in inventory. You can still add manual items below.")
@@ -342,28 +352,29 @@ def purchases_page():
                     po_qty = 1
             
             with col3:
-                if selected_product is not None and st.button("➕ Add to Order", key="add_to_po", use_container_width=True):
-                    # Check if product already in cart
-                    existing = False
-                    for item in st.session_state.po_cart:
-                        if item["barcode"] == selected_product["barcode"]:
-                            item["quantity"] += po_qty
-                            item["total"] = item["quantity"] * item["cost"]
-                            existing = True
-                            break
-                    
-                    if not existing:
-                        # Convert cost to float
-                        cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
-                        st.session_state.po_cart.append({
-                            "barcode": selected_product["barcode"],
-                            "name": selected_product["name"],
-                            "quantity": po_qty,
-                            "cost": cost_val,
-                            "total": cost_val * po_qty
-                        })
-                    st.success(f"✅ Added {po_qty} x {selected_product['name']} to order")
-                    st.rerun()
+                if selected_product is not None:
+                    if st.button("➕ Add to Order", key="add_to_po", use_container_width=True):
+                        # Check if product already in cart
+                        existing = False
+                        for item in st.session_state.po_cart:
+                            if item["barcode"] == selected_product["barcode"]:
+                                item["quantity"] += po_qty
+                                item["total"] = item["quantity"] * item["cost"]
+                                existing = True
+                                break
+                        
+                        if not existing:
+                            # Convert cost to float
+                            cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
+                            st.session_state.po_cart.append({
+                                "barcode": selected_product["barcode"],
+                                "name": selected_product["name"],
+                                "quantity": po_qty,
+                                "cost": cost_val,
+                                "total": cost_val * po_qty
+                            })
+                        st.success(f"✅ Added {po_qty} x {selected_product['name']} to order")
+                        st.rerun()
             
             with col4:
                 if st.button("🗑️ Clear Cart", use_container_width=True):
@@ -520,17 +531,11 @@ Contact: +263 78 290 5853
             st.info("🛒 Cart is empty. Add products above to create a purchase order.")
     
     # ==============================
-    # TAB 2: RECEIVE STOCK (AUTO-UPDATE)
+    # TAB 2: RECEIVE STOCK (AUTO-UPDATE) - FIXED
     # ==============================
     with tab2:
         st.markdown("## 📦 Receive Stock - Auto Update Inventory")
         st.caption("Confirm receipt of stock. Inventory will be automatically updated.")
-        
-        # Show success message if stock was just updated
-        if st.session_state.stock_updated and st.session_state.last_received_po:
-            st.success(f"✅ Stock for PO **{st.session_state.last_received_po}** has been added to inventory!")
-            st.balloons()
-            st.session_state.stock_updated = False
         
         purchases_df = load_purchases()
         
