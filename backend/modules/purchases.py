@@ -259,9 +259,10 @@ def purchases_page():
         st.session_state.last_received_po = None
     if "po_success_message" not in st.session_state:
         st.session_state.po_success_message = ""
-    # Add flag to prevent duplicate processing
     if "processing_action" not in st.session_state:
         st.session_state.processing_action = False
+    if "last_added_item" not in st.session_state:
+        st.session_state.last_added_item = None
     
     # ==============================
     # DISPLAY SUCCESS MESSAGES
