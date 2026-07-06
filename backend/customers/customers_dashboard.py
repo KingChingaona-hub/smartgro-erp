@@ -3,47 +3,18 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import re
-import sys
-from pathlib import Path
 
-# Add backend to path if needed
-backend_path = Path(__file__).parent.parent
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
-
-try:
-    from backend.core.db_adapter import load_customers, load_sales
-except ImportError:
-    from core.db_adapter import load_customers, load_sales
-
-try:
-    from backend.modules.loyalty import (
-        load_loyalty,
-        get_top_loyalty_customers,
-        get_birthday_customers,
-        get_customer_loyalty_info,
-        get_tier_benefits,
-        save_loyalty
-    )
-except ImportError:
-    from modules.loyalty import (
-        load_loyalty,
-        get_top_loyalty_customers,
-        get_birthday_customers,
-        get_customer_loyalty_info,
-        get_tier_benefits,
-        save_loyalty
-    )
-
-try:
-    from backend.utils.utils import generate_whatsapp_promotion
-except ImportError:
-    from utils.utils import generate_whatsapp_promotion
-
-try:
-    from backend.utils.phone_utils import get_whatsapp_link
-except ImportError:
-    from utils.phone_utils import get_whatsapp_link
+from backend.core.db_adapter import load_customers, load_sales
+from backend.modules.loyalty import (
+    load_loyalty,
+    get_top_loyalty_customers,
+    get_birthday_customers,
+    get_customer_loyalty_info,
+    get_tier_benefits,
+    save_loyalty
+)
+from backend.utils.utils import generate_whatsapp_promotion
+from backend.utils.phone_utils import get_whatsapp_link
 
 
 def customers_dashboard():
@@ -52,13 +23,9 @@ def customers_dashboard():
     st.title("👥 Customer Intelligence Dashboard")
     st.caption("Track loyalty, spending patterns, and customer engagement")
     
-    try:
-        customers_df = load_customers()
-        loyalty_df = load_loyalty()
-        sales_df = load_sales()
-    except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
-        return
+    customers_df = load_customers()
+    loyalty_df = load_loyalty()
+    sales_df = load_sales()
     
     # ==============================
     # INITIALIZE LOYALTY DATA IF EMPTY
@@ -82,12 +49,9 @@ def customers_dashboard():
         
         if loyalty_records:
             loyalty_df = pd.DataFrame(loyalty_records)
-            try:
-                save_loyalty(loyalty_df)
-                st.success(f"✅ Created loyalty records for {len(loyalty_records)} customers!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error saving loyalty data: {str(e)}")
+            save_loyalty(loyalty_df)
+            st.success(f"✅ Created loyalty records for {len(loyalty_records)} customers!")
+            st.rerun()
     
     # ==============================
     # CUSTOMER LOYALTY SEARCH
@@ -102,17 +66,14 @@ def customers_dashboard():
     with col2:
         if st.button("🔍 Search", use_container_width=True):
             if search_phone:
-                try:
-                    customer_info = get_customer_loyalty_info(search_phone)
-                    
-                    if customer_info:
-                        st.session_state.loyalty_customer = customer_info
-                        st.success(f"✅ Found customer: {customer_info.get('customer_name', 'Unknown')}")
-                    else:
-                        st.error("❌ Customer not found in loyalty system")
-                        st.session_state.loyalty_customer = None
-                except Exception as e:
-                    st.error(f"Error searching customer: {str(e)}")
+                customer_info = get_customer_loyalty_info(search_phone)
+                
+                if customer_info:
+                    st.session_state.loyalty_customer = customer_info
+                    st.success(f"✅ Found customer: {customer_info.get('customer_name', 'Unknown')}")
+                else:
+                    st.error("❌ Customer not found in loyalty system")
+                    st.session_state.loyalty_customer = None
     
     # Display loyalty info if found
     if st.session_state.get("loyalty_customer"):
@@ -214,26 +175,23 @@ def customers_dashboard():
     # ==============================
     st.markdown("## 🏆 Top Loyalty Customers")
     
-    try:
-        top_customers = get_top_loyalty_customers(10)
-        
-        if not top_customers.empty:
-            fig_top = px.bar(
-                top_customers,
-                x="points",
-                y="customer_name",
-                orientation="h",
-                title="Top 10 Customers by Points",
-                color="tier",
-                color_discrete_sequence=px.colors.qualitative.Set1,
-                text="points"
-            )
-            fig_top.update_traces(texttemplate="%{text}", textposition="outside")
-            fig_top.update_layout(height=400, xaxis_title="Points", yaxis_title="")
-            st.plotly_chart(fig_top, use_container_width=True)
-        else:
-            st.info("No loyalty data available yet.")
-    except Exception as e:
+    top_customers = get_top_loyalty_customers(10)
+    
+    if not top_customers.empty:
+        fig_top = px.bar(
+            top_customers,
+            x="points",
+            y="customer_name",
+            orientation="h",
+            title="Top 10 Customers by Points",
+            color="tier",
+            color_discrete_sequence=px.colors.qualitative.Set1,
+            text="points"
+        )
+        fig_top.update_traces(texttemplate="%{text}", textposition="outside")
+        fig_top.update_layout(height=400, xaxis_title="Points", yaxis_title="")
+        st.plotly_chart(fig_top, use_container_width=True)
+    else:
         st.info("No loyalty data available yet.")
     
     st.markdown("---")
@@ -243,19 +201,16 @@ def customers_dashboard():
     # ==============================
     st.markdown("## 🎂 Birthday This Month")
     
-    try:
-        birthday_customers = get_birthday_customers()
+    birthday_customers = get_birthday_customers()
+    
+    if not birthday_customers.empty:
+        st.success(f"🎉 {len(birthday_customers)} customers celebrating birthdays this month!")
+        st.dataframe(birthday_customers, use_container_width=True, hide_index=True)
         
-        if not birthday_customers.empty:
-            st.success(f"🎉 {len(birthday_customers)} customers celebrating birthdays this month!")
-            st.dataframe(birthday_customers, use_container_width=True, hide_index=True)
-            
-            if st.button("🎁 Send Birthday Greetings"):
-                st.info("Birthday messages would be sent here. (SMS/Email integration coming soon)")
-        else:
-            st.info("No birthdays this month or no birthday data available")
-    except Exception as e:
-        st.info("No birthday data available")
+        if st.button("🎁 Send Birthday Greetings"):
+            st.info("Birthday messages would be sent here. (SMS/Email integration coming soon)")
+    else:
+        st.info("No birthdays this month or no birthday data available")
     
     st.markdown("---")
     
@@ -343,14 +298,10 @@ def customers_dashboard():
         inactive_phones = loyalty_df[loyalty_df["points"] == 0]["phone"].astype(str).tolist()
         filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(inactive_phones)]
     elif segment == "Birthday This Month":
-        try:
-            birthday_customers = get_birthday_customers()
-            if not birthday_customers.empty:
-                birthday_phones = birthday_customers["phone"].astype(str).tolist()
-                filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(birthday_phones)]
-            else:
-                filtered_customers = pd.DataFrame()
-        except:
+        if not birthday_customers.empty:
+            birthday_phones = birthday_customers["phone"].astype(str).tolist()
+            filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(birthday_phones)]
+        else:
             filtered_customers = pd.DataFrame()
     
     # Message input
@@ -363,12 +314,8 @@ def customers_dashboard():
         discount_code = st.text_input("Discount Code (optional)", placeholder="e.g., SAVE20", key="discount_code")
         
         if promo_message:
-            try:
-                final_message = generate_whatsapp_promotion(promo_message, discount_code)
-                st.info(f"📱 Preview:\n\n{final_message}")
-            except:
-                final_message = promo_message
-                st.info(f"📱 Preview:\n\n{final_message}")
+            final_message = generate_whatsapp_promotion(promo_message, discount_code)
+            st.info(f"📱 Preview:\n\n{final_message}")
     
     elif message_type == "Birthday Greeting":
         birthday_message = st.text_area("Birthday Message", height=100,
@@ -428,7 +375,9 @@ def customers_dashboard():
                         phone_clean = '263' + phone_clean
                     
                     name = customer.get("customer_name", "Customer")
-                    whatsapp_link = f"https://wa.me/{phone_clean}?text={final_message.replace(' ', '%20').replace('\n', '%0A')}"
+                    # Fix: Encode message properly without backslash in f-string
+                    encoded_message = final_message.replace(' ', '%20').replace('\n', '%0A')
+                    whatsapp_link = f"https://wa.me/{phone_clean}?text={encoded_message}"
                     whatsapp_links.append({
                         "Customer": name,
                         "Phone": phone,
