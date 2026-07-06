@@ -9,7 +9,8 @@ from backend.modules.loyalty import (
     get_top_loyalty_customers,
     get_birthday_customers,
     get_customer_loyalty_info,
-    get_tier_benefits
+    get_tier_benefits,
+    save_loyalty
 )
 from backend.utils.utils import generate_whatsapp_promotion
 from backend.utils.phone_utils import get_whatsapp_link
@@ -26,6 +27,33 @@ def customers_dashboard():
     sales_df = load_sales()
     
     # ==============================
+    # INITIALIZE LOYALTY DATA IF EMPTY
+    # ==============================
+    if loyalty_df.empty and not customers_df.empty:
+        st.warning("⚠️ Loyalty data is empty. Initializing loyalty records for existing customers...")
+        
+        # Create loyalty records for all customers
+        loyalty_records = []
+        for _, customer in customers_df.iterrows():
+            loyalty_records.append({
+                "customer_name": customer.get("customer_name", "Unknown"),
+                "phone": str(customer.get("phone", "")),
+                "points": 0,
+                "tier": "🥉 BRONZE",
+                "total_spent": float(customer.get("total_spent", 0)),
+                "total_orders": int(customer.get("total_orders", 0)),
+                "last_visit": datetime.now().strftime("%Y-%m-%d"),
+                "birthday": "",
+                "joined_date": datetime.now().strftime("%Y-%m-%d")
+            })
+        
+        if loyalty_records:
+            loyalty_df = pd.DataFrame(loyalty_records)
+            save_loyalty(loyalty_df)
+            st.success(f"✅ Created loyalty records for {len(loyalty_records)} customers!")
+            st.rerun()
+    
+    # ==============================
     # CUSTOMER LOYALTY SEARCH
     # ==============================
     st.markdown("## 🔍 Customer Loyalty Lookup")
@@ -33,48 +61,53 @@ def customers_dashboard():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        search_phone = st.text_input("Enter Customer Phone Number", placeholder="0712345678")
+        search_phone = st.text_input("Enter Customer Phone Number", placeholder="0712345678 or 782905853")
     
     with col2:
-        if st.button("Search", use_container_width=True):
+        if st.button("🔍 Search", use_container_width=True):
             if search_phone:
                 customer_info = get_customer_loyalty_info(search_phone)
                 
                 if customer_info:
                     st.session_state.loyalty_customer = customer_info
+                    st.success(f"✅ Found customer: {customer_info.get('customer_name', 'Unknown')}")
                 else:
-                    st.error("Customer not found")
+                    st.error("❌ Customer not found in loyalty system")
+                    st.session_state.loyalty_customer = None
     
     # Display loyalty info if found
     if st.session_state.get("loyalty_customer"):
         info = st.session_state.loyalty_customer
         
         st.markdown("---")
-        st.markdown(f"## 👤 {info['customer_name']}")
+        st.markdown(f"## 👤 {info.get('customer_name', 'Unknown')}")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("🏆 Tier", info['tier'])
+            st.metric("🏆 Tier", info.get('tier', '🥉 BRONZE'))
         with col2:
-            st.metric("⭐ Points", f"{info['points']:,}")
+            st.metric("⭐ Points", f"{info.get('points', 0):,}")
         with col3:
-            st.metric("💰 Total Spent", f"${info['total_spent']:,.2f}")
+            st.metric("💰 Total Spent", f"${info.get('total_spent', 0):,.2f}")
         with col4:
-            st.metric("🛒 Orders", info['total_orders'])
+            st.metric("🛒 Orders", info.get('total_orders', 0))
         
         # Tier benefits
         with st.expander("✨ Tier Benefits"):
-            benefits = info['benefits']
-            st.write(f"📈 Points Multiplier: {benefits['points_multiplier']}x")
-            st.write(f"🎁 Birthday Bonus: {benefits['birthday_bonus']} points")
-            st.write(f"💰 Tier Discount: {benefits['discount']}%")
-            st.write(f"🚚 Free Delivery: {'Yes' if benefits['free_delivery'] else 'No'}")
+            benefits = info.get('benefits', {})
+            st.write(f"📈 Points Multiplier: {benefits.get('points_multiplier', 1)}x")
+            st.write(f"🎁 Birthday Bonus: {benefits.get('birthday_bonus', 50)} points")
+            st.write(f"💰 Tier Discount: {benefits.get('discount', 0)}%")
+            st.write(f"🚚 Free Delivery: {'✅ Yes' if benefits.get('free_delivery', False) else '❌ No'}")
         
         # Points to next tier
-        if info['points_to_next_tier'] > 0:
-            st.progress(min(info['total_spent'] / 5000, 1.0))
-            st.caption(f"Spend ${info['points_to_next_tier']:.2f} more to reach next tier")
+        points_to_next = info.get('points_to_next_tier', 0)
+        if points_to_next > 0:
+            st.progress(min(info.get('total_spent', 0) / 5000, 1.0))
+            st.caption(f"Spend ${points_to_next:.2f} more to reach next tier")
+        else:
+            st.success("🎉 You've reached the highest tier!")
     
     st.markdown("---")
     
@@ -83,20 +116,21 @@ def customers_dashboard():
     # ==============================
     st.markdown("## 📊 Loyalty Program Metrics")
     
-    total_customers = len(loyalty_df)
-    total_points = loyalty_df["points"].sum() if not loyalty_df.empty else 0
-    total_redeemable_value = total_points / 100
+    # Calculate metrics from loyalty data
+    total_customers = len(loyalty_df) if not loyalty_df.empty else 0
+    total_points = loyalty_df["points"].sum() if not loyalty_df.empty and "points" in loyalty_df.columns else 0
+    total_redeemable_value = total_points / 100 if total_points > 0 else 0
+    avg_points = loyalty_df["points"].mean() if not loyalty_df.empty and "points" in loyalty_df.columns else 0
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("👥 Loyalty Members", total_customers)
     with col2:
-        st.metric("⭐ Total Points", f"{total_points:,}")
+        st.metric("⭐ Total Points", f"{total_points:,.0f}")
     with col3:
         st.metric("💰 Redeemable Value", f"${total_redeemable_value:,.2f}")
     with col4:
-        avg_points = loyalty_df["points"].mean() if not loyalty_df.empty else 0
         st.metric("📊 Avg Points/Customer", f"{avg_points:.0f}")
     
     st.markdown("---")
@@ -106,7 +140,7 @@ def customers_dashboard():
     # ==============================
     st.markdown("## 🏆 Customer Tier Distribution")
     
-    if not loyalty_df.empty:
+    if not loyalty_df.empty and "tier" in loyalty_df.columns:
         tier_counts = loyalty_df["tier"].value_counts().reset_index()
         tier_counts.columns = ["Tier", "Count"]
         
@@ -135,6 +169,8 @@ def customers_dashboard():
             | 🥇 GOLD | 1.5x | 10% | 200 points |
             | 👑 PLATINUM | 2x | 15% | 500 points |
             """)
+    else:
+        st.info("No tier data available. Add loyalty records to see distribution.")
     
     st.markdown("---")
     
@@ -159,6 +195,8 @@ def customers_dashboard():
         fig_top.update_traces(texttemplate="%{text}", textposition="outside")
         fig_top.update_layout(height=400, xaxis_title="Points", yaxis_title="")
         st.plotly_chart(fig_top, use_container_width=True)
+    else:
+        st.info("No loyalty data available yet.")
     
     st.markdown("---")
     
@@ -176,7 +214,7 @@ def customers_dashboard():
         if st.button("🎁 Send Birthday Greetings"):
             st.info("Birthday messages would be sent here. (SMS/Email integration coming soon)")
     else:
-        st.info("No birthdays this month")
+        st.info("No birthdays this month or no birthday data available")
     
     st.markdown("---")
     
@@ -189,19 +227,22 @@ def customers_dashboard():
         # Top spending customers
         customer_spending = sales_df.groupby("customer")["total"].sum().nlargest(10).reset_index()
         
-        fig_spend = px.bar(
-            customer_spending,
-            x="total",
-            y="customer",
-            orientation="h",
-            title="Top 10 Customers by Spending",
-            color="total",
-            color_continuous_scale="Greens",
-            text="total"
-        )
-        fig_spend.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
-        fig_spend.update_layout(height=400, xaxis_title="Total Spent ($)", yaxis_title="")
-        st.plotly_chart(fig_spend, use_container_width=True)
+        if not customer_spending.empty:
+            fig_spend = px.bar(
+                customer_spending,
+                x="total",
+                y="customer",
+                orientation="h",
+                title="Top 10 Customers by Spending",
+                color="total",
+                color_continuous_scale="Greens",
+                text="total"
+            )
+            fig_spend.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
+            fig_spend.update_layout(height=400, xaxis_title="Total Spent ($)", yaxis_title="")
+            st.plotly_chart(fig_spend, use_container_width=True)
+    else:
+        st.info("No sales data available for spending trends")
     
     st.markdown("---")
     
@@ -220,6 +261,8 @@ def customers_dashboard():
                 file_name=f"loyalty_data_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
+        else:
+            st.info("No loyalty data available")
     
     # ==============================
     # NEW TAB: WHATSAPP BULK MESSAGING
@@ -278,6 +321,8 @@ def customers_dashboard():
         customer_count = len(loyalty_df[loyalty_df["tier"] == "👑 PLATINUM"]) if not loyalty_df.empty else 0
     elif segment == "Active Customers":
         customer_count = len(loyalty_df[loyalty_df["points"] > 100]) if not loyalty_df.empty else 0
+    elif segment == "Inactive Customers":
+        customer_count = len(loyalty_df[loyalty_df["points"] == 0]) if not loyalty_df.empty else 0
     else:
         customer_count = 0
     
@@ -301,3 +346,10 @@ def customers_dashboard():
                 mime="text/csv",
                 use_container_width=True
             )
+
+
+# ==============================
+# MAIN GUARD
+# ==============================
+if __name__ == "__main__":
+    customers_dashboard()
