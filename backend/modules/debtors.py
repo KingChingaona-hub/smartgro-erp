@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import base64
+from io import BytesIO
 
 from backend.core.db_adapter import load_products
 from backend.analytics.debtors_engine import (
@@ -17,6 +19,569 @@ from backend.analytics.debtors_engine import (
     update_credit_limit
 )
 from backend.utils.utils import generate_whatsapp_payment_reminder, get_whatsapp_link
+
+
+# ==============================
+# RECEIPT PRINTING FUNCTIONS
+# ==============================
+def generate_receipt_html(receipt_data):
+    """Generate HTML for receipt printing"""
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Payment Receipt</title>
+        <style>
+            @media print {{
+                body {{ margin: 0; padding: 20px; }}
+                .no-print {{ display: none !important; }}
+                .receipt-container {{
+                    width: 80mm;
+                    margin: 0 auto;
+                    padding: 10px;
+                    font-size: 12px;
+                }}
+            }}
+            body {{
+                font-family: 'Courier New', monospace;
+                background: #f0f0f0;
+                display: flex;
+                justify-content: center;
+                padding: 20px;
+            }}
+            .receipt-container {{
+                background: white;
+                width: 80mm;
+                padding: 15px;
+                border-radius: 8px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }}
+            .receipt-header {{
+                text-align: center;
+                border-bottom: 2px solid #333;
+                padding-bottom: 10px;
+                margin-bottom: 10px;
+            }}
+            .receipt-header h2 {{
+                margin: 0;
+                font-size: 18px;
+                color: #1a237e;
+            }}
+            .receipt-header p {{
+                margin: 3px 0;
+                font-size: 10px;
+                color: #666;
+            }}
+            .receipt-details {{
+                border-bottom: 1px dashed #ccc;
+                padding-bottom: 10px;
+                margin-bottom: 10px;
+            }}
+            .receipt-details table {{
+                width: 100%;
+                font-size: 11px;
+            }}
+            .receipt-details td {{
+                padding: 3px 0;
+            }}
+            .receipt-details .label {{
+                color: #666;
+                width: 45%;
+            }}
+            .receipt-details .value {{
+                font-weight: bold;
+                text-align: right;
+                width: 55%;
+            }}
+            .receipt-items {{
+                border-bottom: 1px dashed #ccc;
+                padding-bottom: 10px;
+                margin-bottom: 10px;
+            }}
+            .receipt-items table {{
+                width: 100%;
+                font-size: 11px;
+                border-collapse: collapse;
+            }}
+            .receipt-items th {{
+                text-align: left;
+                border-bottom: 1px solid #333;
+                padding: 4px 0;
+                font-size: 10px;
+            }}
+            .receipt-items td {{
+                padding: 4px 0;
+                font-size: 10px;
+            }}
+            .receipt-total {{
+                border-bottom: 2px solid #333;
+                padding-bottom: 10px;
+                margin-bottom: 10px;
+            }}
+            .receipt-total table {{
+                width: 100%;
+                font-size: 13px;
+            }}
+            .receipt-total .total-label {{
+                font-weight: bold;
+            }}
+            .receipt-total .total-amount {{
+                font-weight: bold;
+                font-size: 16px;
+                text-align: right;
+                color: #1a237e;
+            }}
+            .receipt-footer {{
+                text-align: center;
+                font-size: 10px;
+                color: #999;
+                padding-top: 10px;
+                border-top: 1px dashed #ccc;
+                margin-top: 10px;
+            }}
+            .receipt-footer .thank-you {{
+                font-size: 14px;
+                font-weight: bold;
+                color: #1a237e;
+                margin: 5px 0;
+            }}
+            .status-paid {{
+                color: #2e7d32;
+                font-weight: bold;
+                font-size: 16px;
+                text-align: center;
+                padding: 5px;
+                background: #e8f5e9;
+                border-radius: 4px;
+                margin: 10px 0;
+            }}
+            .status-partial {{
+                color: #f57f17;
+                font-weight: bold;
+                font-size: 14px;
+                text-align: center;
+                padding: 5px;
+                background: #fff3e0;
+                border-radius: 4px;
+                margin: 10px 0;
+            }}
+            .print-btn {{
+                background: #1a237e;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+                margin: 10px 0;
+                width: 100%;
+            }}
+            .print-btn:hover {{
+                background: #0d1445;
+            }}
+            .watermark {{
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                color: rgba(0,0,0,0.05);
+                font-size: 60px;
+                font-weight: bold;
+                transform: rotate(-20deg);
+                pointer-events: none;
+                z-index: -1;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="receipt-container" id="receipt">
+            <div class="watermark">AZIEL</div>
+            
+            <div class="receipt-header">
+                <h2>🏢 AZIEL INVESTMENTS</h2>
+                <p>Retail Park, Harare</p>
+                <p>📞 +263 78 290 5853</p>
+                <p style="font-size: 9px; color: #999;">DEBT PAYMENT RECEIPT</p>
+            </div>
+            
+            <div class="receipt-details">
+                <table>
+                    <tr>
+                        <td class="label">Receipt No:</td>
+                        <td class="value">{receipt_data.get('receipt_no', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Date:</td>
+                        <td class="value">{receipt_data.get('date', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Customer:</td>
+                        <td class="value">{receipt_data.get('customer_name', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Phone:</td>
+                        <td class="value">{receipt_data.get('phone', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Payment Method:</td>
+                        <td class="value">{receipt_data.get('payment_method', 'CASH')}</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="receipt-items">
+                <table>
+                    <tr>
+                        <th style="width: 60%;">Description</th>
+                        <th style="width: 20%; text-align: right;">Amount</th>
+                    </tr>
+                    <tr>
+                        <td>Debt Payment</td>
+                        <td style="text-align: right;">${receipt_data.get('amount_paid', 0):.2f}</td>
+                    </tr>
+                    {receipt_data.get('items_rows', '')}
+                </table>
+            </div>
+            
+            <div class="receipt-total">
+                <table>
+                    <tr>
+                        <td class="total-label">Previous Balance:</td>
+                        <td style="text-align: right;">${receipt_data.get('previous_balance', 0):.2f}</td>
+                    </tr>
+                    <tr>
+                        <td class="total-label">Amount Paid:</td>
+                        <td style="text-align: right; color: #2e7d32; font-weight: bold;">${receipt_data.get('amount_paid', 0):.2f}</td>
+                    </tr>
+                    {receipt_data.get('cash_tendered_row', '')}
+                    {receipt_data.get('change_row', '')}
+                    <tr style="border-top: 2px solid #333;">
+                        <td class="total-label">New Balance:</td>
+                        <td class="total-amount">${receipt_data.get('new_balance', 0):.2f}</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="{receipt_data.get('status_class', 'status-paid')}">
+                {receipt_data.get('status_text', '✅ FULLY PAID - THANK YOU!')}
+            </div>
+            
+            <div class="receipt-footer">
+                <p class="thank-you">Thank you for your business!</p>
+                <p>This is a computer-generated receipt</p>
+                <p>Visit us again at Aziel Investments</p>
+                <p style="font-size: 8px; color: #ccc;">Receipt generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; width: 80mm;">
+            <button class="print-btn no-print" onclick="window.print()">🖨️ Print Receipt</button>
+            <br><br>
+            <button class="print-btn no-print" style="background: #666;" onclick="window.close()">✖️ Close</button>
+        </div>
+        
+        <script>
+            // Auto-print when page loads
+            window.onload = function() {{
+                // Small delay to ensure rendering is complete
+                setTimeout(function() {{
+                    window.print();
+                }}, 500);
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    
+    return html
+
+
+def generate_receipt_pdf_html(receipt_data):
+    """Generate HTML for receipt printing with better formatting"""
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Payment Receipt</title>
+        <style>
+            @page {{
+                size: 80mm auto;
+                margin: 0;
+            }}
+            @media print {{
+                body {{ margin: 0; padding: 0; background: white; }}
+                .no-print {{ display: none !important; }}
+                .receipt-container {{
+                    width: 100%;
+                    padding: 8mm;
+                    font-size: 10pt;
+                }}
+                .watermark {{ display: none; }}
+            }}
+            body {{
+                font-family: 'Courier New', monospace;
+                background: #f0f0f0;
+                display: flex;
+                justify-content: center;
+                padding: 10px;
+                margin: 0;
+            }}
+            .receipt-container {{
+                background: white;
+                width: 80mm;
+                padding: 12px;
+                border-radius: 4px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                font-size: 10pt;
+            }}
+            .receipt-header {{
+                text-align: center;
+                border-bottom: 2px solid #333;
+                padding-bottom: 8px;
+                margin-bottom: 8px;
+            }}
+            .receipt-header h2 {{
+                margin: 0;
+                font-size: 16pt;
+                color: #1a237e;
+            }}
+            .receipt-header p {{
+                margin: 2px 0;
+                font-size: 8pt;
+                color: #666;
+            }}
+            .receipt-details {{
+                border-bottom: 1px dashed #ccc;
+                padding-bottom: 8px;
+                margin-bottom: 8px;
+            }}
+            .receipt-details table {{
+                width: 100%;
+                font-size: 9pt;
+            }}
+            .receipt-details td {{
+                padding: 2px 0;
+            }}
+            .receipt-details .label {{
+                color: #666;
+                width: 45%;
+            }}
+            .receipt-details .value {{
+                font-weight: bold;
+                text-align: right;
+                width: 55%;
+            }}
+            .receipt-items {{
+                border-bottom: 1px dashed #ccc;
+                padding-bottom: 8px;
+                margin-bottom: 8px;
+            }}
+            .receipt-items table {{
+                width: 100%;
+                font-size: 9pt;
+                border-collapse: collapse;
+            }}
+            .receipt-items th {{
+                text-align: left;
+                border-bottom: 1px solid #333;
+                padding: 3px 0;
+                font-size: 8pt;
+            }}
+            .receipt-items td {{
+                padding: 3px 0;
+                font-size: 8pt;
+            }}
+            .receipt-total {{
+                border-bottom: 2px solid #333;
+                padding-bottom: 8px;
+                margin-bottom: 8px;
+            }}
+            .receipt-total table {{
+                width: 100%;
+                font-size: 10pt;
+            }}
+            .receipt-total .total-label {{
+                font-weight: bold;
+            }}
+            .receipt-total .total-amount {{
+                font-weight: bold;
+                font-size: 14pt;
+                text-align: right;
+                color: #1a237e;
+            }}
+            .receipt-footer {{
+                text-align: center;
+                font-size: 8pt;
+                color: #999;
+                padding-top: 8px;
+                border-top: 1px dashed #ccc;
+                margin-top: 8px;
+            }}
+            .receipt-footer .thank-you {{
+                font-size: 12pt;
+                font-weight: bold;
+                color: #1a237e;
+                margin: 5px 0;
+            }}
+            .status-paid {{
+                color: #2e7d32;
+                font-weight: bold;
+                font-size: 14pt;
+                text-align: center;
+                padding: 5px;
+                background: #e8f5e9;
+                border-radius: 4px;
+                margin: 8px 0;
+            }}
+            .status-partial {{
+                color: #f57f17;
+                font-weight: bold;
+                font-size: 12pt;
+                text-align: center;
+                padding: 5px;
+                background: #fff3e0;
+                border-radius: 4px;
+                margin: 8px 0;
+            }}
+            .print-btn {{
+                background: #1a237e;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 12pt;
+                margin: 5px 0;
+                width: 100%;
+            }}
+            .print-btn:hover {{
+                background: #0d1445;
+            }}
+            .watermark {{
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                color: rgba(0,0,0,0.03);
+                font-size: 60px;
+                font-weight: bold;
+                transform: rotate(-20deg);
+                pointer-events: none;
+                z-index: -1;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="receipt-container" id="receipt">
+            <div class="watermark">AZIEL</div>
+            
+            <div class="receipt-header">
+                <h2>🏢 AZIEL INVESTMENTS</h2>
+                <p>Retail Park, Harare</p>
+                <p>📞 +263 78 290 5853</p>
+                <p style="font-size: 7pt; color: #999; margin-top: 4px;">DEBT PAYMENT RECEIPT</p>
+            </div>
+            
+            <div class="receipt-details">
+                <table>
+                    <tr>
+                        <td class="label">Receipt No:</td>
+                        <td class="value">{receipt_data.get('receipt_no', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Date:</td>
+                        <td class="value">{receipt_data.get('date', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Customer:</td>
+                        <td class="value">{receipt_data.get('customer_name', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Phone:</td>
+                        <td class="value">{receipt_data.get('phone', 'N/A')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Payment Method:</td>
+                        <td class="value">{receipt_data.get('payment_method', 'CASH')}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Debt ID:</td>
+                        <td class="value">{receipt_data.get('debt_id', 'N/A')}</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="receipt-items">
+                <table>
+                    <tr>
+                        <th style="width: 60%;">Description</th>
+                        <th style="width: 20%; text-align: right;">Amount</th>
+                    </tr>
+                    <tr>
+                        <td>Debt Payment</td>
+                        <td style="text-align: right;">${receipt_data.get('amount_paid', 0):.2f}</td>
+                    </tr>
+                    {receipt_data.get('items_rows', '')}
+                </table>
+            </div>
+            
+            <div class="receipt-total">
+                <table>
+                    <tr>
+                        <td class="total-label">Previous Balance:</td>
+                        <td style="text-align: right;">${receipt_data.get('previous_balance', 0):.2f}</td>
+                    </tr>
+                    <tr>
+                        <td class="total-label">Amount Paid:</td>
+                        <td style="text-align: right; color: #2e7d32; font-weight: bold;">${receipt_data.get('amount_paid', 0):.2f}</td>
+                    </tr>
+                    {receipt_data.get('cash_tendered_row', '')}
+                    {receipt_data.get('change_row', '')}
+                    <tr style="border-top: 2px solid #333;">
+                        <td class="total-label">New Balance:</td>
+                        <td class="total-amount">${receipt_data.get('new_balance', 0):.2f}</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="{receipt_data.get('status_class', 'status-paid')}">
+                {receipt_data.get('status_text', '✅ FULLY PAID - THANK YOU!')}
+            </div>
+            
+            <div class="receipt-footer">
+                <p class="thank-you">Thank you for your business!</p>
+                <p>This is a computer-generated receipt</p>
+                <p>Visit us again at Aziel Investments</p>
+                <p style="font-size: 7pt; color: #ccc; margin-top: 5px;">Receipt generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 15px; width: 80mm;">
+            <button class="print-btn no-print" onclick="window.print()">🖨️ Print Receipt</button>
+            <br>
+            <button class="print-btn no-print" style="background: #666;" onclick="window.location.href='/'">✖️ Close</button>
+        </div>
+        
+        <script>
+            // Auto-print when page loads
+            window.onload = function() {{
+                setTimeout(function() {{
+                    window.print();
+                }}, 600);
+            }}
+            
+            // Close after printing (optional)
+            window.onafterprint = function() {{
+                // You can add close logic here if needed
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    
+    return html
 
 
 def debtors_page():
@@ -47,6 +612,9 @@ def debtors_page():
     
     if "button_clicked" not in st.session_state:
         st.session_state.button_clicked = False
+    
+    if "receipt_data" not in st.session_state:
+        st.session_state.receipt_data = None
     
     # ==============================
     # TABS FOR DIFFERENT FUNCTIONS
@@ -289,6 +857,8 @@ def debtors_page():
                 
                 with col2:
                     payment_note = st.text_input("Payment Reference", placeholder="Receipt number, notes...", key="debt_payment_note")
+                    # Get the first debt ID for the receipt
+                    first_debt_id = customer_debts.iloc[0]["debt_id"] if not customer_debts.empty else "N/A"
                 
                 # Calculate change
                 change_debt = 0
@@ -322,37 +892,57 @@ def debtors_page():
                             
                             if success:
                                 new_balance = total_balance - pay_amount
+                                is_paid = new_balance <= 0
                                 
                                 st.balloons()
                                 st.success(f"✅ Payment of ${pay_amount:.2f} recorded")
                                 
-                                # Generate receipt
-                                receipt_text = f"""
-                                {'='*40}
-                                AZIEL INVESTMENTS
-                                DEBT PAYMENT RECEIPT
-                                {'='*40}
-                                Receipt No: {receipt_no}
-                                Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-                                Customer: {selected_customer}
-                                {'-'*40}
-                                Previous Balance: ${total_balance:.2f}
-                                Amount Paid: ${pay_amount:.2f}
-                                """
+                                # Prepare receipt data
+                                receipt_data = {
+                                    "receipt_no": receipt_no,
+                                    "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                    "customer_name": selected_customer,
+                                    "phone": customer_debts.iloc[0].get("phone", "N/A"),
+                                    "debt_id": first_debt_id,
+                                    "amount_paid": pay_amount,
+                                    "previous_balance": total_balance,
+                                    "new_balance": new_balance,
+                                    "payment_method": "CASH" if cash_tendered > 0 else "OTHER",
+                                    "cash_tendered": cash_tendered if cash_tendered > 0 else 0,
+                                    "change": change_debt if cash_tendered > 0 else 0,
+                                    "is_paid": is_paid,
+                                    "items_rows": ""
+                                }
                                 
+                                # Add cash tendered row if applicable
                                 if cash_tendered > 0:
-                                    receipt_text += f"Cash Tendered: ${cash_tendered:.2f}\n"
-                                    receipt_text += f"Change: ${change_debt:.2f}\n"
+                                    receipt_data["cash_tendered_row"] = f"""
+                                    <tr>
+                                        <td class="total-label">Cash Tendered:</td>
+                                        <td style="text-align: right;">${cash_tendered:.2f}</td>
+                                    </tr>
+                                    """
+                                    receipt_data["change_row"] = f"""
+                                    <tr>
+                                        <td class="total-label">Change:</td>
+                                        <td style="text-align: right; color: #2e7d32;">${change_debt:.2f}</td>
+                                    </tr>
+                                    """
+                                else:
+                                    receipt_data["cash_tendered_row"] = ""
+                                    receipt_data["change_row"] = ""
                                 
-                                receipt_text += f"""
-                                {'-'*40}
-                                New Balance: ${new_balance:.2f}
-                                {'='*40}
-                                {'FULLY PAID! THANK YOU!' if new_balance <= 0 else f'Remaining: ${new_balance:.2f}'}
-                                {'='*40}
-                                """
+                                # Set status
+                                if is_paid:
+                                    receipt_data["status_text"] = "✅ FULLY PAID - THANK YOU!"
+                                    receipt_data["status_class"] = "status-paid"
+                                else:
+                                    receipt_data["status_text"] = f"💰 PARTIAL PAYMENT - Remaining: ${new_balance:.2f}"
+                                    receipt_data["status_class"] = "status-partial"
                                 
-                                st.session_state.payment_receipt = receipt_text
+                                # Store receipt data in session
+                                st.session_state.receipt_data = receipt_data
+                                st.session_state.payment_receipt = generate_receipt_pdf_html(receipt_data)
                                 st.session_state.payment_recorded = True
                         
                         st.session_state.button_clicked = False
@@ -500,13 +1090,61 @@ def debtors_page():
             st.info("No debt records found")
     
     # ==============================
-    # DISPLAY PAYMENT RECEIPT
+    # DISPLAY PAYMENT RECEIPT WITH PRINT OPTION
     # ==============================
-    if st.session_state.payment_receipt:
+    if st.session_state.payment_receipt and st.session_state.receipt_data:
         st.markdown("---")
         st.subheader("🧾 PAYMENT RECEIPT")
-        st.text_area("Receipt Preview", st.session_state.payment_receipt, height=300)
         
-        if st.button("❌ Close Receipt", key="close_payment_receipt"):
-            st.session_state.payment_receipt = None
-            st.session_state.payment_recorded = False
+        # Display receipt in an expandable section
+        with st.expander("📄 View Receipt", expanded=True):
+            # Show receipt preview in a frame
+            st.components.v1.html(
+                st.session_state.payment_receipt,
+                height=700,
+                scrolling=True
+            )
+        
+        # Print button options
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Direct print button using JavaScript
+            st.markdown("""
+            <button onclick="window.print()" style="
+                background: #1a237e; 
+                color: white; 
+                border: none; 
+                padding: 12px 24px; 
+                border-radius: 5px; 
+                cursor: pointer; 
+                font-size: 14px;
+                width: 100%;
+                margin: 5px 0;
+            ">
+                🖨️ Print Receipt
+            </button>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            # Download receipt as HTML
+            receipt_html = st.session_state.payment_receipt
+            b64 = base64.b64encode(receipt_html.encode()).decode()
+            href = f'<a href="data:text/html;base64,{b64}" download="receipt_{datetime.now().strftime("%Y%m%d_%H%M%S")}.html" style="display:block;text-align:center;background:#2e7d32;color:white;padding:12px 24px;border-radius:5px;text-decoration:none;font-size:14px;margin:5px 0;">📥 Download Receipt (HTML)</a>'
+            st.markdown(href, unsafe_allow_html=True)
+        
+        with col3:
+            if st.button("❌ Close Receipt", key="close_payment_receipt"):
+                st.session_state.payment_receipt = None
+                st.session_state.receipt_data = None
+                st.session_state.payment_recorded = False
+                st.rerun()
+        
+        st.caption("💡 Click 'Print Receipt' to print or save as PDF")
+
+
+# ==============================
+# MAIN GUARD
+# ==============================
+if __name__ == "__main__":
+    debtors_page()
