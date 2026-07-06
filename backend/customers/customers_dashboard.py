@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import re
 
 from backend.core.db_adapter import load_customers, load_sales
 from backend.modules.loyalty import (
@@ -32,7 +33,6 @@ def customers_dashboard():
     if loyalty_df.empty and not customers_df.empty:
         st.warning("⚠️ Loyalty data is empty. Initializing loyalty records for existing customers...")
         
-        # Create loyalty records for all customers
         loyalty_records = []
         for _, customer in customers_df.iterrows():
             loyalty_records.append({
@@ -93,7 +93,6 @@ def customers_dashboard():
         with col4:
             st.metric("🛒 Orders", info.get('total_orders', 0))
         
-        # Tier benefits
         with st.expander("✨ Tier Benefits"):
             benefits = info.get('benefits', {})
             st.write(f"📈 Points Multiplier: {benefits.get('points_multiplier', 1)}x")
@@ -101,7 +100,6 @@ def customers_dashboard():
             st.write(f"💰 Tier Discount: {benefits.get('discount', 0)}%")
             st.write(f"🚚 Free Delivery: {'✅ Yes' if benefits.get('free_delivery', False) else '❌ No'}")
         
-        # Points to next tier
         points_to_next = info.get('points_to_next_tier', 0)
         if points_to_next > 0:
             st.progress(min(info.get('total_spent', 0) / 5000, 1.0))
@@ -116,7 +114,6 @@ def customers_dashboard():
     # ==============================
     st.markdown("## 📊 Loyalty Program Metrics")
     
-    # Calculate metrics from loyalty data
     total_customers = len(loyalty_df) if not loyalty_df.empty else 0
     total_points = loyalty_df["points"].sum() if not loyalty_df.empty and "points" in loyalty_df.columns else 0
     total_redeemable_value = total_points / 100 if total_points > 0 else 0
@@ -159,7 +156,6 @@ def customers_dashboard():
             st.plotly_chart(fig_tier, use_container_width=True)
         
         with col2:
-            # Tier benefits summary
             st.markdown("### ✨ Tier Benefits")
             st.markdown("""
             | Tier | Multiplier | Discount | Birthday Bonus |
@@ -224,7 +220,6 @@ def customers_dashboard():
     if not sales_df.empty and "customer" in sales_df.columns:
         st.markdown("## 📈 Customer Spending Trends")
         
-        # Top spending customers
         customer_spending = sales_df.groupby("customer")["total"].sum().nlargest(10).reset_index()
         
         if not customer_spending.empty:
@@ -253,7 +248,6 @@ def customers_dashboard():
         if not loyalty_df.empty:
             st.dataframe(loyalty_df, use_container_width=True, hide_index=True)
             
-            # Export
             csv = loyalty_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="📥 Download Loyalty Data (CSV)",
@@ -265,16 +259,19 @@ def customers_dashboard():
             st.info("No loyalty data available")
     
     # ==============================
-    # NEW TAB: WHATSAPP BULK MESSAGING
+    # WORKING WHATSAPP BULK MESSAGING
     # ==============================
     st.markdown("---")
     st.markdown("## 📱 WhatsApp Bulk Messaging")
-    st.caption("Send promotions and notifications to customers")
+    st.caption("Send promotions and notifications to customers via WhatsApp")
+    
+    if customers_df.empty:
+        st.warning("No customers available for messaging")
+        return
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Select customer segment
         segment = st.selectbox(
             "Select Customer Segment",
             ["All Customers", "VIP Customers", "Active Customers", "Inactive Customers", "Birthday This Month"],
@@ -282,14 +279,32 @@ def customers_dashboard():
         )
     
     with col2:
-        # Message template
         message_type = st.selectbox(
             "Message Type",
-            ["Promotion", "Birthday Greeting", "General Announcement"],
+            ["Promotion", "Birthday Greeting", "General Announcement", "Custom Message"],
             key="whatsapp_message_type"
         )
     
-    # Message input based on type
+    # Get filtered customer list based on segment
+    filtered_customers = customers_df.copy()
+    
+    if segment == "VIP Customers" and not loyalty_df.empty:
+        vip_phones = loyalty_df[loyalty_df["tier"] == "👑 PLATINUM"]["phone"].astype(str).tolist()
+        filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(vip_phones)]
+    elif segment == "Active Customers" and not loyalty_df.empty:
+        active_phones = loyalty_df[loyalty_df["points"] > 100]["phone"].astype(str).tolist()
+        filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(active_phones)]
+    elif segment == "Inactive Customers" and not loyalty_df.empty:
+        inactive_phones = loyalty_df[loyalty_df["points"] == 0]["phone"].astype(str).tolist()
+        filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(inactive_phones)]
+    elif segment == "Birthday This Month":
+        if not birthday_customers.empty:
+            birthday_phones = birthday_customers["phone"].astype(str).tolist()
+            filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(birthday_phones)]
+        else:
+            filtered_customers = pd.DataFrame()
+    
+    # Message input
     if message_type == "Promotion":
         promo_message = st.text_area("Promotion Message", height=100, 
                                      placeholder="e.g., 20% OFF on all products this weekend!",
@@ -308,44 +323,108 @@ def customers_dashboard():
         if birthday_message:
             st.info(f"📱 Preview:\n\n{birthday_message}")
     
-    else:
+    elif message_type == "General Announcement":
         announcement = st.text_area("Announcement", height=100, key="announcement")
         final_message = announcement
         if announcement:
             st.info(f"📱 Preview:\n\n{announcement}")
     
-    # Customer count (estimate)
-    if segment == "All Customers":
-        customer_count = len(customers_df) if not customers_df.empty else 0
-    elif segment == "VIP Customers":
-        customer_count = len(loyalty_df[loyalty_df["tier"] == "👑 PLATINUM"]) if not loyalty_df.empty else 0
-    elif segment == "Active Customers":
-        customer_count = len(loyalty_df[loyalty_df["points"] > 100]) if not loyalty_df.empty else 0
-    elif segment == "Inactive Customers":
-        customer_count = len(loyalty_df[loyalty_df["points"] == 0]) if not loyalty_df.empty else 0
     else:
-        customer_count = 0
+        custom_message = st.text_area("Custom Message", height=100,
+                                      placeholder="Type your custom message here...",
+                                      key="custom_message")
+        final_message = custom_message
+        if custom_message:
+            st.info(f"📱 Preview:\n\n{custom_message}")
     
-    st.info(f"📊 This message will be sent to approximately **{customer_count}** customers")
+    # Display customer count
+    customer_count = len(filtered_customers) if not filtered_customers.empty else 0
+    st.info(f"📊 This message will be sent to **{customer_count}** customers")
+    
+    # Show filtered customers
+    if not filtered_customers.empty and customer_count > 0:
+        with st.expander("📋 View Recipient List"):
+            st.dataframe(
+                filtered_customers[["customer_name", "phone"]],
+                use_container_width=True,
+                hide_index=True
+            )
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("📱 Send Bulk WhatsApp", type="primary", use_container_width=True):
-            st.warning("⚠️ Bulk WhatsApp requires WhatsApp Business API. Use individual sending for now.")
-            st.info("💡 Tip: Export customer list and use WhatsApp Broadcast feature")
+        send_button = st.button("📱 Send Bulk WhatsApp", type="primary", use_container_width=True)
+        
+        if send_button:
+            if filtered_customers.empty:
+                st.error("❌ No customers found in this segment")
+            elif not final_message:
+                st.error("❌ Please enter a message to send")
+            else:
+                # Generate WhatsApp links for each customer
+                whatsapp_links = []
+                for _, customer in filtered_customers.iterrows():
+                    phone = str(customer["phone"])
+                    # Clean phone number
+                    phone_clean = re.sub(r'\D', '', phone)
+                    if phone_clean.startswith('0'):
+                        phone_clean = '263' + phone_clean[1:]
+                    elif not phone_clean.startswith('263'):
+                        phone_clean = '263' + phone_clean
+                    
+                    name = customer.get("customer_name", "Customer")
+                    whatsapp_link = f"https://wa.me/{phone_clean}?text={final_message.replace(' ', '%20').replace('\n', '%0A')}"
+                    whatsapp_links.append({
+                        "Customer": name,
+                        "Phone": phone,
+                        "WhatsApp Link": whatsapp_link
+                    })
+                
+                # Display all WhatsApp links
+                st.success(f"✅ Generated {len(whatsapp_links)} WhatsApp links!")
+                
+                links_df = pd.DataFrame(whatsapp_links)
+                
+                # Display clickable links
+                st.markdown("### 📱 Click to send messages")
+                
+                for idx, row in links_df.iterrows():
+                    st.markdown(f"**{row['Customer']}** ({row['Phone']}): [📤 Send WhatsApp]({row['WhatsApp Link']})")
+                
+                # Download all links as CSV
+                csv_links = links_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download WhatsApp Links (CSV)",
+                    data=csv_links,
+                    file_name=f"whatsapp_links_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+                
+                # Open all in new tabs (JavaScript)
+                st.markdown("""
+                <script>
+                function openAllWhatsApp() {
+                    const links = document.querySelectorAll('.whatsapp-link');
+                    links.forEach(link => window.open(link.href, '_blank'));
+                }
+                </script>
+                """, unsafe_allow_html=True)
+                
+                st.info("💡 Click each link above to send the message via WhatsApp")
     
     with col2:
-        # Export customer list
+        # Export customer list for manual WhatsApp Broadcast
         if not customers_df.empty:
-            csv = customers_df[["customer_name", "phone"]].to_csv(index=False).encode('utf-8')
+            csv_export = customers_df[["customer_name", "phone"]].to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download Customer List for WhatsApp",
-                data=csv,
+                label="📥 Download Customer List for WhatsApp Broadcast",
+                data=csv_export,
                 file_name=f"customers_for_whatsapp_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
+            st.caption("💡 Import this CSV to WhatsApp Business for bulk broadcast")
 
 
 # ==============================
