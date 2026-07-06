@@ -49,10 +49,10 @@ def business_advisor_dashboard():
         st.markdown("## 🚨 Critical Alerts")
         
         for alert in alerts:
-            if alert["level"] == "critical":
-                st.error(f"{alert['title']}\n\n{alert['message']}")
+            if alert.get("level") == "critical":
+                st.error(f"**{alert.get('title', 'Alert')}**\n\n{alert.get('message', '')}")
             else:
-                st.warning(f"{alert['title']}\n\n{alert['message']}")
+                st.warning(f"**{alert.get('title', 'Alert')}**\n\n{alert.get('message', '')}")
         
         st.markdown("---")
     
@@ -92,16 +92,18 @@ def business_advisor_dashboard():
     # Score breakdown
     col1, col2, col3, col4, col5 = st.columns(5)
     
+    breakdown = score.get("breakdown", {})
+    
     with col1:
-        st.metric("💰 Profitability", f"{score['breakdown']['profitability']:.0f}/30")
+        st.metric("💰 Profitability", f"{breakdown.get('profitability', 0):.0f}/30")
     with col2:
-        st.metric("📈 Sales", f"{score['breakdown']['sales']:.0f}/25")
+        st.metric("📈 Sales", f"{breakdown.get('sales', 0):.0f}/25")
     with col3:
-        st.metric("📦 Inventory", f"{score['breakdown']['inventory']:.0f}/20")
+        st.metric("📦 Inventory", f"{breakdown.get('inventory', 0):.0f}/20")
     with col4:
-        st.metric("👥 Customers", f"{score['breakdown']['customers']:.0f}/15")
+        st.metric("👥 Customers", f"{breakdown.get('customers', 0):.0f}/15")
     with col5:
-        st.metric("💸 Expenses", f"{score['breakdown']['expenses']:.0f}/10")
+        st.metric("💸 Expenses", f"{breakdown.get('expenses', 0):.0f}/10")
     
     st.markdown("---")
     
@@ -114,18 +116,19 @@ def business_advisor_dashboard():
     
     if recommendations:
         for rec in recommendations:
-            if rec["priority"] == "Critical":
-                st.error(f"### 🔴 {rec['title']}")
-            elif rec["priority"] == "High":
-                st.warning(f"### 🟠 {rec['title']}")
-            elif rec["priority"] == "Medium":
-                st.info(f"### 🟡 {rec['title']}")
+            priority = rec.get("priority", "Low")
+            if priority == "Critical":
+                st.error(f"### 🔴 {rec.get('title', 'Recommendation')}")
+            elif priority == "High":
+                st.warning(f"### 🟠 {rec.get('title', 'Recommendation')}")
+            elif priority == "Medium":
+                st.info(f"### 🟡 {rec.get('title', 'Recommendation')}")
             else:
-                st.success(f"### 🟢 {rec['title']}")
+                st.success(f"### 🟢 {rec.get('title', 'Recommendation')}")
             
-            st.write(f"**Description:** {rec['description']}")
-            st.write(f"**Recommended Action:** {rec['action']}")
-            st.write(f"**Potential Impact:** {rec['potential_impact']}")
+            st.write(f"**Description:** {rec.get('description', '')}")
+            st.write(f"**Recommended Action:** {rec.get('action', '')}")
+            st.write(f"**Potential Impact:** {rec.get('potential_impact', '')}")
             st.markdown("---")
     else:
         st.success("✅ No critical recommendations at this time. Business is performing well!")
@@ -144,13 +147,16 @@ def business_advisor_dashboard():
         forecast_df = pd.DataFrame(forecast["forecast"])
         
         # Trend indicator
-        if forecast["trend_direction"] == "increasing":
-            st.success(f"📈 Sales trend is **increasing** (projected {forecast['trend_slope']:.0f} per day)")
+        if forecast.get("trend_direction") == "increasing":
+            st.success(f"📈 Sales trend is **increasing** (projected {forecast.get('trend_slope', 0):.0f} per day)")
         else:
-            st.warning(f"📉 Sales trend is **decreasing** (projected {abs(forecast['trend_slope']):.0f} per day)")
+            st.warning(f"📉 Sales trend is **decreasing** (projected {abs(forecast.get('trend_slope', 0)):.0f} per day)")
         
-        st.metric("Total Forecasted Sales", f"${forecast['total_forecast']:,.2f}")
-        st.metric("Average Daily Forecast", f"${forecast['avg_daily_forecast']:.2f}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Forecasted Sales", f"${forecast.get('total_forecast', 0):,.2f}")
+        with col2:
+            st.metric("Average Daily Forecast", f"${forecast.get('avg_daily_forecast', 0):.2f}")
         
         # Forecast chart
         fig_forecast = go.Figure()
@@ -184,7 +190,7 @@ def business_advisor_dashboard():
         ))
         
         fig_forecast.update_layout(
-            title="30-Day Sales Forecast with 95% Confidence Interval",
+            title=f"{forecast_days}-Day Sales Forecast with 95% Confidence Interval",
             xaxis_title="Date",
             yaxis_title="Forecasted Sales ($)",
             height=400
@@ -211,24 +217,41 @@ def business_advisor_dashboard():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if seasonal["peak_month"]:
+            peak_month = seasonal.get("peak_month")
+            if peak_month:
                 month_names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-                st.metric("🏆 Peak Month", month_names[seasonal["peak_month"]])
+                month_name = month_names[peak_month] if 1 <= peak_month <= 12 else str(peak_month)
+                st.metric("🏆 Peak Month", month_name)
+            else:
+                st.metric("🏆 Peak Month", "N/A")
         
         with col2:
-            if seasonal["peak_day"]:
-                st.metric("📈 Best Day", seasonal["peak_day"])
+            peak_day = seasonal.get("peak_day")
+            if peak_day:
+                st.metric("📈 Best Day", peak_day)
+            else:
+                st.metric("📈 Best Day", "N/A")
         
         with col3:
-            if seasonal["slow_day"]:
-                st.metric("📉 Slowest Day", seasonal["slow_day"])
+            slow_day = seasonal.get("slow_day")
+            if slow_day:
+                st.metric("📉 Slowest Day", slow_day)
+            else:
+                st.metric("📉 Slowest Day", "N/A")
         
-        # Weekly pattern chart - FIXED
-        if seasonal["weekly_pattern"]:
-            weekly_df = pd.DataFrame(seasonal["weekly_pattern"])
-            # Determine which column has the sales values
-            sales_col = "final_total" if "final_total" in weekly_df.columns else "total" if "total" in weekly_df.columns else None
-            if sales_col:
+        # Weekly pattern chart
+        weekly_pattern = seasonal.get("weekly_pattern", [])
+        if weekly_pattern:
+            weekly_df = pd.DataFrame(weekly_pattern)
+            
+            # Find the sales column
+            sales_col = None
+            for col in ["final_total", "total", "sales"]:
+                if col in weekly_df.columns:
+                    sales_col = col
+                    break
+            
+            if sales_col and "day_of_week" in weekly_df.columns:
                 fig_weekly = px.bar(
                     weekly_df,
                     x="day_of_week",
@@ -243,24 +266,34 @@ def business_advisor_dashboard():
                 st.plotly_chart(fig_weekly, use_container_width=True)
         
         # Monthly pattern chart
-        if seasonal["monthly_pattern"]:
-            monthly_df = pd.DataFrame(seasonal["monthly_pattern"])
+        monthly_pattern = seasonal.get("monthly_pattern", [])
+        if monthly_pattern:
+            monthly_df = pd.DataFrame(monthly_pattern)
             month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            monthly_df["month_name"] = monthly_df["month"].apply(lambda x: month_names[x-1] if 1 <= x <= 12 else str(x))
             
-            # Determine which column has the sales values
-            sales_col = "final_total" if "final_total" in monthly_df.columns else "total" if "total" in monthly_df.columns else None
-            if sales_col:
-                fig_monthly = px.line(
-                    monthly_df,
-                    x="month_name",
-                    y=sales_col,
-                    title="Monthly Sales Pattern",
-                    markers=True,
-                    line_shape="spline"
+            if "month" in monthly_df.columns:
+                monthly_df["month_name"] = monthly_df["month"].apply(
+                    lambda x: month_names[x-1] if 1 <= x <= 12 else str(x)
                 )
-                fig_monthly.update_layout(height=350)
-                st.plotly_chart(fig_monthly, use_container_width=True)
+                
+                # Find the sales column
+                sales_col = None
+                for col in ["final_total", "total", "sales"]:
+                    if col in monthly_df.columns:
+                        sales_col = col
+                        break
+                
+                if sales_col:
+                    fig_monthly = px.line(
+                        monthly_df,
+                        x="month_name",
+                        y=sales_col,
+                        title="Monthly Sales Pattern",
+                        markers=True,
+                        line_shape="spline"
+                    )
+                    fig_monthly.update_layout(height=350)
+                    st.plotly_chart(fig_monthly, use_container_width=True)
     
     st.markdown("---")
     
@@ -273,12 +306,13 @@ def business_advisor_dashboard():
     
     if anomalies:
         for anomaly in anomalies:
-            if anomaly["severity"] == "HIGH":
-                st.error(f"### 🚨 {anomaly['message']}")
+            severity = anomaly.get("severity", "MEDIUM")
+            if severity == "HIGH":
+                st.error(f"### 🚨 {anomaly.get('message', 'Anomaly detected')}")
             else:
-                st.warning(f"### ⚠️ {anomaly['message']}")
+                st.warning(f"### ⚠️ {anomaly.get('message', 'Anomaly detected')}")
             
-            st.write(f"Actual: ${anomaly['value']:.2f} | Expected: ${anomaly['expected']:.2f}")
+            st.write(f"Actual: ${anomaly.get('value', 0):.2f} | Expected: ${anomaly.get('expected', 0):.2f}")
             st.markdown("---")
     else:
         st.success("✅ No unusual patterns detected. Business performance is stable.")
@@ -294,18 +328,32 @@ def business_advisor_dashboard():
     
     with col1:
         if not sales_df.empty:
-            total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
-            items_col = "items" if "items" in sales_df.columns else None
-            total_sales = to_float(sales_df[total_col].sum()) if total_col else 0
-            total_items = to_float(sales_df[items_col].sum()) if items_col else 0
-            st.metric("Lifetime Sales", f"${total_sales:,.2f}")
-            st.caption(f"📦 {total_items:,.0f} items sold")
+            total_col = None
+            for col in ["final_total", "total"]:
+                if col in sales_df.columns:
+                    total_col = col
+                    break
+            
+            if total_col:
+                total_sales = to_float(sales_df[total_col].sum())
+                st.metric("Lifetime Sales", f"${total_sales:,.2f}")
+                
+                # Items count if available
+                if "items" in sales_df.columns:
+                    total_items = to_float(sales_df["items"].sum())
+                    st.caption(f"📦 {total_items:,.0f} items sold")
+            else:
+                st.metric("Lifetime Sales", "$0.00")
     
     with col2:
         if not products_df.empty:
-            total_value = to_float((products_df["stock"] * products_df["price"]).sum())
-            st.metric("Inventory Value", f"${total_value:,.2f}")
-            st.caption(f"📦 {len(products_df)} products")
+            if "stock" in products_df.columns and "price" in products_df.columns:
+                total_value = to_float((products_df["stock"] * products_df["price"]).sum())
+                st.metric("Inventory Value", f"${total_value:,.2f}")
+                st.caption(f"📦 {len(products_df)} products")
+            else:
+                st.metric("Inventory Value", "$0.00")
+                st.caption(f"📦 {len(products_df)} products")
     
     with col3:
         if not customers_df.empty:
@@ -314,6 +362,9 @@ def business_advisor_dashboard():
             repeat_rate = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
             st.metric("Total Customers", total_customers)
             st.caption(f"🔄 Repeat rate: {repeat_rate:.1f}%")
+        else:
+            st.metric("Total Customers", 0)
+            st.caption("🔄 Repeat rate: 0%")
     
     # ==============================
     # EXPORT ADVISOR REPORT
@@ -323,53 +374,61 @@ def business_advisor_dashboard():
     
     if st.button("📄 Generate Complete Advisor Report", use_container_width=True):
         report = f"""
-        {'='*60}
-        AZIEL INVESTMENTS - AI BUSINESS ADVISOR REPORT
-        {'='*60}
-        
-        Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        
-        {'-'*40}
-        BUSINESS HEALTH SCORECARD
-        {'-'*40}
-        Overall Score: {score['total_score']}/100 ({score['rating']})
-        
-        Breakdown:
-        - Profitability: {score['breakdown']['profitability']:.0f}/30
-        - Sales: {score['breakdown']['sales']:.0f}/25
-        - Inventory: {score['breakdown']['inventory']:.0f}/20
-        - Customers: {score['breakdown']['customers']:.0f}/15
-        - Expenses: {score['breakdown']['expenses']:.0f}/10
-        
-        {'-'*40}
-        AI RECOMMENDATIONS
-        {'-'*40}
-        
-        """
+{'='*60}
+AZIEL INVESTMENTS - AI BUSINESS ADVISOR REPORT
+{'='*60}
+
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+{'-'*40}
+BUSINESS HEALTH SCORECARD
+{'-'*40}
+Overall Score: {score.get('total_score', 0)}/100 ({score.get('rating', 'N/A')})
+
+Breakdown:
+- Profitability: {breakdown.get('profitability', 0):.0f}/30
+- Sales: {breakdown.get('sales', 0):.0f}/25
+- Inventory: {breakdown.get('inventory', 0):.0f}/20
+- Customers: {breakdown.get('customers', 0):.0f}/15
+- Expenses: {breakdown.get('expenses', 0):.0f}/10
+
+{'-'*40}
+AI RECOMMENDATIONS
+{'-'*40}
+
+"""
         
         for rec in recommendations:
             report += f"""
-        [{rec['priority']}] {rec['title']}
-        Description: {rec['description']}
-        Action: {rec['action']}
-        Impact: {rec['potential_impact']}
-        
-        """
+[{rec.get('priority', 'Low')}] {rec.get('title', '')}
+Description: {rec.get('description', '')}
+Action: {rec.get('action', '')}
+Impact: {rec.get('potential_impact', '')}
+
+"""
         
         if forecast:
             report += f"""
-        {'-'*40}
-        SALES FORECAST
-        {'-'*40}
-        Total Forecast (Next {forecast_days} days): ${forecast['total_forecast']:,.2f}
-        Average Daily: ${forecast['avg_daily_forecast']:.2f}
-        Trend: {forecast['trend_direction'].upper()}
-        
-        """
+{'-'*40}
+SALES FORECAST
+{'-'*40}
+Total Forecast (Next {forecast_days} days): ${forecast.get('total_forecast', 0):,.2f}
+Average Daily: ${forecast.get('avg_daily_forecast', 0):.2f}
+Trend: {forecast.get('trend_direction', 'N/A').upper()}
+
+"""
         
         st.download_button(
             label="⬇ Download Advisor Report (TXT)",
             data=report,
             file_name=f"business_advisor_report_{datetime.now().strftime('%Y%m%d')}.txt",
-            mime="text/plain"
+            mime="text/plain",
+            use_container_width=True
         )
+
+
+# ==============================
+# MAIN GUARD
+# ==============================
+if __name__ == "__main__":
+    business_advisor_dashboard()
