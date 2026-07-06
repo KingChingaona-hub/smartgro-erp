@@ -259,7 +259,7 @@ def customers_dashboard():
             st.info("No loyalty data available")
     
     # ==============================
-    # WORKING WHATSAPP BULK MESSAGING
+    # WHATSAPP BULK MESSAGING
     # ==============================
     st.markdown("---")
     st.markdown("## 📱 WhatsApp Bulk Messaging")
@@ -305,6 +305,8 @@ def customers_dashboard():
             filtered_customers = pd.DataFrame()
     
     # Message input
+    final_message = ""
+    
     if message_type == "Promotion":
         promo_message = st.text_area("Promotion Message", height=100, 
                                      placeholder="e.g., 20% OFF on all products this weekend!",
@@ -400,16 +402,6 @@ def customers_dashboard():
                     mime="text/csv",
                     use_container_width=True
                 )
-                
-                # Open all in new tabs (JavaScript)
-                st.markdown("""
-                <script>
-                function openAllWhatsApp() {
-                    const links = document.querySelectorAll('.whatsapp-link');
-                    links.forEach(link => window.open(link.href, '_blank'));
-                }
-                </script>
-                """, unsafe_allow_html=True)
                 
                 st.info("💡 Click each link above to send the message via WhatsApp")
     
