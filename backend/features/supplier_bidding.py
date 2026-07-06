@@ -158,6 +158,49 @@ def add_supplier(supplier_name, contact_person, email, phone, address="", paymen
     return supplier_id, None
 
 
+def delete_supplier(supplier_id):
+    """Delete a supplier and all their bids"""
+    suppliers_df = load_suppliers()
+    bids_df = load_bids()
+    
+    # Check if supplier exists
+    if suppliers_df[suppliers_df["supplier_id"] == supplier_id].empty:
+        return False, "Supplier not found"
+    
+    # Check if supplier has any accepted bids
+    supplier_bids = bids_df[bids_df["supplier_id"] == supplier_id]
+    accepted_bids = supplier_bids[supplier_bids["status"] == "ACCEPTED"]
+    
+    if not accepted_bids.empty:
+        return False, f"Cannot delete supplier with {len(accepted_bids)} accepted bids. Reject bids first."
+    
+    # Remove supplier
+    suppliers_df = suppliers_df[suppliers_df["supplier_id"] != supplier_id]
+    save_suppliers(suppliers_df)
+    
+    # Remove all bids from this supplier
+    if not supplier_bids.empty:
+        bids_df = bids_df[bids_df["supplier_id"] != supplier_id]
+        save_bids(bids_df)
+    
+    return True, "Supplier deleted successfully"
+
+
+def toggle_supplier_active(supplier_id):
+    """Toggle supplier active status"""
+    suppliers_df = load_suppliers()
+    
+    idx = suppliers_df[suppliers_df["supplier_id"] == supplier_id].index
+    if len(idx) == 0:
+        return False
+    
+    current_status = suppliers_df.loc[idx[0], "active"]
+    suppliers_df.loc[idx[0], "active"] = not current_status
+    save_suppliers(suppliers_df)
+    
+    return True
+
+
 def create_bidding_opportunity(po_number, total_amount, supplier_ids=None):
     """Create a bidding opportunity for a purchase order - FIXED: No duplication"""
     
@@ -398,10 +441,10 @@ def get_bidding_summary():
 
 
 # ==============================
-# SUPPLIER MANAGEMENT PAGE - FIXED
+# SUPPLIER MANAGEMENT PAGE - FIXED WITH DELETE
 # ==============================
 def supplier_management_page():
-    """Supplier Management Page - Add and manage suppliers - FIXED: No duplication, no continuous running"""
+    """Supplier Management Page - Add, manage and delete suppliers"""
     
     st.markdown("## 🏪 Supplier Management")
     st.caption("Manage suppliers for bidding system")
@@ -419,6 +462,10 @@ def supplier_management_page():
         st.session_state.supplier_added = False
     if "supplier_button_clicked" not in st.session_state:
         st.session_state.supplier_button_clicked = False
+    if "supplier_deleted" not in st.session_state:
+        st.session_state.supplier_deleted = False
+    if "supplier_to_delete" not in st.session_state:
+        st.session_state.supplier_to_delete = None
     
     tab1, tab2 = st.tabs(["➕ Add Supplier", "📋 Supplier List"])
     
@@ -471,13 +518,78 @@ def supplier_management_page():
         suppliers_df = load_suppliers()
         
         if not suppliers_df.empty:
-            st.dataframe(
-                suppliers_df[["supplier_id", "supplier_name", "contact_person", "email", "phone", "payment_terms", "lead_time_days", "active"]],
-                use_container_width=True,
-                hide_index=True
-            )
+            # Display suppliers with action buttons
+            for idx, supplier in suppliers_df.iterrows():
+                col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 1, 1, 1])
+                
+                with col1:
+                    st.write(f"**{supplier['supplier_name']}**")
+                    st.caption(f"ID: {supplier['supplier_id']}")
+                
+                with col2:
+                    st.write(f"📞 {supplier['contact_person']}")
+                    st.caption(f"📧 {supplier['email']}")
+                
+                with col3:
+                    st.write(f"💰 {supplier['payment_terms']}")
+                    st.caption(f"📦 {supplier['lead_time_days']} days")
+                
+                with col4:
+                    status = "🟢 Active" if supplier['active'] else "🔴 Inactive"
+                    st.write(status)
+                
+                with col5:
+                    # Toggle active button
+                    toggle_label = "🔇" if supplier['active'] else "🔊"
+                    if st.button(toggle_label, key=f"toggle_{supplier['supplier_id']}", help="Toggle active status"):
+                        if not st.session_state.supplier_button_clicked:
+                            st.session_state.supplier_button_clicked = True
+                            toggle_supplier_active(supplier['supplier_id'])
+                            st.rerun()
+                            st.session_state.supplier_button_clicked = False
+                
+                with col6:
+                    # Delete button
+                    if st.button("🗑️", key=f"delete_{supplier['supplier_id']}", help="Delete supplier"):
+                        if not st.session_state.supplier_button_clicked:
+                            st.session_state.supplier_button_clicked = True
+                            st.session_state.supplier_to_delete = supplier['supplier_id']
+                            st.rerun()
+                
+                st.divider()
+            
+            # Confirmation dialog for deletion
+            if st.session_state.supplier_to_delete:
+                supplier_id = st.session_state.supplier_to_delete
+                supplier_name = suppliers_df[suppliers_df["supplier_id"] == supplier_id]["supplier_name"].iloc[0]
+                
+                st.warning(f"⚠️ Are you sure you want to delete supplier '{supplier_name}'?")
+                st.caption("This will also remove all their bids (except accepted ones).")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("✅ Yes, Delete", key="confirm_delete", use_container_width=True):
+                        success, message = delete_supplier(supplier_id)
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.session_state.supplier_deleted = True
+                            st.session_state.supplier_to_delete = None
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+                            st.session_state.supplier_to_delete = None
+                            st.rerun()
+                
+                with col2:
+                    if st.button("❌ Cancel", key="cancel_delete", use_container_width=True):
+                        st.session_state.supplier_to_delete = None
+                        st.rerun()
+                
+                st.session_state.supplier_button_clicked = False
             
             # Download suppliers
+            st.markdown("---")
             csv = suppliers_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="📥 Download Suppliers (CSV)",
