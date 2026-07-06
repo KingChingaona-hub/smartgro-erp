@@ -3,14 +3,6 @@ import streamlit as st
 from pathlib import Path
 from datetime import datetime, timedelta
 
-try:
-    from backend.modules.cash_register import record_credit_sale
-except ImportError:
-    # Define a fallback function if cash_register is not available
-    def record_credit_sale(amount, receipt_no, customer_name, shift_id=""):
-        print(f"Credit sale recorded: {amount} for {customer_name}")
-        return True
-    
 # ==============================
 # FILE SETUP
 # ==============================
@@ -27,6 +19,8 @@ CASH_FILE = DATA_DIR / "cash_register.csv"
 # ==============================
 def init_debtors():
     """Initialize all debtors files"""
+    DATA_DIR.mkdir(exist_ok=True)
+    
     if not DEBTORS_FILE.exists():
         df = pd.DataFrame(columns=[
             "debt_id",
@@ -42,7 +36,12 @@ def init_debtors():
             "risk_level",
             "provision_bad_debt",
             "bad_debt",
-            "notes"
+            "notes",
+            "credit_limit",
+            "payment_plan",
+            "installment_amount",
+            "installment_frequency",
+            "next_payment_date"
         ])
         df.to_csv(DEBTORS_FILE, index=False)
 
@@ -95,63 +94,103 @@ def safe_str(value):
     return str(value)
 
 
+def to_float(value):
+    """Safely convert to float"""
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # ==============================
 # LOAD / SAVE FUNCTIONS
 # ==============================
 def load_debtors():
+    """Load debtors from CSV file"""
     init_debtors()
-    df = pd.read_csv(DEBTORS_FILE)
     
-    # Ensure numeric columns
-    numeric_cols = ["total_amount", "amount_paid", "balance", "provision_bad_debt", "bad_debt"]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        else:
-            df[col] = 0
+    if not DEBTORS_FILE.exists():
+        return pd.DataFrame(columns=[
+            "debt_id", "date_borrowed", "customer_name", "phone", 
+            "total_amount", "amount_paid", "balance", "expected_repayment_date",
+            "repayment_date", "status", "risk_level", "provision_bad_debt",
+            "bad_debt", "notes", "credit_limit", "payment_plan",
+            "installment_amount", "installment_frequency", "next_payment_date"
+        ])
     
-    # Add missing columns if they don't exist (for backward compatibility)
-    if "credit_limit" not in df.columns:
-        df["credit_limit"] = 0
-    
-    if "payment_plan" not in df.columns:
-        df["payment_plan"] = ""
-    
-    if "installment_amount" not in df.columns:
-        df["installment_amount"] = 0
-    
-    if "installment_frequency" not in df.columns:
-        df["installment_frequency"] = ""
-    
-    if "next_payment_date" not in df.columns:
-        df["next_payment_date"] = ""
-    
-    return df
+    try:
+        df = pd.read_csv(DEBTORS_FILE)
+        
+        # Ensure numeric columns
+        numeric_cols = ["total_amount", "amount_paid", "balance", "provision_bad_debt", "bad_debt", "credit_limit", "installment_amount"]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            else:
+                df[col] = 0
+        
+        # Add missing columns if they don't exist
+        for col in ["credit_limit", "payment_plan", "installment_amount", "installment_frequency", "next_payment_date"]:
+            if col not in df.columns:
+                df[col] = "" if col in ["payment_plan", "installment_frequency", "next_payment_date"] else 0
+        
+        return df
+    except Exception as e:
+        print(f"Error loading debtors: {e}")
+        return pd.DataFrame(columns=[
+            "debt_id", "date_borrowed", "customer_name", "phone", 
+            "total_amount", "amount_paid", "balance", "expected_repayment_date",
+            "repayment_date", "status", "risk_level", "provision_bad_debt",
+            "bad_debt", "notes", "credit_limit", "payment_plan",
+            "installment_amount", "installment_frequency", "next_payment_date"
+        ])
 
 
 def save_debtors(df):
+    """Save debtors to CSV file"""
+    init_debtors()
     df.to_csv(DEBTORS_FILE, index=False)
 
 
 def load_debtor_items():
+    """Load debtor items"""
     init_debtors()
     if DEBTOR_ITEMS_FILE.exists():
-        return pd.read_csv(DEBTOR_ITEMS_FILE)
+        try:
+            return pd.read_csv(DEBTOR_ITEMS_FILE)
+        except:
+            return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price"])
     return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price"])
 
 
 def save_debtor_items(df):
+    """Save debtor items"""
+    init_debtors()
     df.to_csv(DEBTOR_ITEMS_FILE, index=False)
 
 
 def load_payments():
+    """Load debtor payments"""
     init_debtors()
-    return pd.read_csv(DEBTOR_PAYMENTS_FILE)
+    if DEBTOR_PAYMENTS_FILE.exists():
+        try:
+            return pd.read_csv(DEBTOR_PAYMENTS_FILE)
+        except:
+            return pd.DataFrame(columns=["date", "debt_id", "customer_name", "amount_paid", "balance_after", "note", "receipt_no"])
+    return pd.DataFrame(columns=["date", "debt_id", "customer_name", "amount_paid", "balance_after", "note", "receipt_no"])
 
 
 def load_reminders():
+    """Load debtor reminders"""
     init_debtors()
-    return pd.read_csv(DEBTOR_REMINDERS_FILE)
+    if DEBTOR_REMINDERS_FILE.exists():
+        try:
+            return pd.read_csv(DEBTOR_REMINDERS_FILE)
+        except:
+            return pd.DataFrame(columns=["date", "debt_id", "customer_name", "reminder_type", "message", "sent", "response"])
+    return pd.DataFrame(columns=["date", "debt_id", "customer_name", "reminder_type", "message", "sent", "response"])
 
 
 # ==============================
@@ -160,6 +199,8 @@ def load_reminders():
 def record_cash_movement(amount, receipt_no, payment_method="CASH", shift_id=""):
     """Record cash movement from debt payments"""
     try:
+        CASH_FILE.parent.mkdir(exist_ok=True)
+        
         if not CASH_FILE.exists():
             df = pd.DataFrame(columns=["date", "type", "amount", "receipt_no", "customer_name", "note", "shift_id"])
             df.to_csv(CASH_FILE, index=False)
@@ -185,12 +226,28 @@ def record_cash_movement(amount, receipt_no, payment_method="CASH", shift_id="")
 
 
 # ==============================
-# CREATE DEBT WITH ITEMS (FIXED)
+# CREATE DEBT WITH ITEMS
 # ==============================
 def create_debt_with_items(customer_name, phone, items_list, total_amount, expected_date, notes="", credit_limit=0, payment_plan="", installment_amount=0, installment_frequency="", next_payment_date=""):
     """Create debt with multiple items - STOCK IS DEDUCTED"""
     
-    from backend.core.database import load_products, save_products
+    try:
+        from backend.core.db_adapter import load_products, save_products
+    except ImportError:
+        # Fallback if db_adapter not available
+        def load_products():
+            try:
+                from backend.core.db_adapter import load_products as lp
+                return lp()
+            except:
+                return pd.DataFrame(columns=["barcode", "name", "stock", "price"])
+        
+        def save_products(df):
+            try:
+                from backend.core.db_adapter import save_products as sp
+                sp(df)
+            except:
+                pass
     
     df = load_debtors()
     items_df = load_debtor_items()
@@ -205,20 +262,24 @@ def create_debt_with_items(customer_name, phone, items_list, total_amount, expec
         barcode = safe_str(item.get("barcode", ""))
         
         if not barcode.startswith("MANUAL"):
-            product = products_df[products_df["barcode"].astype(str) == barcode]
-            if not product.empty:
-                idx = product.index[0]
-                current_stock = int(products_df.at[idx, "stock"])
-                if current_stock >= item["quantity"]:
-                    products_df.at[idx, "stock"] = current_stock - item["quantity"]
-                else:
-                    stock_errors.append(f"{item['name']}: Only {current_stock} available")
+            if not products_df.empty and "barcode" in products_df.columns:
+                product = products_df[products_df["barcode"].astype(str) == barcode]
+                if not product.empty:
+                    idx = product.index[0]
+                    current_stock = int(products_df.at[idx, "stock"])
+                    if current_stock >= item["quantity"]:
+                        products_df.at[idx, "stock"] = current_stock - item["quantity"]
+                    else:
+                        stock_errors.append(f"{item['name']}: Only {current_stock} available")
     
     if stock_errors:
         return False, "Stock insufficient: " + ", ".join(stock_errors)
     
     # Save updated stock
-    save_products(products_df)
+    try:
+        save_products(products_df)
+    except:
+        pass
     
     # Create debt record
     new_row = {
@@ -262,20 +323,27 @@ def create_debt_with_items(customer_name, phone, items_list, total_amount, expec
     
     save_debtor_items(items_df)
     
-    # Also record as credit sale in cash register
-    from backend.modules.cash_register import record_credit_sale
-    record_credit_sale(
-        amount=total_amount,
-        receipt_no=debt_id,
-        customer_name=customer_name,
-        shift_id=""
-    )
+    # Also record as credit sale in cash register (try both methods)
+    try:
+        from backend.modules.cash_register import record_credit_sale
+        record_credit_sale(
+            amount=total_amount,
+            receipt_no=debt_id,
+            customer_name=customer_name,
+            shift_id=""
+        )
+    except:
+        try:
+            from backend.core.db_adapter import record_cash_movement
+            record_cash_movement(total_amount, debt_id, "CREDIT", customer_name)
+        except:
+            pass
     
     return True, debt_id
 
 
 # ==============================
-# LEGACY CREATE DEBT (For backward compatibility)
+# LEGACY CREATE DEBT
 # ==============================
 def create_debt(customer_name, phone, items, total_amount, expected_date):
     """Legacy function - kept for compatibility"""
@@ -295,6 +363,8 @@ def create_debt(customer_name, phone, items, total_amount, expected_date):
 def get_debt_items(debt_id):
     """Get all items for a specific debt"""
     items_df = load_debtor_items()
+    if items_df.empty or "debt_id" not in items_df.columns:
+        return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price"])
     return items_df[items_df["debt_id"] == debt_id]
 
 
@@ -344,7 +414,7 @@ def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
         df.at[i, "repayment_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Update next payment date if on payment plan
-    if "installment_amount" in df.columns and df.at[i, "installment_amount"] > 0 and df.at[i, "balance"] > 0:
+    if df.at[i, "installment_amount"] > 0 and df.at[i, "balance"] > 0:
         freq = df.at[i, "installment_frequency"]
         next_date = datetime.now()
         if freq == "Weekly":
@@ -400,17 +470,21 @@ def get_overdue_debtors():
         (df["balance"] > 0)
     ]
     
-    # Add days overdue column
-    overdue["days_overdue"] = (now - overdue["expected_repayment_date"]).dt.days
+    if not overdue.empty:
+        overdue["days_overdue"] = (now - overdue["expected_repayment_date"]).dt.days
 
     return overdue
 
 
 # ==============================
-# UPDATE RISK LEVELS (FIXED - Safe column handling)
+# UPDATE RISK LEVELS
 # ==============================
 def update_risk_levels():
     df = load_debtors()
+    
+    if df.empty:
+        return df
+    
     now = pd.Timestamp.now()
 
     for i in df.index:
@@ -418,11 +492,7 @@ def update_risk_levels():
         expected = pd.to_datetime(df.at[i, "expected_repayment_date"], errors="coerce")
         days_overdue = (now - expected).days if not pd.isna(expected) else 0
         
-        # Safe credit limit check (column may not exist in old data)
-        credit_limit = 0
-        if "credit_limit" in df.columns:
-            credit_limit = float(df.at[i, "credit_limit"]) if not pd.isna(df.at[i, "credit_limit"]) else 0
-        
+        credit_limit = float(df.at[i, "credit_limit"]) if not pd.isna(df.at[i, "credit_limit"]) else 0
         credit_usage = (balance / credit_limit * 100) if credit_limit > 0 else 0
 
         if balance <= 0:
@@ -446,7 +516,7 @@ def update_risk_levels():
 
 
 # ==============================
-# CREDIT SCORE (FIXED - Safe column handling)
+# CREDIT SCORE
 # ==============================
 def get_credit_score():
     df = load_debtors()
@@ -477,15 +547,14 @@ def get_credit_score():
         else:
             score = 10
         
-        # Adjust for credit limit usage (safe check)
-        if "credit_limit" in df.columns:
-            credit_limit = row["credit_limit"] if not pd.isna(row["credit_limit"]) else 0
-            if credit_limit > 0:
-                usage = (row["balance"] / credit_limit) * 100
-                if usage > 90:
-                    score -= 20
-                elif usage > 70:
-                    score -= 10
+        # Adjust for credit limit usage
+        credit_limit = row["credit_limit"] if not pd.isna(row["credit_limit"]) else 0
+        if credit_limit > 0:
+            usage = (row["balance"] / credit_limit) * 100
+            if usage > 90:
+                score -= 20
+            elif usage > 70:
+                score -= 10
         
         return max(0, min(100, score))
 
@@ -575,8 +644,11 @@ def generate_reminders():
     overdue = get_overdue_debtors()
     reminders = []
     
+    if overdue.empty:
+        return reminders
+    
     for _, row in overdue.iterrows():
-        days = row["days_overdue"] if "days_overdue" in row else 0
+        days = row.get("days_overdue", 0)
         balance = row["balance"]
         
         if days <= 7:
@@ -594,7 +666,8 @@ def generate_reminders():
             "balance": balance,
             "days_overdue": days,
             "message": message,
-            "debt_id": str(row["debt_id"])
+            "debt_id": str(row["debt_id"]),
+            "expected_repayment_date": row["expected_repayment_date"]
         })
     
     return reminders
@@ -613,7 +686,6 @@ def get_customer_debt_summary(customer_name):
     if customer_debts.empty:
         return None
     
-    # Safe credit limit access
     credit_limit = 0
     if "credit_limit" in customer_debts.columns and not customer_debts.empty:
         credit_limit = customer_debts["credit_limit"].iloc[0] if not pd.isna(customer_debts["credit_limit"].iloc[0]) else 0
@@ -630,16 +702,17 @@ def get_customer_debt_summary(customer_name):
     }
     
     # Get items for all customer debts
-    for debt_id in customer_debts["debt_id"]:
-        debt_items = items[items["debt_id"] == debt_id]
-        for _, item in debt_items.iterrows():
-            summary["items"].append({
-                "debt_id": debt_id,
-                "product": item["product_name"],
-                "quantity": item["quantity"],
-                "price": item["unit_price"],
-                "total": item["total_price"]
-            })
+    if not items.empty and "debt_id" in items.columns:
+        for debt_id in customer_debts["debt_id"]:
+            debt_items = items[items["debt_id"] == debt_id]
+            for _, item in debt_items.iterrows():
+                summary["items"].append({
+                    "debt_id": debt_id,
+                    "product": item["product_name"],
+                    "quantity": item["quantity"],
+                    "price": item["unit_price"],
+                    "total": item["total_price"]
+                })
     
     return summary
 
@@ -653,11 +726,11 @@ def get_recoverable_debt():
     
     # Recovery rates by aging bucket
     recovery_rates = {
-        "current": 0.95,      # 95% recovery
-        "days_1_30": 0.85,    # 85% recovery
-        "days_31_60": 0.70,   # 70% recovery
-        "days_61_90": 0.50,   # 50% recovery
-        "days_90_plus": 0.20  # 20% recovery
+        "current": 0.95,
+        "days_1_30": 0.85,
+        "days_31_60": 0.70,
+        "days_61_90": 0.50,
+        "days_90_plus": 0.20
     }
     
     expected_recovery = (
