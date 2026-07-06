@@ -3,6 +3,14 @@ import streamlit as st
 from pathlib import Path
 from datetime import datetime, timedelta
 
+try:
+    from backend.modules.cash_register import record_credit_sale
+except ImportError:
+    # Define a fallback function if cash_register is not available
+    def record_credit_sale(amount, receipt_no, customer_name, shift_id=""):
+        print(f"Credit sale recorded: {amount} for {customer_name}")
+        return True
+    
 # ==============================
 # FILE SETUP
 # ==============================

@@ -11,6 +11,10 @@ def get_overdue_messages():
     if df.empty:
         return pd.DataFrame()
     
+    # Ensure date column exists
+    if "expected_repayment_date" not in df.columns:
+        return pd.DataFrame()
+    
     df["expected_repayment_date"] = pd.to_datetime(
         df["expected_repayment_date"],
         errors="coerce"
@@ -20,9 +24,11 @@ def get_overdue_messages():
     messages = []
     
     for _, row in df.iterrows():
+        # Skip paid debts
         if row["balance"] <= 0:
             continue
         
+        # Skip if no date
         if pd.isna(row["expected_repayment_date"]):
             continue
         
@@ -64,3 +70,12 @@ def get_overdue_messages():
         messages_df = messages_df.sort_values("days_overdue", ascending=False)
     
     return messages_df
+
+
+# ==============================
+# MAIN GUARD
+# ==============================
+if __name__ == "__main__":
+    # Test function
+    df = get_overdue_messages()
+    print(f"Found {len(df)} overdue customers")
