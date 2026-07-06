@@ -441,7 +441,7 @@ def get_bidding_summary():
 
 
 # ==============================
-# SUPPLIER MANAGEMENT PAGE - FIXED WITH DELETE
+# SUPPLIER MANAGEMENT PAGE - FIXED WITH WORKING DELETE
 # ==============================
 def supplier_management_page():
     """Supplier Management Page - Add, manage and delete suppliers"""
@@ -515,12 +515,13 @@ def supplier_management_page():
     with tab2:
         st.markdown("### Supplier List")
         
+        # Load fresh data
         suppliers_df = load_suppliers()
         
         if not suppliers_df.empty:
             # Display suppliers with action buttons
             for idx, supplier in suppliers_df.iterrows():
-                col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 1, 1, 1])
+                col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 2, 2, 1, 1, 1, 1])
                 
                 with col1:
                     st.write(f"**{supplier['supplier_name']}**")
@@ -535,10 +536,15 @@ def supplier_management_page():
                     st.caption(f"📦 {supplier['lead_time_days']} days")
                 
                 with col4:
+                    rating = supplier.get('rating', 0)
+                    stars = "⭐" * int(rating) if rating > 0 else "No rating"
+                    st.write(stars)
+                
+                with col5:
                     status = "🟢 Active" if supplier['active'] else "🔴 Inactive"
                     st.write(status)
                 
-                with col5:
+                with col6:
                     # Toggle active button
                     toggle_label = "🔇" if supplier['active'] else "🔊"
                     if st.button(toggle_label, key=f"toggle_{supplier['supplier_id']}", help="Toggle active status"):
@@ -548,7 +554,7 @@ def supplier_management_page():
                             st.rerun()
                             st.session_state.supplier_button_clicked = False
                 
-                with col6:
+                with col7:
                     # Delete button
                     if st.button("🗑️", key=f"delete_{supplier['supplier_id']}", help="Delete supplier"):
                         if not st.session_state.supplier_button_clicked:
@@ -558,35 +564,37 @@ def supplier_management_page():
                 
                 st.divider()
             
-            # Confirmation dialog for deletion
+            # Confirmation dialog for deletion - SHOW AT TOP
             if st.session_state.supplier_to_delete:
                 supplier_id = st.session_state.supplier_to_delete
                 supplier_name = suppliers_df[suppliers_df["supplier_id"] == supplier_id]["supplier_name"].iloc[0]
                 
-                st.warning(f"⚠️ Are you sure you want to delete supplier '{supplier_name}'?")
+                st.markdown("---")
+                st.warning(f"⚠️ Are you sure you want to delete supplier **'{supplier_name}'**?")
                 st.caption("This will also remove all their bids (except accepted ones).")
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    if st.button("✅ Yes, Delete", key="confirm_delete", use_container_width=True):
+                    if st.button("✅ Yes, Delete Permanently", key="confirm_delete", use_container_width=True):
                         success, message = delete_supplier(supplier_id)
                         if success:
                             st.success(f"✅ {message}")
                             st.session_state.supplier_deleted = True
                             st.session_state.supplier_to_delete = None
+                            st.session_state.supplier_button_clicked = False
                             st.rerun()
                         else:
                             st.error(f"❌ {message}")
                             st.session_state.supplier_to_delete = None
+                            st.session_state.supplier_button_clicked = False
                             st.rerun()
                 
                 with col2:
                     if st.button("❌ Cancel", key="cancel_delete", use_container_width=True):
                         st.session_state.supplier_to_delete = None
+                        st.session_state.supplier_button_clicked = False
                         st.rerun()
-                
-                st.session_state.supplier_button_clicked = False
             
             # Download suppliers
             st.markdown("---")
