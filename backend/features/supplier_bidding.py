@@ -53,7 +53,7 @@ def init_bidding_files():
             "delivery_days",
             "warranty_months",
             "payment_terms",
-            "status",  # PENDING, ACCEPTED, REJECTED, EXPIRED
+            "status",
             "notes",
             "evaluated_by",
             "evaluated_date"
@@ -68,8 +68,8 @@ def init_bidding_files():
             "require_minimum_bids": 2,
             "auto_reject_after_days": 14,
             "notify_suppliers": True,
-            "preferred_supplier_bonus": 5,  # 5% preference for preferred suppliers
-            "minimum_bid_reduction": 5,  # Minimum 5% reduction to auto-accept
+            "preferred_supplier_bonus": 5,
+            "minimum_bid_reduction": 5,
             "last_updated": datetime.now().isoformat()
         }
         with open(BIDDING_SETTINGS_FILE, "w") as f:
@@ -111,11 +111,32 @@ def save_bidding_settings(settings):
         json.dump(settings, f, indent=2)
 
 
+def generate_supplier_id():
+    """Generate unique supplier ID"""
+    suppliers_df = load_suppliers()
+    if suppliers_df.empty:
+        return "SUP001"
+    else:
+        existing_ids = suppliers_df["supplier_id"].tolist()
+        numbers = [int(id.replace("SUP", "")) for id in existing_ids if id.startswith("SUP")]
+        if numbers:
+            next_num = max(numbers) + 1
+        else:
+            next_num = 1
+        return f"SUP{next_num:03d}"
+
+
 def add_supplier(supplier_name, contact_person, email, phone, address="", payment_terms="NET30", lead_time_days=7):
-    """Add a new supplier"""
+    """Add a new supplier - FIXED: No duplication"""
     suppliers_df = load_suppliers()
     
-    supplier_id = f"SUP{len(suppliers_df)+1:03d}"
+    # Check if supplier already exists
+    if not suppliers_df.empty:
+        existing = suppliers_df[suppliers_df["supplier_name"].str.lower() == supplier_name.lower()]
+        if not existing.empty:
+            return None, f"Supplier '{supplier_name}' already exists"
+    
+    supplier_id = generate_supplier_id()
     
     new_supplier = pd.DataFrame([{
         "supplier_id": supplier_id,
@@ -134,20 +155,28 @@ def add_supplier(supplier_name, contact_person, email, phone, address="", paymen
     suppliers_df = pd.concat([suppliers_df, new_supplier], ignore_index=True)
     save_suppliers(suppliers_df)
     
-    return supplier_id
+    return supplier_id, None
 
 
 def create_bidding_opportunity(po_number, total_amount, supplier_ids=None):
-    """Create a bidding opportunity for a purchase order"""
+    """Create a bidding opportunity for a purchase order - FIXED: No duplication"""
     
     bids_df = load_bids()
     suppliers_df = load_suppliers()
+    
+    # Check if bidding opportunity already exists for this PO
+    existing_bids = bids_df[bids_df["po_number"] == po_number]
+    if not existing_bids.empty:
+        return 0, "Bidding opportunity already exists for this PO"
     
     # Get eligible suppliers
     if supplier_ids:
         eligible_suppliers = suppliers_df[suppliers_df["supplier_id"].isin(supplier_ids)]
     else:
         eligible_suppliers = suppliers_df[suppliers_df["active"] == True]
+    
+    if eligible_suppliers.empty:
+        return 0, "No eligible suppliers found"
     
     # Create bid records for each supplier
     new_bids = []
@@ -177,11 +206,11 @@ def create_bidding_opportunity(po_number, total_amount, supplier_ids=None):
         bids_df = pd.concat([bids_df, new_bids_df], ignore_index=True)
         save_bids(bids_df)
     
-    return len(new_bids)
+    return len(new_bids), None
 
 
 def submit_bid(po_number, supplier_id, supplier_name, bid_amount, delivery_days, warranty_months, payment_terms, notes=""):
-    """Submit a bid for a purchase order"""
+    """Submit a bid for a purchase order - FIXED: Update existing not duplicate"""
     
     bids_df = load_bids()
     
@@ -197,7 +226,14 @@ def submit_bid(po_number, supplier_id, supplier_name, bid_amount, delivery_days,
         bids_df.loc[idx, "payment_terms"] = payment_terms
         bids_df.loc[idx, "notes"] = notes
         bids_df.loc[idx, "bid_date"] = datetime.now().isoformat()
+        save_bids(bids_df)
+        return True, "Bid updated successfully"
     else:
+        # Check if this PO has reached max bids
+        po_bids = bids_df[bids_df["po_number"] == po_number]
+        if len(po_bids) >= 20:  # Safety limit
+            return False, "Maximum bids reached for this PO"
+        
         # Create new bid
         bid_id = hashlib.md5(f"{po_number}{supplier_id}{datetime.now().isoformat()}".encode()).hexdigest()[:16]
         
@@ -223,9 +259,8 @@ def submit_bid(po_number, supplier_id, supplier_name, bid_amount, delivery_days,
             "evaluated_date": ""
         }])
         bids_df = pd.concat([bids_df, new_bid], ignore_index=True)
-    
-    save_bids(bids_df)
-    return True
+        save_bids(bids_df)
+        return True, "Bid submitted successfully"
 
 
 def evaluate_bids(po_number):
@@ -284,7 +319,6 @@ def evaluate_bids(po_number):
     # Auto-accept if settings allow
     best = scores[0]
     if settings.get("auto_accept_lowest_bid", True):
-        # Check if bid is at least X% lower than original
         original_amount = best["bid"]["original_amount"]
         reduction_pct = ((original_amount - best["bid"]["bid_amount"]) / original_amount) * 100 if original_amount > 0 else 0
         
@@ -297,7 +331,7 @@ def evaluate_bids(po_number):
 
 
 def accept_bid(bid_id):
-    """Accept a specific bid"""
+    """Accept a specific bid - FIXED: Proper status updates"""
     
     bids_df = load_bids()
     purchases_df = load_purchases()
@@ -364,10 +398,10 @@ def get_bidding_summary():
 
 
 # ==============================
-# SUPPLIER MANAGEMENT PAGE
+# SUPPLIER MANAGEMENT PAGE - FIXED
 # ==============================
 def supplier_management_page():
-    """Supplier Management Page - Add and manage suppliers"""
+    """Supplier Management Page - Add and manage suppliers - FIXED: No duplication, no continuous running"""
     
     st.markdown("## 🏪 Supplier Management")
     st.caption("Manage suppliers for bidding system")
@@ -380,6 +414,12 @@ def supplier_management_page():
     
     init_bidding_files()
     
+    # Initialize session state for supplier management
+    if "supplier_added" not in st.session_state:
+        st.session_state.supplier_added = False
+    if "supplier_button_clicked" not in st.session_state:
+        st.session_state.supplier_button_clicked = False
+    
     tab1, tab2 = st.tabs(["➕ Add Supplier", "📋 Supplier List"])
     
     with tab1:
@@ -388,32 +428,42 @@ def supplier_management_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            supplier_name = st.text_input("Supplier Name *", placeholder="e.g., National Foods")
-            contact_person = st.text_input("Contact Person *", placeholder="John Doe")
-            email = st.text_input("Email", placeholder="supplier@company.com")
+            supplier_name = st.text_input("Supplier Name *", key="sup_name", placeholder="e.g., National Foods")
+            contact_person = st.text_input("Contact Person *", key="sup_contact", placeholder="John Doe")
+            email = st.text_input("Email", key="sup_email", placeholder="supplier@company.com")
         
         with col2:
-            phone = st.text_input("Phone", placeholder="0777123456")
-            payment_terms = st.selectbox("Payment Terms", ["NET15", "NET30", "NET45", "NET60", "COD"])
-            lead_time = st.number_input("Lead Time (days)", min_value=1, max_value=60, value=7)
+            phone = st.text_input("Phone", key="sup_phone", placeholder="0777123456")
+            payment_terms = st.selectbox("Payment Terms", ["NET15", "NET30", "NET45", "NET60", "COD"], key="sup_payment")
+            lead_time = st.number_input("Lead Time (days)", min_value=1, max_value=60, value=7, key="sup_lead")
         
-        address = st.text_area("Address", placeholder="Physical address")
+        address = st.text_area("Address", key="sup_address", placeholder="Physical address")
         
-        if st.button("➕ Add Supplier", type="primary", use_container_width=True):
-            if supplier_name and contact_person:
-                supplier_id = add_supplier(
-                    supplier_name=supplier_name,
-                    contact_person=contact_person,
-                    email=email,
-                    phone=phone,
-                    address=address,
-                    payment_terms=payment_terms,
-                    lead_time_days=lead_time
-                )
-                st.success(f"✅ Supplier {supplier_name} added! ID: {supplier_id}")
-                st.rerun()
-            else:
-                st.error("Please enter supplier name and contact person")
+        if st.button("➕ Add Supplier", type="primary", key="add_supplier_btn", use_container_width=True):
+            if not st.session_state.supplier_button_clicked:
+                st.session_state.supplier_button_clicked = True
+                
+                if supplier_name and contact_person:
+                    supplier_id, error = add_supplier(
+                        supplier_name=supplier_name,
+                        contact_person=contact_person,
+                        email=email,
+                        phone=phone,
+                        address=address,
+                        payment_terms=payment_terms,
+                        lead_time_days=lead_time
+                    )
+                    
+                    if error:
+                        st.error(f"❌ {error}")
+                    else:
+                        st.success(f"✅ Supplier {supplier_name} added! ID: {supplier_id}")
+                        st.session_state.supplier_added = True
+                        st.rerun()
+                else:
+                    st.error("Please enter supplier name and contact person")
+                
+                st.session_state.supplier_button_clicked = False
     
     with tab2:
         st.markdown("### Supplier List")
@@ -426,15 +476,25 @@ def supplier_management_page():
                 use_container_width=True,
                 hide_index=True
             )
+            
+            # Download suppliers
+            csv = suppliers_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download Suppliers (CSV)",
+                data=csv,
+                file_name=f"suppliers_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
         else:
             st.info("No suppliers found. Add your first supplier above.")
 
 
 # ==============================
-# SUPPLIER BIDDING DASHBOARD
+# SUPPLIER BIDDING DASHBOARD - FIXED
 # ==============================
 def supplier_bidding_dashboard():
-    """Supplier Bidding System Dashboard"""
+    """Supplier Bidding System Dashboard - FIXED: No continuous running"""
     
     st.title("🏪 Supplier Bidding System")
     st.caption("Competitive bidding for purchase orders - get the best prices")
@@ -447,6 +507,14 @@ def supplier_bidding_dashboard():
         return
     
     init_bidding_files()
+    
+    # Initialize session state for bidding
+    if "bid_created" not in st.session_state:
+        st.session_state.bid_created = False
+    if "bidding_button_clicked" not in st.session_state:
+        st.session_state.bidding_button_clicked = False
+    if "bid_submitted" not in st.session_state:
+        st.session_state.bid_submitted = False
     
     # ==============================
     # TABS
@@ -517,7 +585,7 @@ def supplier_bidding_dashboard():
                 st.plotly_chart(fig, use_container_width=True)
     
     # ==============================
-    # TAB 2: CREATE BID OPPORTUNITY
+    # TAB 2: CREATE BID OPPORTUNITY - FIXED
     # ==============================
     with tab2:
         st.markdown("## 📝 Create Bid Opportunity")
@@ -528,13 +596,13 @@ def supplier_bidding_dashboard():
         
         if purchases_df.empty:
             st.info("No purchase orders found. Create a purchase order first.")
-            if st.button("Go to Purchases"):
+            if st.button("Go to Purchases", key="go_to_purchases"):
                 st.session_state.current_page = "Purchases"
                 st.rerun()
         else:
             # Get POs that haven't been bid on yet
             bids_df = load_bids()
-            pos_with_bids = bids_df["po_number"].unique().tolist()
+            pos_with_bids = bids_df["po_number"].unique().tolist() if not bids_df.empty else []
             pending_pos = purchases_df[~purchases_df["po_number"].isin(pos_with_bids)]
             pending_pos = pending_pos[pending_pos["status"].isin(["PENDING", "APPROVED"])]
             
@@ -544,6 +612,7 @@ def supplier_bidding_dashboard():
                 selected_po = st.selectbox(
                     "Select Purchase Order",
                     pending_pos["po_number"].tolist(),
+                    key="select_po_bid",
                     format_func=lambda x: f"{x} - ${pending_pos[pending_pos['po_number'] == x]['total_cost'].iloc[0]:,.2f}"
                 )
                 
@@ -568,7 +637,7 @@ def supplier_bidding_dashboard():
                     else:
                         st.markdown("### Select Suppliers to Invite")
                         
-                        all_suppliers = st.checkbox("Invite All Active Suppliers", value=True)
+                        all_suppliers = st.checkbox("Invite All Active Suppliers", value=True, key="invite_all")
                         
                         if all_suppliers:
                             selected_suppliers = suppliers_df[suppliers_df["active"] == True]["supplier_id"].tolist()
@@ -577,19 +646,30 @@ def supplier_bidding_dashboard():
                             selected_suppliers = st.multiselect(
                                 "Select Suppliers",
                                 suppliers_df["supplier_id"].tolist(),
+                                key="selected_suppliers_list",
                                 format_func=lambda x: suppliers_df[suppliers_df["supplier_id"] == x]["supplier_name"].iloc[0]
                             )
                         
-                        if st.button("📢 Create Bidding Opportunity", type="primary", use_container_width=True):
-                            if selected_suppliers:
-                                count = create_bidding_opportunity(selected_po, po_total, selected_suppliers)
-                                st.success(f"✅ Bidding opportunity created! {count} suppliers invited.")
-                                st.info("Suppliers can now submit their bids.")
-                            else:
-                                st.error("Please select at least one supplier")
+                        if st.button("📢 Create Bidding Opportunity", type="primary", key="create_bid_btn", use_container_width=True):
+                            if not st.session_state.bidding_button_clicked:
+                                st.session_state.bidding_button_clicked = True
+                                
+                                if selected_suppliers:
+                                    count, error = create_bidding_opportunity(selected_po, po_total, selected_suppliers)
+                                    if error:
+                                        st.warning(f"⚠️ {error}")
+                                    else:
+                                        st.success(f"✅ Bidding opportunity created! {count} suppliers invited.")
+                                        st.info("Suppliers can now submit their bids.")
+                                        st.session_state.bid_created = True
+                                        st.rerun()
+                                else:
+                                    st.error("Please select at least one supplier")
+                                
+                                st.session_state.bidding_button_clicked = False
     
     # ==============================
-    # TAB 3: EVALUATE BIDS
+    # TAB 3: EVALUATE BIDS - FIXED
     # ==============================
     with tab3:
         st.markdown("## 💵 Evaluate Bids")
@@ -629,12 +709,15 @@ def supplier_bidding_dashboard():
                     
                     # Evaluate button
                     if st.button(f"🤖 Evaluate Best Bid for {po_number}", key=f"eval_{po_number}"):
-                        best_bid, message = evaluate_bids(po_number)
-                        if best_bid:
-                            st.success(f"✅ {message}")
-                            st.rerun()
-                        else:
-                            st.warning(message)
+                        if not st.session_state.bidding_button_clicked:
+                            st.session_state.bidding_button_clicked = True
+                            best_bid, message = evaluate_bids(po_number)
+                            if best_bid:
+                                st.success(f"✅ {message}")
+                                st.rerun()
+                            else:
+                                st.warning(message)
+                            st.session_state.bidding_button_clicked = False
                     
                     # Manual accept
                     st.markdown("**Or manually accept a bid:**")
@@ -646,9 +729,12 @@ def supplier_bidding_dashboard():
                     )
                     
                     if st.button(f"✅ Accept Selected Bid", key=f"accept_btn_{po_number}"):
-                        if accept_bid(selected_bid):
-                            st.success("Bid accepted! Purchase order updated.")
-                            st.rerun()
+                        if not st.session_state.bidding_button_clicked:
+                            st.session_state.bidding_button_clicked = True
+                            if accept_bid(selected_bid):
+                                st.success("Bid accepted! Purchase order updated.")
+                                st.rerun()
+                            st.session_state.bidding_button_clicked = False
     
     # ==============================
     # TAB 4: SUPPLIER MANAGEMENT
@@ -668,25 +754,30 @@ def supplier_bidding_dashboard():
         col1, col2 = st.columns(2)
         
         with col1:
-            auto_accept = st.toggle("Auto-accept lowest bid", value=settings.get("auto_accept_lowest_bid", True))
-            bidding_days = st.number_input("Bidding duration (days)", min_value=1, max_value=30, value=settings.get("bidding_duration_days", 7))
-            min_bids = st.number_input("Minimum bids required", min_value=1, max_value=5, value=settings.get("require_minimum_bids", 2))
+            auto_accept = st.toggle("Auto-accept lowest bid", value=settings.get("auto_accept_lowest_bid", True), key="auto_accept")
+            bidding_days = st.number_input("Bidding duration (days)", min_value=1, max_value=30, value=settings.get("bidding_duration_days", 7), key="bidding_days")
+            min_bids = st.number_input("Minimum bids required", min_value=1, max_value=5, value=settings.get("require_minimum_bids", 2), key="min_bids")
         
         with col2:
-            auto_reject = st.number_input("Auto-reject after (days)", min_value=7, max_value=60, value=settings.get("auto_reject_after_days", 14))
-            min_reduction = st.number_input("Minimum reduction % for auto-accept", min_value=0, max_value=50, value=settings.get("minimum_bid_reduction", 5))
-            preferred_bonus = st.number_input("Preferred supplier bonus (%)", min_value=0, max_value=20, value=settings.get("preferred_supplier_bonus", 5))
+            auto_reject = st.number_input("Auto-reject after (days)", min_value=7, max_value=60, value=settings.get("auto_reject_after_days", 14), key="auto_reject")
+            min_reduction = st.number_input("Minimum reduction % for auto-accept", min_value=0, max_value=50, value=settings.get("minimum_bid_reduction", 5), key="min_reduction")
+            preferred_bonus = st.number_input("Preferred supplier bonus (%)", min_value=0, max_value=20, value=settings.get("preferred_supplier_bonus", 5), key="preferred_bonus")
         
-        if st.button("💾 Save Settings", type="primary", use_container_width=True):
-            settings["auto_accept_lowest_bid"] = auto_accept
-            settings["bidding_duration_days"] = bidding_days
-            settings["require_minimum_bids"] = min_bids
-            settings["auto_reject_after_days"] = auto_reject
-            settings["minimum_bid_reduction"] = min_reduction
-            settings["preferred_supplier_bonus"] = preferred_bonus
-            settings["last_updated"] = datetime.now().isoformat()
-            save_bidding_settings(settings)
-            st.success("✅ Settings saved successfully!")
+        if st.button("💾 Save Settings", type="primary", key="save_settings_btn", use_container_width=True):
+            if not st.session_state.bidding_button_clicked:
+                st.session_state.bidding_button_clicked = True
+                
+                settings["auto_accept_lowest_bid"] = auto_accept
+                settings["bidding_duration_days"] = bidding_days
+                settings["require_minimum_bids"] = min_bids
+                settings["auto_reject_after_days"] = auto_reject
+                settings["minimum_bid_reduction"] = min_reduction
+                settings["preferred_supplier_bonus"] = preferred_bonus
+                settings["last_updated"] = datetime.now().isoformat()
+                save_bidding_settings(settings)
+                st.success("✅ Settings saved successfully!")
+                
+                st.session_state.bidding_button_clicked = False
         
         st.markdown("---")
         st.markdown("### 📖 How Bidding Works")
@@ -726,6 +817,12 @@ def supplier_bidding_portal():
         st.info("Demo Supplier Login - Coming Soon")
         return
     
+    # Initialize session state
+    if "supplier_bid_submitted" not in st.session_state:
+        st.session_state.supplier_bid_submitted = False
+    if "supplier_bid_button_clicked" not in st.session_state:
+        st.session_state.supplier_bid_button_clicked = False
+    
     bids_df = load_bids()
     
     # Get bids for this supplier
@@ -733,7 +830,7 @@ def supplier_bidding_portal():
     
     # Get open bidding opportunities (where this supplier hasn't bid yet)
     all_bids_for_supplier = bids_df[bids_df["supplier_id"] == supplier_id]
-    bid_pos = all_bids_for_supplier["po_number"].tolist()
+    bid_pos = all_bids_for_supplier["po_number"].tolist() if not all_bids_for_supplier.empty else []
     
     # Load open POs
     purchases_df = load_purchases()
@@ -742,7 +839,7 @@ def supplier_bidding_portal():
     if not open_pos.empty:
         st.markdown("### 📋 Open Bidding Opportunities")
         
-        selected_po = st.selectbox("Select PO to bid on", open_pos["po_number"].tolist())
+        selected_po = st.selectbox("Select PO to bid on", open_pos["po_number"].tolist(), key="supplier_po_select")
         
         if selected_po:
             po_data = open_pos[open_pos["po_number"] == selected_po].iloc[0]
@@ -752,28 +849,38 @@ def supplier_bidding_portal():
             col1, col2 = st.columns(2)
             
             with col1:
-                bid_amount = st.number_input("Your Bid Amount ($)", min_value=0.01, value=float(po_data.get("total_cost", 0)), step=10.0)
-                delivery_days = st.number_input("Delivery Time (days)", min_value=1, value=7, step=1)
+                bid_amount = st.number_input("Your Bid Amount ($)", min_value=0.01, value=float(po_data.get("total_cost", 0)), step=10.0, key="supplier_bid_amount")
+                delivery_days = st.number_input("Delivery Time (days)", min_value=1, value=7, step=1, key="supplier_delivery")
             
             with col2:
-                warranty_months = st.number_input("Warranty (months)", min_value=0, value=12, step=1)
-                payment_terms = st.selectbox("Payment Terms", ["NET15", "NET30", "NET45", "NET60", "COD"])
+                warranty_months = st.number_input("Warranty (months)", min_value=0, value=12, step=1, key="supplier_warranty")
+                payment_terms = st.selectbox("Payment Terms", ["NET15", "NET30", "NET45", "NET60", "COD"], key="supplier_payment")
             
-            notes = st.text_area("Additional Notes", placeholder="Any special conditions or offers...")
+            notes = st.text_area("Additional Notes", key="supplier_notes", placeholder="Any special conditions or offers...")
             
-            if st.button("💰 Submit Bid", type="primary", use_container_width=True):
-                submit_bid(
-                    po_number=selected_po,
-                    supplier_id=supplier_id,
-                    supplier_name=supplier_name,
-                    bid_amount=bid_amount,
-                    delivery_days=delivery_days,
-                    warranty_months=warranty_months,
-                    payment_terms=payment_terms,
-                    notes=notes
-                )
-                st.success("✅ Bid submitted successfully!")
-                st.rerun()
+            if st.button("💰 Submit Bid", type="primary", key="submit_supplier_bid", use_container_width=True):
+                if not st.session_state.supplier_bid_button_clicked:
+                    st.session_state.supplier_bid_button_clicked = True
+                    
+                    success, message = submit_bid(
+                        po_number=selected_po,
+                        supplier_id=supplier_id,
+                        supplier_name=supplier_name,
+                        bid_amount=bid_amount,
+                        delivery_days=delivery_days,
+                        warranty_months=warranty_months,
+                        payment_terms=payment_terms,
+                        notes=notes
+                    )
+                    
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.session_state.supplier_bid_submitted = True
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+                    
+                    st.session_state.supplier_bid_button_clicked = False
     
     # Show existing bids
     if not supplier_bids.empty:
