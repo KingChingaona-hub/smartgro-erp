@@ -50,7 +50,7 @@ def get_customer_complete_profile(phone):
         
         # Calculate metrics
         customer_data["total_transactions"] = len(customer_sales)
-        customer_data["total_revenue"] = customer_sales["final_total"].sum() if "final_total" in customer_sales.columns else customer_sales["total"].sum()
+        customer_data["total_revenue"] = customer_sales["final_total"].sum() if "final_total" in customer_sales.columns else customer_sales["total"].sum() if "total" in customer_sales.columns else 0
         customer_data["avg_transaction_value"] = customer_data["total_revenue"] / customer_data["total_transactions"] if customer_data["total_transactions"] > 0 else 0
         
         # Get last purchase date
@@ -231,19 +231,22 @@ def get_personalized_recommendations(customer_data):
 
 
 def calculate_customer_lifetime_value(customer_data):
-    """Calculate Customer Lifetime Value (CLV)"""
+    """Calculate Customer Lifetime Value (CLV) - FIXED: Handle None values"""
     
-    total_spent = customer_data.get("total_spent", 0)
-    total_orders = customer_data.get("total_orders", 0)
+    # Get values with safe defaults
+    total_spent = float(customer_data.get("total_spent", 0) or 0)
+    total_orders = int(customer_data.get("total_orders", 0) or 0)
     
     # Average order value
     avg_order = total_spent / total_orders if total_orders > 0 else 0
     
     # Purchase frequency (orders per year)
-    days_as_customer = customer_data.get("days_since_last_purchase", 365)
-    if days_as_customer < 1:
-        days_as_customer = 1
-    purchase_frequency = (total_orders / days_as_customer) * 365
+    days_since = customer_data.get("days_since_last_purchase", 365)
+    if days_since is None or days_since < 1:
+        days_since = 1
+    days_since = float(days_since)
+    
+    purchase_frequency = (total_orders / days_since) * 365 if total_orders > 0 else 0
     
     # Customer lifespan (estimated 3 years for retail)
     customer_lifespan = 3  # years
@@ -263,10 +266,12 @@ def calculate_customer_lifetime_value(customer_data):
 def get_customer_segment(customer_data):
     """Determine customer segment based on behavior"""
     
-    total_spent = customer_data.get("total_spent", 0)
-    total_orders = customer_data.get("total_orders", 0)
+    total_spent = float(customer_data.get("total_spent", 0) or 0)
+    total_orders = int(customer_data.get("total_orders", 0) or 0)
     days_since = customer_data.get("days_since_last_purchase", 999)
-    avg_order = customer_data.get("avg_transaction_value", 0)
+    if days_since is None:
+        days_since = 999
+    avg_order = float(customer_data.get("avg_transaction_value", 0) or 0)
     
     # High Value Loyal
     if total_spent >= 500 and total_orders >= 5:
@@ -386,19 +391,19 @@ def customer_360_view():
             col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
-                st.metric("💰 Total Spent", f"${profile.get('total_spent', 0):,.2f}")
+                st.metric("💰 Total Spent", f"${float(profile.get('total_spent', 0) or 0):,.2f}")
             with col2:
                 st.metric("🛒 Orders", profile.get('total_orders', 0))
             with col3:
                 st.metric("⭐ Points", f"{profile.get('points', 0):,}")
             with col4:
                 days_since = profile.get('days_since_last_purchase', 'N/A')
-                if days_since != 'N/A':
-                    st.metric("📅 Days Since Last", f"{days_since} days")
+                if days_since != 'N/A' and days_since is not None:
+                    st.metric("📅 Days Since Last", f"{int(days_since)} days")
                 else:
                     st.metric("📅 Last Purchase", "Never")
             with col5:
-                st.metric("💳 Avg Order", f"${profile.get('avg_transaction_value', 0):.2f}")
+                st.metric("💳 Avg Order", f"${float(profile.get('avg_transaction_value', 0) or 0):.2f}")
             
             st.markdown("---")
             
@@ -557,7 +562,7 @@ def customer_360_view():
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.error(f"💰 Outstanding Debt: ${profile.get('total_debt', 0):,.2f}")
+                    st.error(f"💰 Outstanding Debt: ${float(profile.get('total_debt', 0) or 0):,.2f}")
                 with col2:
                     if st.button("📋 View Debt Details", use_container_width=True):
                         debt_details = profile.get("debt_details", [])
@@ -597,9 +602,9 @@ def customer_insights_360():
     with col1:
         st.metric("👥 Total Customers", total_customers)
     with col2:
-        st.metric("💰 Total Revenue", f"${total_revenue:,.2f}")
+        st.metric("💰 Total Revenue", f"${float(total_revenue or 0):,.2f}")
     with col3:
-        st.metric("📊 Avg Customer Spend", f"${avg_spent:.2f}")
+        st.metric("📊 Avg Customer Spend", f"${float(avg_spent or 0):.2f}")
     with col4:
         active_customers = len(customers_df[customers_df["total_orders"] > 0]) if "total_orders" in customers_df.columns else 0
         st.metric("🟢 Active Customers", active_customers)
@@ -653,7 +658,7 @@ def customer_insights_360():
                     "Risk Level": churn["risk_level"],
                     "Risk Score": churn["risk_score"],
                     "Days Since Last": profile.get("days_since_last_purchase", "N/A"),
-                    "Total Spent": profile.get("total_spent", 0)
+                    "Total Spent": float(profile.get("total_spent", 0) or 0)
                 })
     
     if at_risk_customers:
