@@ -64,14 +64,16 @@ def create_purchase_order(supplier, items, expected_date):
 
 
 # ==============================
-# RECEIVE PURCHASE ORDER
+# RECEIVE PURCHASE ORDER - FIXED STOCK UPDATE
 # ==============================
 def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
     
+    # Load current data
     purchases_df = load_purchases()
     products_df = load_products()
     
+    # Ensure required columns exist
     if "status" not in purchases_df.columns:
         purchases_df["status"] = "PENDING"
     if "quantity_received" not in purchases_df.columns:
@@ -83,43 +85,50 @@ def receive_purchase_order(po_number, received_items, invoice_no):
     new_products = []
     
     for item in received_items:
+        # Skip items with 0 received quantity
+        if item["received_qty"] <= 0:
+            continue
+            
         mask = (purchases_df["po_number"] == po_number) & (purchases_df["barcode"] == str(item["barcode"]))
         idx = purchases_df[mask].index
         
         received_qty = int(item["received_qty"])
-        cost_price = item["cost"]
+        cost_price = float(item["cost"])
+        barcode = str(item["barcode"])
+        product_name = item["name"]
         
         if len(idx) > 0:
+            # Update purchase record
             purchases_df.loc[idx, "quantity_received"] = received_qty
             purchases_df.loc[idx, "date_received"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             purchases_df.loc[idx, "status"] = "RECEIVED"
             purchases_df.loc[idx, "invoice_no"] = invoice_no
             
-            product_name = purchases_df.loc[idx, "product_name"].iloc[0] if len(idx) > 0 else "Unknown"
-            
-            product_idx = products_df[products_df["barcode"] == str(item["barcode"])].index
+            # Update product stock in inventory
+            product_idx = products_df[products_df["barcode"] == barcode].index
             
             if len(product_idx) > 0:
+                # Product exists - UPDATE existing stock
                 current_stock = float(products_df.loc[product_idx[0], "stock"])
                 new_stock = current_stock + received_qty
                 products_df.loc[product_idx[0], "stock"] = new_stock
-                products_df.loc[product_idx[0], "cost"] = float(cost_price)
+                products_df.loc[product_idx[0], "cost"] = cost_price
                 
                 updated_products.append({
                     "name": product_name,
                     "old_stock": current_stock,
                     "added": received_qty,
                     "new_stock": new_stock,
-                    "cost": float(cost_price)
+                    "cost": cost_price
                 })
             else:
-                cost_price_float = float(cost_price)
+                # Product doesn't exist - CREATE new product in inventory
                 new_product = pd.DataFrame([{
-                    "barcode": str(item["barcode"]),
+                    "barcode": barcode,
                     "name": product_name,
                     "category": "New Purchase",
-                    "price": cost_price_float * 1.3,
-                    "cost": cost_price_float,
+                    "price": cost_price * 1.3,
+                    "cost": cost_price,
                     "stock": received_qty,
                     "reorder_level": 5
                 }])
@@ -128,9 +137,10 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 new_products.append({
                     "name": product_name,
                     "stock": received_qty,
-                    "cost": cost_price_float
+                    "cost": cost_price
                 })
     
+    # Save all changes
     save_products(products_df)
     save_purchases(purchases_df)
     
@@ -399,7 +409,7 @@ def purchases_page():
                     st.error("Please enter an item name")
                 
                 st.session_state.button_clicked = False
-                #st.rerun()
+                st.rerun()
         
         # Display PO Cart
         if st.session_state.po_cart:
@@ -471,6 +481,8 @@ def purchases_page():
                             - Items: {len(po_df)}
                             - Total Value: ${po_total:,.2f}
                             - Expected Date: {expected_date}
+                            
+                            ⚠️ **Important:** Stock will be added to inventory when you RECEIVE this order in the "Receive Stock" tab.
                             """)
                             
                             po_text = f"""
