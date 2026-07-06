@@ -409,7 +409,7 @@ def purchases_page():
                     st.error("Please enter an item name")
                 
                 st.session_state.button_clicked = False
-                st.rerun()
+                #st.rerun()
         
         # Display PO Cart
         if st.session_state.po_cart:
