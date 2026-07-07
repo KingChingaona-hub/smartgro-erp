@@ -39,7 +39,7 @@ LANGUAGES = {
 }
 
 # ==============================
-# DEFAULT TRANSLATIONS - EXPANDED
+# DEFAULT TRANSLATIONS
 # ==============================
 DEFAULT_TRANSLATIONS = {
     # Navigation
@@ -59,6 +59,8 @@ DEFAULT_TRANSLATIONS = {
     "nav_bidding": {"en": "Supplier Bidding", "sn": "Kukwikwidza Kwevatengesi", "nd": "Ukubhidana Kwabathengisi"},
     "nav_debtors": {"en": "Debtors", "sn": "Vane Zvikwereti", "nd": "Abakweletayo"},
     "nav_forecasting": {"en": "Forecasting", "sn": "Kufembera", "nd": "Ukubikezela"},
+    "nav_live": {"en": "Live Dashboard", "sn": "Live Dashboard", "nd": "Live Dashboard"},
+    "nav_suppliers": {"en": "Suppliers", "sn": "Vatengesi", "nd": "Abathengisi"},
     
     # Common Actions
     "action_add": {"en": "Add", "sn": "Wedzera", "nd": "Faka"},
@@ -193,12 +195,10 @@ def init_language_files():
     try:
         DATA_DIR.mkdir(exist_ok=True)
         
-        # Create translations file if not exists
         if not TRANSLATIONS_FILE.exists():
             with open(TRANSLATIONS_FILE, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_TRANSLATIONS, f, ensure_ascii=False, indent=2)
         
-        # Create language settings file if not exists
         if not LANGUAGE_FILE.exists():
             settings = {
                 "current_language": "en",
@@ -246,11 +246,10 @@ def get_current_language():
 
 
 def set_current_language(lang_code):
-    """Set current language"""
+    """Set current language - FIXED: No rerun here"""
     try:
         init_language_files()
         
-        # Validate language code
         if lang_code not in LANGUAGES:
             lang_code = "en"
         
@@ -273,7 +272,7 @@ def set_current_language(lang_code):
 
 
 def _(key, language=None):
-    """Translate a key to current language - FIXED: Returns key if not found"""
+    """Translate a key to current language"""
     if language is None:
         language = get_current_language()
     
@@ -282,15 +281,13 @@ def _(key, language=None):
         
         if key in translations:
             translation = translations[key]
-            if language in translation:
+            if language in translation and translation[language]:
                 return translation[language]
-            elif "en" in translation:
+            elif "en" in translation and translation["en"]:
                 return translation["en"]
         
-        # Return key with underscores replaced by spaces if not found
         return key.replace("_", " ").title()
-    except Exception as e:
-        print(f"Error translating {key}: {e}")
+    except Exception:
         return key.replace("_", " ").title()
 
 
@@ -314,7 +311,6 @@ def translate_text(text, target_lang):
     try:
         translations = load_translations()
         
-        # Search for the text in translations
         for key, value in translations.items():
             if value.get("en", "").lower() == text.lower():
                 return value.get(target_lang, text)
@@ -331,7 +327,7 @@ def init_session_language():
 
 
 def language_selector():
-    """Display language selector in sidebar - FIXED"""
+    """Display language selector in sidebar - FIXED: No continuous rerun"""
     
     init_session_language()
     current_lang = get_current_language()
@@ -349,34 +345,36 @@ def language_selector():
     except ValueError:
         current_index = 0
     
+    # Use a unique key for the selectbox
     selected = st.sidebar.selectbox(
         "🌐 Language",
         lang_options,
         index=current_index,
-        key="language_selector_widget"
+        key="language_selector_unique"
     )
     
     # Get selected language code
     selected_index = lang_options.index(selected)
     selected_code = lang_codes[selected_index]
     
+    # Only update if changed and not already in the process
     if selected_code != current_lang:
-        set_current_language(selected_code)
-        st.rerun()
+        if set_current_language(selected_code):
+            # Use st.rerun() only once after setting
+            st.rerun()
 
 
 # ==============================
-# LANGUAGE DASHBOARD (Admin)
+# LANGUAGE DASHBOARD (Admin) - FIXED
 # ==============================
 def language_dashboard():
-    """Language management dashboard for admins - FIXED"""
+    """Language management dashboard for admins - FIXED: No continuous rerun"""
     
     st.title("🌐 Language Management")
     st.caption("Manage system languages and translations")
     
     role = st.session_state.get("role", "cashier")
     
-    # Only owner and managers can access language settings
     if role not in ["owner", "manager"]:
         st.error("❌ Access Denied. Only owners and managers can manage language settings.")
         return
@@ -391,7 +389,7 @@ def language_dashboard():
     ])
     
     # ==============================
-    # TAB 1: LANGUAGE SETTINGS
+    # TAB 1: LANGUAGE SETTINGS - FIXED
     # ==============================
     with tab1:
         st.markdown("## 🌍 System Language")
@@ -414,9 +412,10 @@ def language_dashboard():
             
             for code, info in LANGUAGES.items():
                 if st.button(f"{info['icon']} Switch to {info['name']}", key=f"switch_{code}", use_container_width=True):
-                    set_current_language(code)
-                    st.success(f"Language changed to {info['name']}")
-                    st.rerun()
+                    if set_current_language(code):
+                        st.success(f"Language changed to {info['name']}")
+                        # Use rerun only once after successful change
+                        st.rerun()
         
         st.markdown("---")
         
@@ -447,17 +446,14 @@ def language_dashboard():
         
         translations = load_translations()
         
-        # Select language to edit
         edit_lang = st.selectbox(
             "Select Language",
             list(LANGUAGES.keys()),
             format_func=lambda x: f"{LANGUAGES[x]['icon']} {LANGUAGES[x]['name']}"
         )
         
-        # Search/filter
         search = st.text_input("Search translation key", placeholder="Type to filter...")
         
-        # Display editable table with pagination
         st.markdown("### Edit Translations")
         
         filtered_keys = list(translations.keys())
@@ -493,15 +489,14 @@ def language_dashboard():
                         )
                     
                     with col2:
-                        # Show English for reference
                         en_value = translations[key].get("en", "")
                         st.caption(f"English: {en_value[:50]}...")
                     
-                    if new_value != current_value:
+                    if new_value != current_value and new_value:
                         translations[key][edit_lang] = new_value
                         if save_translations(translations):
                             st.success(f"Updated: {key}")
-                            st.rerun()
+                            # Don't rerun here, let the user continue editing
         
         if len(filtered_keys) > items_per_page:
             st.info(f"Showing {len(page_keys)} of {len(filtered_keys)} keys. Use search to filter.")
@@ -538,7 +533,6 @@ def language_dashboard():
         
         translations = load_translations()
         
-        # Calculate completion for each language
         completion_data = []
         for lang_code, lang_info in LANGUAGES.items():
             total = len(translations)
@@ -579,14 +573,12 @@ def language_dashboard():
         if missing_keys:
             st.warning(f"{len(missing_keys)} missing translations for {LANGUAGES[missing_lang]['name']}")
             
-            # Show missing keys in a text area for copying
             missing_text = "\n".join(missing_keys[:100])
             st.text_area("Missing Keys (copy to work offline)", missing_text, height=200)
             
-            # Option to auto-fill with English
             if st.button("📝 Auto-fill Missing with English", use_container_width=True):
                 for key in missing_keys:
-                    if "en" in translations[key]:
+                    if "en" in translations[key] and translations[key]["en"]:
                         translations[key][missing_lang] = translations[key]["en"]
                 if save_translations(translations):
                     st.success(f"Auto-filled {len(missing_keys)} missing translations")
@@ -601,7 +593,6 @@ def language_dashboard():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Export as CSV
             export_data = {"key": [], "en": [], "sn": [], "nd": []}
             for key, value in translations.items():
                 export_data["key"].append(key)
@@ -640,15 +631,15 @@ def language_dashboard():
 
 
 # ==============================
-# TRANSLATION HELPER FOR STREAMLIT
+# TRANSLATION HELPER
 # ==============================
 def tr(key):
-    """Shortcut for translation - use in all UI components"""
+    """Shortcut for translation"""
     return _(key)
 
 
 def apply_language_to_ui():
-    """Apply language settings to UI elements (to be called in each page)"""
+    """Apply language settings to UI elements"""
     init_session_language()
 
 
