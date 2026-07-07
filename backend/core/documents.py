@@ -752,7 +752,7 @@ def documents_dashboard():
                 )
     
     # ==============================
-    # TAB 4: CUSTOMER STATEMENT
+    # TAB 4: CUSTOMER STATEMENT - FIXED
     # ==============================
     with tab4:
         st.markdown("## 📊 Generate Customer Statement")
@@ -799,8 +799,9 @@ def documents_dashboard():
         if st.session_state.cs_transactions:
             trans_df = pd.DataFrame(st.session_state.cs_transactions)
             
-            # Calculate running balance
-            balance = opening_balance            running_balances = []
+            # Calculate running balance - FIXED: separate lines
+            balance = opening_balance
+            running_balances = []
             for _, row in trans_df.iterrows():
                 balance += row["debit"] - row["credit"]
                 running_balances.append(balance)
