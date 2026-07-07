@@ -348,7 +348,7 @@ def competitor_price_monitoring_dashboard():
     with tab2:
         st.markdown("## ➕ Record Price Comparison")
         
-        from backend.core.database import load_products
+        from backend.core.db_adapter import load_products
         
         products_df = load_products()
         competitors_df = load_competitors()
@@ -446,7 +446,7 @@ def competitor_price_monitoring_dashboard():
                     st.success(f"✅ Competitor added! ID: {comp_id}")
                     show_toast("Competitor added successfully!", "success")
                     st.session_state.competitor_added = True
-                    st.rerun()
+                    #st.rerun()
                 else:
                     st.error("Please enter competitor name")
         
@@ -488,7 +488,7 @@ def competitor_price_monitoring_dashboard():
                             save_price_monitoring(price_df)
                         
                         st.success(f"✅ Competitor '{comp_to_delete}' deleted!")
-                        st.rerun()
+                        #st.rerun()
         else:
             st.info("No competitors added yet")
     
@@ -498,7 +498,7 @@ def competitor_price_monitoring_dashboard():
     with tab4:
         st.markdown("## 📈 Price Trends Analysis")
         
-        from backend.core.database import load_products
+        from backend.core.db_adapter import load_products
         
         products_df = load_products()
         
