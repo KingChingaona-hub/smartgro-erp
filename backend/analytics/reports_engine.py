@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from decimal import Decimal
-import streamlit as st
 import io
 import base64
 
@@ -64,7 +63,7 @@ def get_sales_report_data(start_date, end_date):
     
     sales_df = convert_decimal_to_float(sales_df)
     
-    date_col = find_column(sales_df, ['date', 'sale_date', 'transaction_date', 'created_at', 'datetime'])
+    date_col = find_column(sales_df, ['sale_date', 'date', 'transaction_date', 'created_at', 'datetime'])
     if date_col is None:
         return pd.DataFrame()
     
@@ -101,7 +100,7 @@ def get_sales_report_data(start_date, end_date):
     
     sales_df["items"] = sales_df["items"].astype(int)
     
-    product_col = find_column(sales_df, ['name', 'product_name', 'Product', 'item_name', 'description'])
+    product_col = find_column(sales_df, ['product_name', 'name', 'Product', 'item_name', 'description'])
     if product_col is None:
         sales_df["name"] = "Unknown"
     else:
@@ -113,7 +112,7 @@ def get_sales_report_data(start_date, end_date):
     else:
         sales_df["payment_method"] = sales_df[payment_col].fillna("CASH").astype(str)
     
-    customer_col = find_column(sales_df, ['customer', 'customer_name', 'client', 'buyer'])
+    customer_col = find_column(sales_df, ['customer_name', 'customer', 'client', 'buyer'])
     if customer_col is None:
         sales_df["customer"] = "Walk-in"
     else:
@@ -688,7 +687,7 @@ def generate_debtors_report():
 
 
 # ==============================
-# PDF GENERATION FUNCTIONS - OPTIMIZED
+# PDF GENERATION FUNCTIONS - CLEAN
 # ==============================
 
 def generate_sales_report_pdf(start_date, end_date):
@@ -1061,7 +1060,23 @@ def generate_inventory_report_pdf():
     inventory_data = get_inventory_report_data()
     
     if inventory_data.empty:
-        return generate_simple_html_report("Inventory Report", "No inventory data available")
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8"><title>Inventory Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; text-align: center; }}
+            h1 {{ color: #2c3e50; }}
+        </style>
+        </head>
+        <body>
+            <h1>📦 Inventory Report</h1>
+            <p>No inventory data available</p>
+            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        </body>
+        </html>
+        """
+        return html.encode('utf-8')
     
     html = f"""
     <!DOCTYPE html>
@@ -1218,28 +1233,6 @@ def generate_combined_report_pdf(start_date, end_date):
     </html>
     """
     
-    return html.encode('utf-8')
-
-
-def generate_simple_html_report(title, message):
-    """Generate a simple HTML report for errors"""
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>{title}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; text-align: center; }}
-        h1 {{ color: #2c3e50; }}
-        .message {{ color: #7f8c8d; font-size: 18px; margin-top: 30px; }}
-    </style>
-    </head>
-    <body>
-        <h1>📊 {title}</h1>
-        <div class="message">{message}</div>
-        <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-    </body>
-    </html>
-    """
     return html.encode('utf-8')
 
 
