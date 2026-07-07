@@ -19,120 +19,81 @@ def convert_decimal_to_float(df):
     
     for col in df.columns:
         if df[col].dtype == object:
-            # Check if column contains Decimal values
             sample = df[col].iloc[0] if len(df) > 0 else None
             if sample is not None and isinstance(sample, Decimal):
                 df[col] = df[col].astype(float)
-            elif sample is not None and isinstance(sample, (int, float)):
-                pass  # Already numeric
     return df
 
 
-def debug_dataframe(df, name="DataFrame"):
-    """Debug function to show DataFrame info"""
+def safe_float(value, default=0.0):
+    """Safely convert value to float"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_int(value, default=0):
+    """Safely convert value to int"""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def find_column(df, possible_names, default=None):
+    """Find the first column that matches any of the possible names"""
     if df is None or df.empty:
-        st.warning(f"⚠️ {name} is EMPTY")
-        return
-    
-    with st.expander(f"🔍 Debug: {name}", expanded=True):
-        st.write(f"📊 Shape: {df.shape}")
-        st.write(f"📋 Columns: {df.columns.tolist()}")
-        st.write(f"📝 First 3 rows:")
-        st.dataframe(df.head(3))
-        st.write(f"📊 Data Types:")
-        st.write(df.dtypes)
+        return default
+    for name in possible_names:
+        if name in df.columns:
+            return name
+    return default
 
 
 def get_sales_report_data(start_date, end_date):
-    """
-    Get sales data for reporting with proper column handling
-    """
+    """Get sales data for reporting with proper column handling"""
     sales_df = load_sales()
     
-    st.write("=" * 60)
-    st.write("🔍 DEBUG: get_sales_report_data")
-    st.write(f"📅 Start Date: {start_date}")
-    st.write(f"📅 End Date: {end_date}")
-    
     if sales_df.empty:
-        st.error("❌ Sales DataFrame is EMPTY from load_sales()")
         return pd.DataFrame()
     
-    debug_dataframe(sales_df, "Original Sales DataFrame")
-    
-    # Convert Decimal columns to float
     sales_df = convert_decimal_to_float(sales_df)
     
-    # Find date column - check ALL possible columns
-    date_col = None
-    for col in sales_df.columns:
-        # Check if column name contains date-related keywords
-        if any(keyword in col.lower() for keyword in ['date', 'time', 'created', 'updated', 'sale', 'trans', 'datetime']):
-            date_col = col
-            break
-    
+    date_col = find_column(sales_df, ['date', 'sale_date', 'transaction_date', 'created_at', 'datetime'])
     if date_col is None:
-        st.error(f"❌ No date column found. Available columns: {sales_df.columns.tolist()}")
         return pd.DataFrame()
     
-    st.write(f"📅 Found date column: {date_col}")
-    
-    # Show sample dates before conversion
-    st.write(f"📅 Sample dates before conversion: {sales_df[date_col].head(3).tolist()}")
-    
-    # Convert date column
     sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
     sales_df = sales_df.dropna(subset=[date_col])
     
     if sales_df.empty:
-        st.error("❌ After converting dates, all rows were dropped (invalid dates)")
         return pd.DataFrame()
     
-    st.write(f"✅ After date conversion: {len(sales_df)} rows")
-    st.write(f"📅 Date range: {sales_df[date_col].min()} to {sales_df[date_col].max()}")
-    
-    # Rename to standard 'date' for consistency
     if date_col != "date":
         sales_df["date"] = sales_df[date_col]
     
-    # Find total/final amount column
-    total_col = None
-    for col in sales_df.columns:
-        if any(keyword in col.lower() for keyword in ['total', 'amount', 'final', 'grand', 'subtotal', 'net']):
-            total_col = col
-            break
-    
+    total_col = find_column(sales_df, ['total', 'final_total', 'amount', 'sale_amount', 'revenue'])
     if total_col is None:
-        st.warning(f"⚠️ No total column found. Available columns: {sales_df.columns.tolist()}")
         sales_df["total"] = 0
     else:
-        st.write(f"💰 Found total column: {total_col}")
         sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
     
     sales_df["total"] = sales_df["total"].astype(float)
     
-    # Find profit column
-    profit_col = None
-    for col in sales_df.columns:
-        if any(keyword in col.lower() for keyword in ['profit', 'margin', 'gross', 'net_profit']):
-            profit_col = col
-            break
-    
+    profit_col = find_column(sales_df, ['profit', 'profit_margin', 'gross_profit', 'net_profit'])
     if profit_col is None:
-        st.warning("⚠️ No profit column found, using 30% of total as estimate")
         sales_df["profit"] = sales_df["total"] * 0.3
     else:
         sales_df["profit"] = pd.to_numeric(sales_df[profit_col], errors="coerce").fillna(0)
     
     sales_df["profit"] = sales_df["profit"].astype(float)
     
-    # Find items/quantity column
-    items_col = None
-    for col in sales_df.columns:
-        if any(keyword in col.lower() for keyword in ['items', 'quantity', 'qty', 'count', 'units']):
-            items_col = col
-            break
-    
+    items_col = find_column(sales_df, ['items', 'quantity', 'qty', 'units', 'count'])
     if items_col is None:
         sales_df["items"] = 1
     else:
@@ -140,100 +101,38 @@ def get_sales_report_data(start_date, end_date):
     
     sales_df["items"] = sales_df["items"].astype(int)
     
-    # Find product name column
-    product_col = None
-    for col in sales_df.columns:
-        if any(keyword in col.lower() for keyword in ['name', 'product', 'item', 'description']):
-            product_col = col
-            break
-    
+    product_col = find_column(sales_df, ['name', 'product_name', 'Product', 'item_name', 'description'])
     if product_col is None:
         sales_df["name"] = "Unknown"
     else:
         sales_df["name"] = sales_df[product_col].fillna("Unknown").astype(str)
     
-    # Find payment method column
-    payment_col = None
-    for col in sales_df.columns:
-        if any(keyword in col.lower() for keyword in ['payment', 'method', 'pay', 'type']):
-            payment_col = col
-            break
-    
+    payment_col = find_column(sales_df, ['payment_method', 'payment_type', 'payment', 'method'])
     if payment_col is None:
         sales_df["payment_method"] = "CASH"
     else:
         sales_df["payment_method"] = sales_df[payment_col].fillna("CASH").astype(str)
     
-    # Find customer column
-    customer_col = None
-    for col in sales_df.columns:
-        if any(keyword in col.lower() for keyword in ['customer', 'client', 'buyer']):
-            customer_col = col
-            break
-    
+    customer_col = find_column(sales_df, ['customer', 'customer_name', 'client', 'buyer'])
     if customer_col is None:
         sales_df["customer"] = "Walk-in"
     else:
         sales_df["customer"] = sales_df[customer_col].fillna("Walk-in").astype(str)
     
-    # Find receipt/transaction ID column
-    receipt_col = None
-    for col in sales_df.columns:
-        if any(keyword in col.lower() for keyword in ['receipt', 'transaction', 'order', 'invoice', 'ticket']):
-            receipt_col = col
-            break
-    
+    receipt_col = find_column(sales_df, ['receipt_no', 'receipt', 'transaction_id', 'order_id', 'invoice'])
     if receipt_col is None:
         sales_df["receipt_no"] = sales_df.index.astype(str)
     else:
         sales_df["receipt_no"] = sales_df[receipt_col].fillna("").astype(str)
     
-    # IMPORTANT: If start_date and end_date are provided, filter by date range
+    # Filter by date range
     if start_date and end_date:
         try:
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            
-            st.write(f"📅 Filtering from {start_dt} to {end_dt}")
-            
-            # Filter by date
-            before_filter = len(sales_df)
             sales_df = sales_df[(sales_df["date"] >= start_dt) & (sales_df["date"] <= end_dt)]
-            after_filter = len(sales_df)
-            
-            st.write(f"📊 Rows before filter: {before_filter}, after filter: {after_filter}")
-            
-            if after_filter == 0:
-                st.warning("⚠️ No data found in the selected date range. Showing all data instead.")
-                # Don't filter - show all data
-                sales_df = load_sales()
-                if not sales_df.empty:
-                    sales_df = convert_decimal_to_float(sales_df)
-                    sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-                    sales_df = sales_df.dropna(subset=[date_col])
-                    if date_col != "date":
-                        sales_df["date"] = sales_df[date_col]
-                    # Re-apply all the column mappings
-                    if total_col:
-                        sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
-                    else:
-                        sales_df["total"] = 0
-                    sales_df["total"] = sales_df["total"].astype(float)
-        except Exception as e:
-            st.error(f"❌ Error filtering by date: {str(e)}")
-    
-    # Show final debug info
-    if not sales_df.empty:
-        st.success(f"✅ Final sales data: {len(sales_df)} rows, Total sales: ${sales_df['total'].sum():,.2f}")
-        st.write(f"📅 Final date range: {sales_df['date'].min()} to {sales_df['date'].max()}")
-    else:
-        st.error("❌ Final sales data is EMPTY")
-        # Try to get data without date filtering as fallback
-        st.warning("⚠️ Attempting to load data without date filtering...")
-        sales_df = load_sales()
-        if not sales_df.empty:
-            st.success(f"✅ Loaded {len(sales_df)} rows without date filtering")
-            debug_dataframe(sales_df, "Sales Data without filtering")
+        except:
+            pass
     
     return sales_df
 
@@ -247,29 +146,20 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df = convert_decimal_to_float(expenses_df)
     
-    # Find date column
-    date_col = None
-    for col in expenses_df.columns:
-        if any(keyword in col.lower() for keyword in ['date', 'time', 'created', 'expense']):
-            date_col = col
-            break
-    
+    date_col = find_column(expenses_df, ['date', 'expense_date', 'created_at', 'transaction_date'])
     if date_col is None:
         return pd.DataFrame()
     
     expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
     expenses_df = expenses_df.dropna(subset=[date_col])
     
+    if expenses_df.empty:
+        return pd.DataFrame()
+    
     if date_col != "date":
         expenses_df["date"] = expenses_df[date_col]
     
-    # Find amount column
-    amount_col = None
-    for col in expenses_df.columns:
-        if any(keyword in col.lower() for keyword in ['amount', 'cost', 'total', 'value']):
-            amount_col = col
-            break
-    
+    amount_col = find_column(expenses_df, ['amount', 'cost', 'total', 'value', 'expense_amount'])
     if amount_col is None:
         expenses_df["amount"] = 0
     else:
@@ -277,19 +167,12 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df["amount"] = expenses_df["amount"].astype(float)
     
-    # Find category column
-    category_col = None
-    for col in expenses_df.columns:
-        if any(keyword in col.lower() for keyword in ['category', 'type', 'name']):
-            category_col = col
-            break
-    
+    category_col = find_column(expenses_df, ['category', 'type', 'name', 'expense_type'])
     if category_col is None:
         expenses_df["category"] = "Other"
     else:
         expenses_df["category"] = expenses_df[category_col].fillna("Other").astype(str)
     
-    # Filter by date range
     if start_date and end_date:
         try:
             start_dt = pd.to_datetime(start_date)
@@ -310,29 +193,20 @@ def get_purchases_report_data(start_date, end_date):
     
     purchases_df = convert_decimal_to_float(purchases_df)
     
-    # Find date column
-    date_col = None
-    for col in purchases_df.columns:
-        if any(keyword in col.lower() for keyword in ['date', 'time', 'created', 'order', 'purchase']):
-            date_col = col
-            break
-    
+    date_col = find_column(purchases_df, ['date', 'order_date', 'purchase_date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
     
     purchases_df[date_col] = pd.to_datetime(purchases_df[date_col], errors="coerce")
     purchases_df = purchases_df.dropna(subset=[date_col])
     
+    if purchases_df.empty:
+        return pd.DataFrame()
+    
     if date_col != "date":
         purchases_df["date"] = purchases_df[date_col]
     
-    # Find total cost column
-    total_col = None
-    for col in purchases_df.columns:
-        if any(keyword in col.lower() for keyword in ['total', 'cost', 'amount', 'price']):
-            total_col = col
-            break
-    
+    total_col = find_column(purchases_df, ['total_cost', 'total', 'amount', 'cost', 'purchase_total'])
     if total_col is None:
         purchases_df["total_cost"] = 0
     else:
@@ -340,31 +214,18 @@ def get_purchases_report_data(start_date, end_date):
     
     purchases_df["total_cost"] = purchases_df["total_cost"].astype(float)
     
-    # Find supplier column
-    supplier_col = None
-    for col in purchases_df.columns:
-        if any(keyword in col.lower() for keyword in ['supplier', 'vendor', 'provider', 'seller']):
-            supplier_col = col
-            break
-    
+    supplier_col = find_column(purchases_df, ['supplier', 'vendor', 'provider', 'supplier_name'])
     if supplier_col is None:
         purchases_df["supplier"] = "Unknown"
     else:
         purchases_df["supplier"] = purchases_df[supplier_col].fillna("Unknown").astype(str)
     
-    # Find status column
-    status_col = None
-    for col in purchases_df.columns:
-        if any(keyword in col.lower() for keyword in ['status', 'state']):
-            status_col = col
-            break
-    
+    status_col = find_column(purchases_df, ['status', 'state', 'order_status'])
     if status_col is None:
         purchases_df["status"] = "PENDING"
     else:
         purchases_df["status"] = purchases_df[status_col].fillna("PENDING").astype(str)
     
-    # Filter by date range
     if start_date and end_date:
         try:
             start_dt = pd.to_datetime(start_date)
@@ -385,79 +246,49 @@ def get_products_report_data():
     
     products_df = convert_decimal_to_float(products_df)
     
-    # Find product name column
-    product_col = None
-    for col in products_df.columns:
-        if any(keyword in col.lower() for keyword in ['name', 'product', 'item']):
-            product_col = col
-            break
-    
-    if product_col is not None and product_col != "name":
-        products_df["name"] = products_df[product_col].fillna("Unknown").astype(str)
-    elif "name" not in products_df.columns:
+    name_col = find_column(products_df, ['name', 'product_name', 'Product', 'item_name'])
+    if name_col is None:
         products_df["name"] = "Unknown"
+    elif name_col != "name":
+        products_df["name"] = products_df[name_col].fillna("Unknown").astype(str)
     else:
         products_df["name"] = products_df["name"].fillna("Unknown").astype(str)
     
-    # Find price column
-    price_col = None
-    for col in products_df.columns:
-        if any(keyword in col.lower() for keyword in ['price', 'selling', 'unit', 'retail']):
-            price_col = col
-            break
-    
-    if price_col is not None and price_col != "price":
-        products_df["price"] = pd.to_numeric(products_df[price_col], errors="coerce").fillna(0)
-    elif "price" not in products_df.columns:
+    price_col = find_column(products_df, ['price', 'selling_price', 'unit_price', 'retail_price'])
+    if price_col is None:
         products_df["price"] = 0
+    elif price_col != "price":
+        products_df["price"] = pd.to_numeric(products_df[price_col], errors="coerce").fillna(0)
     else:
         products_df["price"] = pd.to_numeric(products_df["price"], errors="coerce").fillna(0)
     
     products_df["price"] = products_df["price"].astype(float)
     
-    # Find cost column
-    cost_col = None
-    for col in products_df.columns:
-        if any(keyword in col.lower() for keyword in ['cost', 'purchase', 'buy']):
-            cost_col = col
-            break
-    
-    if cost_col is not None and cost_col != "cost":
-        products_df["cost"] = pd.to_numeric(products_df[cost_col], errors="coerce").fillna(0)
-    elif "cost" not in products_df.columns:
+    cost_col = find_column(products_df, ['cost', 'cost_price', 'purchase_price', 'buy_price'])
+    if cost_col is None:
         products_df["cost"] = 0
+    elif cost_col != "cost":
+        products_df["cost"] = pd.to_numeric(products_df[cost_col], errors="coerce").fillna(0)
     else:
         products_df["cost"] = pd.to_numeric(products_df["cost"], errors="coerce").fillna(0)
     
     products_df["cost"] = products_df["cost"].astype(float)
     
-    # Find stock column
-    stock_col = None
-    for col in products_df.columns:
-        if any(keyword in col.lower() for keyword in ['stock', 'quantity', 'inventory', 'qty']):
-            stock_col = col
-            break
-    
-    if stock_col is not None and stock_col != "stock":
-        products_df["stock"] = pd.to_numeric(products_df[stock_col], errors="coerce").fillna(0)
-    elif "stock" not in products_df.columns:
+    stock_col = find_column(products_df, ['stock', 'quantity', 'inventory', 'qty', 'current_stock'])
+    if stock_col is None:
         products_df["stock"] = 0
+    elif stock_col != "stock":
+        products_df["stock"] = pd.to_numeric(products_df[stock_col], errors="coerce").fillna(0)
     else:
         products_df["stock"] = pd.to_numeric(products_df["stock"], errors="coerce").fillna(0)
     
     products_df["stock"] = products_df["stock"].astype(int)
     
-    # Find category column
-    category_col = None
-    for col in products_df.columns:
-        if any(keyword in col.lower() for keyword in ['category', 'cat', 'type', 'group']):
-            category_col = col
-            break
-    
-    if category_col is not None and category_col != "category":
-        products_df["category"] = products_df[category_col].fillna("Uncategorized").astype(str)
-    elif "category" not in products_df.columns:
+    category_col = find_column(products_df, ['category', 'cat', 'type', 'group', 'department'])
+    if category_col is None:
         products_df["category"] = "Uncategorized"
+    elif category_col != "category":
+        products_df["category"] = products_df[category_col].fillna("Uncategorized").astype(str)
     else:
         products_df["category"] = products_df["category"].fillna("Uncategorized").astype(str)
     
@@ -473,61 +304,37 @@ def get_customers_report_data():
     
     customers_df = convert_decimal_to_float(customers_df)
     
-    # Find customer name column
-    name_col = None
-    for col in customers_df.columns:
-        if any(keyword in col.lower() for keyword in ['name', 'customer', 'client', 'full']):
-            name_col = col
-            break
-    
-    if name_col is not None and name_col != "customer_name":
-        customers_df["customer_name"] = customers_df[name_col].fillna("Unknown").astype(str)
-    elif "customer_name" not in customers_df.columns:
+    name_col = find_column(customers_df, ['customer_name', 'name', 'client_name', 'full_name'])
+    if name_col is None:
         customers_df["customer_name"] = "Unknown"
+    elif name_col != "customer_name":
+        customers_df["customer_name"] = customers_df[name_col].fillna("Unknown").astype(str)
     else:
         customers_df["customer_name"] = customers_df["customer_name"].fillna("Unknown").astype(str)
     
-    # Find phone column
-    phone_col = None
-    for col in customers_df.columns:
-        if any(keyword in col.lower() for keyword in ['phone', 'mobile', 'telephone', 'contact']):
-            phone_col = col
-            break
-    
-    if phone_col is not None and phone_col != "phone":
-        customers_df["phone"] = customers_df[phone_col].fillna("").astype(str)
-    elif "phone" not in customers_df.columns:
+    phone_col = find_column(customers_df, ['phone', 'mobile', 'telephone', 'contact', 'phone_number'])
+    if phone_col is None:
         customers_df["phone"] = ""
+    elif phone_col != "phone":
+        customers_df["phone"] = customers_df[phone_col].fillna("").astype(str)
     else:
         customers_df["phone"] = customers_df["phone"].fillna("").astype(str)
     
-    # Find total spent column
-    spent_col = None
-    for col in customers_df.columns:
-        if any(keyword in col.lower() for keyword in ['spent', 'spend', 'total', 'amount']):
-            spent_col = col
-            break
-    
-    if spent_col is not None and spent_col != "total_spent":
-        customers_df["total_spent"] = pd.to_numeric(customers_df[spent_col], errors="coerce").fillna(0)
-    elif "total_spent" not in customers_df.columns:
+    spent_col = find_column(customers_df, ['total_spent', 'spent', 'total', 'amount_spent'])
+    if spent_col is None:
         customers_df["total_spent"] = 0
+    elif spent_col != "total_spent":
+        customers_df["total_spent"] = pd.to_numeric(customers_df[spent_col], errors="coerce").fillna(0)
     else:
         customers_df["total_spent"] = pd.to_numeric(customers_df["total_spent"], errors="coerce").fillna(0)
     
     customers_df["total_spent"] = customers_df["total_spent"].astype(float)
     
-    # Find total orders column
-    orders_col = None
-    for col in customers_df.columns:
-        if any(keyword in col.lower() for keyword in ['orders', 'order', 'purchases', 'count']):
-            orders_col = col
-            break
-    
-    if orders_col is not None and orders_col != "total_orders":
-        customers_df["total_orders"] = pd.to_numeric(customers_df[orders_col], errors="coerce").fillna(0)
-    elif "total_orders" not in customers_df.columns:
+    orders_col = find_column(customers_df, ['total_orders', 'orders', 'order_count', 'purchases'])
+    if orders_col is None:
         customers_df["total_orders"] = 0
+    elif orders_col != "total_orders":
+        customers_df["total_orders"] = pd.to_numeric(customers_df[orders_col], errors="coerce").fillna(0)
     else:
         customers_df["total_orders"] = pd.to_numeric(customers_df["total_orders"], errors="coerce").fillna(0)
     
@@ -543,31 +350,19 @@ def get_branches_report_data():
     if branches_df.empty:
         return pd.DataFrame()
     
-    # Find branch name column
-    name_col = None
-    for col in branches_df.columns:
-        if any(keyword in col.lower() for keyword in ['name', 'branch', 'location', 'title']):
-            name_col = col
-            break
-    
-    if name_col is not None and name_col != "branch_name":
-        branches_df["branch_name"] = branches_df[name_col].fillna("Unknown").astype(str)
-    elif "branch_name" not in branches_df.columns:
+    name_col = find_column(branches_df, ['branch_name', 'name', 'location', 'title'])
+    if name_col is None:
         branches_df["branch_name"] = "Unknown"
+    elif name_col != "branch_name":
+        branches_df["branch_name"] = branches_df[name_col].fillna("Unknown").astype(str)
     else:
         branches_df["branch_name"] = branches_df["branch_name"].fillna("Unknown").astype(str)
     
-    # Find location column
-    loc_col = None
-    for col in branches_df.columns:
-        if any(keyword in col.lower() for keyword in ['location', 'address', 'city', 'area']):
-            loc_col = col
-            break
-    
-    if loc_col is not None and loc_col != "location":
-        branches_df["location"] = branches_df[loc_col].fillna("").astype(str)
-    elif "location" not in branches_df.columns:
+    loc_col = find_column(branches_df, ['location', 'address', 'city', 'area'])
+    if loc_col is None:
         branches_df["location"] = ""
+    elif loc_col != "location":
+        branches_df["location"] = branches_df[loc_col].fillna("").astype(str)
     else:
         branches_df["location"] = branches_df["location"].fillna("").astype(str)
     
@@ -582,15 +377,9 @@ def get_inventory_report_data():
         return pd.DataFrame()
     
     inventory_data = products_df.copy()
-    
-    inventory_data["price"] = inventory_data["price"].astype(float)
-    inventory_data["cost"] = inventory_data["cost"].astype(float)
-    inventory_data["stock"] = inventory_data["stock"].astype(int)
-    
     inventory_data["stock_value"] = inventory_data["stock"] * inventory_data["cost"]
     inventory_data["selling_value"] = inventory_data["stock"] * inventory_data["price"]
     inventory_data["potential_profit"] = inventory_data["selling_value"] - inventory_data["stock_value"]
-    
     inventory_data = inventory_data.sort_values("stock_value", ascending=False)
     
     return inventory_data
@@ -605,67 +394,42 @@ def get_debtors_report_data():
     
     debtors_df = convert_decimal_to_float(debtors_df)
     
-    # Find customer name column
-    name_col = None
-    for col in debtors_df.columns:
-        if any(keyword in col.lower() for keyword in ['name', 'customer', 'client', 'debtor']):
-            name_col = col
-            break
-    
-    if name_col is not None and name_col != "customer_name":
-        debtors_df["customer_name"] = debtors_df[name_col].fillna("Unknown").astype(str)
-    elif "customer_name" not in debtors_df.columns:
+    name_col = find_column(debtors_df, ['customer_name', 'name', 'client_name', 'debtor_name'])
+    if name_col is None:
         debtors_df["customer_name"] = "Unknown"
+    elif name_col != "customer_name":
+        debtors_df["customer_name"] = debtors_df[name_col].fillna("Unknown").astype(str)
     else:
         debtors_df["customer_name"] = debtors_df["customer_name"].fillna("Unknown").astype(str)
     
-    # Find phone column
-    phone_col = None
-    for col in debtors_df.columns:
-        if any(keyword in col.lower() for keyword in ['phone', 'mobile', 'telephone', 'contact']):
-            phone_col = col
-            break
-    
-    if phone_col is not None and phone_col != "phone":
-        debtors_df["phone"] = debtors_df[phone_col].fillna("").astype(str)
-    elif "phone" not in debtors_df.columns:
+    phone_col = find_column(debtors_df, ['phone', 'mobile', 'telephone', 'contact'])
+    if phone_col is None:
         debtors_df["phone"] = ""
+    elif phone_col != "phone":
+        debtors_df["phone"] = debtors_df[phone_col].fillna("").astype(str)
     else:
         debtors_df["phone"] = debtors_df["phone"].fillna("").astype(str)
     
-    # Find amount columns
-    total_col = None
-    for col in debtors_df.columns:
-        if any(keyword in col.lower() for keyword in ['total', 'amount', 'debt']):
-            total_col = col
-            break
-    
-    if total_col is not None and total_col != "total_amount":
-        debtors_df["total_amount"] = pd.to_numeric(debtors_df[total_col], errors="coerce").fillna(0)
-    elif "total_amount" not in debtors_df.columns:
+    total_col = find_column(debtors_df, ['total_amount', 'amount', 'total', 'debt_amount'])
+    if total_col is None:
         debtors_df["total_amount"] = 0
+    elif total_col != "total_amount":
+        debtors_df["total_amount"] = pd.to_numeric(debtors_df[total_col], errors="coerce").fillna(0)
     else:
         debtors_df["total_amount"] = pd.to_numeric(debtors_df["total_amount"], errors="coerce").fillna(0)
     
     debtors_df["total_amount"] = debtors_df["total_amount"].astype(float)
     
-    # Find paid amount column
-    paid_col = None
-    for col in debtors_df.columns:
-        if any(keyword in col.lower() for keyword in ['paid', 'payment', 'pay']):
-            paid_col = col
-            break
-    
-    if paid_col is not None and paid_col != "amount_paid":
-        debtors_df["amount_paid"] = pd.to_numeric(debtors_df[paid_col], errors="coerce").fillna(0)
-    elif "amount_paid" not in debtors_df.columns:
+    paid_col = find_column(debtors_df, ['amount_paid', 'paid', 'payment', 'paid_amount'])
+    if paid_col is None:
         debtors_df["amount_paid"] = 0
+    elif paid_col != "amount_paid":
+        debtors_df["amount_paid"] = pd.to_numeric(debtors_df[paid_col], errors="coerce").fillna(0)
     else:
         debtors_df["amount_paid"] = pd.to_numeric(debtors_df["amount_paid"], errors="coerce").fillna(0)
     
     debtors_df["amount_paid"] = debtors_df["amount_paid"].astype(float)
     
-    # Calculate balance
     if "balance" in debtors_df.columns:
         debtors_df["balance"] = pd.to_numeric(debtors_df["balance"], errors="coerce").fillna(0)
     else:
@@ -673,17 +437,11 @@ def get_debtors_report_data():
     
     debtors_df["balance"] = debtors_df["balance"].astype(float)
     
-    # Find status column
-    status_col = None
-    for col in debtors_df.columns:
-        if any(keyword in col.lower() for keyword in ['status', 'state']):
-            status_col = col
-            break
-    
-    if status_col is not None and status_col != "status":
-        debtors_df["status"] = debtors_df[status_col].fillna("PENDING").astype(str)
-    elif "status" not in debtors_df.columns:
+    status_col = find_column(debtors_df, ['status', 'state', 'debt_status'])
+    if status_col is None:
         debtors_df["status"] = "PENDING"
+    elif status_col != "status":
+        debtors_df["status"] = debtors_df[status_col].fillna("PENDING").astype(str)
     else:
         debtors_df["status"] = debtors_df["status"].fillna("PENDING").astype(str)
     
@@ -712,7 +470,6 @@ def generate_sales_report(start_date, end_date):
     total_profit = float(sales_df["profit"].sum())
     total_items = int(sales_df["items"].sum())
     total_transactions = sales_df["receipt_no"].nunique()
-    
     avg_transaction = total_sales / total_transactions if total_transactions > 0 else 0
     profit_margin = (total_profit / total_sales * 100) if total_sales > 0 else 0
     
@@ -853,7 +610,6 @@ def generate_customer_report(start_date, end_date):
         }
     
     total_customers = sales_df["customer"].nunique()
-    
     customer_counts = sales_df.groupby("customer")["receipt_no"].nunique()
     new_customers = len(customer_counts[customer_counts == 1])
     repeat_customers = len(customer_counts[customer_counts > 1])
@@ -902,8 +658,10 @@ def generate_debtors_report():
     
     overdue_count = 0
     if "expected_repayment_date" in debtors_df.columns:
+        now = pd.Timestamp.now()
+        debtors_df["expected_repayment_date"] = pd.to_datetime(debtors_df["expected_repayment_date"], errors="coerce")
         overdue_count = len(debtors_df[
-            (debtors_df["expected_repayment_date"] < datetime.now()) & 
+            (debtors_df["expected_repayment_date"] < now) & 
             (debtors_df["balance"] > 0)
         ])
     
@@ -930,7 +688,7 @@ def generate_debtors_report():
 
 
 # ==============================
-# PDF GENERATION FUNCTIONS
+# PDF GENERATION FUNCTIONS - OPTIMIZED
 # ==============================
 
 def generate_sales_report_pdf(start_date, end_date):
@@ -1366,11 +1124,7 @@ def generate_combined_report_pdf(start_date, end_date):
     debtors_report = generate_debtors_report()
     
     net_profit = sales_report['total_sales'] - expense_report['total_expenses']
-    
-    if sales_report['total_sales'] > 0:
-        net_margin = (net_profit / sales_report['total_sales'] * 100)
-    else:
-        net_margin = 0
+    net_margin = (net_profit / sales_report['total_sales'] * 100) if sales_report['total_sales'] > 0 else 0
     
     html = f"""
     <!DOCTYPE html>
