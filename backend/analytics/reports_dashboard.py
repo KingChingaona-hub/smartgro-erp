@@ -31,11 +31,11 @@ from backend.analytics.reports_engine import (
 )
 
 # ==============================
-# REPORTS DASHBOARD
+# REPORTS DASHBOARD - CLEANED
 # ==============================
 
 def reports_dashboard():
-    """Main reports dashboard"""
+    """Main reports dashboard - Cleaned and optimized"""
     
     st.title("📊 Reports Dashboard")
     st.caption("Comprehensive business reports and analytics")
@@ -102,9 +102,10 @@ def reports_dashboard():
                     y="total",
                     title="Daily Sales Trend",
                     labels={"total": "Sales ($)", "date": "Date"},
-                    markers=True
+                    markers=True,
+                    color_discrete_sequence=["#2ECC71"]
                 )
-                fig.update_layout(height=350)
+                fig.update_layout(height=350, hovermode='x unified')
                 st.plotly_chart(fig, use_container_width=True)
             
             # Top products
@@ -118,7 +119,7 @@ def reports_dashboard():
                         x="total",
                         y="name",
                         orientation='h',
-                        title="Top 10 Products by Revenue",
+                        title="🏆 Top 10 Products by Revenue",
                         color="total",
                         color_continuous_scale="Blues",
                         text="total"
@@ -134,7 +135,7 @@ def reports_dashboard():
                         x="profit",
                         y="name",
                         orientation='h',
-                        title="Top 10 Products by Profit",
+                        title="🏆 Top 10 Products by Profit",
                         color="profit",
                         color_continuous_scale="Greens",
                         text="profit"
@@ -152,7 +153,8 @@ def reports_dashboard():
                         sales_report['payment_methods'],
                         values="total",
                         names="payment_method",
-                        title="Revenue by Payment Method"
+                        title="💳 Revenue by Payment Method",
+                        color_discrete_sequence=px.colors.qualitative.Set2
                     )
                     fig.update_layout(height=350)
                     st.plotly_chart(fig, use_container_width=True)
@@ -162,7 +164,8 @@ def reports_dashboard():
                         sales_report['payment_methods'],
                         values="transactions",
                         names="payment_method",
-                        title="Transactions by Payment Method"
+                        title="📊 Transactions by Payment Method",
+                        color_discrete_sequence=px.colors.qualitative.Set3
                     )
                     fig.update_layout(height=350)
                     st.plotly_chart(fig, use_container_width=True)
@@ -184,13 +187,13 @@ def reports_dashboard():
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_sales_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
-                        href = f'<a href="data:application/pdf;base64,{b64}" download="sales_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="sales_report_{datetime.now().strftime("%Y%m%d")}.pdf">📥 Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
                 html_bytes = generate_sales_report_html(start_date, end_date)
                 b64_html = base64.b64encode(html_bytes).decode()
-                href_html = f'<a href="data:text/html;base64,{b64_html}" download="sales_report_{datetime.now().strftime("%Y%m%d")}.html">Download HTML</a>'
+                href_html = f'<a href="data:text/html;base64,{b64_html}" download="sales_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
                 st.markdown(href_html, unsafe_allow_html=True)
         else:
             st.info("No sales data available for the selected period")
@@ -225,7 +228,7 @@ def reports_dashboard():
                         expense_report['by_category'],
                         values="amount",
                         names="category",
-                        title="Expenses by Category",
+                        title="📊 Expenses by Category",
                         color_discrete_sequence=px.colors.qualitative.Set3
                     )
                     fig.update_layout(height=400)
@@ -236,7 +239,7 @@ def reports_dashboard():
                         expense_report['by_category'],
                         x="category",
                         y="amount",
-                        title="Expenses by Category",
+                        title="📊 Expenses by Category",
                         color="amount",
                         color_continuous_scale="Reds",
                         text="amount"
@@ -251,11 +254,12 @@ def reports_dashboard():
                     expense_report['daily_expenses'],
                     x="date",
                     y="amount",
-                    title="Daily Expenses Trend",
+                    title="📈 Daily Expenses Trend",
                     labels={"amount": "Expenses ($)", "date": "Date"},
-                    markers=True
+                    markers=True,
+                    color_discrete_sequence=["#E74C3C"]
                 )
-                fig.update_layout(height=350)
+                fig.update_layout(height=350, hovermode='x unified')
                 st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
@@ -275,14 +279,14 @@ def reports_dashboard():
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_expenses_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
-                        href = f'<a href="data:application/pdf;base64,{b64}" download="expenses_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="expenses_report_{datetime.now().strftime("%Y%m%d")}.pdf">📥 Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
                 if st.button("📄 Download Expenses Report (HTML)", key="expenses_html"):
                     html_bytes = generate_expenses_report_pdf(start_date, end_date)
                     b64_html = base64.b64encode(html_bytes).decode()
-                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="expenses_report_{datetime.now().strftime("%Y%m%d")}.html">Download HTML</a>'
+                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="expenses_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
                     st.markdown(href_html, unsafe_allow_html=True)
         else:
             st.info("No expenses data available for the selected period")
@@ -315,7 +319,7 @@ def reports_dashboard():
                     x="amount",
                     y="supplier",
                     orientation='h',
-                    title="Top Suppliers by Purchase Amount",
+                    title="🏢 Top Suppliers by Purchase Amount",
                     color="amount",
                     color_continuous_scale="Blues",
                     text="amount"
@@ -330,7 +334,7 @@ def reports_dashboard():
                     purchase_report['by_status'],
                     values="count",
                     names="status",
-                    title="Purchase Orders by Status",
+                    title="📊 Purchase Orders by Status",
                     color_discrete_sequence=px.colors.qualitative.Set3
                 )
                 fig.update_layout(height=350)
@@ -342,11 +346,12 @@ def reports_dashboard():
                     purchase_report['daily_purchases'],
                     x="date",
                     y="amount",
-                    title="Daily Purchases Trend",
+                    title="📈 Daily Purchases Trend",
                     labels={"amount": "Purchases ($)", "date": "Date"},
-                    markers=True
+                    markers=True,
+                    color_discrete_sequence=["#F39C12"]
                 )
-                fig.update_layout(height=350)
+                fig.update_layout(height=350, hovermode='x unified')
                 st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
@@ -366,14 +371,14 @@ def reports_dashboard():
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_purchases_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
-                        href = f'<a href="data:application/pdf;base64,{b64}" download="purchases_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="purchases_report_{datetime.now().strftime("%Y%m%d")}.pdf">📥 Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
                 if st.button("📄 Download Purchases Report (HTML)", key="purchases_html"):
                     html_bytes = generate_purchases_report_pdf(start_date, end_date)
                     b64_html = base64.b64encode(html_bytes).decode()
-                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="purchases_report_{datetime.now().strftime("%Y%m%d")}.html">Download HTML</a>'
+                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="purchases_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
                     st.markdown(href_html, unsafe_allow_html=True)
         else:
             st.info("No purchases data available for the selected period")
@@ -431,7 +436,7 @@ def reports_dashboard():
                     category_summary,
                     x="category",
                     y="stock_value",
-                    title="Inventory Value by Category",
+                    title="📊 Inventory Value by Category",
                     color="stock_value",
                     color_continuous_scale="Greens",
                     text="stock_value"
@@ -472,14 +477,14 @@ def reports_dashboard():
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_inventory_report_pdf()
                         b64 = base64.b64encode(pdf_bytes).decode()
-                        href = f'<a href="data:application/pdf;base64,{b64}" download="inventory_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="inventory_report_{datetime.now().strftime("%Y%m%d")}.pdf">📥 Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
                 if st.button("📄 Download Inventory Report (HTML)", key="inventory_html"):
                     html_bytes = generate_inventory_report_pdf()
                     b64_html = base64.b64encode(html_bytes).decode()
-                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="inventory_report_{datetime.now().strftime("%Y%m%d")}.html">Download HTML</a>'
+                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="inventory_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
                     st.markdown(href_html, unsafe_allow_html=True)
         else:
             st.info("No inventory data available")
@@ -513,7 +518,7 @@ def reports_dashboard():
                     x="total",
                     y="customer",
                     orientation='h',
-                    title="Top Customers by Spending",
+                    title="🏆 Top Customers by Spending",
                     color="total",
                     color_continuous_scale="Blues",
                     text="total"
@@ -538,7 +543,6 @@ def reports_dashboard():
             col1, col2 = st.columns(2)
             
             with col1:
-                # Get customers data for CSV
                 customers_data = get_customers_report_data()
                 if not customers_data.empty:
                     csv_data = customers_data.to_csv(index=False).encode('utf-8')
@@ -554,7 +558,7 @@ def reports_dashboard():
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_customers_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
-                        href = f'<a href="data:application/pdf;base64,{b64}" download="customers_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="customers_report_{datetime.now().strftime("%Y%m%d")}.pdf">📥 Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
         else:
             st.info("No customer data available for the selected period")
@@ -591,7 +595,7 @@ def reports_dashboard():
                         debtors_report['by_status'],
                         values="balance",
                         names="status",
-                        title="Debt by Status",
+                        title="📊 Debt by Status",
                         color_discrete_sequence=px.colors.qualitative.Set3
                     )
                     fig.update_layout(height=350)
@@ -602,7 +606,7 @@ def reports_dashboard():
                         debtors_report['by_status'],
                         x="status",
                         y="balance",
-                        title="Outstanding Balance by Status",
+                        title="📊 Outstanding Balance by Status",
                         color="balance",
                         color_continuous_scale="Reds",
                         text="balance"
@@ -646,14 +650,14 @@ def reports_dashboard():
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_debtors_report_pdf()
                         b64 = base64.b64encode(pdf_bytes).decode()
-                        href = f'<a href="data:application/pdf;base64,{b64}" download="debtors_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="debtors_report_{datetime.now().strftime("%Y%m%d")}.pdf">📥 Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
                 if st.button("📄 Download Debtors Report (HTML)", key="debtors_html"):
                     html_bytes = generate_debtors_report_pdf()
                     b64_html = base64.b64encode(html_bytes).decode()
-                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="debtors_report_{datetime.now().strftime("%Y%m%d")}.html">Download HTML</a>'
+                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="debtors_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
                     st.markdown(href_html, unsafe_allow_html=True)
         else:
             st.info("No debtors data available")
@@ -749,7 +753,7 @@ def reports_dashboard():
                 with st.spinner("Generating combined report PDF..."):
                     pdf_bytes = generate_combined_report_pdf(start_date, end_date)
                     b64 = base64.b64encode(pdf_bytes).decode()
-                    href = f'<a href="data:application/pdf;base64,{b64}" download="combined_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download Combined Report PDF</a>'
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="combined_report_{datetime.now().strftime("%Y%m%d")}.pdf">📥 Download Combined Report PDF</a>'
                     st.markdown(href, unsafe_allow_html=True)
         
         with col2:
@@ -757,7 +761,7 @@ def reports_dashboard():
                 with st.spinner("Generating combined report HTML..."):
                     html_bytes = generate_combined_report_pdf(start_date, end_date)
                     b64_html = base64.b64encode(html_bytes).decode()
-                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="combined_report_{datetime.now().strftime("%Y%m%d")}.html">Download Combined Report HTML</a>'
+                    href_html = f'<a href="data:text/html;base64,{b64_html}" download="combined_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download Combined Report HTML</a>'
                     st.markdown(href_html, unsafe_allow_html=True)
 
 
