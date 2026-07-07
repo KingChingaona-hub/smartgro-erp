@@ -5,9 +5,25 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
+import warnings
+warnings.filterwarnings('ignore')
 
-# Import animations
-from backend.core.animations import show_toast, show_confetti
+# Import animations with fallback
+try:
+    from backend.core.animations import show_toast, show_confetti
+except ImportError:
+    def show_toast(message, type="success"):
+        if type == "success":
+            st.success(message)
+        elif type == "error":
+            st.error(message)
+        elif type == "warning":
+            st.warning(message)
+        else:
+            st.info(message)
+    
+    def show_confetti():
+        st.balloons()
 
 # ==============================
 # FILE PATHS
@@ -71,18 +87,32 @@ def save_price_monitoring(df):
 
 
 def add_competitor(name, website, location, rating, notes, added_by):
-    """Add a new competitor"""
+    """Add a new competitor - FIXED: Proper ID generation"""
     df = load_competitors()
     
-    competitor_id = f"COMP{len(df)+1:04d}"
+    # Generate unique ID
+    if df.empty:
+        competitor_id = "COMP001"
+    else:
+        # Find max existing ID
+        existing_ids = df["competitor_id"].tolist()
+        numbers = []
+        for cid in existing_ids:
+            if cid.startswith("COMP"):
+                try:
+                    numbers.append(int(cid.replace("COMP", "")))
+                except:
+                    pass
+        next_num = max(numbers) + 1 if numbers else 1
+        competitor_id = f"COMP{next_num:04d}"
     
     new_competitor = pd.DataFrame([{
         "competitor_id": competitor_id,
         "name": name,
-        "website": website,
-        "location": location,
+        "website": website if website else "",
+        "location": location if location else "",
         "rating": rating,
-        "notes": notes,
+        "notes": notes if notes else "",
         "added_date": datetime.now().isoformat(),
         "added_by": added_by
     }])
@@ -98,7 +128,21 @@ def record_price_comparison(product_name, product_barcode, competitor_id, compet
     """Record a price comparison"""
     df = load_price_monitoring()
     
-    record_id = f"PR{len(df)+1:06d}"
+    # Generate unique ID
+    if df.empty:
+        record_id = "PR000001"
+    else:
+        existing_ids = df["id"].tolist()
+        numbers = []
+        for rid in existing_ids:
+            if rid.startswith("PR"):
+                try:
+                    numbers.append(int(rid.replace("PR", "")))
+                except:
+                    pass
+        next_num = max(numbers) + 1 if numbers else 1
+        record_id = f"PR{next_num:06d}"
+    
     price_difference = competitor_price - our_price
     difference_percent = (price_difference / our_price) * 100 if our_price > 0 else 0
     
@@ -114,7 +158,7 @@ def record_price_comparison(product_name, product_barcode, competitor_id, compet
         "difference_percent": difference_percent,
         "date_recorded": datetime.now().isoformat(),
         "recorded_by": recorded_by,
-        "notes": notes
+        "notes": notes if notes else ""
     }])
     
     df = pd.concat([df, new_record], ignore_index=True)
@@ -138,10 +182,10 @@ def get_price_analysis():
     
     analysis = {
         "total_comparisons": len(df),
-        "avg_price_difference": df["price_difference"].mean(),
-        "products_cheaper": len(df[df["price_difference"] > 0]),  # Competitor more expensive
-        "products_expensive": len(df[df["price_difference"] < 0]),  # Competitor cheaper
-        "best_opportunities": df.nlargest(10, "price_difference")[["product_name", "competitor_name", "our_price", "competitor_price", "price_difference"]]
+        "avg_price_difference": df["price_difference"].mean() if not df.empty else 0,
+        "products_cheaper": len(df[df["price_difference"] > 0]),
+        "products_expensive": len(df[df["price_difference"] < 0]),
+        "best_opportunities": df.nlargest(10, "price_difference")[["product_name", "competitor_name", "our_price", "competitor_price", "price_difference"]] if not df.empty else pd.DataFrame()
     }
     
     return analysis
@@ -157,7 +201,11 @@ def get_price_trends(product_name=None):
     if product_name:
         df = df[df["product_name"] == product_name]
     
-    df["date_recorded"] = pd.to_datetime(df["date_recorded"])
+    if df.empty:
+        return pd.DataFrame()
+    
+    df["date_recorded"] = pd.to_datetime(df["date_recorded"], errors="coerce")
+    df = df.dropna(subset=["date_recorded"])
     df = df.sort_values("date_recorded")
     
     return df
@@ -170,7 +218,6 @@ def get_price_alert_products(threshold_percent=20):
     if df.empty:
         return pd.DataFrame()
     
-    # Find products where competitor is cheaper by more than threshold%
     alerts = df[df["difference_percent"] < -threshold_percent]
     alerts = alerts.sort_values("difference_percent")
     
@@ -189,20 +236,20 @@ def suggest_price_adjustments():
     
     suggestions = []
     for _, row in latest_prices.iterrows():
-        if row["difference_percent"] < -15:  # Competitor 15% cheaper
+        if row["difference_percent"] < -15:
             suggestions.append({
                 "product": row["product_name"],
                 "current_price": row["our_price"],
                 "competitor_price": row["competitor_price"],
-                "suggested_price": row["competitor_price"] + (row["competitor_price"] * 0.05),  # 5% above competitor
+                "suggested_price": row["competitor_price"] + (row["competitor_price"] * 0.05),
                 "reason": f"Competitor is {abs(row['difference_percent']):.1f}% cheaper"
             })
-        elif row["difference_percent"] > 20:  # We are 20% more expensive than competitor
+        elif row["difference_percent"] > 20:
             suggestions.append({
                 "product": row["product_name"],
                 "current_price": row["our_price"],
                 "competitor_price": row["competitor_price"],
-                "suggested_price": row["competitor_price"] * 0.95,  # 5% below competitor
+                "suggested_price": row["competitor_price"] * 0.95,
                 "reason": f"We are {row['difference_percent']:.1f}% more expensive than competitor"
             })
     
@@ -210,10 +257,10 @@ def suggest_price_adjustments():
 
 
 # ==============================
-# MAIN DASHBOARD
+# MAIN DASHBOARD - FIXED
 # ==============================
 def competitor_price_monitoring_dashboard():
-    """Competitor Price Monitoring Dashboard"""
+    """Competitor Price Monitoring Dashboard - FIXED: No blank page"""
     
     st.title("🏪 Competitor Price Monitoring")
     st.caption("Track competitor prices, analyze market trends, and optimize pricing strategy")
@@ -225,6 +272,10 @@ def competitor_price_monitoring_dashboard():
         return
     
     init_price_monitoring_files()
+    
+    # Initialize session state for tracking
+    if "competitor_added" not in st.session_state:
+        st.session_state.competitor_added = False
     
     # ==============================
     # TABS
@@ -308,7 +359,7 @@ def competitor_price_monitoring_dashboard():
             # Product selection
             if not products_df.empty:
                 product_list = products_df["name"].tolist()
-                selected_product = st.selectbox("Select Product", product_list)
+                selected_product = st.selectbox("Select Product", product_list, key="select_product_price")
                 
                 if selected_product:
                     product_data = products_df[products_df["name"] == selected_product].iloc[0]
@@ -329,7 +380,7 @@ def competitor_price_monitoring_dashboard():
             # Competitor selection
             if not competitors_df.empty:
                 competitor_list = competitors_df["name"].tolist()
-                selected_competitor = st.selectbox("Select Competitor", competitor_list)
+                selected_competitor = st.selectbox("Select Competitor", competitor_list, key="select_competitor_price")
                 
                 if selected_competitor:
                     competitor_data = competitors_df[competitors_df["name"] == selected_competitor].iloc[0]
@@ -342,8 +393,8 @@ def competitor_price_monitoring_dashboard():
                 competitor_id = ""
         
         if selected_product and selected_competitor:
-            competitor_price = st.number_input("Competitor Price ($)", min_value=0.0, step=0.5, value=0.0)
-            notes = st.text_area("Notes", placeholder="Additional information about this price comparison")
+            competitor_price = st.number_input("Competitor Price ($)", min_value=0.0, step=0.5, value=0.0, key="competitor_price_input")
+            notes = st.text_area("Notes", placeholder="Additional information about this price comparison", key="price_notes")
             
             if st.button("💾 Save Price Comparison", type="primary", use_container_width=True):
                 if competitor_price > 0:
@@ -364,7 +415,7 @@ def competitor_price_monitoring_dashboard():
                     st.error("Please enter competitor price")
     
     # ==============================
-    # TAB 3: MANAGE COMPETITORS
+    # TAB 3: MANAGE COMPETITORS - FIXED
     # ==============================
     with tab3:
         st.markdown("## 🏢 Manage Competitors")
@@ -374,18 +425,18 @@ def competitor_price_monitoring_dashboard():
             col1, col2 = st.columns(2)
             
             with col1:
-                comp_name = st.text_input("Competitor Name", placeholder="e.g., Pick n Pay")
-                comp_website = st.text_input("Website", placeholder="www.example.com")
-                comp_location = st.text_input("Location", placeholder="Harare, Zimbabwe")
+                comp_name = st.text_input("Competitor Name *", placeholder="e.g., Pick n Pay", key="comp_name")
+                comp_website = st.text_input("Website", placeholder="www.example.com", key="comp_website")
+                comp_location = st.text_input("Location", placeholder="Harare, Zimbabwe", key="comp_location")
             
             with col2:
-                comp_rating = st.slider("Rating (1-5)", 1.0, 5.0, 3.0, 0.5)
-                comp_notes = st.text_area("Notes", placeholder="Additional information")
+                comp_rating = st.slider("Rating (1-5)", 1.0, 5.0, 3.0, 0.5, key="comp_rating")
+                comp_notes = st.text_area("Notes", placeholder="Additional information", key="comp_notes")
             
-            if st.button("➕ Add Competitor", use_container_width=True):
-                if comp_name:
+            if st.button("➕ Add Competitor", use_container_width=True, key="add_competitor_btn"):
+                if comp_name.strip():
                     comp_id = add_competitor(
-                        name=comp_name,
+                        name=comp_name.strip(),
                         website=comp_website,
                         location=comp_location,
                         rating=comp_rating,
@@ -394,11 +445,12 @@ def competitor_price_monitoring_dashboard():
                     )
                     st.success(f"✅ Competitor added! ID: {comp_id}")
                     show_toast("Competitor added successfully!", "success")
+                    st.session_state.competitor_added = True
                     st.rerun()
                 else:
                     st.error("Please enter competitor name")
         
-        # List competitors
+        # List competitors - Always refreshed
         st.markdown("### 📋 Competitors List")
         
         competitors_df = load_competitors()
@@ -409,6 +461,34 @@ def competitor_price_monitoring_dashboard():
                 use_container_width=True,
                 hide_index=True
             )
+            
+            # Delete competitor
+            st.markdown("---")
+            st.markdown("### 🗑️ Delete Competitor")
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                comp_to_delete = st.selectbox(
+                    "Select competitor to delete",
+                    competitors_df["name"].tolist(),
+                    key="delete_competitor_select"
+                )
+            
+            with col2:
+                if st.button("🗑️ Delete", use_container_width=True, key="delete_competitor_btn"):
+                    if comp_to_delete:
+                        # Remove from competitors
+                        competitors_df = competitors_df[competitors_df["name"] != comp_to_delete]
+                        save_competitors(competitors_df)
+                        
+                        # Remove price records
+                        price_df = load_price_monitoring()
+                        if not price_df.empty:
+                            price_df = price_df[price_df["competitor_name"] != comp_to_delete]
+                            save_price_monitoring(price_df)
+                        
+                        st.success(f"✅ Competitor '{comp_to_delete}' deleted!")
+                        st.rerun()
         else:
             st.info("No competitors added yet")
     
@@ -424,7 +504,7 @@ def competitor_price_monitoring_dashboard():
         
         if not products_df.empty:
             product_list = ["All"] + products_df["name"].tolist()
-            selected_trend_product = st.selectbox("Select Product", product_list)
+            selected_trend_product = st.selectbox("Select Product", product_list, key="trend_product_select")
             
             if selected_trend_product != "All":
                 trends_df = get_price_trends(selected_trend_product)
@@ -513,7 +593,6 @@ def competitor_price_monitoring_dashboard():
                         st.metric("Suggested Price", f"${suggestion['suggested_price']:.2f}")
                     st.markdown("---")
             
-            # Export recommendations
             csv = suggestions.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Price Recommendations (CSV)",
