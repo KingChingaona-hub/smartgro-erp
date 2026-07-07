@@ -167,6 +167,50 @@ def record_price_comparison(product_name, product_barcode, competitor_id, compet
     return record_id
 
 
+def update_price_comparison(record_id, product_name, product_barcode, competitor_id, competitor_name, 
+                            our_price, competitor_price, notes, recorded_by):
+    """Update an existing price comparison record"""
+    df = load_price_monitoring()
+    
+    # Find the record
+    idx = df[df["id"] == record_id].index
+    if len(idx) == 0:
+        return False, "Record not found"
+    
+    price_difference = competitor_price - our_price
+    difference_percent = (price_difference / our_price) * 100 if our_price > 0 else 0
+    
+    # Update the record
+    df.loc[idx[0], "product_name"] = product_name
+    df.loc[idx[0], "product_barcode"] = product_barcode
+    df.loc[idx[0], "competitor_id"] = competitor_id
+    df.loc[idx[0], "competitor_name"] = competitor_name
+    df.loc[idx[0], "our_price"] = our_price
+    df.loc[idx[0], "competitor_price"] = competitor_price
+    df.loc[idx[0], "price_difference"] = price_difference
+    df.loc[idx[0], "difference_percent"] = difference_percent
+    df.loc[idx[0], "notes"] = notes if notes else ""
+    df.loc[idx[0], "recorded_by"] = recorded_by
+    
+    save_price_monitoring(df)
+    return True, "Record updated successfully"
+
+
+def delete_price_comparison(record_id):
+    """Delete a price comparison record"""
+    df = load_price_monitoring()
+    
+    # Find the record
+    idx = df[df["id"] == record_id].index
+    if len(idx) == 0:
+        return False, "Record not found"
+    
+    # Remove the record
+    df = df.drop(idx[0])
+    save_price_monitoring(df)
+    return True, "Record deleted successfully"
+
+
 def get_price_analysis():
     """Get price comparison analysis"""
     df = load_price_monitoring()
@@ -185,7 +229,7 @@ def get_price_analysis():
         "avg_price_difference": df["price_difference"].mean() if not df.empty else 0,
         "products_cheaper": len(df[df["price_difference"] > 0]),
         "products_expensive": len(df[df["price_difference"] < 0]),
-        "best_opportunities": df.nlargest(10, "price_difference")[["product_name", "competitor_name", "our_price", "competitor_price", "price_difference"]] if not df.empty else pd.DataFrame()
+        "best_opportunities": df.nlargest(10, "price_difference")[["id", "product_name", "competitor_name", "our_price", "competitor_price", "price_difference"]] if not df.empty else pd.DataFrame()
     }
     
     return analysis
@@ -277,6 +321,9 @@ def competitor_price_monitoring_dashboard():
     if "competitor_added" not in st.session_state:
         st.session_state.competitor_added = False
     
+    if "editing_record" not in st.session_state:
+        st.session_state.editing_record = None
+    
     # ==============================
     # TABS
     # ==============================
@@ -341,6 +388,164 @@ def competitor_price_monitoring_dashboard():
             )
         else:
             st.success("✅ No critical price alerts")
+        
+        st.markdown("---")
+        
+        # ==============================
+        # PRICE COMPARISON LIST WITH EDIT/DELETE
+        # ==============================
+        st.markdown("## 📋 All Price Comparisons")
+        
+        price_df = load_price_monitoring()
+        
+        if not price_df.empty:
+            # Show all records with action buttons
+            display_df = price_df.copy()
+            display_df["date_recorded"] = pd.to_datetime(display_df["date_recorded"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+            
+            st.dataframe(
+                display_df[["id", "product_name", "competitor_name", "our_price", "competitor_price", "price_difference", "difference_percent", "date_recorded"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "id": "Record ID",
+                    "product_name": "Product",
+                    "competitor_name": "Competitor",
+                    "our_price": st.column_config.NumberColumn("Our Price", format="$%.2f"),
+                    "competitor_price": st.column_config.NumberColumn("Competitor Price", format="$%.2f"),
+                    "price_difference": st.column_config.NumberColumn("Difference", format="$%.2f"),
+                    "difference_percent": st.column_config.NumberColumn("Difference %", format="%.1f%%"),
+                    "date_recorded": "Date Recorded"
+                }
+            )
+            
+            # Edit/Delete section
+            st.markdown("---")
+            st.markdown("### ✏️ Edit or Delete Price Comparison")
+            
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                selected_record_id = st.selectbox(
+                    "Select Record to Edit/Delete",
+                    price_df["id"].tolist(),
+                    key="edit_delete_record_select",
+                    format_func=lambda x: f"{x} - {price_df[price_df['id'] == x]['product_name'].iloc[0]}"
+                )
+            
+            with col2:
+                if st.button("✏️ Edit Selected", use_container_width=True, key="edit_selected_btn"):
+                    st.session_state.editing_record = selected_record_id
+                    #st.rerun()
+            
+            with col3:
+                if st.button("🗑️ Delete Selected", use_container_width=True, key="delete_selected_btn"):
+                    if selected_record_id:
+                        success, message = delete_price_comparison(selected_record_id)
+                        if success:
+                            st.success(f"✅ {message}")
+                            show_toast("Price comparison deleted!", "success")
+                            #st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+            
+            # ==============================
+            # EDIT FORM - Shows when editing
+            # ==============================
+            if st.session_state.editing_record:
+                record_id = st.session_state.editing_record
+                record = price_df[price_df["id"] == record_id].iloc[0]
+                
+                st.markdown("---")
+                st.markdown(f"### ✏️ Edit Price Comparison: {record_id}")
+                
+                from backend.core.db_adapter import load_products
+                products_df = load_products()
+                competitors_df = load_competitors()
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Product selection
+                    if not products_df.empty:
+                        product_list = products_df["name"].tolist()
+                        current_product = record["product_name"]
+                        product_index = product_list.index(current_product) if current_product in product_list else 0
+                        edit_product = st.selectbox("Product", product_list, index=product_index, key="edit_product")
+                        
+                        product_data = products_df[products_df["name"] == edit_product].iloc[0]
+                        edit_barcode = product_data.get("barcode", "")
+                        edit_our_price = float(product_data.get("price", 0))
+                    else:
+                        edit_product = record["product_name"]
+                        edit_barcode = record["product_barcode"]
+                        edit_our_price = float(record["our_price"])
+                
+                with col2:
+                    # Competitor selection
+                    if not competitors_df.empty:
+                        competitor_list = competitors_df["name"].tolist()
+                        current_competitor = record["competitor_name"]
+                        comp_index = competitor_list.index(current_competitor) if current_competitor in competitor_list else 0
+                        edit_competitor = st.selectbox("Competitor", competitor_list, index=comp_index, key="edit_competitor")
+                        
+                        comp_data = competitors_df[competitors_df["name"] == edit_competitor].iloc[0]
+                        edit_competitor_id = comp_data.get("competitor_id", "")
+                    else:
+                        edit_competitor = record["competitor_name"]
+                        edit_competitor_id = record["competitor_id"]
+                
+                edit_competitor_price = st.number_input(
+                    "Competitor Price ($)",
+                    min_value=0.0,
+                    step=0.5,
+                    value=float(record["competitor_price"]),
+                    key="edit_competitor_price"
+                )
+                
+                edit_notes = st.text_area("Notes", value=record["notes"] if record["notes"] else "", key="edit_notes")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("💾 Save Changes", type="primary", use_container_width=True, key="save_edit_btn"):
+                        success, message = update_price_comparison(
+                            record_id=record_id,
+                            product_name=edit_product,
+                            product_barcode=edit_barcode,
+                            competitor_id=edit_competitor_id,
+                            competitor_name=edit_competitor,
+                            our_price=edit_our_price,
+                            competitor_price=edit_competitor_price,
+                            notes=edit_notes,
+                            recorded_by=st.session_state.get("username", "system")
+                        )
+                        if success:
+                            st.success(f"✅ {message}")
+                            show_toast("Price comparison updated!", "success")
+                            st.session_state.editing_record = None
+                            #st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+                
+                with col2:
+                    if st.button("❌ Cancel Edit", use_container_width=True, key="cancel_edit_btn"):
+                        st.session_state.editing_record = None
+                        #st.rerun()
+                
+                with col3:
+                    if st.button("🗑️ Delete This Record", use_container_width=True, key="delete_this_btn"):
+                        success, message = delete_price_comparison(record_id)
+                        if success:
+                            st.success(f"✅ {message}")
+                            show_toast("Price comparison deleted!", "success")
+                            st.session_state.editing_record = None
+                            #st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
+            
+        else:
+            st.info("No price comparisons recorded yet")
     
     # ==============================
     # TAB 2: RECORD PRICE COMPARISON
