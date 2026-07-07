@@ -7,15 +7,53 @@ import time
 from backend.core.db_adapter import load_sales, load_products, load_purchases
 
 # ==============================
+# HELPER FUNCTIONS
+# ==============================
+
+def find_column(df, possible_names, default=None):
+    """Find the first column that matches any of the possible names"""
+    if df is None or df.empty:
+        return default
+    for name in possible_names:
+        if name in df.columns:
+            return name
+    return default
+
+
+def safe_float(value, default=0.0):
+    """Safely convert value to float"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_int(value, default=0):
+    """Safely convert value to int"""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+# ==============================
 # LIVE DASHBOARD WITH AUTO-REFRESH
 # ==============================
 
 def get_live_metrics():
-    """Get current live metrics - FIXED for proper accumulation"""
+    """Get current live metrics - FIXED"""
     
-    sales_df = load_sales()
-    products_df = load_products()
-    purchases_df = load_purchases()
+    try:
+        sales_df = load_sales()
+        products_df = load_products()
+        purchases_df = load_purchases()
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return get_default_metrics()
     
     # Get today's date
     today = datetime.now().date()
@@ -38,351 +76,343 @@ def get_live_metrics():
     
     # Process sales data
     if not sales_df.empty:
-        # Ensure date column exists and is properly formatted
-        date_col = None
-        for col in ["sale_date", "date", "transaction_date", "created_at"]:
-            if col in sales_df.columns:
-                date_col = col
-                break
-        
-        if date_col:
-            # Convert to datetime
-            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        try:
+            # Find date column
+            date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
             
-            # Filter out invalid dates
-            sales_df = sales_df.dropna(subset=[date_col])
-            
-            # Get today's sales
-            today_mask = sales_df[date_col].dt.date == today
-            today_sales = sales_df[today_mask]
-            
-            # Find total column
-            total_col = None
-            for col in ["final_total", "total", "amount", "sale_amount"]:
-                if col in sales_df.columns:
-                    total_col = col
-                    break
-            
-            # Find items column
-            items_col = None
-            for col in ["items", "quantity", "qty", "item_count"]:
-                if col in sales_df.columns:
-                    items_col = col
-                    break
-            
-            # Find receipt column
-            receipt_col = None
-            for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
-                if col in sales_df.columns:
-                    receipt_col = col
-                    break
-            
-            # Calculate today's metrics
-            if total_col and not today_sales.empty:
-                metrics["total_today"] = float(today_sales[total_col].sum())
-            
-            if receipt_col:
-                metrics["transactions_today"] = today_sales[receipt_col].nunique() if not today_sales.empty else 0
-            else:
-                metrics["transactions_today"] = len(today_sales)
-            
-            if items_col:
-                metrics["items_today"] = int(today_sales[items_col].sum()) if not today_sales.empty else 0
-            
-            # Calculate all-time total
-            if total_col:
-                metrics["total_all_time"] = float(sales_df[total_col].sum())
-            
-            # Calculate last hour sales
-            one_hour_ago = datetime.now() - timedelta(hours=1)
-            last_hour_mask = sales_df[date_col] >= one_hour_ago
-            last_hour_sales = sales_df[last_hour_mask]
-            if total_col and not last_hour_sales.empty:
-                metrics["last_hour_amount"] = float(last_hour_sales[total_col].sum())
+            if date_col:
+                # Convert to datetime
+                sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+                sales_df = sales_df.dropna(subset=[date_col])
+                
+                if not sales_df.empty:
+                    # Get today's sales
+                    today_mask = sales_df[date_col].dt.date == today
+                    today_sales = sales_df[today_mask]
+                    
+                    # Find total column
+                    total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
+                    
+                    # Find items column
+                    items_col = find_column(sales_df, ["items", "quantity", "qty", "item_count"])
+                    
+                    # Find receipt column
+                    receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
+                    
+                    # Calculate today's metrics
+                    if total_col and not today_sales.empty:
+                        metrics["total_today"] = safe_float(today_sales[total_col].sum())
+                    
+                    if receipt_col:
+                        metrics["transactions_today"] = today_sales[receipt_col].nunique() if not today_sales.empty else 0
+                    else:
+                        metrics["transactions_today"] = len(today_sales)
+                    
+                    if items_col:
+                        metrics["items_today"] = safe_int(today_sales[items_col].sum()) if not today_sales.empty else 0
+                    
+                    # Calculate all-time total
+                    if total_col:
+                        metrics["total_all_time"] = safe_float(sales_df[total_col].sum())
+                    
+                    # Calculate last hour sales
+                    one_hour_ago = datetime.now() - timedelta(hours=1)
+                    last_hour_mask = sales_df[date_col] >= one_hour_ago
+                    last_hour_sales = sales_df[last_hour_mask]
+                    if total_col and not last_hour_sales.empty:
+                        metrics["last_hour_amount"] = safe_float(last_hour_sales[total_col].sum())
+        except Exception as e:
+            print(f"Error processing sales: {e}")
     
     # Process products data
     if not products_df.empty:
-        metrics["total_products"] = len(products_df)
-        
-        # Find stock and reorder level columns
-        stock_col = None
-        reorder_col = None
-        
-        for col in ["stock", "quantity", "inventory", "current_stock"]:
-            if col in products_df.columns:
-                stock_col = col
-                break
-        
-        for col in ["reorder_level", "min_stock", "threshold", "reorder_point"]:
-            if col in products_df.columns:
-                reorder_col = col
-                break
-        
-        if stock_col:
-            # Ensure numeric
-            products_df[stock_col] = pd.to_numeric(products_df[stock_col], errors="coerce").fillna(0)
+        try:
+            metrics["total_products"] = len(products_df)
             
-            metrics["out_of_stock"] = len(products_df[products_df[stock_col] == 0])
+            # Find stock and reorder level columns
+            stock_col = find_column(products_df, ["stock", "quantity", "inventory", "current_stock"])
+            reorder_col = find_column(products_df, ["reorder_level", "min_stock", "threshold", "reorder_point"])
             
-            if reorder_col:
-                products_df[reorder_col] = pd.to_numeric(products_df[reorder_col], errors="coerce").fillna(0)
-                metrics["low_stock"] = len(
-                    products_df[
-                        (products_df[stock_col] > 0) & 
-                        (products_df[stock_col] <= products_df[reorder_col])
-                    ]
-                )
+            if stock_col:
+                # Ensure numeric
+                products_df[stock_col] = pd.to_numeric(products_df[stock_col], errors="coerce").fillna(0)
+                
+                metrics["out_of_stock"] = len(products_df[products_df[stock_col] == 0])
+                
+                if reorder_col:
+                    products_df[reorder_col] = pd.to_numeric(products_df[reorder_col], errors="coerce").fillna(0)
+                    metrics["low_stock"] = len(
+                        products_df[
+                            (products_df[stock_col] > 0) & 
+                            (products_df[stock_col] <= products_df[reorder_col])
+                        ]
+                    )
+        except Exception as e:
+            print(f"Error processing products: {e}")
     
     # Process purchases data
-    if not purchases_df.empty:
-        if "status" in purchases_df.columns:
+    if not purchases_df.empty and "status" in purchases_df.columns:
+        try:
             metrics["pending_purchases"] = len(
                 purchases_df[purchases_df["status"].str.upper().isin(["PENDING", "ORDERED", "PENDING APPROVAL"])]
             )
+        except Exception as e:
+            print(f"Error processing purchases: {e}")
     
     return metrics
+
+
+def get_default_metrics():
+    """Return default metrics when data loading fails"""
+    today = datetime.now().date()
+    return {
+        "total_today": 0,
+        "transactions_today": 0,
+        "items_today": 0,
+        "last_hour_amount": 0,
+        "out_of_stock": 0,
+        "low_stock": 0,
+        "pending_purchases": 0,
+        "current_time": datetime.now().strftime("%H:%M:%S"),
+        "current_date": today.strftime("%Y-%m-%d"),
+        "total_all_time": 0,
+        "total_products": 0
+    }
 
 
 def get_hourly_sales():
     """Get hourly sales for today's heatmap - FIXED"""
     
-    sales_df = load_sales()
-    
-    if sales_df.empty:
+    try:
+        sales_df = load_sales()
+        
+        if sales_df.empty:
+            return pd.DataFrame()
+        
+        today = datetime.now().date()
+        
+        # Find date column
+        date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
+        
+        if not date_col:
+            return pd.DataFrame()
+        
+        # Convert to datetime
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+        
+        if sales_df.empty:
+            return pd.DataFrame()
+        
+        # Filter today
+        today_sales = sales_df[sales_df[date_col].dt.date == today]
+        
+        if today_sales.empty:
+            return pd.DataFrame()
+        
+        # Find total column
+        total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
+        
+        if not total_col:
+            return pd.DataFrame()
+        
+        # Extract hour from datetime
+        today_sales["hour"] = today_sales[date_col].dt.hour
+        
+        # Group by hour
+        hourly = today_sales.groupby("hour")[total_col].sum().reset_index()
+        hourly.columns = ["hour", "total"]
+        hourly = hourly.sort_values("hour")
+        
+        # Ensure all hours 0-23 are present
+        all_hours = pd.DataFrame({"hour": range(24)})
+        hourly = all_hours.merge(hourly, on="hour", how="left").fillna(0)
+        
+        return hourly
+    except Exception as e:
+        print(f"Error getting hourly sales: {e}")
         return pd.DataFrame()
-    
-    today = datetime.now().date()
-    
-    # Find date column
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
-    
-    if not date_col:
-        return pd.DataFrame()
-    
-    # Convert to datetime
-    sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-    sales_df = sales_df.dropna(subset=[date_col])
-    
-    # Filter today
-    today_sales = sales_df[sales_df[date_col].dt.date == today]
-    
-    if today_sales.empty:
-        return pd.DataFrame()
-    
-    # Find total column
-    total_col = None
-    for col in ["final_total", "total", "amount", "sale_amount"]:
-        if col in sales_df.columns:
-            total_col = col
-            break
-    
-    if not total_col:
-        return pd.DataFrame()
-    
-    # Extract hour from datetime
-    today_sales["hour"] = today_sales[date_col].dt.hour
-    
-    # Group by hour
-    hourly = today_sales.groupby("hour")[total_col].sum().reset_index()
-    hourly.columns = ["hour", "total"]
-    hourly = hourly.sort_values("hour")
-    
-    # Ensure all hours 0-23 are present
-    all_hours = pd.DataFrame({"hour": range(24)})
-    hourly = all_hours.merge(hourly, on="hour", how="left").fillna(0)
-    
-    return hourly
 
 
 def get_top_products_live():
     """Get top selling products today - FIXED"""
     
-    sales_df = load_sales()
-    
-    if sales_df.empty:
-        return pd.DataFrame()
-    
-    today = datetime.now().date()
-    
-    # Find date column
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
-    
-    if not date_col:
-        return pd.DataFrame()
-    
-    # Find product name column
-    product_col = None
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in sales_df.columns:
-            product_col = col
-            break
-    
-    if not product_col:
-        return pd.DataFrame()
-    
-    # Find items/quantity column
-    items_col = None
-    for col in ["items", "quantity", "qty", "item_count"]:
-        if col in sales_df.columns:
-            items_col = col
-            break
-    
-    if not items_col:
-        # Use count if no items column
-        items_col = product_col
-        use_count = True
-    else:
+    try:
+        sales_df = load_sales()
+        
+        if sales_df.empty:
+            return pd.DataFrame()
+        
+        today = datetime.now().date()
+        
+        # Find date column
+        date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
+        
+        if not date_col:
+            return pd.DataFrame()
+        
+        # Find product name column
+        product_col = find_column(sales_df, ["name", "product_name", "Product", "item_name"])
+        
+        if not product_col:
+            return pd.DataFrame()
+        
+        # Find items/quantity column
+        items_col = find_column(sales_df, ["items", "quantity", "qty", "item_count"])
+        
         use_count = False
-    
-    # Convert to datetime
-    sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-    sales_df = sales_df.dropna(subset=[date_col])
-    
-    # Filter today
-    today_sales = sales_df[sales_df[date_col].dt.date == today]
-    
-    if today_sales.empty:
+        if not items_col:
+            items_col = product_col
+            use_count = True
+        
+        # Convert to datetime
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+        
+        if sales_df.empty:
+            return pd.DataFrame()
+        
+        # Filter today
+        today_sales = sales_df[sales_df[date_col].dt.date == today]
+        
+        if today_sales.empty:
+            return pd.DataFrame()
+        
+        # Group by product
+        if use_count:
+            top_products = today_sales.groupby(product_col).size().nlargest(5).reset_index()
+            top_products.columns = ["name", "items"]
+        else:
+            top_products = today_sales.groupby(product_col)[items_col].sum().nlargest(5).reset_index()
+            top_products.columns = ["name", "items"]
+        
+        return top_products
+    except Exception as e:
+        print(f"Error getting top products: {e}")
         return pd.DataFrame()
-    
-    # Group by product
-    if use_count:
-        top_products = today_sales.groupby(product_col).size().nlargest(5).reset_index()
-        top_products.columns = ["name", "items"]
-    else:
-        top_products = today_sales.groupby(product_col)[items_col].sum().nlargest(5).reset_index()
-        top_products.columns = ["name", "items"]
-    
-    return top_products
 
 
 def get_recent_transactions():
     """Get most recent transactions - FIXED"""
     
-    sales_df = load_sales()
-    
-    if sales_df.empty:
+    try:
+        sales_df = load_sales()
+        
+        if sales_df.empty:
+            return pd.DataFrame()
+        
+        # Find date column
+        date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
+        
+        if not date_col:
+            return pd.DataFrame()
+        
+        # Convert to datetime
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+        
+        if sales_df.empty:
+            return pd.DataFrame()
+        
+        # Sort by date descending
+        sales_df = sales_df.sort_values(date_col, ascending=False)
+        
+        # Get last 10 transactions
+        recent = sales_df.head(10)
+        
+        # Define columns to display
+        col_mapping = {
+            "receipt_no": "Receipt No",
+            "receipt": "Receipt No",
+            "transaction_id": "Receipt No",
+            "customer": "Customer",
+            "customer_name": "Customer",
+            "total": "Amount",
+            "final_total": "Amount",
+            "amount": "Amount",
+            "payment_method": "Payment",
+            "payment_type": "Payment",
+            "product_name": "Product",
+            "name": "Product"
+        }
+        
+        # Find available columns
+        display_cols = []
+        used_columns = set()
+        for db_col, display_name in col_mapping.items():
+            if db_col in recent.columns and db_col not in used_columns:
+                display_cols.append((db_col, display_name))
+                used_columns.add(db_col)
+                if len(display_cols) >= 5:
+                    break
+        
+        if not display_cols:
+            return pd.DataFrame()
+        
+        # Create result dataframe
+        result = pd.DataFrame()
+        for db_col, display_name in display_cols:
+            result[display_name] = recent[db_col].head(5).values
+        
+        # Format amount as currency
+        if "Amount" in result.columns:
+            result["Amount"] = result["Amount"].apply(
+                lambda x: f"${safe_float(x):.2f}" if pd.notna(x) else "$0.00"
+            )
+        
+        return result.head(5)
+    except Exception as e:
+        print(f"Error getting recent transactions: {e}")
         return pd.DataFrame()
-    
-    # Find date column
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
-    
-    if not date_col:
-        return pd.DataFrame()
-    
-    # Convert to datetime
-    sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-    sales_df = sales_df.dropna(subset=[date_col])
-    
-    # Sort by date descending
-    sales_df = sales_df.sort_values(date_col, ascending=False)
-    
-    # Get last 10 transactions (take more to ensure we have 5 unique)
-    recent = sales_df.head(10)
-    
-    # Define columns to display
-    display_cols = []
-    col_mapping = {
-        "receipt_no": "Receipt No",
-        "receipt": "Receipt No",
-        "transaction_id": "Receipt No",
-        "customer": "Customer",
-        "customer_name": "Customer",
-        "total": "Amount",
-        "final_total": "Amount",
-        "amount": "Amount",
-        "payment_method": "Payment",
-        "payment_type": "Payment",
-        "product_name": "Product",
-        "name": "Product"
-    }
-    
-    # Find available columns
-    for db_col, display_name in col_mapping.items():
-        if db_col in recent.columns and db_col not in [c for c, _ in display_cols]:
-            display_cols.append((db_col, display_name))
-    
-    # Limit to 5 columns
-    display_cols = display_cols[:5]
-    
-    if not display_cols:
-        return pd.DataFrame()
-    
-    # Create result dataframe
-    result = pd.DataFrame()
-    for db_col, display_name in display_cols:
-        result[display_name] = recent[db_col].head(5).values
-    
-    # Format amount as currency
-    if "Amount" in result.columns:
-        result["Amount"] = result["Amount"].apply(lambda x: f"${float(x):.2f}" if pd.notna(x) else "$0.00")
-    
-    return result.head(5)
 
 
 def get_sales_ticker():
     """Get recent sales for ticker - FIXED"""
     
-    sales_df = load_sales()
-    
-    if sales_df.empty:
+    try:
+        sales_df = load_sales()
+        
+        if sales_df.empty:
+            return []
+        
+        # Find date column
+        date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
+        
+        if not date_col:
+            return []
+        
+        # Find product column
+        product_col = find_column(sales_df, ["name", "product_name", "Product", "item_name"])
+        
+        if not product_col:
+            return []
+        
+        # Find total column
+        total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
+        
+        if not total_col:
+            return []
+        
+        # Convert to datetime
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+        
+        if sales_df.empty:
+            return []
+        
+        # Get last 15 sales for ticker
+        last_sales = sales_df.sort_values(date_col, ascending=False).head(15)
+        
+        ticker_items = []
+        for _, sale in last_sales.iterrows():
+            product = str(sale.get(product_col, "Product"))[:30]  # Truncate long names
+            amount = safe_float(sale.get(total_col, 0))
+            ticker_items.append(f"🛒 {product} - ${amount:.2f}")
+        
+        return ticker_items
+    except Exception as e:
+        print(f"Error getting sales ticker: {e}")
         return []
-    
-    # Find date column
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
-    
-    if not date_col:
-        return []
-    
-    # Find product column
-    product_col = None
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in sales_df.columns:
-            product_col = col
-            break
-    
-    if not product_col:
-        return []
-    
-    # Find total column
-    total_col = None
-    for col in ["final_total", "total", "amount", "sale_amount"]:
-        if col in sales_df.columns:
-            total_col = col
-            break
-    
-    if not total_col:
-        return []
-    
-    # Convert to datetime
-    sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-    sales_df = sales_df.dropna(subset=[date_col])
-    
-    # Get last 15 sales for ticker
-    last_sales = sales_df.sort_values(date_col, ascending=False).head(15)
-    
-    ticker_items = []
-    for _, sale in last_sales.iterrows():
-        product = sale.get(product_col, "Product")
-        amount = sale.get(total_col, 0)
-        ticker_items.append(f"🛒 {product} - ${float(amount):.2f}")
-    
-    return ticker_items
 
 
 def live_dashboard():
@@ -398,14 +428,20 @@ def live_dashboard():
     # Auto-refresh placeholder
     refresh_placeholder = st.empty()
     
-    # Check if we need to refresh (every 10 seconds)
+    # Check if we need to refresh (every 10 seconds) - FIXED: Only rerun if not already in a rerun
     current_time = time.time()
-    if current_time - st.session_state.last_refresh >= 10:
+    time_since = current_time - st.session_state.last_refresh
+    
+    if time_since >= 10 and not st.session_state.get("_is_rerunning", False):
         st.session_state.last_refresh = current_time
+        st.session_state._is_rerunning = True
         st.rerun()
     
+    # Reset rerun flag after render
+    if st.session_state.get("_is_rerunning", False):
+        st.session_state._is_rerunning = False
+    
     # Show countdown
-    time_since = current_time - st.session_state.last_refresh
     remaining = max(0, 10 - int(time_since))
     refresh_placeholder.info(f"🔄 Auto-refreshing in {remaining} seconds...")
     
@@ -540,7 +576,7 @@ def live_dashboard():
         
         hourly_sales = get_hourly_sales()
         
-        if not hourly_sales.empty:
+        if not hourly_sales.empty and hourly_sales["total"].sum() > 0:
             fig = px.line(
                 hourly_sales,
                 x="hour",
@@ -607,7 +643,7 @@ def live_dashboard():
             st.rerun()
     
     # ==============================
-    # LIVE TICKER (Sales ticker)
+    # LIVE TICKER (Sales ticker) - FIXED (no marquee)
     # ==============================
     st.markdown("---")
     st.markdown("## 📢 Live Sales Ticker")
@@ -615,13 +651,19 @@ def live_dashboard():
     ticker_items = get_sales_ticker()
     
     if ticker_items:
-        # Create scrolling marquee with HTML
+        # Create scrolling ticker with CSS animation (modern approach)
         ticker_html = f"""
-        <div style="background: linear-gradient(90deg, #1a1a2e, #16213e); padding: 15px; border-radius: 10px; overflow: hidden; white-space: nowrap;">
-            <marquee behavior="scroll" direction="left" scrollamount="4" style="color: white; font-size: 16px;">
+        <div style="background: linear-gradient(90deg, #1a1a2e, #16213e); padding: 15px; border-radius: 10px; overflow: hidden; white-space: nowrap; position: relative;">
+            <div style="display: inline-block; animation: scrollTicker 20s linear infinite; white-space: nowrap;">
                 {'  &nbsp;&nbsp; ⭐  &nbsp;&nbsp; '.join(ticker_items)}
-            </marquee>
+            </div>
         </div>
+        <style>
+            @keyframes scrollTicker {{
+                0% {{ transform: translateX(100%); }}
+                100% {{ transform: translateX(-100%); }}
+            }}
+        </style>
         """
         st.markdown(ticker_html, unsafe_allow_html=True)
     else:
@@ -636,33 +678,36 @@ def live_dashboard():
     # Set daily target (can be configured)
     daily_target = 5000
     
-    progress_percentage = min(100, (metrics['total_today'] / daily_target) * 100)
-    
-    fig_gauge = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=metrics['total_today'],
-        title={"text": f"Target: ${daily_target:,.2f}"},
-        delta={"reference": daily_target},
-        gauge={
-            "axis": {"range": [0, daily_target * 1.2]},
-            "bar": {"color": "darkgreen" if progress_percentage >= 100 else "orange"},
-            "steps": [
-                {"range": [0, daily_target * 0.5], "color": "lightgray"},
-                {"range": [daily_target * 0.5, daily_target], "color": "gray"},
-            ],
-            "threshold": {
-                "line": {"color": "red", "width": 4},
-                "thickness": 0.75,
-                "value": daily_target
+    if daily_target > 0:
+        progress_percentage = min(100, (metrics['total_today'] / daily_target) * 100)
+        
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=metrics['total_today'],
+            title={"text": f"Target: ${daily_target:,.2f}"},
+            delta={"reference": daily_target},
+            gauge={
+                "axis": {"range": [0, daily_target * 1.2]},
+                "bar": {"color": "darkgreen" if progress_percentage >= 100 else "orange"},
+                "steps": [
+                    {"range": [0, daily_target * 0.5], "color": "lightgray"},
+                    {"range": [daily_target * 0.5, daily_target], "color": "gray"},
+                ],
+                "threshold": {
+                    "line": {"color": "red", "width": 4},
+                    "thickness": 0.75,
+                    "value": daily_target
+                }
             }
-        }
-    ))
-    fig_gauge.update_layout(height=250)
-    st.plotly_chart(fig_gauge, use_container_width=True)
-    
-    # Progress bar
-    st.progress(min(1.0, progress_percentage / 100))
-    st.caption(f"Progress: {min(100, progress_percentage):.1f}% of daily target")
+        ))
+        fig_gauge.update_layout(height=250)
+        st.plotly_chart(fig_gauge, use_container_width=True)
+        
+        # Progress bar
+        st.progress(min(1.0, progress_percentage / 100))
+        st.caption(f"Progress: {min(100, progress_percentage):.1f}% of daily target")
+    else:
+        st.info("Daily target not configured")
     
     # ==============================
     # MANUAL REFRESH NOTE
