@@ -410,7 +410,7 @@ def competitor_price_monitoring_dashboard():
                     )
                     st.success(f"✅ Price comparison saved! ID: {record_id}")
                     show_confetti()
-                    st.rerun()
+                    #st.rerun()
                 else:
                     st.error("Please enter competitor price")
     
