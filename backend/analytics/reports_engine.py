@@ -8,6 +8,14 @@ import base64
 from backend.core.db_adapter import load_sales, load_products, load_customers, load_branches, load_expenses, load_purchases, load_debtors
 
 # ==============================
+# CONSTANTS
+# ==============================
+COMPANY_NAME = "Aziel Investments"
+COMPANY_ADDRESS = "Retail Park, Harare"
+COMPANY_PHONE = "+263 78 290 5853"
+
+
+# ==============================
 # HELPER FUNCTIONS
 # ==============================
 
@@ -124,7 +132,6 @@ def get_sales_report_data(start_date, end_date):
     else:
         sales_df["receipt_no"] = sales_df[receipt_col].fillna("").astype(str)
     
-    # Filter by date range
     if start_date and end_date:
         try:
             start_dt = pd.to_datetime(start_date)
@@ -687,8 +694,43 @@ def generate_debtors_report():
 
 
 # ==============================
-# PDF GENERATION FUNCTIONS - CLEAN
+# HTML REPORT GENERATORS WITH COMPANY NAME
 # ==============================
+
+def get_report_header(title, start_date=None, end_date=None):
+    """Generate standard report header with company name"""
+    header = f"""
+    <div style="text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px;">
+        <h1 style="color: #1a237e; margin: 0; font-size: 28px;">🏢 {COMPANY_NAME}</h1>
+        <p style="margin: 5px 0; color: #555; font-size: 14px;">{COMPANY_ADDRESS}</p>
+        <p style="margin: 5px 0; color: #555; font-size: 14px;">📞 {COMPANY_PHONE}</p>
+        <h2 style="color: #2c3e50; margin-top: 10px; font-size: 22px;">{title}</h2>
+    """
+    if start_date and end_date:
+        header += f"""
+        <p style="color: #7f8c8d; font-size: 14px; margin: 5px 0;">
+            Period: {start_date} to {end_date}
+        </p>
+        """
+    header += f"""
+        <p style="color: #95a5a6; font-size: 12px; margin: 5px 0;">
+            Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        </p>
+    </div>
+    """
+    return header
+
+
+def get_report_footer():
+    """Generate standard report footer"""
+    return f"""
+    <div style="text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px;">
+        <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+        <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+        <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+    </div>
+    """
+
 
 def generate_sales_report_pdf(start_date, end_date):
     """Generate a PDF sales report"""
@@ -707,12 +749,19 @@ def generate_sales_report_pdf(start_date, end_date):
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
     
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, spaceAfter=30, alignment=TA_CENTER)
-    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=16, spaceAfter=12, spaceBefore=12)
+    company_title_style = ParagraphStyle('CompanyTitle', parent=styles['Heading1'], fontSize=24, spaceAfter=0, alignment=TA_CENTER, textColor=colors.HexColor('#1a237e'))
+    company_sub_style = ParagraphStyle('CompanySub', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, textColor=colors.HexColor('#555555'))
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading2'], fontSize=18, spaceAfter=12, alignment=TA_CENTER)
+    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=14, spaceAfter=10, spaceBefore=12)
     
     elements = []
     
-    elements.append(Paragraph("Sales Report", title_style))
+    # Company Header
+    elements.append(Paragraph("🏢 AZIEL INVESTMENTS", company_title_style))
+    elements.append(Paragraph("Retail Park, Harare", company_sub_style))
+    elements.append(Paragraph("📞 +263 78 290 5853", company_sub_style))
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph("SALES REPORT", title_style))
     elements.append(Paragraph(f"Period: {start_date} to {end_date}", styles['Normal']))
     elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
     elements.append(Spacer(1, 20))
@@ -768,6 +817,11 @@ def generate_sales_report_pdf(start_date, end_date):
         ]))
         elements.append(product_table)
     
+    # Footer
+    elements.append(Spacer(1, 30))
+    footer_text = f"{COMPANY_NAME} - {COMPANY_ADDRESS} | 📞 {COMPANY_PHONE} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    elements.append(Paragraph(footer_text, styles['Normal']))
+    
     doc.build(elements)
     pdf_bytes = buffer.getvalue()
     buffer.close()
@@ -776,84 +830,111 @@ def generate_sales_report_pdf(start_date, end_date):
 
 
 def generate_sales_report_html(start_date, end_date):
-    """Generate HTML sales report as fallback"""
+    """Generate HTML sales report with company name"""
     report_data = generate_sales_report(start_date, end_date)
     
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>Sales Report</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #2c3e50; text-align: center; }}
-        .header {{ text-align: center; margin-bottom: 30px; }}
-        .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
-        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
-        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
-        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #2c3e50; color: white; padding: 10px; text-align: left; }}
-        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-        tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-    </style>
+    <head>
+        <meta charset="UTF-8">
+        <title>Sales Report - {COMPANY_NAME}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; background: #f8f9fa; }}
+            .report-container {{ max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+            .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+            .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+            .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
+            .report-title {{ color: #2c3e50; margin-top: 10px; font-size: 22px; }}
+            .header {{ text-align: center; margin-bottom: 30px; }}
+            .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
+            .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #e9ecef; }}
+            .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
+            .metric-label {{ font-size: 14px; color: #7f8c8d; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+            th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
+            td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+            tr:nth-child(even) {{ background: #f8f9fa; }}
+            .section {{ margin-top: 30px; }}
+            .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
+            .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
+        </style>
     </head>
     <body>
-        <div class="header">
-            <h1>📊 Sales Report</h1>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_sales']:,.2f}</div><div class="metric-label">Total Sales</div></div>
-            <div class="metric-card"><div class="metric-value">${report_data['total_profit']:,.2f}</div><div class="metric-label">Total Profit</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['profit_margin']:.1f}%</div><div class="metric-label">Profit Margin</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['total_transactions']:,}</div><div class="metric-label">Transactions</div></div>
-        </div>
+        <div class="report-container">
+            <div class="company-header">
+                <h1>🏢 {COMPANY_NAME}</h1>
+                <p>{COMPANY_ADDRESS}</p>
+                <p>📞 {COMPANY_PHONE}</p>
+                <h2 class="report-title">📊 Sales Report</h2>
+                <p>Period: {start_date} to {end_date}</p>
+                <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </div>
+            
+            <div class="metrics">
+                <div class="metric-card"><div class="metric-value">${report_data['total_sales']:,.2f}</div><div class="metric-label">Total Sales</div></div>
+                <div class="metric-card"><div class="metric-value">${report_data['total_profit']:,.2f}</div><div class="metric-label">Total Profit</div></div>
+                <div class="metric-card"><div class="metric-value">{report_data['profit_margin']:.1f}%</div><div class="metric-label">Profit Margin</div></div>
+                <div class="metric-card"><div class="metric-value">{report_data['total_transactions']:,}</div><div class="metric-label">Transactions</div></div>
+            </div>
     """
     
     if not report_data['product_sales'].empty:
         html += f"""
-        <div class="section">
-            <h2 class="section-title">🏆 Top Products</h2>
-            <table><tr><th>Product</th><th>Revenue</th><th>Profit</th><th>Units</th><th>Margin</th></tr>
+            <div class="section">
+                <h2 class="section-title">🏆 Top Products</h2>
+                <table>
+                    <tr><th>Product</th><th>Revenue</th><th>Profit</th><th>Units</th><th>Margin</th></tr>
         """
         for _, row in report_data['product_sales'].head(10).iterrows():
             html += f"<tr><td>{row['name']}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td><td>{row['items']:,}</td><td>{row['margin']:.1f}%</td></tr>"
         html += "</table></div>"
     
-    html += "</body></html>"
+    html += f"""
+            <div class="footer">
+                <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+                <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+                <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
     return html.encode('utf-8')
 
 
 def generate_expenses_report_pdf(start_date, end_date):
-    """Generate expenses report PDF"""
+    """Generate expenses report PDF with company name"""
     report_data = generate_expense_report(start_date, end_date)
     
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>Expenses Report</title>
+    <head><meta charset="UTF-8"><title>Expenses Report - {COMPANY_NAME}</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #2c3e50; text-align: center; }}
-        .header {{ text-align: center; margin-bottom: 30px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
         .metric-label {{ font-size: 14px; color: #7f8c8d; }}
         table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #2c3e50; color: white; padding: 10px; text-align: left; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
         .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #e74c3c; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
     </style>
     </head>
     <body>
-        <div class="header">
-            <h1>💸 Expenses Report</h1>
+        <div class="company-header">
+            <h1>🏢 {COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>💸 Expenses Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
@@ -876,37 +957,50 @@ def generate_expenses_report_pdf(start_date, end_date):
             html += f"<tr><td>{row['category']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
         html += "</table></div>"
     
-    html += "</body></html>"
+    html += f"""
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
+    </body>
+    </html>
+    """
     return html.encode('utf-8')
 
 
 def generate_purchases_report_pdf(start_date, end_date):
-    """Generate purchases report PDF"""
+    """Generate purchases report PDF with company name"""
     report_data = generate_purchase_report(start_date, end_date)
     
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>Purchases Report</title>
+    <head><meta charset="UTF-8"><title>Purchases Report - {COMPANY_NAME}</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #2c3e50; text-align: center; }}
-        .header {{ text-align: center; margin-bottom: 30px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
         .metric-label {{ font-size: 14px; color: #7f8c8d; }}
         table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #2c3e50; color: white; padding: 10px; text-align: left; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
         .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
     </style>
     </head>
     <body>
-        <div class="header">
-            <h1>📦 Purchases Report</h1>
+        <div class="company-header">
+            <h1>🏢 {COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>📦 Purchases Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
@@ -937,37 +1031,50 @@ def generate_purchases_report_pdf(start_date, end_date):
             html += f"<tr><td>{row['status']}</td><td>{row['count']}</td></tr>"
         html += "</table></div>"
     
-    html += "</body></html>"
+    html += f"""
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
+    </body>
+    </html>
+    """
     return html.encode('utf-8')
 
 
 def generate_customers_report_pdf(start_date, end_date):
-    """Generate customers report PDF"""
+    """Generate customers report PDF with company name"""
     report_data = generate_customer_report(start_date, end_date)
     
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>Customers Report</title>
+    <head><meta charset="UTF-8"><title>Customers Report - {COMPANY_NAME}</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #2c3e50; text-align: center; }}
-        .header {{ text-align: center; margin-bottom: 30px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
         .metric-label {{ font-size: 14px; color: #7f8c8d; }}
         table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #2c3e50; color: white; padding: 10px; text-align: left; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
         .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
     </style>
     </head>
     <body>
-        <div class="header">
-            <h1>👥 Customers Report</h1>
+        <div class="company-header">
+            <h1>🏢 {COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>👥 Customers Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
@@ -989,39 +1096,52 @@ def generate_customers_report_pdf(start_date, end_date):
             html += f"<tr><td>{row['customer']}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td><td>{row['transactions']}</td></tr>"
         html += "</table></div>"
     
-    html += "</body></html>"
+    html += f"""
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
+    </body>
+    </html>
+    """
     return html.encode('utf-8')
 
 
 def generate_debtors_report_pdf():
-    """Generate debtors report PDF"""
+    """Generate debtors report PDF with company name"""
     report_data = generate_debtors_report()
     
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>Debtors Report</title>
+    <head><meta charset="UTF-8"><title>Debtors Report - {COMPANY_NAME}</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #2c3e50; text-align: center; }}
-        .header {{ text-align: center; margin-bottom: 30px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
         .metric-label {{ font-size: 14px; color: #7f8c8d; }}
         table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #2c3e50; color: white; padding: 10px; text-align: left; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
         .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
         .overdue {{ color: #e74c3c; }}
         .paid {{ color: #27ae60; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
     </style>
     </head>
     <body>
-        <div class="header">
-            <h1>💰 Debtors Report</h1>
+        <div class="company-header">
+            <h1>🏢 {COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>💰 Debtors Report</h2>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
         <div class="metrics">
@@ -1051,28 +1171,43 @@ def generate_debtors_report_pdf():
             """
         html += "</table></div>"
     
-    html += "</body></html>"
+    html += f"""
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
+    </body>
+    </html>
+    """
     return html.encode('utf-8')
 
 
 def generate_inventory_report_pdf():
-    """Generate inventory report PDF"""
+    """Generate inventory report PDF with company name"""
     inventory_data = get_inventory_report_data()
     
     if inventory_data.empty:
         html = f"""
         <!DOCTYPE html>
         <html>
-        <head><meta charset="UTF-8"><title>Inventory Report</title>
+        <head><meta charset="UTF-8"><title>Inventory Report - {COMPANY_NAME}</title>
         <style>
             body {{ font-family: Arial, sans-serif; margin: 40px; text-align: center; }}
-            h1 {{ color: #2c3e50; }}
+            .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+            .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+            .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         </style>
         </head>
         <body>
-            <h1>📦 Inventory Report</h1>
+            <div class="company-header">
+                <h1>🏢 {COMPANY_NAME}</h1>
+                <p>{COMPANY_ADDRESS}</p>
+                <p>📞 {COMPANY_PHONE}</p>
+                <h2>📦 Inventory Report</h2>
+                <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+            </div>
             <p>No inventory data available</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </body>
         </html>
         """
@@ -1081,26 +1216,31 @@ def generate_inventory_report_pdf():
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>Inventory Report</title>
+    <head><meta charset="UTF-8"><title>Inventory Report - {COMPANY_NAME}</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #2c3e50; text-align: center; }}
-        .header {{ text-align: center; margin-bottom: 30px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
         .metric-label {{ font-size: 14px; color: #7f8c8d; }}
         table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #2c3e50; color: white; padding: 10px; text-align: left; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
         .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
     </style>
     </head>
     <body>
-        <div class="header">
-            <h1>📦 Inventory Report</h1>
+        <div class="company-header">
+            <h1>🏢 {COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>📦 Inventory Report</h2>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
         <div class="metrics">
@@ -1126,12 +1266,21 @@ def generate_inventory_report_pdf():
             </tr>
         """
     
-    html += "</table></div></body></html>"
+    html += f"""
+        </table></div>
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
+    </body>
+    </html>
+    """
     return html.encode('utf-8')
 
 
 def generate_combined_report_pdf(start_date, end_date):
-    """Generate combined report PDF"""
+    """Generate combined report PDF with company name"""
     sales_report = generate_sales_report(start_date, end_date)
     expense_report = generate_expense_report(start_date, end_date)
     purchase_report = generate_purchase_report(start_date, end_date)
@@ -1144,26 +1293,31 @@ def generate_combined_report_pdf(start_date, end_date):
     html = f"""
     <!DOCTYPE html>
     <html>
-    <head><meta charset="UTF-8"><title>Combined Business Report</title>
+    <head><meta charset="UTF-8"><title>Combined Business Report - {COMPANY_NAME}</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #2c3e50; text-align: center; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         h2 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; margin-top: 30px; }}
-        .header {{ text-align: center; margin-bottom: 30px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
         .metric-label {{ font-size: 14px; color: #7f8c8d; }}
         table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #2c3e50; color: white; padding: 10px; text-align: left; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
         .section {{ margin-top: 30px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
     </style>
     </head>
     <body>
-        <div class="header">
-            <h1>📊 Combined Business Report</h1>
+        <div class="company-header">
+            <h1>🏢 {COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>📊 Combined Business Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
@@ -1229,6 +1383,12 @@ def generate_combined_report_pdf(start_date, end_date):
             <tr><td>Total Debtors</td><td>{debtors_report['debtors_count']}</td></tr>
             <tr><td>Overdue Debtors</td><td>{debtors_report['overdue_count']}</td></tr>
         </table>
+        
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
     </body>
     </html>
     """
