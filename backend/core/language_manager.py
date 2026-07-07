@@ -19,7 +19,8 @@ LANGUAGES = {
         "name": "English",
         "icon": "🇬🇧",
         "code": "en",
-        "direction": "ltr"
+        "direction": "ltr",
+        "native_name": "English"
     },
     "sn": {
         "name": "Shona",
@@ -38,7 +39,7 @@ LANGUAGES = {
 }
 
 # ==============================
-# DEFAULT TRANSLATIONS
+# DEFAULT TRANSLATIONS - EXPANDED
 # ==============================
 DEFAULT_TRANSLATIONS = {
     # Navigation
@@ -53,6 +54,11 @@ DEFAULT_TRANSLATIONS = {
     "nav_reports": {"en": "Reports", "sn": "Mishumo", "nd": "Imibiko"},
     "nav_settings": {"en": "Settings", "sn": "Zvirongwa", "nd": "Izilungiselelo"},
     "nav_language": {"en": "🌐 Language", "sn": "🌐 Mutauro", "nd": "🌐 Ulimi"},
+    "nav_analytics": {"en": "Analytics", "sn": "Ongororo", "nd": "Ukuhlaziya"},
+    "nav_security": {"en": "Security", "sn": "Chengetedzo", "nd": "Ezokuphepha"},
+    "nav_bidding": {"en": "Supplier Bidding", "sn": "Kukwikwidza Kwevatengesi", "nd": "Ukubhidana Kwabathengisi"},
+    "nav_debtors": {"en": "Debtors", "sn": "Vane Zvikwereti", "nd": "Abakweletayo"},
+    "nav_forecasting": {"en": "Forecasting", "sn": "Kufembera", "nd": "Ukubikezela"},
     
     # Common Actions
     "action_add": {"en": "Add", "sn": "Wedzera", "nd": "Faka"},
@@ -63,6 +69,13 @@ DEFAULT_TRANSLATIONS = {
     "action_search": {"en": "Search", "sn": "Tsvaga", "nd": "Sesha"},
     "action_clear": {"en": "Clear", "sn": "Bvisa", "nd": "Sula"},
     "action_confirm": {"en": "Confirm", "sn": "Simbisa", "nd": "Qinisekisa"},
+    "action_view": {"en": "View", "sn": "Ona", "nd": "Buka"},
+    "action_export": {"en": "Export", "sn": "Tumira", "nd": "Thela"},
+    "action_import": {"en": "Import", "sn": "Pinza", "nd": "Ngenisa"},
+    "action_print": {"en": "Print", "sn": "Dhindha", "nd": "Phrinta"},
+    "action_refresh": {"en": "Refresh", "sn": "Mutsiridza", "nd": "Vuselela"},
+    "action_back": {"en": "Back", "sn": "Dzoka", "nd": "Buyela"},
+    "action_next": {"en": "Next", "sn": "Inotevera", "nd": "Okulandelayo"},
     
     # POS
     "pos_title": {"en": "Point of Sale", "sn": "Nzvimbo Yekutengesa", "nd": "Indawo Yokuthengisa"},
@@ -73,18 +86,32 @@ DEFAULT_TRANSLATIONS = {
     "pos_cash": {"en": "Cash", "sn": "Mari", "nd": "Imali"},
     "pos_credit": {"en": "Credit", "sn": "Chikwereti", "nd": "Isikweleti"},
     "pos_checkout": {"en": "Checkout", "sn": "Bhadhara", "nd": "Khokha"},
+    "pos_scan": {"en": "Scan Barcode", "sn": "Skena Bhakodhi", "nd": "Skena Ibhakhodi"},
+    "pos_quantity": {"en": "Quantity", "sn": "Huwandu", "nd": "Inani"},
+    "pos_price": {"en": "Price", "sn": "Mutengo", "nd": "Inani"},
+    "pos_total": {"en": "Total", "sn": "Zvose", "nd": "Isamba"},
+    "pos_change": {"en": "Change", "sn": "Kumukira", "nd": "Ukushintsha"},
+    "pos_receipt": {"en": "Receipt", "sn": "Risiti", "nd": "Irisiti"},
+    "pos_clear_cart": {"en": "Clear Cart", "sn": "Bvisa Mutokari", "nd": "Sula Izinga"},
     
     # Stock
     "stock_dashboard": {"en": "Stock Dashboard", "sn": "Zvitoro", "nd": "Isitoko"},
     "stock_low": {"en": "Low Stock", "sn": "Zvitoro Zvishoma", "nd": "Isitoko Esincane"},
     "stock_out": {"en": "Out of Stock", "sn": "Zvatorwa", "nd": "Akuphelile"},
     "stock_value": {"en": "Stock Value", "sn": "Mutengo Wezvitoro", "nd": "Inani Lesitoko"},
+    "stock_add": {"en": "Add Product", "sn": "Wedzera Chigadzirwa", "nd": "Faka Umkhiqizo"},
+    "stock_edit": {"en": "Edit Product", "sn": "Chinja Chigadzirwa", "nd": "Hlela Umkhiqizo"},
+    "stock_delete": {"en": "Delete Product", "sn": "Bvisa Chigadzirwa", "nd": "Susa Umkhiqizo"},
+    "stock_barcode": {"en": "Barcode", "sn": "Bhakodhi", "nd": "Ibhakhodi"},
+    "stock_reorder": {"en": "Reorder Level", "sn": "Chiyero Chekudzokorodha", "nd": "Izinga Lokuhlela Kabusha"},
     
     # Customers
     "customer_name": {"en": "Customer Name", "sn": "Zita Remutengi", "nd": "Igama Lomthengi"},
     "customer_phone": {"en": "Phone Number", "sn": "Nhamba Yefoni", "nd": "Inombolo Yocingo"},
     "customer_points": {"en": "Loyalty Points", "sn": "Mapoinzi", "nd": "Amaphoyinti"},
     "customer_tier": {"en": "Tier", "sn": "Chikamu", "nd": "Isigaba"},
+    "customer_add": {"en": "Add Customer", "sn": "Wedzera Mutengi", "nd": "Faka Umthengi"},
+    "customer_search": {"en": "Search Customer", "sn": "Tsvaga Mutengi", "nd": "Sesha Umthengi"},
     
     # Messages
     "msg_success": {"en": "Success", "sn": "Zvabudirira", "nd": "Kuphumelele"},
@@ -93,6 +120,10 @@ DEFAULT_TRANSLATIONS = {
     "msg_info": {"en": "Information", "sn": "Ruzivo", "nd": "Ulwazi"},
     "msg_loading": {"en": "Loading...", "sn": "Kurodha...", "nd": "Iyalayisha..."},
     "msg_no_data": {"en": "No data available", "sn": "Hapana data", "nd": "Ayikho idatha"},
+    "msg_confirm_delete": {"en": "Are you sure you want to delete this?", "sn": "Une chokwadi chekubvisa?", "nd": "Uqinisekile ukuthi uyasusa?"},
+    "msg_saved": {"en": "Saved successfully", "sn": "Zvachengetwa zvakanaka", "nd": "Kugcinwe ngempumelelo"},
+    "msg_deleted": {"en": "Deleted successfully", "sn": "Zvabviswa zvakanaka", "nd": "Kususiwe ngempumelelo"},
+    "msg_error_occurred": {"en": "An error occurred", "sn": "Kanganiso yaitika", "nd": "Kwenzeke iphutha"},
     
     # Buttons
     "btn_login": {"en": "Login", "sn": "Pinda", "nd": "Ngena"},
@@ -101,6 +132,11 @@ DEFAULT_TRANSLATIONS = {
     "btn_submit": {"en": "Submit", "sn": "Tuma", "nd": "Thumela"},
     "btn_print": {"en": "Print", "sn": "Dhindha", "nd": "Phrinta"},
     "btn_download": {"en": "Download", "sn": "Dhawunirodha", "nd": "Landa"},
+    "btn_upload": {"en": "Upload", "sn": "Rodha", "nd": "Layisha"},
+    "btn_close": {"en": "Close", "sn": "Vhara", "nd": "Vala"},
+    "btn_yes": {"en": "Yes", "sn": "Hongu", "nd": "Yebo"},
+    "btn_no": {"en": "No", "sn": "Kwete", "nd": "Cha"},
+    "btn_continue": {"en": "Continue", "sn": "Enderera", "nd": "Qhubeka"},
     
     # Time
     "today": {"en": "Today", "sn": "Nhasi", "nd": "Namuhla"},
@@ -108,91 +144,154 @@ DEFAULT_TRANSLATIONS = {
     "this_week": {"en": "This Week", "sn": "Svondo Ino", "nd": "Kuleli Viki"},
     "this_month": {"en": "This Month", "sn": "Mwedzi Uno", "nd": "Kuleli Nyanga"},
     "this_year": {"en": "This Year", "sn": "Gore Rino", "nd": "Kulo Nyaka"},
+    "last_week": {"en": "Last Week", "sn": "Svondo Yapfuura", "nd": "Iviki Elidluwe"},
+    "last_month": {"en": "Last Month", "sn": "Mwedzi Wapfuura", "nd": "Inyanga Edlule"},
+    "last_year": {"en": "Last Year", "sn": "Gore Rapfuura", "nd": "Unyaka Odlule"},
+    "custom_range": {"en": "Custom Range", "sn": "Nguva Yako", "nd": "Isikhathi Sakho"},
     
     # Footer
     "footer_copyright": {"en": "All Rights Reserved", "sn": "Kodzero Dzose Dzachengetedzwa", "nd": "Wonke Amalungelo Agodliwe"},
     "footer_version": {"en": "Version", "sn": "Shanduro", "nd": "Inguqulo"},
+    "footer_powered": {"en": "Powered by Aziel Investments", "sn": "Inoshandiswa neAziel Investments", "nd": "Iqhutshwa yi-Aziel Investments"},
     
     # Receipt
     "receipt_header": {"en": "AZIEL INVESTMENTS", "sn": "AZIEL INVESTMENTS", "nd": "AZIEL INVESTMENTS"},
     "receipt_thanks": {"en": "THANK YOU FOR SHOPPING!", "sn": "TINOKUTENDA NEKUTENGA!", "nd": "SIYABONGA NGOKUTHENGA!"},
     "receipt_change": {"en": "Change", "sn": "Kumukira", "nd": "Ukushintsha"},
+    "receipt_date": {"en": "Date", "sn": "Zuva", "nd": "Usuku"},
+    "receipt_time": {"en": "Time", "sn": "Nguva", "nd": "Isikhathi"},
+    "receipt_cashier": {"en": "Cashier", "sn": "Mubhadhari", "nd": "Umkhokhi"},
+    "receipt_amount": {"en": "Amount", "sn": "Mari", "nd": "Imali"},
+    "receipt_balance": {"en": "Balance", "sn": "Chasara", "nd": "Isalela"},
+    
+    # Debtors
+    "debtor_title": {"en": "Debtors Management", "sn": "Manejimendi Yezvikwereti", "nd": "Ukuphathwa Kwezikweleti"},
+    "debtor_create": {"en": "Create Debt", "sn": "Gadzira Chikwereti", "nd": "Dala Isikweleti"},
+    "debtor_payment": {"en": "Record Payment", "sn": "Rekodha Kubhadhara", "nd": "Rekhoda Inkokhelo"},
+    "debtor_overdue": {"en": "Overdue Debts", "sn": "Zvikwereti Zvakanonoka", "nd": "Izikweleti Ezingamangezwa"},
+    "debtor_balance": {"en": "Balance", "sn": "Chasara", "nd": "Isalela"},
+    "debtor_amount": {"en": "Amount", "sn": "Mari", "nd": "Imali"},
+    
+    # Forecasting
+    "forecast_title": {"en": "Demand Forecasting", "sn": "Kufembera Kwezvinodiwa", "nd": "Ukubikezela Izidingo"},
+    "forecast_sales": {"en": "Sales Forecast", "sn": "Kufembera Kutengesa", "nd": "Ukubikezela Ukuthengisa"},
+    "forecast_trend": {"en": "Trend", "sn": "Maitiro", "nd": "Ukuthambekela"},
+    "forecast_confidence": {"en": "Confidence", "sn": "Chivimbo", "nd": "Ukuzethemba"},
+    "forecast_accuracy": {"en": "Accuracy", "sn": "Kururama", "nd": "Ukunemba"},
+    
+    # Security
+    "security_title": {"en": "Security Dashboard", "sn": "Chengetedzo", "nd": "Ezokuphepha"},
+    "security_audit": {"en": "Audit Log", "sn": "Rekodhi Yekuongorora", "nd": "Ilogi Yokuhlola"},
+    "security_2fa": {"en": "Two-Factor Authentication", "sn": "Kusimbisa Kaviri", "nd": "Ukuqinisekisa Kabili"},
+    "security_session": {"en": "Active Sessions", "sn": "Seshoni Dzinoshanda", "nd": "Amaseshini Asebenzayo"},
+    "security_whitelist": {"en": "IP Whitelist", "sn": "IP Whitelist", "nd": "IP Whitelist"},
 }
 
 
 def init_language_files():
     """Initialize language files"""
-    DATA_DIR.mkdir(exist_ok=True)
-    
-    # Create translations file if not exists
-    if not TRANSLATIONS_FILE.exists():
-        with open(TRANSLATIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_TRANSLATIONS, f, ensure_ascii=False, indent=2)
-    
-    # Create language settings file if not exists
-    if not LANGUAGE_FILE.exists():
-        settings = {
-            "current_language": "en",
-            "auto_detect": True,
-            "last_updated": datetime.now().isoformat()
-        }
-        with open(LANGUAGE_FILE, "w", encoding="utf-8") as f:
-            json.dump(settings, f, ensure_ascii=False, indent=2)
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        
+        # Create translations file if not exists
+        if not TRANSLATIONS_FILE.exists():
+            with open(TRANSLATIONS_FILE, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_TRANSLATIONS, f, ensure_ascii=False, indent=2)
+        
+        # Create language settings file if not exists
+        if not LANGUAGE_FILE.exists():
+            settings = {
+                "current_language": "en",
+                "auto_detect": False,
+                "last_updated": datetime.now().isoformat()
+            }
+            with open(LANGUAGE_FILE, "w", encoding="utf-8") as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error initializing language files: {e}")
 
 
 def load_translations():
     """Load all translations"""
-    init_language_files()
-    with open(TRANSLATIONS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        init_language_files()
+        with open(TRANSLATIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading translations: {e}")
+        return DEFAULT_TRANSLATIONS
 
 
 def save_translations(translations):
     """Save translations to file"""
-    with open(TRANSLATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(translations, f, ensure_ascii=False, indent=2)
+    try:
+        with open(TRANSLATIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(translations, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving translations: {e}")
+        return False
 
 
 def get_current_language():
     """Get current language setting"""
-    init_language_files()
-    with open(LANGUAGE_FILE, "r", encoding="utf-8") as f:
-        settings = json.load(f)
-    return settings.get("current_language", "en")
+    try:
+        init_language_files()
+        with open(LANGUAGE_FILE, "r", encoding="utf-8") as f:
+            settings = json.load(f)
+        return settings.get("current_language", "en")
+    except Exception as e:
+        print(f"Error getting current language: {e}")
+        return "en"
 
 
 def set_current_language(lang_code):
     """Set current language"""
-    init_language_files()
-    with open(LANGUAGE_FILE, "r", encoding="utf-8") as f:
-        settings = json.load(f)
-    
-    settings["current_language"] = lang_code
-    settings["last_updated"] = datetime.now().isoformat()
-    
-    with open(LANGUAGE_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings, f, ensure_ascii=False, indent=2)
-    
-    # Update session state
-    st.session_state.current_language = lang_code
+    try:
+        init_language_files()
+        
+        # Validate language code
+        if lang_code not in LANGUAGES:
+            lang_code = "en"
+        
+        with open(LANGUAGE_FILE, "r", encoding="utf-8") as f:
+            settings = json.load(f)
+        
+        settings["current_language"] = lang_code
+        settings["last_updated"] = datetime.now().isoformat()
+        
+        with open(LANGUAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+        
+        # Update session state
+        st.session_state.current_language = lang_code
+        
+        return True
+    except Exception as e:
+        print(f"Error setting current language: {e}")
+        return False
 
 
 def _(key, language=None):
-    """Translate a key to current language"""
+    """Translate a key to current language - FIXED: Returns key if not found"""
     if language is None:
         language = get_current_language()
     
-    translations = load_translations()
-    
-    if key in translations:
-        translation = translations[key]
-        if language in translation:
-            return translation[language]
-        elif "en" in translation:
-            return translation["en"]
-    
-    # Return key if translation not found
-    return key.replace("_", " ").title()
+    try:
+        translations = load_translations()
+        
+        if key in translations:
+            translation = translations[key]
+            if language in translation:
+                return translation[language]
+            elif "en" in translation:
+                return translation["en"]
+        
+        # Return key with underscores replaced by spaces if not found
+        return key.replace("_", " ").title()
+    except Exception as e:
+        print(f"Error translating {key}: {e}")
+        return key.replace("_", " ").title()
 
 
 def get_language_name(lang_code):
@@ -212,38 +311,54 @@ def get_available_languages():
 
 def translate_text(text, target_lang):
     """Simple text translation using dictionary"""
-    translations = load_translations()
-    
-    # Search for the text in translations
-    for key, value in translations.items():
-        if value.get("en", "").lower() == text.lower():
-            return value.get(target_lang, text)
-    
-    return text
+    try:
+        translations = load_translations()
+        
+        # Search for the text in translations
+        for key, value in translations.items():
+            if value.get("en", "").lower() == text.lower():
+                return value.get(target_lang, text)
+        
+        return text
+    except Exception:
+        return text
+
+
+def init_session_language():
+    """Initialize language in session state"""
+    if "current_language" not in st.session_state:
+        st.session_state.current_language = get_current_language()
 
 
 def language_selector():
-    """Display language selector in sidebar"""
+    """Display language selector in sidebar - FIXED"""
     
+    init_session_language()
     current_lang = get_current_language()
     languages = get_available_languages()
     
     # Create language options
     lang_options = []
+    lang_codes = []
     for code, info in languages.items():
         lang_options.append(f"{info['icon']} {info['name']}")
+        lang_codes.append(code)
     
-    current_index = list(languages.keys()).index(current_lang)
+    try:
+        current_index = lang_codes.index(current_lang)
+    except ValueError:
+        current_index = 0
     
     selected = st.sidebar.selectbox(
-        _("nav_language"),
+        "🌐 Language",
         lang_options,
         index=current_index,
-        key="language_selector"
+        key="language_selector_widget"
     )
     
     # Get selected language code
-    selected_code = list(languages.keys())[lang_options.index(selected)]
+    selected_index = lang_options.index(selected)
+    selected_code = lang_codes[selected_index]
     
     if selected_code != current_lang:
         set_current_language(selected_code)
@@ -254,7 +369,7 @@ def language_selector():
 # LANGUAGE DASHBOARD (Admin)
 # ==============================
 def language_dashboard():
-    """Language management dashboard for admins"""
+    """Language management dashboard for admins - FIXED"""
     
     st.title("🌐 Language Management")
     st.caption("Manage system languages and translations")
@@ -316,15 +431,15 @@ def language_dashboard():
             st.metric("Total Translation Keys", len(translations))
         
         with col2:
-            en_complete = sum(1 for t in translations.values() if "en" in t)
+            en_complete = sum(1 for t in translations.values() if "en" in t and t["en"])
             st.metric("English Complete", f"{en_complete}/{len(translations)}")
         
         with col3:
-            sn_complete = sum(1 for t in translations.values() if "sn" in t)
+            sn_complete = sum(1 for t in translations.values() if "sn" in t and t["sn"])
             st.metric("Shona Complete", f"{sn_complete}/{len(translations)}")
     
     # ==============================
-    # TAB 2: EDIT TRANSLATIONS
+    # TAB 2: EDIT TRANSLATIONS - FIXED
     # ==============================
     with tab2:
         st.markdown("## 📝 Edit Translations")
@@ -342,31 +457,54 @@ def language_dashboard():
         # Search/filter
         search = st.text_input("Search translation key", placeholder="Type to filter...")
         
-        # Display editable table
+        # Display editable table with pagination
         st.markdown("### Edit Translations")
         
         filtered_keys = list(translations.keys())
         if search:
             filtered_keys = [k for k in filtered_keys if search.lower() in k.lower()]
         
-        # Show limited number for performance
-        for key in filtered_keys[:50]:
-            with st.expander(f"🔑 {key}"):
-                current_value = translations[key].get(edit_lang, "")
-                new_value = st.text_area(
-                    f"Translation for {key}",
-                    value=current_value,
-                    key=f"trans_{key}_{edit_lang}",
-                    height=60
-                )
-                
-                if new_value != current_value:
-                    translations[key][edit_lang] = new_value
-                    save_translations(translations)
-                    st.success(f"Updated: {key}")
+        # Pagination
+        items_per_page = 20
+        total_pages = (len(filtered_keys) + items_per_page - 1) // items_per_page if filtered_keys else 1
         
-        if len(filtered_keys) > 50:
-            st.info(f"Showing 50 of {len(filtered_keys)} keys. Use search to filter.")
+        if total_pages > 1:
+            page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1)
+            start_idx = (page - 1) * items_per_page
+            end_idx = min(start_idx + items_per_page, len(filtered_keys))
+            page_keys = filtered_keys[start_idx:end_idx]
+        else:
+            page_keys = filtered_keys
+        
+        if not page_keys:
+            st.info("No translation keys found")
+        else:
+            for key in page_keys:
+                with st.expander(f"🔑 {key}"):
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        current_value = translations[key].get(edit_lang, "")
+                        new_value = st.text_area(
+                            f"Translation for {key}",
+                            value=current_value,
+                            key=f"trans_{key}_{edit_lang}",
+                            height=60
+                        )
+                    
+                    with col2:
+                        # Show English for reference
+                        en_value = translations[key].get("en", "")
+                        st.caption(f"English: {en_value[:50]}...")
+                    
+                    if new_value != current_value:
+                        translations[key][edit_lang] = new_value
+                        if save_translations(translations):
+                            st.success(f"Updated: {key}")
+                            st.rerun()
+        
+        if len(filtered_keys) > items_per_page:
+            st.info(f"Showing {len(page_keys)} of {len(filtered_keys)} keys. Use search to filter.")
         
         # Add new translation key
         st.markdown("---")
@@ -382,10 +520,13 @@ def language_dashboard():
         
         if st.button("➕ Add New Translation", use_container_width=True):
             if new_key and new_value:
-                translations[new_key] = {"en": new_value}
-                save_translations(translations)
-                st.success(f"Added new translation key: {new_key}")
-                st.rerun()
+                if new_key in translations:
+                    st.warning(f"Key '{new_key}' already exists. Use edit instead.")
+                else:
+                    translations[new_key] = {"en": new_value}
+                    if save_translations(translations):
+                        st.success(f"Added new translation key: {new_key}")
+                        st.rerun()
             else:
                 st.error("Please enter both key and value")
     
@@ -447,9 +588,9 @@ def language_dashboard():
                 for key in missing_keys:
                     if "en" in translations[key]:
                         translations[key][missing_lang] = translations[key]["en"]
-                save_translations(translations)
-                st.success(f"Auto-filled {len(missing_keys)} missing translations")
-                st.rerun()
+                if save_translations(translations):
+                    st.success(f"Auto-filled {len(missing_keys)} missing translations")
+                    st.rerun()
         else:
             st.success(f"✅ All translations complete for {LANGUAGES[missing_lang]['name']}!")
         
@@ -460,7 +601,16 @@ def language_dashboard():
         col1, col2 = st.columns(2)
         
         with col1:
-            csv = pd.DataFrame(translations).T.reset_index().to_csv(index=False).encode('utf-8')
+            # Export as CSV
+            export_data = {"key": [], "en": [], "sn": [], "nd": []}
+            for key, value in translations.items():
+                export_data["key"].append(key)
+                export_data["en"].append(value.get("en", ""))
+                export_data["sn"].append(value.get("sn", ""))
+                export_data["nd"].append(value.get("nd", ""))
+            
+            export_df = pd.DataFrame(export_data)
+            csv = export_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Export Translations (CSV)",
                 data=csv,
@@ -475,16 +625,16 @@ def language_dashboard():
                     df = pd.read_csv(uploaded_file)
                     new_translations = {}
                     for _, row in df.iterrows():
-                        key = row.get("index", row.get("key", ""))
+                        key = row.get("key", "")
                         if key:
                             new_translations[key] = {
-                                "en": row.get("en", ""),
-                                "sn": row.get("sn", ""),
-                                "nd": row.get("nd", "")
+                                "en": str(row.get("en", "")),
+                                "sn": str(row.get("sn", "")),
+                                "nd": str(row.get("nd", ""))
                             }
-                    save_translations(new_translations)
-                    st.success("Translations imported successfully!")
-                    st.rerun()
+                    if save_translations(new_translations):
+                        st.success("Translations imported successfully!")
+                        st.rerun()
                 except Exception as e:
                     st.error(f"Error importing: {e}")
 
@@ -499,7 +649,7 @@ def tr(key):
 
 def apply_language_to_ui():
     """Apply language settings to UI elements (to be called in each page)"""
-    pass
+    init_session_language()
 
 
 # ==============================
