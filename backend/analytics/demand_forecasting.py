@@ -6,14 +6,47 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+import plotly.graph_objects as go
+import plotly.express as px
 import warnings
 warnings.filterwarnings('ignore')
 
 from backend.core.db_adapter import load_sales, load_products
 
+
 # ==============================
-# DEMAND FORECASTING ENGINE
+# HELPER FUNCTIONS - FIXED
 # ==============================
+
+def safe_float(value, default=0.0):
+    """Safely convert value to float"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_int(value, default=0):
+    """Safely convert value to int"""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def find_column(df, possible_names, default=None):
+    """Find the first column that matches any of the possible names"""
+    if df is None or df.empty:
+        return default
+    for name in possible_names:
+        if name in df.columns:
+            return name
+    return default
+
 
 def get_column_mapping(df, column_types):
     """
@@ -29,76 +62,74 @@ def get_column_mapping(df, column_types):
     
     result = {}
     for key, possible_names in column_types.items():
-        for name in possible_names:
-            if name in df.columns:
-                result[key] = name
-                break
-        if key not in result:
-            result[key] = None
+        found = find_column(df, possible_names)
+        result[key] = found
     
     return result
 
 
 def prepare_sales_data(sales_df, product_name=None):
-    """Prepare sales data for forecasting"""
+    """Prepare sales data for forecasting - FIXED"""
     
     if sales_df.empty:
         return None
     
     # Find the date column
-    date_col = None
-    for col in ["date", "sale_date", "transaction_date"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
-    
+    date_col = find_column(sales_df, ["date", "sale_date", "transaction_date", "created_at"])
     if date_col is None:
         return None
     
-    sales_df[date_col] = pd.to_datetime(sales_df[date_col])
-    
     # Find the product name column
-    product_col = None
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in sales_df.columns:
-            product_col = col
-            break
-    
+    product_col = find_column(sales_df, ["name", "product_name", "Product", "item_name", "product"])
     if product_col is None:
         return None
     
     # Find the total/sales column
-    total_col = None
-    for col in ["final_total", "total", "amount", "sale_amount"]:
-        if col in sales_df.columns:
-            total_col = col
-            break
-    
+    total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount", "revenue"])
     if total_col is None:
         return None
     
-    # Filter by product if specified
-    if product_name and product_name != "All Products" and product_name != "All":
-        # Try to match product name
-        df = sales_df[sales_df[product_col] == product_name].copy()
-        if df.empty:
-            # Try partial match
-            df = sales_df[sales_df[product_col].str.contains(product_name, case=False, na=False)].copy()
+    # Find items/quantity column for volume
+    items_col = find_column(sales_df, ["items", "quantity", "qty", "units"])
+    
+    try:
+        # Convert date column
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+        
+        if sales_df.empty:
+            return None
+        
+        # Filter by product if specified
+        if product_name and product_name != "All Products" and product_name != "All":
+            # Try to match product name
+            df = sales_df[sales_df[product_col] == product_name].copy()
+            if df.empty:
+                # Try partial match
+                df = sales_df[sales_df[product_col].astype(str).str.contains(product_name, case=False, na=False)].copy()
+            if df.empty:
+                return None
+        else:
+            df = sales_df.copy()
+        
         if df.empty:
             return None
-    else:
-        df = sales_df.copy()
-    
-    if df.empty:
+        
+        # Use items column if available for quantity, otherwise use count
+        if items_col and items_col in df.columns:
+            daily_sales = df.groupby(df[date_col].dt.date)[items_col].sum().reset_index()
+        else:
+            # Use total value
+            daily_sales = df.groupby(df[date_col].dt.date)[total_col].sum().reset_index()
+        
+        daily_sales.columns = ["date", "sales"]
+        daily_sales["date"] = pd.to_datetime(daily_sales["date"])
+        daily_sales = daily_sales.sort_values("date")
+        
+        return daily_sales
+    except Exception as e:
+        print(f"Error preparing sales data: {e}")
         return None
-    
-    # Aggregate by date
-    daily_sales = df.groupby(df[date_col].dt.date)[total_col].sum().reset_index()
-    daily_sales.columns = ["date", "sales"]
-    daily_sales["date"] = pd.to_datetime(daily_sales["date"])
-    daily_sales = daily_sales.sort_values("date")
-    
-    return daily_sales
 
 
 def add_time_features(df):
@@ -120,447 +151,385 @@ def add_time_features(df):
 
 
 def forecast_sales_linear(daily_sales, days=30):
-    """Linear regression forecast with confidence intervals"""
+    """Linear regression forecast with confidence intervals - FIXED"""
     
     if daily_sales is None or len(daily_sales) < 7:
         return None
     
-    # Prepare features
-    sales_data = add_time_features(daily_sales)
-    
-    # Use days_since_start as feature
-    X = sales_data["days_since_start"].values.reshape(-1, 1)
-    y = sales_data["sales"].values
-    
-    # Train model
-    model = LinearRegression()
-    model.fit(X, y)
-    
-    # Predict future
-    last_day = sales_data["days_since_start"].max()
-    future_days = np.arange(last_day + 1, last_day + days + 1).reshape(-1, 1)
-    predictions = model.predict(future_days)
-    predictions = np.maximum(predictions, 0)  # No negative sales
-    
-    # Calculate confidence intervals (95%)
-    residuals = y - model.predict(X)
-    std_residual = np.std(residuals)
-    confidence_interval = 1.96 * std_residual
-    
-    # Generate forecast dates
-    last_date = daily_sales["date"].max()
-    forecast_dates = [last_date + timedelta(days=i) for i in range(1, days + 1)]
-    
-    forecast = []
-    for i, (date, pred) in enumerate(zip(forecast_dates, predictions)):
-        forecast.append({
-            "date": date.strftime("%Y-%m-%d"),
-            "forecast_sales": round(pred, 2),
-            "lower_bound": round(max(0, pred - confidence_interval), 2),
-            "upper_bound": round(pred + confidence_interval, 2)
-        })
-    
-    # Calculate metrics
-    mae = mean_absolute_error(y, model.predict(X))
-    rmse = np.sqrt(mean_squared_error(y, model.predict(X)))
-    
-    # Calculate trend
-    slope = model.coef_[0]
-    trend = "increasing" if slope > 0 else "decreasing" if slope < 0 else "stable"
-    
-    return {
-        "forecast": forecast,
-        "total_forecast": round(sum(predictions), 2),
-        "avg_daily": round(np.mean(predictions), 2),
-        "trend": trend,
-        "trend_strength": abs(slope),
-        "mae": round(mae, 2),
-        "rmse": round(rmse, 2),
-        "confidence_interval": round(confidence_interval, 2),
-        "model_type": "Linear Regression"
-    }
+    try:
+        # Prepare features
+        sales_data = add_time_features(daily_sales)
+        if sales_data is None:
+            return None
+        
+        # Use days_since_start as feature
+        X = sales_data["days_since_start"].values.reshape(-1, 1)
+        y = sales_data["sales"].values
+        
+        # Train model
+        model = LinearRegression()
+        model.fit(X, y)
+        
+        # Predict future
+        last_day = sales_data["days_since_start"].max()
+        future_days = np.arange(last_day + 1, last_day + days + 1).reshape(-1, 1)
+        predictions = model.predict(future_days)
+        predictions = np.maximum(predictions, 0)  # No negative sales
+        
+        # Calculate confidence intervals (95%)
+        residuals = y - model.predict(X)
+        std_residual = np.std(residuals)
+        confidence_interval = 1.96 * std_residual
+        
+        # Generate forecast dates
+        last_date = daily_sales["date"].max()
+        forecast_dates = [last_date + timedelta(days=i) for i in range(1, days + 1)]
+        
+        forecast = []
+        for i, (date, pred) in enumerate(zip(forecast_dates, predictions)):
+            forecast.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "forecast_sales": round(safe_float(pred), 2),
+                "lower_bound": round(max(0, safe_float(pred - confidence_interval)), 2),
+                "upper_bound": round(safe_float(pred + confidence_interval), 2)
+            })
+        
+        # Calculate metrics
+        mae = mean_absolute_error(y, model.predict(X))
+        rmse = np.sqrt(mean_squared_error(y, model.predict(X)))
+        
+        # Calculate trend
+        slope = model.coef_[0]
+        trend = "increasing" if slope > 0 else "decreasing" if slope < 0 else "stable"
+        
+        return {
+            "forecast": forecast,
+            "total_forecast": round(safe_float(sum(predictions)), 2),
+            "avg_daily": round(safe_float(np.mean(predictions)), 2),
+            "trend": trend,
+            "trend_strength": abs(slope),
+            "mae": round(safe_float(mae), 2),
+            "rmse": round(safe_float(rmse), 2),
+            "confidence_interval": round(safe_float(confidence_interval), 2),
+            "model_type": "Linear Regression"
+        }
+    except Exception as e:
+        print(f"Linear forecast error: {e}")
+        return None
 
 
 def forecast_sales_random_forest(daily_sales, days=30):
-    """Random Forest forecast for better accuracy"""
+    """Random Forest forecast for better accuracy - FIXED"""
     
-    if daily_sales is None or len(daily_sales) < 30:
+    if daily_sales is None or len(daily_sales) < 14:
         return None
     
-    sales_data = add_time_features(daily_sales)
-    
-    # Features for Random Forest
-    feature_cols = ["day_of_week", "month", "day_of_month", "week_of_year", "quarter", "is_weekend", "days_since_start"]
-    X = sales_data[feature_cols].values
-    y = sales_data["sales"].values
-    
-    # Train model
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X, y)
-    
-    # Predict future
-    last_date = daily_sales["date"].max()
-    future_dates = [last_date + timedelta(days=i) for i in range(1, days + 1)]
-    
-    # Create feature matrix for future dates
-    future_features = []
-    for i, date in enumerate(future_dates):
-        features = {
-            "day_of_week": date.weekday(),
-            "month": date.month,
-            "day_of_month": date.day,
-            "week_of_year": date.isocalendar().week,
-            "quarter": (date.month - 1) // 3 + 1,
-            "is_weekend": 1 if date.weekday() >= 5 else 0,
-            "days_since_start": sales_data["days_since_start"].max() + i + 1
+    try:
+        sales_data = add_time_features(daily_sales)
+        if sales_data is None:
+            return None
+        
+        # Features for Random Forest
+        feature_cols = ["day_of_week", "month", "day_of_month", "week_of_year", "quarter", "is_weekend", "days_since_start"]
+        X = sales_data[feature_cols].values
+        y = sales_data["sales"].values
+        
+        # Train model
+        model = RandomForestRegressor(n_estimators=50, random_state=42, max_depth=10)
+        model.fit(X, y)
+        
+        # Predict future
+        last_date = daily_sales["date"].max()
+        future_dates = [last_date + timedelta(days=i) for i in range(1, days + 1)]
+        
+        # Create feature matrix for future dates
+        future_features = []
+        for i, date in enumerate(future_dates):
+            features = {
+                "day_of_week": date.weekday(),
+                "month": date.month,
+                "day_of_month": date.day,
+                "week_of_year": date.isocalendar().week,
+                "quarter": (date.month - 1) // 3 + 1,
+                "is_weekend": 1 if date.weekday() >= 5 else 0,
+                "days_since_start": sales_data["days_since_start"].max() + i + 1
+            }
+            future_features.append([features[col] for col in feature_cols])
+        
+        predictions = model.predict(future_features)
+        predictions = np.maximum(predictions, 0)
+        
+        # Calculate confidence intervals
+        residuals = y - model.predict(X)
+        std_residual = np.std(residuals)
+        confidence_interval = 1.96 * std_residual
+        
+        forecast = []
+        for i, (date, pred) in enumerate(zip(future_dates, predictions)):
+            forecast.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "forecast_sales": round(safe_float(pred), 2),
+                "lower_bound": round(max(0, safe_float(pred - confidence_interval)), 2),
+                "upper_bound": round(safe_float(pred + confidence_interval), 2)
+            })
+        
+        # Calculate metrics
+        mae = mean_absolute_error(y, model.predict(X))
+        rmse = np.sqrt(mean_squared_error(y, model.predict(X)))
+        
+        # Feature importance
+        feature_importance = dict(zip(feature_cols, model.feature_importances_))
+        
+        return {
+            "forecast": forecast,
+            "total_forecast": round(safe_float(sum(predictions)), 2),
+            "avg_daily": round(safe_float(np.mean(predictions)), 2),
+            "trend": "based on multiple factors",
+            "feature_importance": feature_importance,
+            "mae": round(safe_float(mae), 2),
+            "rmse": round(safe_float(rmse), 2),
+            "confidence_interval": round(safe_float(confidence_interval), 2),
+            "model_type": "Random Forest"
         }
-        future_features.append([features[col] for col in feature_cols])
-    
-    predictions = model.predict(future_features)
-    predictions = np.maximum(predictions, 0)
-    
-    # Calculate confidence intervals
-    residuals = y - model.predict(X)
-    std_residual = np.std(residuals)
-    confidence_interval = 1.96 * std_residual
-    
-    forecast = []
-    for i, (date, pred) in enumerate(zip(future_dates, predictions)):
-        forecast.append({
-            "date": date.strftime("%Y-%m-%d"),
-            "forecast_sales": round(pred, 2),
-            "lower_bound": round(max(0, pred - confidence_interval), 2),
-            "upper_bound": round(pred + confidence_interval, 2)
-        })
-    
-    # Calculate metrics
-    mae = mean_absolute_error(y, model.predict(X))
-    rmse = np.sqrt(mean_squared_error(y, model.predict(X)))
-    
-    # Feature importance
-    feature_importance = dict(zip(feature_cols, model.feature_importances_))
-    
-    return {
-        "forecast": forecast,
-        "total_forecast": round(sum(predictions), 2),
-        "avg_daily": round(np.mean(predictions), 2),
-        "trend": "based on multiple factors",
-        "feature_importance": feature_importance,
-        "mae": round(mae, 2),
-        "rmse": round(rmse, 2),
-        "confidence_interval": round(confidence_interval, 2),
-        "model_type": "Random Forest"
-    }
+    except Exception as e:
+        print(f"Random Forest forecast error: {e}")
+        return None
 
 
 def calculate_eoq(annual_demand, order_cost, holding_cost_per_unit):
     """Calculate Economic Order Quantity (EOQ)"""
-    if annual_demand <= 0 or order_cost <= 0 or holding_cost_per_unit <= 0:
+    try:
+        annual_demand = safe_float(annual_demand)
+        order_cost = safe_float(order_cost)
+        holding_cost_per_unit = safe_float(holding_cost_per_unit)
+        
+        if annual_demand <= 0 or order_cost <= 0 or holding_cost_per_unit <= 0:
+            return 0
+        eoq = np.sqrt((2 * annual_demand * order_cost) / holding_cost_per_unit)
+        return round(eoq)
+    except:
         return 0
-    eoq = np.sqrt((2 * annual_demand * order_cost) / holding_cost_per_unit)
-    return round(eoq)
 
 
 def get_product_demand_metrics(product_name, sales_df, products_df):
-    """
-    Get demand metrics for a specific product
-    FIXED: Now handles missing columns properly
-    """
+    """Get demand metrics for a specific product - FIXED"""
     
     if sales_df.empty or products_df.empty:
         return None
     
-    # Find product name column in sales
-    product_col_sales = None
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in sales_df.columns:
-            product_col_sales = col
-            break
+    # Find columns
+    product_col_sales = find_column(sales_df, ["name", "product_name", "Product", "item_name", "product"])
+    date_col = find_column(sales_df, ["date", "sale_date", "transaction_date", "created_at"])
+    items_col = find_column(sales_df, ["items", "quantity", "qty", "units"])
+    total_col = find_column(sales_df, ["total", "final_total", "amount", "sale_amount"])
     
-    if product_col_sales is None:
+    if product_col_sales is None or date_col is None:
         return None
     
-    # Find date column
-    date_col = None
-    for col in ["date", "sale_date", "transaction_date"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
+    # Find product columns
+    product_col_products = find_column(products_df, ["name", "product_name", "Product"])
+    price_col = find_column(products_df, ["price", "selling_price", "unit_price"])
+    cost_col = find_column(products_df, ["cost", "cost_price", "purchase_price"])
+    stock_col = find_column(products_df, ["stock", "quantity", "inventory", "current_stock"])
     
-    if date_col is None:
-        return None
-    
-    # Find items column
-    items_col = None
-    for col in ["items", "quantity", "qty", "amount"]:
-        if col in sales_df.columns:
-            items_col = col
-            break
-    
-    # Find total column for revenue
-    total_col = None
-    for col in ["total", "final_total", "sale_amount", "revenue"]:
-        if col in sales_df.columns:
-            total_col = col
-            break
-    
-    # Find product price and cost columns
-    price_col = None
-    cost_col = None
-    stock_col = None
-    product_col_products = None
-    
-    if not products_df.empty:
-        for col in ["name", "product_name", "Product"]:
-            if col in products_df.columns:
-                product_col_products = col
-                break
+    try:
+        # Filter sales for this product
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
         
-        for col in ["price", "selling_price", "unit_price"]:
-            if col in products_df.columns:
-                price_col = col
-                break
+        product_sales = sales_df[sales_df[product_col_sales] == product_name]
         
-        for col in ["cost", "cost_price", "purchase_price"]:
-            if col in products_df.columns:
-                cost_col = col
-                break
+        if product_sales.empty:
+            return None
         
-        for col in ["stock", "quantity", "inventory", "current_stock"]:
-            if col in products_df.columns:
-                stock_col = col
-                break
-    
-    # Filter sales for this product
-    product_sales = sales_df[sales_df[product_col_sales] == product_name]
-    
-    if product_sales.empty:
-        return None
-    
-    # Get product cost and price
-    cost = 0
-    price = 0
-    current_stock = 0
-    
-    if product_col_products and not products_df.empty:
-        product = products_df[products_df[product_col_products] == product_name]
-        if not product.empty:
-            if cost_col and cost_col in product.columns:
-                cost = product.iloc[0].get(cost_col, 0)
-            if price_col and price_col in product.columns:
-                price = product.iloc[0].get(price_col, 0)
-            if stock_col and stock_col in product.columns:
-                current_stock = product.iloc[0].get(stock_col, 0)
-    
-    # Convert date column
-    product_sales[date_col] = pd.to_datetime(product_sales[date_col])
-    
-    # Calculate metrics
-    # Get quantity sold
-    if items_col and items_col in product_sales.columns:
-        total_sold = product_sales[items_col].sum()
-    else:
-        total_sold = len(product_sales)
-    
-    # Daily sales
-    daily_sales = product_sales.groupby(product_sales[date_col].dt.date)[items_col].sum() if items_col else product_sales.groupby(product_sales[date_col].dt.date).size()
-    avg_daily_sales = daily_sales.mean() if not daily_sales.empty else 0
-    
-    # Weekly sales
-    weekly_sales = product_sales.groupby(product_sales[date_col].dt.isocalendar().week)[items_col].sum() if items_col else product_sales.groupby(product_sales[date_col].dt.isocalendar().week).size()
-    avg_weekly_sales = weekly_sales.mean() if not weekly_sales.empty else 0
-    
-    # Monthly sales
-    monthly_sales = product_sales.groupby(product_sales[date_col].dt.month)[items_col].sum() if items_col else product_sales.groupby(product_sales[date_col].dt.month).size()
-    avg_monthly_sales = monthly_sales.mean() if not monthly_sales.empty else 0
-    
-    # Sales per day
-    date_range = (product_sales[date_col].max() - product_sales[date_col].min()).days
-    if date_range == 0:
-        date_range = 1
-    sales_per_day = total_sold / date_range
-    
-    # Days of stock remaining
-    days_of_stock = current_stock / sales_per_day if sales_per_day > 0 else 0
-    
-    # Seasonality detection
-    monthly_pattern = monthly_sales.to_dict() if not monthly_sales.empty else {}
-    
-    # Growth rate
-    if len(product_sales) >= 30:
-        product_sales = product_sales.sort_values(date_col)
-        product_sales["cumulative"] = product_sales[items_col].cumsum() if items_col else product_sales.index.cumsum()
-        if len(product_sales) >= 2:
-            first_half = product_sales.iloc[:len(product_sales)//2][items_col].sum() if items_col else len(product_sales.iloc[:len(product_sales)//2])
-            second_half = product_sales.iloc[len(product_sales)//2:][items_col].sum() if items_col else len(product_sales.iloc[len(product_sales)//2:])
-            growth_rate = ((second_half - first_half) / first_half * 100) if first_half > 0 else 0
+        # Get product cost and price
+        cost = 0
+        price = 0
+        current_stock = 0
+        
+        if product_col_products and not products_df.empty:
+            product = products_df[products_df[product_col_products] == product_name]
+            if not product.empty:
+                if cost_col:
+                    cost = safe_float(product.iloc[0].get(cost_col, 0))
+                if price_col:
+                    price = safe_float(product.iloc[0].get(price_col, 0))
+                if stock_col:
+                    current_stock = safe_int(product.iloc[0].get(stock_col, 0))
+        
+        # Calculate metrics
+        if items_col and items_col in product_sales.columns:
+            total_sold = safe_int(product_sales[items_col].sum())
         else:
-            growth_rate = 0
-    else:
+            total_sold = len(product_sales)
+        
+        # Daily sales
+        daily_sales = product_sales.groupby(product_sales[date_col].dt.date)[items_col].sum() if items_col and items_col in product_sales.columns else product_sales.groupby(product_sales[date_col].dt.date).size()
+        avg_daily_sales = daily_sales.mean() if not daily_sales.empty else 0
+        
+        # Weekly sales
+        weekly_sales = product_sales.groupby(product_sales[date_col].dt.isocalendar().week)[items_col].sum() if items_col and items_col in product_sales.columns else product_sales.groupby(product_sales[date_col].dt.isocalendar().week).size()
+        avg_weekly_sales = weekly_sales.mean() if not weekly_sales.empty else 0
+        
+        # Monthly sales
+        monthly_sales = product_sales.groupby(product_sales[date_col].dt.month)[items_col].sum() if items_col and items_col in product_sales.columns else product_sales.groupby(product_sales[date_col].dt.month).size()
+        avg_monthly_sales = monthly_sales.mean() if not monthly_sales.empty else 0
+        
+        # Sales per day
+        date_range = (product_sales[date_col].max() - product_sales[date_col].min()).days
+        if date_range == 0:
+            date_range = 1
+        sales_per_day = total_sold / date_range
+        
+        # Days of stock remaining
+        days_of_stock = current_stock / sales_per_day if sales_per_day > 0 else 0
+        
+        # Seasonality detection
+        monthly_pattern = monthly_sales.to_dict() if not monthly_sales.empty else {}
+        
+        # Growth rate
         growth_rate = 0
-    
-    # Classification
-    if total_sold < 10:
-        classification = "Slow Mover"
-    elif total_sold < 50:
-        classification = "Standard"
-    elif total_sold < 200:
-        classification = "Fast Mover"
-    else:
-        classification = "Super Mover"
-    
-    # Profitability
-    if cost > 0 and price > 0:
-        margin_percent = ((price - cost) / price * 100) if price > 0 else 0
-    else:
-        margin_percent = 0
-    
-    return {
-        "product_name": product_name,
-        "total_sold": int(total_sold),
-        "avg_daily_sales": round(avg_daily_sales, 2),
-        "avg_weekly_sales": round(avg_weekly_sales, 2),
-        "avg_monthly_sales": round(avg_monthly_sales, 2),
-        "sales_per_day": round(sales_per_day, 2),
-        "current_stock": int(current_stock),
-        "days_of_stock": round(days_of_stock, 1),
-        "growth_rate": round(growth_rate, 1),
-        "classification": classification,
-        "price": price,
-        "cost": cost,
-        "margin_percent": round(margin_percent, 1),
-        "monthly_pattern": monthly_pattern
-    }
+        if len(product_sales) >= 14:
+            product_sales = product_sales.sort_values(date_col)
+            if len(product_sales) >= 2:
+                mid_point = len(product_sales) // 2
+                first_half = product_sales.iloc[:mid_point]
+                second_half = product_sales.iloc[mid_point:]
+                
+                first_total = first_half[items_col].sum() if items_col and items_col in first_half.columns else len(first_half)
+                second_total = second_half[items_col].sum() if items_col and items_col in second_half.columns else len(second_half)
+                
+                if first_total > 0:
+                    growth_rate = ((second_total - first_total) / first_total) * 100
+        
+        # Classification
+        if total_sold < 10:
+            classification = "Slow Mover"
+        elif total_sold < 50:
+            classification = "Standard"
+        elif total_sold < 200:
+            classification = "Fast Mover"
+        else:
+            classification = "Super Mover"
+        
+        # Profitability
+        if cost > 0 and price > 0:
+            margin_percent = ((price - cost) / price * 100) if price > 0 else 0
+        else:
+            margin_percent = 0
+        
+        return {
+            "product_name": product_name,
+            "total_sold": int(total_sold),
+            "avg_daily_sales": round(safe_float(avg_daily_sales), 2),
+            "avg_weekly_sales": round(safe_float(avg_weekly_sales), 2),
+            "avg_monthly_sales": round(safe_float(avg_monthly_sales), 2),
+            "sales_per_day": round(safe_float(sales_per_day), 2),
+            "current_stock": int(current_stock),
+            "days_of_stock": round(safe_float(days_of_stock), 1),
+            "growth_rate": round(safe_float(growth_rate), 1),
+            "classification": classification,
+            "price": safe_float(price),
+            "cost": safe_float(cost),
+            "margin_percent": round(safe_float(margin_percent), 1),
+            "monthly_pattern": monthly_pattern
+        }
+    except Exception as e:
+        print(f"Error getting product metrics: {e}")
+        return None
 
 
 def get_recommendations(sales_df, products_df):
-    """Generate product recommendations based on purchase patterns"""
+    """Generate product recommendations based on purchase patterns - FIXED"""
     
-    if sales_df.empty or len(sales_df) < 100:
+    if sales_df.empty or len(sales_df) < 50:
         return pd.DataFrame()
     
-    # Find receipt and product columns
-    receipt_col = None
-    product_col = None
-    
-    for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
-        if col in sales_df.columns:
-            receipt_col = col
-            break
-    
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in sales_df.columns:
-            product_col = col
-            break
+    receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id", "invoice_no"])
+    product_col = find_column(sales_df, ["name", "product_name", "Product", "item_name", "product"])
     
     if receipt_col is None or product_col is None:
         return pd.DataFrame()
     
-    # Create baskets
-    baskets = sales_df.groupby(receipt_col)[product_col].apply(list).reset_index()
-    
-    # Find product pairs
-    from collections import Counter
-    from itertools import combinations
-    
-    pair_counter = Counter()
-    
-    for basket in baskets[product_col]:
-        if len(basket) > 1:
-            # Remove duplicates in basket
-            basket = list(set(basket))
+    try:
+        # Create baskets
+        baskets = sales_df.groupby(receipt_col)[product_col].apply(list).reset_index()
+        
+        # Find product pairs
+        from collections import Counter
+        from itertools import combinations
+        
+        pair_counter = Counter()
+        
+        for basket in baskets[product_col]:
             if len(basket) > 1:
-                for pair in combinations(sorted(basket), 2):
-                    pair_counter[pair] += 1
-    
-    # Get top recommendations
-    recommendations = []
-    for (product1, product2), count in pair_counter.most_common(30):
-        recommendations.append({
-            "Product": product1,
-            "Bought With": product2,
-            "Frequency": count
-        })
-    
-    return pd.DataFrame(recommendations)
+                # Remove duplicates in basket
+                basket = list(set(basket))
+                if len(basket) > 1:
+                    for pair in combinations(sorted(basket), 2):
+                        pair_counter[pair] += 1
+        
+        # Get top recommendations
+        recommendations = []
+        for (product1, product2), count in pair_counter.most_common(30):
+            recommendations.append({
+                "Product": product1,
+                "Bought With": product2,
+                "Frequency": count
+            })
+        
+        return pd.DataFrame(recommendations)
+    except Exception as e:
+        print(f"Error getting recommendations: {e}")
+        return pd.DataFrame()
 
 
 def identify_slow_movers(products_df, sales_df, days_threshold=90):
-    """Identify slow-moving products"""
+    """Identify slow-moving products - FIXED"""
     
     if sales_df.empty or products_df.empty:
         return pd.DataFrame()
     
-    # Find date and product columns
-    date_col = None
-    for col in ["date", "sale_date", "transaction_date"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
-    
-    product_col_sales = None
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in sales_df.columns:
-            product_col_sales = col
-            break
-    
-    product_col_products = None
-    for col in ["name", "product_name", "Product"]:
-        if col in products_df.columns:
-            product_col_products = col
-            break
+    date_col = find_column(sales_df, ["date", "sale_date", "transaction_date", "created_at"])
+    product_col_sales = find_column(sales_df, ["name", "product_name", "Product", "item_name", "product"])
+    product_col_products = find_column(products_df, ["name", "product_name", "Product"])
     
     if date_col is None or product_col_sales is None or product_col_products is None:
         return pd.DataFrame()
     
-    sales_df[date_col] = pd.to_datetime(sales_df[date_col])
-    cutoff_date = datetime.now() - timedelta(days=days_threshold)
-    
-    # Get products sold in last X days
-    recent_sales = sales_df[sales_df[date_col] >= cutoff_date]
-    sold_products = recent_sales[product_col_sales].unique() if not recent_sales.empty else []
-    
-    # Find stock and price columns
-    stock_col = None
-    price_col = None
-    for col in ["stock", "quantity", "inventory"]:
-        if col in products_df.columns:
-            stock_col = col
-            break
-    
-    for col in ["price", "selling_price", "unit_price"]:
-        if col in products_df.columns:
-            price_col = col
-            break
-    
-    # Find products not sold in period
-    slow_movers = []
-    for _, product in products_df.iterrows():
-        product_name = product[product_col_products]
-        if product_name not in sold_products:
-            stock = product.get(stock_col, 0) if stock_col else 0
-            price = product.get(price_col, 0) if price_col else 0
-            slow_movers.append({
-                "Product Name": product_name,
-                "Current Stock": stock,
-                "Last Sale": f"No sales in {days_threshold} days",
-                "Stock Value": stock * price,
-                "Suggested Action": "Consider discount or removal"
-            })
-        elif recent_sales is not None and not recent_sales.empty:
-            product_sales = recent_sales[recent_sales[product_col_sales] == product_name]
-            if len(product_sales) < 2:
-                stock = product.get(stock_col, 0) if stock_col else 0
-                price = product.get(price_col, 0) if price_col else 0
+    try:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+        
+        cutoff_date = datetime.now() - timedelta(days=days_threshold)
+        
+        # Get products sold in last X days
+        recent_sales = sales_df[sales_df[date_col] >= cutoff_date]
+        sold_products = recent_sales[product_col_sales].unique() if not recent_sales.empty else []
+        
+        # Find stock and price columns
+        stock_col = find_column(products_df, ["stock", "quantity", "inventory", "current_stock"])
+        price_col = find_column(products_df, ["price", "selling_price", "unit_price"])
+        
+        # Find products not sold in period
+        slow_movers = []
+        for _, product in products_df.iterrows():
+            product_name = product[product_col_products]
+            if product_name not in sold_products:
+                stock = safe_int(product.get(stock_col, 0)) if stock_col else 0
+                price = safe_float(product.get(price_col, 0)) if price_col else 0
                 slow_movers.append({
                     "Product Name": product_name,
                     "Current Stock": stock,
-                    "Last Sale": f"{len(product_sales)} sale(s) in {days_threshold} days",
+                    "Last Sale": f"No sales in {days_threshold} days",
                     "Stock Value": stock * price,
-                    "Suggested Action": "Monitor closely"
+                    "Suggested Action": "Consider discount or removal"
                 })
-    
-    return pd.DataFrame(slow_movers)
+        
+        return pd.DataFrame(slow_movers)
+    except Exception as e:
+        print(f"Error identifying slow movers: {e}")
+        return pd.DataFrame()
 
 
 # ==============================
@@ -568,7 +537,7 @@ def identify_slow_movers(products_df, sales_df, days_threshold=90):
 # ==============================
 
 def demand_forecasting_dashboard():
-    """Main demand forecasting dashboard - FIXED for column name issues"""
+    """Main demand forecasting dashboard - FIXED"""
     
     st.title("🤖 AI-Powered Demand Forecasting")
     st.caption("Predict sales, identify trends, and optimize inventory with machine learning")
@@ -582,25 +551,14 @@ def demand_forecasting_dashboard():
         return
     
     # Determine column names for products
-    product_col_sales = None
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in sales_df.columns:
-            product_col_sales = col
-            break
-    
-    product_col_products = None
-    for col in ["name", "product_name", "Product"]:
-        if col in products_df.columns:
-            product_col_products = col
-            break
+    product_col_sales = find_column(sales_df, ["name", "product_name", "Product", "item_name"])
+    product_col_products = find_column(products_df, ["name", "product_name", "Product"])
     
     # Get product list for dropdown
-    if products_df.empty:
-        products_list = []
-    elif product_col_products:
-        products_list = ["All Products"] + products_df[product_col_products].tolist()
-    else:
+    if products_df.empty or product_col_products is None:
         products_list = ["All Products"]
+    else:
+        products_list = ["All Products"] + products_df[product_col_products].tolist()
     
     # ==============================
     # TABS
@@ -659,8 +617,6 @@ def demand_forecasting_dashboard():
                         forecast_df = pd.DataFrame(forecast_result['forecast'])
                         
                         # Create chart
-                        import plotly.graph_objects as go
-                        
                         fig = go.Figure()
                         
                         # Add actual sales (last 30 days)
@@ -786,7 +742,6 @@ def demand_forecasting_dashboard():
                         if pattern_data:
                             pattern_df = pd.DataFrame(pattern_data)
                             
-                            import plotly.express as px
                             fig = px.bar(
                                 pattern_df,
                                 x="Month",
@@ -824,7 +779,6 @@ def demand_forecasting_dashboard():
             
             # Visualization
             top_recs = recommendations_df.head(10)
-            import plotly.express as px
             fig = px.bar(
                 top_recs,
                 x="Frequency",
@@ -836,7 +790,7 @@ def demand_forecasting_dashboard():
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Not enough transaction data for recommendations. Need at least 100 transactions.")
+            st.info("Not enough transaction data for recommendations. Need at least 50 transactions.")
     
     # ==============================
     # TAB 4: SLOW MOVERS
@@ -879,18 +833,15 @@ def demand_forecasting_dashboard():
                 metrics = get_product_demand_metrics(selected_product, sales_df, products_df)
                 if metrics:
                     # Calculate annual demand
-                    date_col = None
-                    for col in ["date", "sale_date", "transaction_date"]:
-                        if col in sales_df.columns:
-                            date_col = col
-                            break
+                    date_col = find_column(sales_df, ["date", "sale_date", "transaction_date"])
                     
                     if date_col:
+                        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                         days_range = (sales_df[date_col].max() - sales_df[date_col].min()).days
                         if days_range > 0:
                             annual_demand = metrics['total_sold'] * (365 / days_range)
                         else:
-                            annual_demand = metrics['total_sold'] * 12  # Assume monthly
+                            annual_demand = metrics['total_sold'] * 12
                     else:
                         annual_demand = metrics['total_sold'] * 12
                     
@@ -920,8 +871,9 @@ def demand_forecasting_dashboard():
             st.info(f"""
             **Recommendation:** Order **{eoq:,} units** each time to minimize total inventory costs.
             
-            This balances ordering costs (${order_cost}/order) and holding costs (${holding_cost}/unit/year).
+            This balances ordering costs (${order_cost:.2f}/order) and holding costs (${holding_cost:.2f}/unit/year).
             """)
+
 
 # ==============================
 # MAIN
