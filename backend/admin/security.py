@@ -20,118 +20,162 @@ AUDIT_LOG_FILE = DATA_DIR / "audit_log.csv"
 TWOFA_FILE = DATA_DIR / "twofa_codes.csv"
 SESSION_FILE = DATA_DIR / "active_sessions.csv"
 IP_WHITELIST_FILE = DATA_DIR / "ip_whitelist.csv"
+SECURITY_SETTINGS_FILE = DATA_DIR / "security_settings.json"
 
 # ==============================
 # INITIALIZATION
 # ==============================
 def init_security_files():
     """Initialize security-related files"""
-    DATA_DIR.mkdir(exist_ok=True)
-    
-    # Audit log file
-    if not AUDIT_LOG_FILE.exists():
-        df = pd.DataFrame(columns=[
-            "timestamp", "user", "action", "details", "ip_address", "branch", "status"
-        ])
-        df.to_csv(AUDIT_LOG_FILE, index=False)
-    
-    # 2FA codes file
-    if not TWOFA_FILE.exists():
-        df = pd.DataFrame(columns=[
-            "user", "code", "expiry", "verified", "phone"
-        ])
-        df.to_csv(TWOFA_FILE, index=False)
-    
-    # Active sessions file
-    if not SESSION_FILE.exists():
-        df = pd.DataFrame(columns=[
-            "session_id", "user", "login_time", "last_activity", "ip_address", "device_info", "active"
-        ])
-        df.to_csv(SESSION_FILE, index=False)
-    
-    # IP whitelist file
-    if not IP_WHITELIST_FILE.exists():
-        df = pd.DataFrame(columns=[
-            "ip_address", "description", "added_by", "added_date", "active"
-        ])
-        df.to_csv(IP_WHITELIST_FILE, index=False)
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        
+        # Audit log file
+        if not AUDIT_LOG_FILE.exists():
+            df = pd.DataFrame(columns=[
+                "timestamp", "user", "action", "details", "ip_address", "branch", "status"
+            ])
+            df.to_csv(AUDIT_LOG_FILE, index=False)
+        
+        # 2FA codes file
+        if not TWOFA_FILE.exists():
+            df = pd.DataFrame(columns=[
+                "user", "code", "expiry", "verified", "phone"
+            ])
+            df.to_csv(TWOFA_FILE, index=False)
+        
+        # Active sessions file
+        if not SESSION_FILE.exists():
+            df = pd.DataFrame(columns=[
+                "session_id", "user", "login_time", "last_activity", "ip_address", "device_info", "active"
+            ])
+            df.to_csv(SESSION_FILE, index=False)
+        
+        # IP whitelist file
+        if not IP_WHITELIST_FILE.exists():
+            df = pd.DataFrame(columns=[
+                "ip_address", "description", "added_by", "added_date", "active"
+            ])
+            df.to_csv(IP_WHITELIST_FILE, index=False)
+        
+        # Security settings file
+        if not SECURITY_SETTINGS_FILE.exists():
+            default_settings = {
+                "session_timeout": 30,
+                "min_password_length": 6,
+                "require_special_chars": False,
+                "require_numbers": False,
+                "max_login_attempts": 5,
+                "lockout_duration": 30,
+                "updated_at": datetime.now().isoformat(),
+                "updated_by": "system"
+            }
+            with open(SECURITY_SETTINGS_FILE, "w") as f:
+                json.dump(default_settings, f, indent=2)
+    except Exception as e:
+        print(f"Error initializing security files: {e}")
 
 
 # ==============================
-# AUDIT LOG FUNCTIONS
+# AUDIT LOG FUNCTIONS - FIXED
 # ==============================
 def log_audit(user, action, details="", ip_address="", branch="", status="SUCCESS"):
     """Log an audit event"""
-    init_security_files()
-    
-    df = pd.read_csv(AUDIT_LOG_FILE)
-    
-    new_entry = pd.DataFrame([{
-        "timestamp": datetime.now().isoformat(),
-        "user": user,
-        "action": action,
-        "details": details,
-        "ip_address": ip_address,
-        "branch": branch,
-        "status": status
-    }])
-    
-    df = pd.concat([df, new_entry], ignore_index=True)
-    df.to_csv(AUDIT_LOG_FILE, index=False)
-    
-    return True
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(AUDIT_LOG_FILE)
+        
+        new_entry = pd.DataFrame([{
+            "timestamp": datetime.now().isoformat(),
+            "user": user,
+            "action": action,
+            "details": details,
+            "ip_address": ip_address,
+            "branch": branch,
+            "status": status
+        }])
+        
+        df = pd.concat([df, new_entry], ignore_index=True)
+        df.to_csv(AUDIT_LOG_FILE, index=False)
+        
+        return True
+    except Exception as e:
+        print(f"Error logging audit: {e}")
+        return False
 
 
 def get_audit_log(days=30, user=None, action=None):
     """Get audit log entries - FIXED datetime parsing"""
-    init_security_files()
-    
-    df = pd.read_csv(AUDIT_LOG_FILE)
-    
-    if df.empty:
-        return df
-    
-    # Fix: Handle ISO8601 format properly
     try:
-        # Try parsing with ISO8601 format (handles 'T' separator)
-        df["timestamp"] = pd.to_datetime(df["timestamp"], format='ISO8601', errors='coerce')
-    except Exception:
+        init_security_files()
+        
+        if not AUDIT_LOG_FILE.exists():
+            return pd.DataFrame()
+        
+        df = pd.read_csv(AUDIT_LOG_FILE)
+        
+        if df.empty:
+            return df
+        
+        # Parse timestamps safely
         try:
-            # Try mixed format parsing
-            df["timestamp"] = pd.to_datetime(df["timestamp"], format='mixed', errors='coerce')
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors='coerce')
         except Exception:
             try:
-                # Fallback to default parsing
-                df["timestamp"] = pd.to_datetime(df["timestamp"], errors='coerce')
+                df["timestamp"] = pd.to_datetime(df["timestamp"], format='ISO8601', errors='coerce')
             except Exception:
-                pass
-    
-    # Drop rows with invalid timestamps
-    df = df.dropna(subset=["timestamp"])
-    
-    if df.empty:
-        return df
-    
-    # Filter by days
-    cutoff = datetime.now() - timedelta(days=days)
-    df = df[df["timestamp"] >= cutoff]
-    
-    # Filter by user
-    if user:
-        df = df[df["user"] == user]
-    
-    # Filter by action
-    if action:
-        df = df[df["action"] == action]
-    
-    return df.sort_values("timestamp", ascending=False)
+                df["timestamp"] = pd.to_datetime(df["timestamp"], errors='coerce')
+        
+        # Drop rows with invalid timestamps
+        df = df.dropna(subset=["timestamp"])
+        
+        if df.empty:
+            return df
+        
+        # Filter by days
+        cutoff = datetime.now() - timedelta(days=days)
+        df = df[df["timestamp"] >= cutoff]
+        
+        # Filter by user
+        if user:
+            df = df[df["user"].astype(str).str.contains(user, case=False, na=False)]
+        
+        # Filter by action
+        if action:
+            df = df[df["action"].astype(str).str.contains(action, case=False, na=False)]
+        
+        return df.sort_values("timestamp", ascending=False)
+    except Exception as e:
+        print(f"Error getting audit log: {e}")
+        return pd.DataFrame()
 
 
 def get_user_activity_summary(user=None, days=30):
     """Get summary of user activities"""
-    df = get_audit_log(days, user)
-    
-    if df.empty:
+    try:
+        df = get_audit_log(days, user)
+        
+        if df.empty:
+            return {
+                "total_actions": 0,
+                "successful": 0,
+                "failed": 0,
+                "unique_actions": 0,
+                "action_breakdown": {}
+            }
+        
+        summary = {
+            "total_actions": len(df),
+            "successful": len(df[df["status"] == "SUCCESS"]),
+            "failed": len(df[df["status"] == "FAILED"]),
+            "unique_actions": df["action"].nunique() if "action" in df.columns else 0,
+            "action_breakdown": df["action"].value_counts().to_dict() if "action" in df.columns else {}
+        }
+        
+        return summary
+    except Exception as e:
+        print(f"Error getting user activity summary: {e}")
         return {
             "total_actions": 0,
             "successful": 0,
@@ -139,29 +183,42 @@ def get_user_activity_summary(user=None, days=30):
             "unique_actions": 0,
             "action_breakdown": {}
         }
-    
-    summary = {
-        "total_actions": len(df),
-        "successful": len(df[df["status"] == "SUCCESS"]),
-        "failed": len(df[df["status"] == "FAILED"]),
-        "unique_actions": df["action"].nunique(),
-        "action_breakdown": df["action"].value_counts().to_dict()
-    }
-    
-    return summary
 
 
 # ==============================
-# TWO-FACTOR AUTHENTICATION
+# TWO-FACTOR AUTHENTICATION - FIXED
 # ==============================
 def generate_2fa_code():
     """Generate a 6-digit 2FA code"""
     return f"{secrets.randbelow(1000000):06d}"
 
 
+def cleanup_expired_2fa_codes():
+    """Remove expired 2FA codes"""
+    try:
+        init_security_files()
+        
+        if not TWOFA_FILE.exists():
+            return
+        
+        df = pd.read_csv(TWOFA_FILE)
+        
+        if df.empty:
+            return
+        
+        # Parse expiry and remove expired
+        df["expiry"] = pd.to_datetime(df["expiry"], errors='coerce')
+        df = df[(df["expiry"] >= datetime.now()) | (df["verified"] == True)]
+        
+        df.to_csv(TWOFA_FILE, index=False)
+    except Exception as e:
+        print(f"Error cleaning up 2FA codes: {e}")
+
+
 def send_2fa_via_whatsapp(phone, code):
     """Send 2FA code via WhatsApp"""
-    message = f"""🔐 *AZIEL INVESTMENTS - SECURITY CODE*
+    try:
+        message = f"""🔐 *AZIEL INVESTMENTS - SECURITY CODE*
 
 Your verification code is:
 
@@ -175,7 +232,10 @@ If you didn't request this, please ignore this message.
 
 - Aziel Investments Security Team
 """
-    return get_whatsapp_link(phone, message)
+        return get_whatsapp_link(phone, message)
+    except Exception as e:
+        print(f"Error sending 2FA via WhatsApp: {e}")
+        return None
 
 
 def send_2fa_via_sms(phone, code):
@@ -187,297 +247,385 @@ def send_2fa_via_sms(phone, code):
 
 def create_2fa_code(username, phone):
     """Create and send a 2FA code"""
-    init_security_files()
-    
-    # Generate code
-    code = generate_2fa_code()
-    expiry = (datetime.now() + timedelta(minutes=5)).isoformat()
-    
-    # Store code
-    df = pd.read_csv(TWOFA_FILE)
-    
-    # Remove old codes for this user
-    df = df[df["user"] != username]
-    
-    new_code = pd.DataFrame([{
-        "user": username,
-        "code": code,
-        "expiry": expiry,
-        "verified": False,
-        "phone": phone
-    }])
-    
-    df = pd.concat([df, new_code], ignore_index=True)
-    df.to_csv(TWOFA_FILE, index=False)
-    
-    # Send via WhatsApp
-    whatsapp_link = send_2fa_via_whatsapp(phone, code)
-    
-    return whatsapp_link
+    try:
+        init_security_files()
+        cleanup_expired_2fa_codes()
+        
+        # Generate code
+        code = generate_2fa_code()
+        expiry = (datetime.now() + timedelta(minutes=5)).isoformat()
+        
+        # Store code
+        df = pd.read_csv(TWOFA_FILE)
+        
+        # Remove old codes for this user
+        df = df[df["user"] != username]
+        
+        new_code = pd.DataFrame([{
+            "user": username,
+            "code": code,
+            "expiry": expiry,
+            "verified": False,
+            "phone": phone
+        }])
+        
+        df = pd.concat([df, new_code], ignore_index=True)
+        df.to_csv(TWOFA_FILE, index=False)
+        
+        # Send via WhatsApp
+        whatsapp_link = send_2fa_via_whatsapp(phone, code)
+        
+        return whatsapp_link
+    except Exception as e:
+        print(f"Error creating 2FA code: {e}")
+        return None
 
 
 def verify_2fa_code(username, code):
     """Verify a 2FA code"""
-    init_security_files()
-    
-    df = pd.read_csv(TWOFA_FILE)
-    
-    # Find active code for user
-    user_codes = df[(df["user"] == username) & (df["verified"] == False)]
-    
-    if user_codes.empty:
-        return False, "No active verification code found"
-    
-    # Check each code
-    for idx, row in user_codes.iterrows():
-        if str(row["code"]) == str(code).strip():
-            # Check expiry
-            try:
-                expiry = pd.to_datetime(row["expiry"])
-                if datetime.now() > expiry:
-                    return False, "Code has expired. Please request a new one."
-            except:
-                pass
-            
-            # Mark as verified
-            df.loc[idx, "verified"] = True
-            df.to_csv(TWOFA_FILE, index=False)
-            
-            return True, "Verification successful"
-    
-    return False, "Invalid code"
+    try:
+        init_security_files()
+        cleanup_expired_2fa_codes()
+        
+        df = pd.read_csv(TWOFA_FILE)
+        
+        if df.empty:
+            return False, "No verification codes found"
+        
+        # Find active code for user
+        user_codes = df[(df["user"] == username) & (df["verified"] == False)]
+        
+        if user_codes.empty:
+            return False, "No active verification code found"
+        
+        # Check each code
+        for idx, row in user_codes.iterrows():
+            if str(row["code"]).strip() == str(code).strip():
+                # Check expiry
+                try:
+                    expiry = pd.to_datetime(row["expiry"])
+                    if datetime.now() > expiry:
+                        return False, "Code has expired. Please request a new one."
+                except:
+                    pass
+                
+                # Mark as verified
+                df.loc[idx, "verified"] = True
+                df.to_csv(TWOFA_FILE, index=False)
+                
+                log_audit(username, "2FA_VERIFIED", f"2FA verification successful for {username}")
+                return True, "Verification successful"
+        
+        return False, "Invalid code"
+    except Exception as e:
+        print(f"Error verifying 2FA code: {e}")
+        return False, f"Error verifying code: {str(e)}"
 
 
 def is_2fa_enabled(username):
     """Check if user has 2FA enabled"""
-    users_df = load_users()
-    
-    user = users_df[users_df["username"] == username]
-    
-    if not user.empty and "two_factor_enabled" in user.columns:
-        return bool(user.iloc[0]["two_factor_enabled"])
-    
-    return False
+    try:
+        users_df = load_users()
+        
+        user = users_df[users_df["username"] == username]
+        
+        if not user.empty and "two_factor_enabled" in users_df.columns:
+            return bool(user.iloc[0]["two_factor_enabled"])
+        
+        return False
+    except Exception as e:
+        print(f"Error checking 2FA status: {e}")
+        return False
 
 
 def enable_2fa(username, phone):
     """Enable 2FA for a user"""
-    users_df = load_users()
-    idx = users_df[users_df["username"] == username].index
-    
-    if len(idx) > 0:
-        if "two_factor_enabled" not in users_df.columns:
-            users_df["two_factor_enabled"] = False
-        if "two_factor_phone" not in users_df.columns:
-            users_df["two_factor_phone"] = ""
+    try:
+        users_df = load_users()
+        idx = users_df[users_df["username"] == username].index
         
-        users_df.loc[idx[0], "two_factor_enabled"] = True
-        users_df.loc[idx[0], "two_factor_phone"] = phone
-        save_users(users_df)
+        if len(idx) > 0:
+            if "two_factor_enabled" not in users_df.columns:
+                users_df["two_factor_enabled"] = False
+            if "two_factor_phone" not in users_df.columns:
+                users_df["two_factor_phone"] = ""
+            
+            users_df.loc[idx[0], "two_factor_enabled"] = True
+            users_df.loc[idx[0], "two_factor_phone"] = phone
+            save_users(users_df)
+            
+            log_audit(username, "2FA_ENABLED", f"2FA enabled for user {username}")
+            return True
         
-        log_audit(username, "2FA_ENABLED", f"2FA enabled for user {username}")
-        return True
-    
-    return False
+        return False
+    except Exception as e:
+        print(f"Error enabling 2FA: {e}")
+        return False
 
 
 def disable_2fa(username):
     """Disable 2FA for a user"""
-    users_df = load_users()
-    idx = users_df[users_df["username"] == username].index
-    
-    if len(idx) > 0:
-        if "two_factor_enabled" in users_df.columns:
-            users_df.loc[idx[0], "two_factor_enabled"] = False
-        save_users(users_df)
+    try:
+        users_df = load_users()
+        idx = users_df[users_df["username"] == username].index
         
-        log_audit(username, "2FA_DISABLED", f"2FA disabled for user {username}")
-        return True
-    
-    return False
+        if len(idx) > 0:
+            if "two_factor_enabled" in users_df.columns:
+                users_df.loc[idx[0], "two_factor_enabled"] = False
+            save_users(users_df)
+            
+            log_audit(username, "2FA_DISABLED", f"2FA disabled for user {username}")
+            return True
+        
+        return False
+    except Exception as e:
+        print(f"Error disabling 2FA: {e}")
+        return False
 
 
 # ==============================
-# SESSION MANAGEMENT
+# SESSION MANAGEMENT - FIXED
 # ==============================
 def create_session(username, ip_address="", device_info=""):
     """Create a new session for logged-in user"""
-    init_security_files()
-    
-    session_id = secrets.token_urlsafe(32)
-    
-    df = pd.read_csv(SESSION_FILE)
-    
-    new_session = pd.DataFrame([{
-        "session_id": session_id,
-        "user": username,
-        "login_time": datetime.now().isoformat(),
-        "last_activity": datetime.now().isoformat(),
-        "ip_address": ip_address,
-        "device_info": device_info,
-        "active": True
-    }])
-    
-    df = pd.concat([df, new_session], ignore_index=True)
-    
-    # Clean up old inactive sessions (older than 7 days)
-    cutoff = datetime.now() - timedelta(days=7)
     try:
-        df["login_time_dt"] = pd.to_datetime(df["login_time"], errors='coerce')
-        df = df[(df["login_time_dt"] >= cutoff) | (df["active"] == True)]
-        df = df.drop(columns=["login_time_dt"])
-    except:
-        pass
-    
-    df.to_csv(SESSION_FILE, index=False)
-    
-    return session_id
+        init_security_files()
+        
+        session_id = secrets.token_urlsafe(32)
+        
+        df = pd.read_csv(SESSION_FILE)
+        
+        new_session = pd.DataFrame([{
+            "session_id": session_id,
+            "user": username,
+            "login_time": datetime.now().isoformat(),
+            "last_activity": datetime.now().isoformat(),
+            "ip_address": ip_address,
+            "device_info": device_info,
+            "active": True
+        }])
+        
+        df = pd.concat([df, new_session], ignore_index=True)
+        
+        # Clean up old inactive sessions (older than 7 days)
+        cutoff = datetime.now() - timedelta(days=7)
+        try:
+            df["login_time_dt"] = pd.to_datetime(df["login_time"], errors='coerce')
+            df = df[(df["login_time_dt"] >= cutoff) | (df["active"] == True)]
+            df = df.drop(columns=["login_time_dt"])
+        except:
+            pass
+        
+        df.to_csv(SESSION_FILE, index=False)
+        
+        log_audit(username, "SESSION_CREATED", f"New session created for {username}")
+        return session_id
+    except Exception as e:
+        print(f"Error creating session: {e}")
+        return None
 
 
 def update_session_activity(session_id):
     """Update last activity time for a session"""
-    init_security_files()
-    
-    df = pd.read_csv(SESSION_FILE)
-    idx = df[df["session_id"] == session_id].index
-    
-    if len(idx) > 0:
-        df.loc[idx[0], "last_activity"] = datetime.now().isoformat()
-        df.to_csv(SESSION_FILE, index=False)
-        return True
-    
-    return False
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(SESSION_FILE)
+        idx = df[df["session_id"] == session_id].index
+        
+        if len(idx) > 0:
+            df.loc[idx[0], "last_activity"] = datetime.now().isoformat()
+            df.to_csv(SESSION_FILE, index=False)
+            return True
+        
+        return False
+    except Exception as e:
+        print(f"Error updating session activity: {e}")
+        return False
 
 
 def end_session(session_id):
     """End a session (logout)"""
-    init_security_files()
-    
-    df = pd.read_csv(SESSION_FILE)
-    idx = df[df["session_id"] == session_id].index
-    
-    if len(idx) > 0:
-        df.loc[idx[0], "active"] = False
-        df.to_csv(SESSION_FILE, index=False)
-        return True
-    
-    return False
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(SESSION_FILE)
+        idx = df[df["session_id"] == session_id].index
+        
+        if len(idx) > 0:
+            user = df.loc[idx[0], "user"]
+            df.loc[idx[0], "active"] = False
+            df.to_csv(SESSION_FILE, index=False)
+            
+            log_audit(user, "SESSION_ENDED", "User logged out")
+            return True
+        
+        return False
+    except Exception as e:
+        print(f"Error ending session: {e}")
+        return False
 
 
 def get_active_sessions(user=None):
-    """Get all active sessions - FIXED datetime parsing"""
-    init_security_files()
-    
-    df = pd.read_csv(SESSION_FILE)
-    df = df[df["active"] == True]
-    
-    if df.empty:
-        return df
-    
-    if user:
-        df = df[df["user"] == user]
-    
-    # Calculate idle time safely
-    if not df.empty:
+    """Get all active sessions - FIXED"""
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(SESSION_FILE)
+        df = df[df["active"] == True]
+        
+        if df.empty:
+            return df
+        
+        if user:
+            df = df[df["user"] == user]
+        
+        # Calculate idle time safely
         try:
             df["last_activity"] = pd.to_datetime(df["last_activity"], errors='coerce')
             df["idle_minutes"] = (datetime.now() - df["last_activity"]).dt.total_seconds() / 60
             df["idle_minutes"] = df["idle_minutes"].fillna(0)
         except:
             df["idle_minutes"] = 0
-    
-    return df
+        
+        return df
+    except Exception as e:
+        print(f"Error getting active sessions: {e}")
+        return pd.DataFrame()
 
 
 def revoke_all_sessions(user, exclude_current=None):
     """Revoke all sessions for a user"""
-    init_security_files()
-    
-    df = pd.read_csv(SESSION_FILE)
-    
-    if exclude_current:
-        df.loc[(df["user"] == user) & (df["session_id"] != exclude_current), "active"] = False
-    else:
-        df.loc[df["user"] == user, "active"] = False
-    
-    df.to_csv(SESSION_FILE, index=False)
-    
-    log_audit(user, "SESSIONS_REVOKED", f"All sessions revoked for {user}")
-    return True
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(SESSION_FILE)
+        
+        if exclude_current:
+            df.loc[(df["user"] == user) & (df["session_id"] != exclude_current), "active"] = False
+        else:
+            df.loc[df["user"] == user, "active"] = False
+        
+        df.to_csv(SESSION_FILE, index=False)
+        
+        log_audit(user, "SESSIONS_REVOKED", f"All sessions revoked for {user}")
+        return True
+    except Exception as e:
+        print(f"Error revoking sessions: {e}")
+        return False
 
 
 def check_session_timeout(session_id, timeout_minutes=30):
     """Check if session has timed out"""
-    df = get_active_sessions()
-    session = df[df["session_id"] == session_id]
-    
-    if not session.empty:
-        idle_minutes = session.iloc[0].get("idle_minutes", 0)
-        if idle_minutes > timeout_minutes:
-            end_session(session_id)
-            return True  # Timed out
-    
-    return False  # Still active
+    try:
+        df = get_active_sessions()
+        session = df[df["session_id"] == session_id]
+        
+        if not session.empty:
+            idle_minutes = session.iloc[0].get("idle_minutes", 0)
+            if idle_minutes > timeout_minutes:
+                end_session(session_id)
+                return True  # Timed out
+        
+        return False  # Still active
+    except Exception as e:
+        print(f"Error checking session timeout: {e}")
+        return False
 
 
 # ==============================
-# IP WHITELISTING
+# IP WHITELISTING - FIXED
 # ==============================
 def add_ip_to_whitelist(ip_address, description, added_by):
     """Add IP address to whitelist"""
-    init_security_files()
-    
-    df = pd.read_csv(IP_WHITELIST_FILE)
-    
-    # Check if already exists
-    if ip_address in df["ip_address"].values:
-        return False, "IP already in whitelist"
-    
-    new_ip = pd.DataFrame([{
-        "ip_address": ip_address,
-        "description": description,
-        "added_by": added_by,
-        "added_date": datetime.now().isoformat(),
-        "active": True
-    }])
-    
-    df = pd.concat([df, new_ip], ignore_index=True)
-    df.to_csv(IP_WHITELIST_FILE, index=False)
-    
-    log_audit(added_by, "IP_WHITELIST_ADD", f"Added IP {ip_address} to whitelist")
-    return True, "IP added to whitelist"
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(IP_WHITELIST_FILE)
+        
+        # Check if already exists
+        if ip_address in df["ip_address"].values:
+            return False, "IP already in whitelist"
+        
+        new_ip = pd.DataFrame([{
+            "ip_address": ip_address,
+            "description": description,
+            "added_by": added_by,
+            "added_date": datetime.now().isoformat(),
+            "active": True
+        }])
+        
+        df = pd.concat([df, new_ip], ignore_index=True)
+        df.to_csv(IP_WHITELIST_FILE, index=False)
+        
+        log_audit(added_by, "IP_WHITELIST_ADD", f"Added IP {ip_address} to whitelist")
+        return True, "IP added to whitelist"
+    except Exception as e:
+        print(f"Error adding IP to whitelist: {e}")
+        return False, f"Error: {str(e)}"
 
 
 def remove_ip_from_whitelist(ip_address, removed_by):
     """Remove IP from whitelist"""
-    init_security_files()
-    
-    df = pd.read_csv(IP_WHITELIST_FILE)
-    df = df[df["ip_address"] != ip_address]
-    df.to_csv(IP_WHITELIST_FILE, index=False)
-    
-    log_audit(removed_by, "IP_WHITELIST_REMOVE", f"Removed IP {ip_address} from whitelist")
-    return True
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(IP_WHITELIST_FILE)
+        df = df[df["ip_address"] != ip_address]
+        df.to_csv(IP_WHITELIST_FILE, index=False)
+        
+        log_audit(removed_by, "IP_WHITELIST_REMOVE", f"Removed IP {ip_address} from whitelist")
+        return True
+    except Exception as e:
+        print(f"Error removing IP from whitelist: {e}")
+        return False
 
 
 def is_ip_whitelisted(ip_address):
     """Check if IP is whitelisted"""
-    init_security_files()
-    
-    df = pd.read_csv(IP_WHITELIST_FILE)
-    df = df[df["active"] == True]
-    
-    return ip_address in df["ip_address"].values
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(IP_WHITELIST_FILE)
+        df = df[df["active"] == True]
+        
+        return ip_address in df["ip_address"].values
+    except Exception as e:
+        print(f"Error checking IP whitelist: {e}")
+        return False
 
 
 def get_whitelisted_ips():
     """Get all whitelisted IPs"""
-    init_security_files()
-    
-    df = pd.read_csv(IP_WHITELIST_FILE)
-    df = df[df["active"] == True]
-    
-    return df
+    try:
+        init_security_files()
+        
+        df = pd.read_csv(IP_WHITELIST_FILE)
+        df = df[df["active"] == True]
+        
+        return df
+    except Exception as e:
+        print(f"Error getting whitelisted IPs: {e}")
+        return pd.DataFrame()
+
+
+def load_security_settings():
+    """Load security settings"""
+    try:
+        init_security_files()
+        
+        with open(SECURITY_SETTINGS_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading security settings: {e}")
+        return {
+            "session_timeout": 30,
+            "min_password_length": 6,
+            "require_special_chars": False,
+            "require_numbers": False,
+            "max_login_attempts": 5,
+            "lockout_duration": 30
+        }
 
 
 # ==============================
@@ -570,7 +718,10 @@ def security_dashboard():
         st.markdown("## 🔐 Two-Factor Authentication (2FA)")
         st.caption("Add an extra layer of security to user accounts")
         
-        users_df = load_users()
+        try:
+            users_df = load_users()
+        except:
+            users_df = pd.DataFrame()
         
         if not users_df.empty:
             # Select user
@@ -725,26 +876,35 @@ def security_dashboard():
         st.markdown("## ⚙️ Security Settings")
         st.caption("Configure system-wide security policies")
         
+        # Load current settings
+        settings = load_security_settings()
+        
         # Session timeout settings
         st.markdown("### ⏱️ Session Management")
         
-        session_timeout = st.slider("Session Timeout (minutes)", 5, 120, 30, help="User will be logged out after inactivity")
+        session_timeout = st.slider("Session Timeout (minutes)", 5, 120, settings.get("session_timeout", 30), 
+                                   help="User will be logged out after inactivity")
         
         # Password policy
         st.markdown("### 🔑 Password Policy")
         
-        min_password_length = st.number_input("Minimum Password Length", min_value=4, max_value=20, value=6)
-        require_special_chars = st.checkbox("Require Special Characters", value=False)
-        require_numbers = st.checkbox("Require Numbers", value=False)
+        min_password_length = st.number_input("Minimum Password Length", min_value=4, max_value=20, 
+                                             value=settings.get("min_password_length", 6))
+        require_special_chars = st.checkbox("Require Special Characters", 
+                                           value=settings.get("require_special_chars", False))
+        require_numbers = st.checkbox("Require Numbers", 
+                                     value=settings.get("require_numbers", False))
         
         # Login attempts
         st.markdown("### 🔒 Login Security")
         
-        max_login_attempts = st.number_input("Max Login Attempts before lockout", min_value=3, max_value=10, value=5)
-        lockout_duration = st.number_input("Lockout Duration (minutes)", min_value=5, max_value=120, value=30)
+        max_login_attempts = st.number_input("Max Login Attempts before lockout", min_value=3, max_value=10, 
+                                            value=settings.get("max_login_attempts", 5))
+        lockout_duration = st.number_input("Lockout Duration (minutes)", min_value=5, max_value=120, 
+                                          value=settings.get("lockout_duration", 30))
         
         if st.button("💾 Save Security Settings", type="primary", use_container_width=True):
-            settings = {
+            new_settings = {
                 "session_timeout": session_timeout,
                 "min_password_length": min_password_length,
                 "require_special_chars": require_special_chars,
@@ -755,28 +915,31 @@ def security_dashboard():
                 "updated_by": st.session_state.get("username", "system")
             }
             
-            settings_file = DATA_DIR / "security_settings.json"
-            with open(settings_file, "w") as f:
-                json.dump(settings, f, indent=2)
-            
-            log_audit(st.session_state.get("username", "system"), "SECURITY_SETTINGS_UPDATED", "Security settings updated")
-            st.success("✅ Security settings saved successfully!")
+            try:
+                with open(SECURITY_SETTINGS_FILE, "w") as f:
+                    json.dump(new_settings, f, indent=2)
+                
+                log_audit(st.session_state.get("username", "system"), "SECURITY_SETTINGS_UPDATED", "Security settings updated")
+                st.success("✅ Security settings saved successfully!")
+            except Exception as e:
+                st.error(f"Error saving settings: {e}")
         
         # Clear audit log button
         st.markdown("---")
         st.markdown("### 🗑️ Data Management")
         
         if st.button("🗑️ Clear Old Audit Logs (30+ days)", use_container_width=True):
-            cutoff = datetime.now() - timedelta(days=30)
-            df = pd.read_csv(AUDIT_LOG_FILE)
-            if not df.empty:
-                try:
-                    df["timestamp"] = pd.to_datetime(df["timestamp"], format='ISO8601', errors='coerce')
+            try:
+                cutoff = datetime.now() - timedelta(days=30)
+                df = pd.read_csv(AUDIT_LOG_FILE)
+                if not df.empty:
+                    df["timestamp"] = pd.to_datetime(df["timestamp"], errors='coerce')
                     df = df[df["timestamp"] >= cutoff]
                     df.to_csv(AUDIT_LOG_FILE, index=False)
                     st.success("Old audit logs cleared successfully")
-                except:
-                    st.error("Error clearing audit logs")
+                    log_audit(st.session_state.get("username", "system"), "AUDIT_LOG_CLEARED", "Cleared audit logs older than 30 days")
+            except Exception as e:
+                st.error(f"Error clearing audit logs: {e}")
 
 
 # ==============================
@@ -791,15 +954,15 @@ def two_factor_login_step(username, phone):
     # Send code
     whatsapp_link = create_2fa_code(username, phone)
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
+    if whatsapp_link:
         st.markdown(f'<a href="{whatsapp_link}" target="_blank"><button style="background:#25D366;color:white;border:none;border-radius:30px;padding:10px;width:100%;">📱 Send Code via WhatsApp</button></a>', unsafe_allow_html=True)
     
-    with col2:
-        if st.button("🔄 Resend Code", use_container_width=True):
-            whatsapp_link = create_2fa_code(username, phone)
+    if st.button("🔄 Resend Code", use_container_width=True):
+        whatsapp_link = create_2fa_code(username, phone)
+        if whatsapp_link:
             st.success("New code sent!")
+        else:
+            st.error("Failed to send code")
     
     verification_code = st.text_input("Enter 6-digit verification code", type="password")
     
