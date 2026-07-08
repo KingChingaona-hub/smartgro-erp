@@ -49,16 +49,9 @@ def send_whatsapp_message(phone_number, message):
         if not phone.startswith("263"):
             phone = "263" + phone.lstrip("0")
         
-        # Try using WhatsApp API (if configured)
-        try:
-            # This would be replaced with actual WhatsApp Business API
-            # For now, generate a WhatsApp link
-            whatsapp_link = f"https://wa.me/{phone}?text={message.replace(' ', '%20').replace('\n', '%0A')}"
-            return whatsapp_link
-        except:
-            # Fallback: generate link
-            whatsapp_link = f"https://wa.me/{phone}?text={message.replace(' ', '%20').replace('\n', '%0A')}"
-            return whatsapp_link
+        # Generate WhatsApp link
+        whatsapp_link = f"https://wa.me/{phone}?text={message.replace(' ', '%20').replace('\n', '%0A')}"
+        return whatsapp_link
     except Exception as e:
         print(f"Error sending WhatsApp: {e}")
         return None
@@ -104,51 +97,52 @@ def generate_shift_report(shift_data, shift_summary):
     """Generate a comprehensive shift report"""
     
     report = f"""
-    {'='*60}
-    {COMPANY_NAME} - SHIFT REPORT
-    {'='*60}
-    
-    Shift ID: {shift_data.get('shift_id', 'N/A')}
-    Cashier: {shift_data.get('cashier_name', 'N/A')}
-    Branch: {shift_data.get('branch_name', 'N/A')}
-    Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-    
-    {'-'*40}
-    SHIFT SUMMARY
-    {'-'*40}
-    Start Time: {safe_format_time(shift_data.get('start_time'))}
-    End Time: {safe_format_time(shift_data.get('end_time', datetime.now()))}
-    Duration: {shift_summary.get('duration', 'N/A')}
-    Status: {shift_data.get('status', 'N/A')}
-    
-    {'-'*40}
-    FINANCIAL SUMMARY
-    {'-'*40}
-    Opening Cash: ${shift_summary.get('opening_cash', 0):,.2f}
-    Total Revenue: ${shift_summary.get('total_revenue', 0):,.2f}
-    Total Profit: ${shift_summary.get('total_profit', 0):,.2f}
-    Cash Sales: ${shift_summary.get('cash_sales', 0):,.2f}
-    Credit Sales: ${shift_summary.get('credit_sales', 0):,.2f}
-    Debt Payments: ${shift_summary.get('debt_payments', 0):,.2f}
-    Expenses: ${shift_summary.get('expenses', 0):,.2f}
-    
-    {'-'*40}
-    TRANSACTIONS
-    {'-'*40}
-    Total Transactions: {shift_summary.get('transactions', 0)}
-    Closing Cash: ${shift_summary.get('closing_cash', 0):,.2f}
-    Variance: ${shift_summary.get('variance', 0):,.2f}
-    
-    {'-'*40}
-    NOTES
-    {'-'*40}
-    {shift_summary.get('notes', 'No notes')}
-    
-    {'='*60}
-    End of Shift Report
-    {COMPANY_NAME} - {COMPANY_PHONE}
-    {'='*60}
-    """
+{'='*60}
+{COMPANY_NAME} - SHIFT REPORT
+{'='*60}
+
+Shift ID: {shift_data.get('shift_id', 'N/A')}
+Shift Name: {shift_data.get('shift_name', 'N/A')}
+Cashier: {shift_data.get('cashier_name', 'N/A')}
+Branch: {shift_data.get('branch_name', 'N/A')}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+{'-'*40}
+SHIFT SUMMARY
+{'-'*40}
+Start Time: {safe_format_time(shift_data.get('start_time'))}
+End Time: {safe_format_time(shift_data.get('end_time', datetime.now()))}
+Duration: {shift_summary.get('duration', 'N/A')}
+Status: {shift_data.get('status', 'N/A')}
+
+{'-'*40}
+FINANCIAL SUMMARY
+{'-'*40}
+Opening Cash: ${shift_summary.get('opening_cash', 0):,.2f}
+Total Revenue: ${shift_summary.get('total_revenue', 0):,.2f}
+Total Profit: ${shift_summary.get('total_profit', 0):,.2f}
+Cash Sales: ${shift_summary.get('cash_sales', 0):,.2f}
+Credit Sales: ${shift_summary.get('credit_sales', 0):,.2f}
+Debt Payments: ${shift_summary.get('debt_payments', 0):,.2f}
+Expenses: ${shift_summary.get('expenses', 0):,.2f}
+
+{'-'*40}
+TRANSACTIONS
+{'-'*40}
+Total Transactions: {shift_summary.get('transactions', 0)}
+Closing Cash: ${shift_summary.get('closing_cash', 0):,.2f}
+Variance: ${shift_summary.get('variance', 0):,.2f}
+
+{'-'*40}
+NOTES
+{'-'*40}
+{shift_summary.get('notes', 'No notes')}
+
+{'='*60}
+End of Shift Report
+{COMPANY_NAME} - {COMPANY_PHONE}
+{'='*60}
+"""
     
     return report
 
@@ -420,7 +414,7 @@ def shift_management_page():
                                 st.session_state.show_end_shift = True
                                 st.rerun()
                     
-                    # End Shift Dialog
+                    # End Shift Dialog - FIXED
                     if st.session_state.get("show_end_shift", False) and st.session_state.get("end_shift_id") == shift_id:
                         with st.expander("📝 End Shift", expanded=True):
                             col1, col2 = st.columns(2)
@@ -432,15 +426,21 @@ def shift_management_page():
                                 shift_sales = sales_df[sales_df["shift_id"] == shift_id] if not sales_df.empty else pd.DataFrame()
                                 shift_cash = cash_df[cash_df["shift_id"] == shift_id] if not cash_df.empty else pd.DataFrame()
                                 
-                                total_sales = shift_sales["final_total"].sum() if not shift_sales.empty else 0
+                                total_sales = shift_sales["final_total"].sum() if not shift_sales.empty and "final_total" in shift_sales.columns else 0
                                 total_transactions = len(shift_sales)
-                                total_profit = shift_sales["profit"].sum() if not shift_sales.empty else 0
+                                total_profit = shift_sales["profit"].sum() if not shift_sales.empty and "profit" in shift_sales.columns else 0
                                 
                                 # Calculate cash movements
-                                cash_sales = shift_cash[shift_cash["type"] == "CASH_SALE"]["amount"].sum() if not shift_cash.empty else 0
-                                credit_sales = shift_cash[shift_cash["type"] == "CREDIT_SALE"]["amount"].sum() if not shift_cash.empty else 0
-                                debt_payments = shift_cash[shift_cash["type"] == "DEBT_PAYMENT"]["amount"].sum() if not shift_cash.empty else 0
-                                expenses = shift_cash[shift_cash["type"] == "EXPENSE"]["amount"].sum() if not shift_cash.empty else 0
+                                if not shift_cash.empty:
+                                    cash_sales = shift_cash[shift_cash["type"] == "CASH_SALE"]["amount"].sum() if "type" in shift_cash.columns else 0
+                                    credit_sales = shift_cash[shift_cash["type"] == "CREDIT_SALE"]["amount"].sum() if "type" in shift_cash.columns else 0
+                                    debt_payments = shift_cash[shift_cash["type"] == "DEBT_PAYMENT"]["amount"].sum() if "type" in shift_cash.columns else 0
+                                    expenses = shift_cash[shift_cash["type"] == "EXPENSE"]["amount"].sum() if "type" in shift_cash.columns else 0
+                                else:
+                                    cash_sales = 0
+                                    credit_sales = 0
+                                    debt_payments = 0
+                                    expenses = 0
                                 
                                 st.metric("💰 Total Sales", f"${total_sales:,.2f}")
                                 st.metric("📈 Total Profit", f"${total_profit:,.2f}")
@@ -450,7 +450,7 @@ def shift_management_page():
                                 closing_cash = st.number_input(
                                     "Closing Cash ($)",
                                     min_value=0.0,
-                                    value=float(shift_data.get("opening_cash", 0) + cash_sales + debt_payments - expenses),
+                                    value=float(shift_data.get("opening_cash", 0)),
                                     step=10.0
                                 )
                                 
@@ -460,6 +460,7 @@ def shift_management_page():
                                     if not st.session_state.button_clicked:
                                         st.session_state.button_clicked = True
                                         
+                                        # Call the end_shift function
                                         success, message = end_shift(
                                             shift_id,
                                             closing_cash,
@@ -468,6 +469,7 @@ def shift_management_page():
                                             total_transactions,
                                             notes
                                         )
+                                        
                                         if success:
                                             # Calculate shift summary for report
                                             shift_summary = {
@@ -519,14 +521,16 @@ def shift_management_page():
                                             
                                             st.balloons()
                                             st.success(f"✅ {message}")
-                                            st.session_state.show_end_shift = False
-                                            st.session_state.end_shift_id = None
-                                            st.session_state.shift_ended = True
-                                            st.session_state.button_clicked = False
                                             
                                             # Show report
                                             with st.expander("📄 View Shift Report", expanded=True):
                                                 st.text(report)
+                                            
+                                            # Reset session state
+                                            st.session_state.show_end_shift = False
+                                            st.session_state.end_shift_id = None
+                                            st.session_state.shift_ended = True
+                                            st.session_state.button_clicked = False
                                             
                                             st.rerun()
                                         else:
