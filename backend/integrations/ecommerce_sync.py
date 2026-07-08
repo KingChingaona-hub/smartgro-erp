@@ -263,7 +263,7 @@ def ecommerce_sync_dashboard():
     init_ecommerce_files()
     
     # Load products
-    from backend.core.database import load_products
+    from backend.core.db_adapter import load_products
     products_df = load_products()
     
     if products_df.empty:

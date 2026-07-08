@@ -811,3 +811,4 @@ def competitor_price_monitoring_dashboard():
 
 if __name__ == "__main__":
     competitor_price_monitoring_dashboard()
+    
