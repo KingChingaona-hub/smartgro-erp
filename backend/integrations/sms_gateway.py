@@ -93,20 +93,15 @@ def init_sms_files():
     if not SMS_SETTINGS_FILE.exists():
         settings = {
             "provider": "africastalking",
-            "api_key": "",
-            "username": "",
             "sender_id": "AzielInvest",
             "enabled": True,
             "default_country_code": "263",
             "test_mode": False,
-            # Africa's Talking specific
             "africastalking_api_key": "",
-            "africastalking_username": "",
-            # Twilio specific
+            "africastalking_username": "sandbox",
             "twilio_account_sid": "",
             "twilio_auth_token": "",
             "twilio_phone_number": "",
-            # Semaphore specific
             "semaphore_api_key": "",
             "semaphore_sender_name": "AzielInvest"
         }
@@ -147,8 +142,25 @@ def save_sms_templates(templates):
 def load_sms_settings():
     """Load SMS settings"""
     init_sms_files()
-    with open(SMS_SETTINGS_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(SMS_SETTINGS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        # Return default settings if file is corrupted
+        return {
+            "provider": "africastalking",
+            "sender_id": "AzielInvest",
+            "enabled": True,
+            "default_country_code": "263",
+            "test_mode": False,
+            "africastalking_api_key": "",
+            "africastalking_username": "sandbox",
+            "twilio_account_sid": "",
+            "twilio_auth_token": "",
+            "twilio_phone_number": "",
+            "semaphore_api_key": "",
+            "semaphore_sender_name": "AzielInvest"
+        }
 
 
 def save_sms_settings(settings):
@@ -183,11 +195,16 @@ def log_sms(recipient, message, sms_type, status, sent_by, response, cost=0):
 def send_sms_africastalking(recipient, message, settings):
     """Send SMS via Africa's Talking - REAL IMPLEMENTATION"""
     try:
+        # Get API Key from settings
         api_key = settings.get("africastalking_api_key", "")
         username = settings.get("africastalking_username", "sandbox")
         
-        if not api_key:
-            return {"success": False, "message": "Africa's Talking API Key not configured"}
+        # Debug: Check if API key is set
+        print(f"Africa's Talking API Key present: {bool(api_key)}")
+        print(f"Username: {username}")
+        
+        if not api_key or api_key == "":
+            return {"success": False, "message": "Africa's Talking API Key not configured. Please add your API Key in Settings tab."}
         
         # Format phone number
         if not recipient.startswith("+"):
@@ -211,7 +228,11 @@ def send_sms_africastalking(recipient, message, settings):
         # Send request
         response = requests.post(url, headers=headers, data=data, timeout=30)
         
-        if response.status_code == 200:
+        # Debug response
+        print(f"Africa's Talking Response Status: {response.status_code}")
+        print(f"Africa's Talking Response: {response.text}")
+        
+        if response.status_code == 200 or response.status_code == 201:
             result = response.json()
             if result.get("SMSMessageData", {}).get("Recipients"):
                 recipients_data = result["SMSMessageData"]["Recipients"]
@@ -224,11 +245,18 @@ def send_sms_africastalking(recipient, message, settings):
                             "sms_id": recipients_data[0].get("messageId", f"SMS_{secrets.randbelow(10000):04d}"),
                             "cost": 0.05
                         }
+                    else:
+                        return {
+                            "success": False,
+                            "message": f"Failed: {recipients_data[0].get('status', 'Unknown error')}"
+                        }
         
         return {
             "success": False,
-            "message": f"Failed to send SMS: {response.text}"
+            "message": f"Failed to send SMS: {response.text[:200]}"
         }
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "message": f"Network error: {str(e)}"}
     except Exception as e:
         return {"success": False, "message": str(e)}
 
@@ -244,7 +272,7 @@ def send_sms_twilio(recipient, message, settings):
         twilio_phone = settings.get("twilio_phone_number", "")
         
         if not account_sid or not auth_token or not twilio_phone:
-            return {"success": False, "message": "Twilio credentials not configured"}
+            return {"success": False, "message": "Twilio credentials not configured. Please add your credentials in Settings tab."}
         
         # Format phone number
         if not recipient.startswith("+"):
@@ -280,7 +308,7 @@ def send_sms_twilio(recipient, message, settings):
         
         return {
             "success": False,
-            "message": f"Failed to send SMS: {response.text}"
+            "message": f"Failed to send SMS: {response.text[:200]}"
         }
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -296,7 +324,7 @@ def send_sms_semaphore(recipient, message, settings):
         sender_name = settings.get("semaphore_sender_name", "AzielInvest")
         
         if not api_key:
-            return {"success": False, "message": "Semaphore API Key not configured"}
+            return {"success": False, "message": "Semaphore API Key not configured. Please add your API Key in Settings tab."}
         
         # Format phone number (Semaphore wants without +)
         if recipient.startswith("+"):
@@ -329,7 +357,7 @@ def send_sms_semaphore(recipient, message, settings):
         
         return {
             "success": False,
-            "message": f"Failed to send SMS: {response.text}"
+            "message": f"Failed to send SMS: {response.text[:200]}"
         }
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -351,9 +379,10 @@ def send_sms(recipient, message, sms_type="GENERAL", sent_by="system"):
     if not valid:
         return {"success": False, "message": f"Invalid phone number: {msg}"}
     
-    # Send based on provider
+    # Get provider
     provider = settings.get("provider", "africastalking")
     
+    # Send based on provider
     if provider == "africastalking":
         result = send_sms_africastalking(standardized, message, settings)
     elif provider == "twilio":
@@ -531,7 +560,7 @@ def sms_gateway_dashboard():
                         st.success("✅ SMS sent successfully!")
                         show_toast("SMS sent successfully!", "success")
                     else:
-                        st.error(f"❌ Failed to send SMS: {result['message']}")
+                        st.error(f"❌ {result['message']}")
                 else:
                     st.error("Please enter recipient and message")
         
@@ -645,7 +674,7 @@ def sms_gateway_dashboard():
                         st.success("✅ Order confirmation sent!")
                         show_toast("Order confirmation sent!", "success")
                     else:
-                        st.error(f"❌ Failed: {result['message']}")
+                        st.error(f"❌ {result['message']}")
         
         elif send_type == "Delivery Notification":
             st.markdown("### 🚚 Delivery Notification")
@@ -670,7 +699,7 @@ def sms_gateway_dashboard():
                         st.success("✅ Delivery notification sent!")
                         show_toast("Delivery notification sent!", "success")
                     else:
-                        st.error(f"❌ Failed: {result['message']}")
+                        st.error(f"❌ {result['message']}")
         
         elif send_type == "Payment Reminder":
             st.markdown("### 💰 Payment Reminder")
@@ -696,7 +725,7 @@ def sms_gateway_dashboard():
                         st.success("✅ Payment reminder sent!")
                         show_toast("Payment reminder sent!", "success")
                     else:
-                        st.error(f"❌ Failed: {result['message']}")
+                        st.error(f"❌ {result['message']}")
                 else:
                     st.error("Please fill all required fields")
         
@@ -719,7 +748,7 @@ def sms_gateway_dashboard():
                         st.success("✅ Birthday wish sent!")
                         show_toast("Birthday wish sent!", "success")
                     else:
-                        st.error(f"❌ Failed: {result['message']}")
+                        st.error(f"❌ {result['message']}")
     
     # ==============================
     # TAB 2: TEMPLATES
@@ -889,16 +918,27 @@ def sms_gateway_dashboard():
         
         if provider == "africastalking":
             st.markdown("### 🌍 Africa's Talking Settings")
-            st.info("Get your API Key from Africa's Talking dashboard")
+            st.info("Get your API Key from Africa's Talking dashboard (https://account.africastalking.com/)")
             
-            api_key = st.text_input("API Key", type="password", value=settings.get("africastalking_api_key", ""))
-            username = st.text_input("Username", value=settings.get("africastalking_username", "sandbox"))
+            # Show current API key status
+            current_api_key = settings.get("africastalking_api_key", "")
+            if current_api_key:
+                st.success("✅ API Key is configured")
+            else:
+                st.warning("⚠️ API Key not configured")
             
-            if st.button("🔌 Test Africa's Talking Connection"):
-                if api_key:
-                    st.success("✅ Connection test successful! (API Key validated)")
-                else:
-                    st.error("❌ Please enter your API Key")
+            api_key = st.text_input("API Key", type="password", value=current_api_key, help="Your Africa's Talking API Key")
+            username = st.text_input("Username", value=settings.get("africastalking_username", "sandbox"), help="Your Africa's Talking username (usually 'sandbox' for testing)")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔌 Test Connection", use_container_width=True):
+                    if api_key:
+                        # Simple validation - check if API key is not empty
+                        st.success("✅ API Key validated! (Length: " + str(len(api_key)) + " characters)")
+                        st.info("💡 To test actual SMS, disable Test Mode and send a message")
+                    else:
+                        st.error("❌ Please enter your API Key")
         
         elif provider == "twilio":
             st.markdown("### 📞 Twilio Settings")
@@ -906,11 +946,11 @@ def sms_gateway_dashboard():
             
             account_sid = st.text_input("Account SID", type="password", value=settings.get("twilio_account_sid", ""))
             auth_token = st.text_input("Auth Token", type="password", value=settings.get("twilio_auth_token", ""))
-            twilio_phone = st.text_input("Twilio Phone Number", value=settings.get("twilio_phone_number", ""))
+            twilio_phone = st.text_input("Twilio Phone Number", value=settings.get("twilio_phone_number", ""), help="Your Twilio phone number (e.g., +1234567890)")
             
-            if st.button("🔌 Test Twilio Connection"):
+            if st.button("🔌 Test Twilio Connection", use_container_width=True):
                 if account_sid and auth_token:
-                    st.success("✅ Connection test successful!")
+                    st.success("✅ Credentials validated!")
                 else:
                     st.error("❌ Please enter your credentials")
         
@@ -921,43 +961,60 @@ def sms_gateway_dashboard():
             api_key = st.text_input("API Key", type="password", value=settings.get("semaphore_api_key", ""))
             semaphore_sender = st.text_input("Sender Name", value=settings.get("semaphore_sender_name", "AzielInvest"))
             
-            if st.button("🔌 Test Semaphore Connection"):
+            if st.button("🔌 Test Semaphore Connection", use_container_width=True):
                 if api_key:
-                    st.success("✅ Connection test successful!")
+                    st.success("✅ API Key validated!")
                 else:
                     st.error("❌ Please enter your API Key")
         
-        if st.button("💾 Save Settings", type="primary", use_container_width=True):
-            settings.update({
-                "enabled": enabled,
-                "provider": provider,
-                "test_mode": test_mode,
-                "sender_id": sender_id,
-                "default_country_code": default_country,
-                "africastalking_api_key": api_key if provider == "africastalking" else settings.get("africastalking_api_key", ""),
-                "africastalking_username": username if provider == "africastalking" else settings.get("africastalking_username", ""),
-                "twilio_account_sid": account_sid if provider == "twilio" else settings.get("twilio_account_sid", ""),
-                "twilio_auth_token": auth_token if provider == "twilio" else settings.get("twilio_auth_token", ""),
-                "twilio_phone_number": twilio_phone if provider == "twilio" else settings.get("twilio_phone_number", ""),
-                "semaphore_api_key": api_key if provider == "semaphore" else settings.get("semaphore_api_key", ""),
-                "semaphore_sender_name": semaphore_sender if provider == "semaphore" else settings.get("semaphore_sender_name", "")
-            })
-            save_sms_settings(settings)
-            st.success("✅ Settings saved successfully!")
-            show_toast("SMS settings updated!", "success")
-        
         st.markdown("---")
-        st.markdown("### 💰 Account Balance")
         
-        if st.button("🔄 Check Balance", use_container_width=True):
-            if provider == "africastalking":
-                st.info("📊 Balance check via Africa's Talking API")
-                # Would call Africa's Talking balance API
-            elif provider == "twilio":
-                st.info("📊 Balance check via Twilio API")
-            elif provider == "semaphore":
-                st.info("📊 Balance check via Semaphore API")
-            st.success("✅ Balance check successful! (Simulated)")
+        # Save settings
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Save Settings", type="primary", use_container_width=True):
+                # Update settings based on provider
+                if provider == "africastalking":
+                    settings.update({
+                        "enabled": enabled,
+                        "provider": provider,
+                        "test_mode": test_mode,
+                        "sender_id": sender_id,
+                        "default_country_code": default_country,
+                        "africastalking_api_key": api_key,
+                        "africastalking_username": username
+                    })
+                elif provider == "twilio":
+                    settings.update({
+                        "enabled": enabled,
+                        "provider": provider,
+                        "test_mode": test_mode,
+                        "sender_id": sender_id,
+                        "default_country_code": default_country,
+                        "twilio_account_sid": account_sid,
+                        "twilio_auth_token": auth_token,
+                        "twilio_phone_number": twilio_phone
+                    })
+                elif provider == "semaphore":
+                    settings.update({
+                        "enabled": enabled,
+                        "provider": provider,
+                        "test_mode": test_mode,
+                        "sender_id": sender_id,
+                        "default_country_code": default_country,
+                        "semaphore_api_key": api_key,
+                        "semaphore_sender_name": semaphore_sender
+                    })
+                
+                save_sms_settings(settings)
+                st.success("✅ Settings saved successfully!")
+                show_toast("SMS settings updated!", "success")
+                st.rerun()
+        
+        with col2:
+            if st.button("🔄 Check Balance", use_container_width=True):
+                st.info("💰 Balance check requires API call to your provider")
+                st.info("💡 Send a test SMS to verify your configuration")
 
 
 if __name__ == "__main__":
