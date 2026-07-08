@@ -300,7 +300,7 @@ def send_sms_africastalking(recipient, message, settings):
     except requests.exceptions.RequestException as e:
         return {"success": False, "message": f"❌ Network error: {str(e)}"}
     except Exception as e:
-        return {"success": False, "message": f"❌ Error: {str(e)}"
+        return {"success": False, "message": f"❌ Error: {str(e)}"}
 
 
 # ==============================
@@ -940,7 +940,7 @@ def sms_gateway_dashboard():
             st.info("No SMS history found")
     
     # ==============================
-    # TAB 5: SETTINGS - UPDATED
+    # TAB 5: SETTINGS
     # ==============================
     with tab5:
         st.markdown("## ⚙️ SMS Gateway Settings")
