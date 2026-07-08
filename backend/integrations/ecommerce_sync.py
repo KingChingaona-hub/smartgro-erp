@@ -39,7 +39,13 @@ def init_ecommerce_files():
 def load_ecommerce_exports():
     """Load e-commerce export history"""
     init_ecommerce_files()
-    return pd.read_csv(ECOMMERCE_FILE)
+    try:
+        return pd.read_csv(ECOMMERCE_FILE)
+    except:
+        return pd.DataFrame(columns=[
+            "export_id", "export_date", "platform", "export_type", 
+            "product_count", "status", "exported_by", "file_path"
+        ])
 
 
 def save_ecommerce_export(export_data):
@@ -51,9 +57,61 @@ def save_ecommerce_export(export_data):
 
 def log_sync(sync_data):
     """Log sync activity"""
-    df = pd.read_csv(SYNC_LOG_FILE)
-    df = pd.concat([df, pd.DataFrame([sync_data])], ignore_index=True)
-    df.to_csv(SYNC_LOG_FILE, index=False)
+    try:
+        df = pd.read_csv(SYNC_LOG_FILE)
+        df = pd.concat([df, pd.DataFrame([sync_data])], ignore_index=True)
+        df.to_csv(SYNC_LOG_FILE, index=False)
+    except:
+        df = pd.DataFrame([sync_data])
+        df.to_csv(SYNC_LOG_FILE, index=False)
+
+
+# ==============================
+# LOAD PRODUCTS FROM DATABASE
+# ==============================
+def load_products_from_db():
+    """Load products from database using db_adapter"""
+    try:
+        from backend.core.db_adapter import load_products
+        df = load_products()
+        
+        # If empty, try alternative import
+        if df.empty:
+            try:
+                from backend.core.database import load_products as load_products_alt
+                df = load_products_alt()
+            except:
+                pass
+        
+        # If still empty, try direct file reading
+        if df.empty:
+            data_dir = Path("data")
+            products_file = data_dir / "products.csv"
+            if products_file.exists():
+                df = pd.read_csv(products_file)
+        
+        # Ensure required columns exist
+        if not df.empty:
+            required_cols = ["name", "barcode", "price", "stock", "category"]
+            for col in required_cols:
+                if col not in df.columns:
+                    df[col] = "" if col in ["name", "barcode", "category"] else 0
+            
+            # Convert numeric columns
+            for col in ["price", "stock", "cost"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            
+            # Rename columns if needed for consistency
+            if "product_name" in df.columns and "name" not in df.columns:
+                df["name"] = df["product_name"]
+            if "product_barcode" in df.columns and "barcode" not in df.columns:
+                df["barcode"] = df["product_barcode"]
+        
+        return df
+    except Exception as e:
+        st.warning(f"Could not load products: {str(e)}")
+        return pd.DataFrame()
 
 
 # ==============================
@@ -62,22 +120,32 @@ def log_sync(sync_data):
 def export_to_woocommerce(products_df):
     """Export products to WooCommerce CSV format"""
     
+    if products_df.empty:
+        return ""
+    
     woocommerce_export = []
     
     for _, product in products_df.iterrows():
+        # Get values safely
+        barcode = str(product.get("barcode", ""))
+        name = str(product.get("name", "Unknown Product"))
+        price = float(product.get("price", 0))
+        stock = int(product.get("stock", 0))
+        category = str(product.get("category", "Uncategorized"))
+        
         woocommerce_export.append({
             "ID": "",
             "Type": "simple",
-            "SKU": product.get("barcode", ""),
-            "Name": product.get("name", ""),
-            "Description": f"{product.get('name', '')} - Available at Aziel Investments",
+            "SKU": barcode,
+            "Name": name,
+            "Description": f"{name} - Available at Aziel Investments",
             "Short description": "",
-            "Price": product.get("price", 0),
-            "Regular price": product.get("price", 0),
+            "Price": price,
+            "Regular price": price,
             "Sale price": "",
-            "Categories": product.get("category", "Uncategorized"),
-            "Stock": product.get("stock", 0),
-            "Stock status": "instock" if product.get("stock", 0) > 0 else "outofstock",
+            "Categories": category,
+            "Stock": stock,
+            "Stock status": "instock" if stock > 0 else "outofstock",
             "Weight": "",
             "Length": "",
             "Width": "",
@@ -85,12 +153,15 @@ def export_to_woocommerce(products_df):
             "Images": "",
             "Tax status": "taxable",
             "Tax class": "",
-            "Manage stock": "yes" if product.get("stock", 0) >= 0 else "no"
+            "Manage stock": "yes" if stock >= 0 else "no"
         })
     
     # Create CSV
+    if not woocommerce_export:
+        return ""
+    
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=woocommerce_export[0].keys() if woocommerce_export else [])
+    writer = csv.DictWriter(output, fieldnames=woocommerce_export[0].keys())
     writer.writeheader()
     writer.writerows(woocommerce_export)
     
@@ -103,37 +174,46 @@ def export_to_woocommerce(products_df):
 def export_to_shopify(products_df):
     """Export products to Shopify CSV format"""
     
+    if products_df.empty:
+        return ""
+    
     shopify_export = []
     
     for _, product in products_df.iterrows():
+        barcode = str(product.get("barcode", ""))
+        name = str(product.get("name", "Unknown Product"))
+        price = float(product.get("price", 0))
+        stock = int(product.get("stock", 0))
+        category = str(product.get("category", "Uncategorized"))
+        
         shopify_export.append({
-            "Handle": product.get("barcode", ""),
-            "Title": product.get("name", ""),
-            "Body (HTML)": f"<p>{product.get('name', '')} - Available at Aziel Investments</p>",
+            "Handle": barcode if barcode else name.replace(" ", "-").lower(),
+            "Title": name,
+            "Body (HTML)": f"<p>{name} - Available at Aziel Investments</p>",
             "Vendor": "Aziel Investments",
-            "Product Category": product.get("category", "Uncategorized"),
+            "Product Category": category,
             "Type": "Physical Product",
             "Tags": "",
             "Published": "TRUE",
             "Option1 Name": "Title",
             "Option1 Value": "Default Title",
-            "Variant SKU": product.get("barcode", ""),
+            "Variant SKU": barcode,
             "Variant Grams": "",
             "Variant Inventory Tracker": "shopify",
-            "Variant Inventory Qty": product.get("stock", 0),
+            "Variant Inventory Qty": stock,
             "Variant Inventory Policy": "deny",
             "Variant Fulfillment Service": "manual",
-            "Variant Price": product.get("price", 0),
+            "Variant Price": price,
             "Variant Compare At Price": "",
             "Variant Requires Shipping": "TRUE",
             "Variant Taxable": "TRUE",
-            "Variant Barcode": product.get("barcode", ""),
+            "Variant Barcode": barcode,
             "Image Src": "",
             "Image Position": "",
             "Image Alt Text": "",
             "Gift Card": "FALSE",
-            "SEO Title": product.get("name", ""),
-            "SEO Description": f"Buy {product.get('name', '')} at Aziel Investments",
+            "SEO Title": name,
+            "SEO Description": f"Buy {name} at Aziel Investments",
             "Google Shopping / MPN": "",
             "Google Shopping / Age Group": "",
             "Google Shopping / Gender": "",
@@ -141,11 +221,13 @@ def export_to_shopify(products_df):
             "Status": "active"
         })
     
+    if not shopify_export:
+        return ""
+    
     output = io.StringIO()
-    if shopify_export:
-        writer = csv.DictWriter(output, fieldnames=shopify_export[0].keys())
-        writer.writeheader()
-        writer.writerows(shopify_export)
+    writer = csv.DictWriter(output, fieldnames=shopify_export[0].keys())
+    writer.writeheader()
+    writer.writerows(shopify_export)
     
     return output.getvalue()
 
@@ -156,22 +238,31 @@ def export_to_shopify(products_df):
 def export_to_facebook(products_df):
     """Export products to Facebook Shop CSV format"""
     
+    if products_df.empty:
+        return ""
+    
     facebook_export = []
     
     for _, product in products_df.iterrows():
+        barcode = str(product.get("barcode", ""))
+        name = str(product.get("name", "Unknown Product"))
+        price = float(product.get("price", 0))
+        stock = int(product.get("stock", 0))
+        category = str(product.get("category", "Home & Garden"))
+        
         facebook_export.append({
-            "id": product.get("barcode", ""),
-            "title": product.get("name", ""),
-            "description": f"{product.get('name', '')} - Available at Aziel Investments",
-            "availability": "in stock" if product.get("stock", 0) > 0 else "out of stock",
+            "id": barcode,
+            "title": name,
+            "description": f"{name} - Available at Aziel Investments",
+            "availability": "in stock" if stock > 0 else "out of stock",
             "condition": "new",
-            "price": f"{product.get('price', 0)} USD",
+            "price": f"{price} USD",
             "link": "",
             "image_link": "",
             "brand": "Aziel Investments",
             "google_product_category": "",
-            "fb_product_category": product.get("category", "Home & Garden"),
-            "quantity_to_sell_on_facebook": product.get("stock", 0),
+            "fb_product_category": category,
+            "quantity_to_sell_on_facebook": stock,
             "sale_price": "",
             "sale_price_effective_date": "",
             "additional_image_link": "",
@@ -185,11 +276,13 @@ def export_to_facebook(products_df):
             "shipping_height": ""
         })
     
+    if not facebook_export:
+        return ""
+    
     output = io.StringIO()
-    if facebook_export:
-        writer = csv.DictWriter(output, fieldnames=facebook_export[0].keys())
-        writer.writeheader()
-        writer.writerows(facebook_export)
+    writer = csv.DictWriter(output, fieldnames=facebook_export[0].keys())
+    writer.writeheader()
+    writer.writerows(facebook_export)
     
     return output.getvalue()
 
@@ -201,13 +294,12 @@ def import_woocommerce_orders(csv_file):
     """Import orders from WooCommerce CSV"""
     try:
         df = pd.read_csv(csv_file)
-        required_cols = ["Order ID", "Customer Name", "Order Total", "Order Status", "Items"]
         
         orders = []
         for _, row in df.iterrows():
             orders.append({
-                "order_id": row.get("Order ID", ""),
-                "customer_name": row.get("Customer Name", ""),
+                "order_id": row.get("Order ID", str(datetime.now().timestamp())),
+                "customer_name": row.get("Customer Name", "Unknown"),
                 "customer_email": row.get("Customer Email", ""),
                 "total_amount": float(row.get("Order Total", 0)),
                 "status": row.get("Order Status", "pending"),
@@ -220,9 +312,6 @@ def import_woocommerce_orders(csv_file):
         return False, str(e)
 
 
-# ==============================
-# SHOPIFY ORDER IMPORT (Simulated)
-# ==============================
 def import_shopify_orders(json_file):
     """Import orders from Shopify JSON"""
     try:
@@ -230,14 +319,15 @@ def import_shopify_orders(json_file):
         orders = []
         
         for order in data.get("orders", []):
+            customer = order.get("customer", {})
             orders.append({
                 "order_id": order.get("id", ""),
-                "customer_name": order.get("customer", {}).get("first_name", "") + " " + order.get("customer", {}).get("last_name", ""),
-                "customer_email": order.get("customer", {}).get("email", ""),
+                "customer_name": customer.get("first_name", "") + " " + customer.get("last_name", ""),
+                "customer_email": customer.get("email", ""),
                 "total_amount": float(order.get("total_price", 0)),
                 "status": order.get("financial_status", "pending"),
                 "items": len(order.get("line_items", [])),
-                "order_date": order.get("created_at", "")[:10]
+                "order_date": order.get("created_at", datetime.now().isoformat())[:10]
             })
         
         return True, orders
@@ -262,12 +352,46 @@ def ecommerce_sync_dashboard():
     
     init_ecommerce_files()
     
-    # Load products
-    from backend.core.db_adapter import load_products
-    products_df = load_products()
+    # Load products using the improved function
+    products_df = load_products_from_db()
+    
+    # Debug: Show what was loaded
+    if not products_df.empty:
+        st.sidebar.success(f"✅ Loaded {len(products_df)} products")
+        
+        # Show sample in sidebar for debugging
+        with st.sidebar.expander("📋 Product Sample"):
+            st.dataframe(products_df.head(3), use_container_width=True)
+    else:
+        st.sidebar.error("❌ No products loaded")
+        st.sidebar.info("💡 Check: data/products.csv file exists and has data")
     
     if products_df.empty:
         st.warning("No products found. Please add products first.")
+        
+        # Show debug info
+        with st.expander("🔍 Debug: Check data source"):
+            st.write("Checking data/products.csv...")
+            data_dir = Path("data")
+            products_file = data_dir / "products.csv"
+            if products_file.exists():
+                st.success(f"✅ products.csv exists at: {products_file}")
+                try:
+                    sample = pd.read_csv(products_file).head(3)
+                    st.dataframe(sample, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error reading file: {e}")
+            else:
+                st.warning(f"❌ products.csv not found at: {products_file}")
+                
+            # Check db_adapter
+            try:
+                from backend.core.db_adapter import load_products as db_load
+                test = db_load()
+                st.write(f"db_adapter.load_products() returned: {len(test)} products")
+            except Exception as e:
+                st.error(f"db_adapter error: {e}")
+        
         return
     
     # ==============================
@@ -295,13 +419,14 @@ def ecommerce_sync_dashboard():
             )
         
         with col2:
+            categories = products_df["category"].unique().tolist() if "category" in products_df.columns else []
             category_filter = st.selectbox(
                 "Filter by Category",
-                ["All Categories"] + products_df["category"].unique().tolist()
+                ["All Categories"] + categories
             )
         
         # Filter products
-        if category_filter != "All Categories":
+        if category_filter != "All Categories" and "category" in products_df.columns:
             export_products = products_df[products_df["category"] == category_filter]
         else:
             export_products = products_df
@@ -310,8 +435,12 @@ def ecommerce_sync_dashboard():
         
         # Preview products
         with st.expander("📋 Preview Products to Export"):
+            preview_cols = ["name", "barcode", "price", "stock"]
+            if "category" in export_products.columns:
+                preview_cols.append("category")
+            available_cols = [col for col in preview_cols if col in export_products.columns]
             st.dataframe(
-                export_products[["name", "barcode", "price", "stock", "category"]],
+                export_products[available_cols],
                 use_container_width=True,
                 hide_index=True
             )
@@ -382,14 +511,12 @@ def ecommerce_sync_dashboard():
                 if success:
                     st.success(f"✅ Successfully imported {len(result)} orders!")
                     
-                    # Display imported orders
                     st.dataframe(
                         pd.DataFrame(result),
                         use_container_width=True,
                         hide_index=True
                     )
                     
-                    # Log sync
                     log_sync({
                         "sync_id": f"SYNC{datetime.now().strftime('%Y%m%d%H%M%S')}",
                         "sync_date": datetime.now().isoformat(),
@@ -449,15 +576,21 @@ def ecommerce_sync_dashboard():
             exports_df = load_ecommerce_exports()
             st.metric("📤 Total Exports", len(exports_df))
         with col4:
-            syncs_df = pd.read_csv(SYNC_LOG_FILE) if SYNC_LOG_FILE.exists() else pd.DataFrame()
-            st.metric("📥 Total Imports", len(syncs_df))
+            try:
+                syncs_df = pd.read_csv(SYNC_LOG_FILE) if SYNC_LOG_FILE.exists() else pd.DataFrame()
+                st.metric("📥 Total Imports", len(syncs_df))
+            except:
+                st.metric("📥 Total Imports", 0)
         
         # Export history
         st.markdown("### 📤 Export History")
         exports_df = load_ecommerce_exports()
         if not exports_df.empty:
-            exports_df["export_date"] = pd.to_datetime(exports_df["export_date"])
-            exports_df["export_date"] = exports_df["export_date"].dt.strftime("%Y-%m-%d %H:%M")
+            try:
+                exports_df["export_date"] = pd.to_datetime(exports_df["export_date"])
+                exports_df["export_date"] = exports_df["export_date"].dt.strftime("%Y-%m-%d %H:%M")
+            except:
+                pass
             
             st.dataframe(
                 exports_df[["export_date", "platform", "export_type", "product_count", "status", "exported_by"]],
@@ -470,17 +603,23 @@ def ecommerce_sync_dashboard():
         # Sync history
         st.markdown("### 📥 Import History")
         if SYNC_LOG_FILE.exists():
-            syncs_df = pd.read_csv(SYNC_LOG_FILE)
-            if not syncs_df.empty:
-                syncs_df["sync_date"] = pd.to_datetime(syncs_df["sync_date"])
-                syncs_df["sync_date"] = syncs_df["sync_date"].dt.strftime("%Y-%m-%d %H:%M")
-                
-                st.dataframe(
-                    syncs_df[["sync_date", "platform", "action", "items_synced", "status", "synced_by"]],
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
+            try:
+                syncs_df = pd.read_csv(SYNC_LOG_FILE)
+                if not syncs_df.empty:
+                    try:
+                        syncs_df["sync_date"] = pd.to_datetime(syncs_df["sync_date"])
+                        syncs_df["sync_date"] = syncs_df["sync_date"].dt.strftime("%Y-%m-%d %H:%M")
+                    except:
+                        pass
+                    
+                    st.dataframe(
+                        syncs_df[["sync_date", "platform", "action", "items_synced", "status", "synced_by"]],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("No import history")
+            except:
                 st.info("No import history")
         else:
             st.info("No import history")
