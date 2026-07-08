@@ -1009,7 +1009,7 @@ def sms_gateway_dashboard():
                 save_sms_settings(settings)
                 st.success("✅ Settings saved successfully!")
                 show_toast("SMS settings updated!", "success")
-                st.rerun()
+                #st.rerun()
         
         with col2:
             if st.button("🔄 Check Balance", use_container_width=True):
