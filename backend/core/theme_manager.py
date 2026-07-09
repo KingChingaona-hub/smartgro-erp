@@ -258,10 +258,10 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - FIXED FOR SELECTBOX
+# THEME APPLICATION - FIXED FOR ALL DROPDOWNS WITH WHITE BACKGROUND
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS to the Streamlit app - FIXED for selectbox visibility"""
+    """Apply theme CSS to the Streamlit app - ALL DROPDOWNS HAVE WHITE BACKGROUND"""
     
     css = f"""
     <style>
@@ -341,26 +341,38 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           SELECTBOX FIX - CRITICAL FOR VISIBILITY
+           SELECTBOX FIX - WHITE BACKGROUND FOR ALL DROPDOWNS
            ============================== */
         
-        /* Selectbox container */
+        /* Selectbox container - ALWAYS WHITE */
         div[data-baseweb="select"] > div {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
-            border: 1px solid {colors.get("border_color", "#E5E7EB")} !important;
+            background-color: #FFFFFF !important;
+            color: #1F2937 !important;
+            border: 1px solid #D1D5DB !important;
             border-radius: 8px !important;
+            min-height: 38px !important;
         }}
         
         div[data-baseweb="select"] > div > div {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
+            background-color: #FFFFFF !important;
+            color: #1F2937 !important;
         }}
         
-        /* Dropdown menu */
+        /* Selected value text */
+        div[data-baseweb="select"] > div > div > div {{
+            color: #1F2937 !important;
+            font-weight: 500 !important;
+        }}
+        
+        /* Dropdown arrow */
+        div[data-baseweb="select"] svg {{
+            fill: #6B7280 !important;
+        }}
+        
+        /* Dropdown menu - ALWAYS WHITE */
         div[data-baseweb="select"] ul {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            border: 1px solid {colors.get("border_color", "#E5E7EB")} !important;
+            background-color: #FFFFFF !important;
+            border: 1px solid #D1D5DB !important;
             border-radius: 8px !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
             max-height: 300px !important;
@@ -368,15 +380,15 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* Dropdown items */
+        /* Dropdown items - ALWAYS DARK TEXT ON WHITE */
         div[data-baseweb="select"] ul li {{
-            color: {colors.get("text_color", "#1F2937")} !important;
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
+            color: #1F2937 !important;
+            background-color: #FFFFFF !important;
             padding: 10px 14px !important;
             font-size: 14px !important;
             cursor: pointer !important;
             transition: all 0.2s ease !important;
-            border-bottom: 1px solid {colors.get("border_color", "#E5E7EB")}40 !important;
+            border-bottom: 1px solid #E5E7EB !important;
         }}
         
         div[data-baseweb="select"] ul li:last-child {{
@@ -385,59 +397,72 @@ def apply_theme(colors):
         
         div[data-baseweb="select"] ul li:hover {{
             background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #ffffff !important;
+            color: #FFFFFF !important;
         }}
         
         div[data-baseweb="select"] ul li[aria-selected="true"] {{
             background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #ffffff !important;
+            color: #FFFFFF !important;
             font-weight: 600 !important;
         }}
         
-        /* Selectbox label */
+        /* Selectbox label - ADAPT TO THEME */
         .stSelectbox label {{
             color: {colors.get("text_color", "#1F2937")} !important;
             font-weight: 500 !important;
         }}
         
-        /* Sidebar selectbox */
+        /* Sidebar selectbox - ALWAYS WHITE */
         div[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
-            border-color: {colors.get("border_color", "#E5E7EB")} !important;
+            background-color: #FFFFFF !important;
+            color: #1F2937 !important;
+            border-color: #D1D5DB !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            border-color: {colors.get("border_color", "#E5E7EB")} !important;
+            background-color: #FFFFFF !important;
+            border-color: #D1D5DB !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li {{
-            color: {colors.get("text_color", "#1F2937")} !important;
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
+            color: #1F2937 !important;
+            background-color: #FFFFFF !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li:hover {{
             background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #ffffff !important;
+            color: #FFFFFF !important;
         }}
         
-        /* Multi-select */
+        /* Multi-select - ALWAYS WHITE */
         div[data-baseweb="select"] [data-testid="stMultiSelect"] {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
+            background-color: #FFFFFF !important;
+        }}
+        
+        /* Multi-select tags */
+        div[data-baseweb="tag"] {{
+            background-color: {colors.get("primary_color", "#6366F1")} !important;
+            color: #FFFFFF !important;
+            border-radius: 4px !important;
+            padding: 2px 8px !important;
+            margin: 2px !important;
+        }}
+        
+        div[data-baseweb="tag"] svg {{
+            fill: #FFFFFF !important;
         }}
         
         /* ==============================
-           INPUT FIELDS
+           INPUT FIELDS - ALWAYS WHITE
            ============================== */
         
         .stTextInput > div > div > input,
         .stNumberInput > div > div > input,
         .stTextArea > div > div > textarea,
         .stDateInput > div > div > input {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
-            border: 1px solid {colors.get("border_color", "#E5E7EB")} !important;
+            background-color: #FFFFFF !important;
+            color: #1F2937 !important;
+            border: 1px solid #D1D5DB !important;
             border-radius: 8px !important;
         }}
         
@@ -457,7 +482,34 @@ def apply_theme(colors):
             font-weight: 500;
         }}
         
-        /* Tabs */
+        /* ==============================
+           DATE INPUT
+           ============================== */
+        
+        /* Date input calendar popup */
+        div[data-baseweb="calendar"] {{
+            background-color: #FFFFFF !important;
+            border: 1px solid #D1D5DB !important;
+            border-radius: 8px !important;
+        }}
+        
+        div[data-baseweb="calendar"] div {{
+            color: #1F2937 !important;
+        }}
+        
+        div[data-baseweb="calendar"] button {{
+            color: #1F2937 !important;
+        }}
+        
+        div[data-baseweb="calendar"] button:hover {{
+            background-color: {colors.get("primary_color", "#6366F1")} !important;
+            color: #FFFFFF !important;
+        }}
+        
+        /* ==============================
+           TABS
+           ============================== */
+        
         .stTabs [data-baseweb="tab-list"] {{
             gap: 8px;
         }}
@@ -475,14 +527,17 @@ def apply_theme(colors):
             color: white !important;
         }}
         
-        /* DataFrames */
+        /* ==============================
+           DATAFRAMES
+           ============================== */
+        
         .stDataFrame {{
-            background-color: {colors.get("card_bg", "#FFFFFF")};
+            background-color: #FFFFFF;
         }}
         
         .dataframe {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
+            background-color: #FFFFFF !important;
+            color: #1F2937 !important;
             border-radius: 10px !important;
         }}
         
@@ -493,33 +548,45 @@ def apply_theme(colors):
         }}
         
         .dataframe td {{
-            color: {colors.get("text_color", "#1F2937")} !important;
+            color: #1F2937 !important;
             padding: 8px !important;
+            border-bottom: 1px solid #E5E7EB !important;
         }}
         
-        /* Alert Messages */
+        .dataframe tr:hover td {{
+            background-color: #F3F4F6 !important;
+        }}
+        
+        /* ==============================
+           ALERT MESSAGES
+           ============================== */
+        
         .stSuccess {{
             background-color: {colors.get("success", "#10B981")}20 !important;
             border-left: 4px solid {colors.get("success", "#10B981")} !important;
             border-radius: 8px !important;
+            color: {colors.get("text_color", "#1F2937")} !important;
         }}
         
         .stWarning {{
             background-color: {colors.get("warning", "#F59E0B")}20 !important;
             border-left: 4px solid {colors.get("warning", "#F59E0B")} !important;
             border-radius: 8px !important;
+            color: {colors.get("text_color", "#1F2937")} !important;
         }}
         
         .stError {{
             background-color: {colors.get("error", "#EF4444")}20 !important;
             border-left: 4px solid {colors.get("error", "#EF4444")} !important;
             border-radius: 8px !important;
+            color: {colors.get("text_color", "#1F2937")} !important;
         }}
         
         .stInfo {{
             background-color: {colors.get("info", "#3B82F6")}20 !important;
             border-left: 4px solid {colors.get("info", "#3B82F6")} !important;
             border-radius: 8px !important;
+            color: {colors.get("text_color", "#1F2937")} !important;
         }}
         
         /* Progress Bar */
