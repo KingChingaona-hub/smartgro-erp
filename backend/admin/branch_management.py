@@ -144,7 +144,7 @@ def branch_management_page():
                     st.session_state.bm_message_type = "success"
                     st.session_state.bm_branch_created = True
                     st.session_state.bm_force_refresh = True
-                    st.rerun()
+                    #st.rerun()
                 except Exception as e:
                     st.session_state.bm_message = f"❌ Error adding branch: {str(e)}"
                     st.session_state.bm_message_type = "error"
@@ -198,7 +198,7 @@ def branch_management_page():
                                 st.session_state.bm_message_type = "success"
                                 st.session_state.bm_branch_updated = True
                                 st.session_state.bm_force_refresh = True
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.session_state.bm_message = f"❌ Error updating branch: {str(e)}"
                                 st.session_state.bm_message_type = "error"
@@ -218,7 +218,7 @@ def branch_management_page():
                                 st.session_state.bm_message_type = "success"
                                 st.session_state.bm_branch_deleted = True
                                 st.session_state.bm_force_refresh = True
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.session_state.bm_message = f"❌ Error deleting branch: {str(e)}"
                                 st.session_state.bm_message_type = "error"
@@ -251,7 +251,7 @@ def branch_management_page():
                         st.session_state.bm_message_type = "success"
                         st.session_state.bm_branch_deleted = True
                         st.session_state.bm_force_refresh = True
-                        st.rerun()
+                        #st.rerun()
                     except Exception as e:
                         st.session_state.bm_message = f"❌ Error deleting branch: {str(e)}"
                         st.session_state.bm_message_type = "error"
@@ -265,7 +265,7 @@ def branch_management_page():
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.session_state.bm_force_refresh = True
-        st.rerun()
+        #st.rerun()
 
 
 # ==============================
