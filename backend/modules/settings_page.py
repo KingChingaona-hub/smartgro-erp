@@ -55,7 +55,7 @@ def get_default_settings():
     """Get default settings"""
     return {
         "store_name": "Aziel Investments",
-        "store_phone": "+263 78 290 5853",
+        "store_phone": "+263 78 290 5853/ 0776067967",
         "store_email": "info@azielinvestments.co.zw",
         "store_address": "Retreat Park, Harare, Zimbabwe",
         "tax_rate": 15,
@@ -102,7 +102,7 @@ operations.
 │  Co-Developer:              Walker Takaendesa                               │
 │  System Name:               SmartGro ERP System                              │
 │  Version:                   3.0 (Zimbabwe Edition)                           │
-│  Release Date:              June 2024                                        │
+│  Release Date:              June 2026                                        │
 │  Target Market:             Zimbabwe Retail Businesses                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -328,11 +328,11 @@ Retreat Park, Harare
 Zimbabwe
 
 Support Hours:
-Monday - Friday: 8:00 AM - 5:00 PM
+Monday - Friday: 7:00 AM - 8:00 PM
 Saturday: 9:00 AM - 1:00 PM
 Sunday: Closed
 
-Emergency Support: +263 78 290 5853
+Emergency Support: +263 78 290 5853 / 0776067967
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -340,7 +340,7 @@ Emergency Support: +263 78 290 5853
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SmartGro ERP System
-Copyright © 2024 Aziel Investments
+Copyright © 2026 Aziel Investments
 
 All rights reserved. This software is proprietary and confidential.
 Unauthorized copying, distribution, or modification is strictly prohibited.
@@ -597,7 +597,7 @@ def settings_page():
             st.write(f"**Version:** 3.0 (Zimbabwe Edition)")
             st.write(f"**Founder:** King T Chingaona")
             st.write(f"**Co-Developer:** Walker Takaendesa")
-            st.write(f"**Release Date:** June 2024")
+            st.write(f"**Release Date:** June 2026")
             st.write(f"**Framework:** Streamlit")
         
         with col2:
@@ -632,7 +632,7 @@ def settings_page():
         st.markdown("### 📜 License Information")
         st.markdown("""
         **SmartGro ERP System**  
-        Copyright © 2024 Aziel Investments  
+        Copyright © 2026 Aziel Investments  
         
         All rights reserved. This software is proprietary and confidential.
         Unauthorized copying, distribution, or modification is strictly prohibited.
