@@ -31,10 +31,6 @@ from backend.core.db_adapter import (
     generate_receipt_number
 )
 
-# Note: get_current_branch is imported as get_db_branch above
-# We'll use the one from db_adapter for database operations
-# And keep the branch_manager version for UI
-
 from backend.core.auth import init_users, check_login, can_access_feature, get_user_permissions
 from backend.core.branch_manager import branch_selector, get_current_branch, set_user_branch
 from backend.core.branch_auth import branch_selection_page, get_current_branch as get_branch_code, BRANCHES
@@ -69,7 +65,7 @@ from backend.core.documents import (
     generate_qr_code
 )
 from backend.core.auto_notifications import check_and_send_low_stock_alerts, load_notification_settings
-from backend.core.language_manager import language_dashboard, language_selector, get_current_language, _
+from backend.core.language_manager import language_dashboard, get_current_language, _
 
 # ==============================
 # MODULE IMPORTS
@@ -189,7 +185,7 @@ import time
 # ==============================
 st.set_page_config(
     page_title="AZIEL INVESTMENTS",
-    page_icon="",
+    page_icon="🏢",
     layout="wide"
 )
 
@@ -249,30 +245,23 @@ def start_stock_monitor_thread():
         """Background monitoring loop"""
         while True:
             try:
-                # Load current settings
                 settings = load_notification_settings()
                 
-                # Check if auto-notifications are enabled
                 if settings.get("auto_notify_enabled", True):
-                    # Check stock levels and send alerts if needed
                     success, message, new_found = check_and_send_low_stock_alerts(force=False)
                     
-                    # Log activity (optional - for debugging)
                     if success:
                         print(f"[Auto-Monitor] {message} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
                     elif new_found is not False and "No low stock" not in message:
                         print(f"[Auto-Monitor] Info: {message}")
                 
-                # Wait before next check (convert minutes to seconds)
                 check_interval = settings.get("check_interval_minutes", 30)
                 time.sleep(check_interval * 60)
                 
             except Exception as e:
                 print(f"[Auto-Monitor Error] {str(e)}")
-                # Wait 1 minute before retry on error
                 time.sleep(60)
     
-    # Start daemon thread (runs in background, won't block app shutdown)
     monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
     monitor_thread.start()
     return monitor_thread
@@ -287,7 +276,6 @@ init_users()
 # ==============================
 # START AUTO-NOTIFICATION MONITOR
 # ==============================
-# Check if monitor has already been started (prevents duplicate threads)
 if "stock_monitor_started" not in st.session_state:
     monitor_thread = start_stock_monitor_thread()
     st.session_state.stock_monitor_started = True
@@ -325,7 +313,6 @@ if "auto_switch_theme" not in st.session_state:
 def branch_login_page():
     """Page for selecting and authenticating branch"""
     
-    # Apply pure white background theme
     apply_branch_selection_theme()
     
     st.markdown('<div class="centered-form">', unsafe_allow_html=True)
@@ -351,7 +338,6 @@ def branch_login_page():
                         st.session_state.branch_authenticated = True
                         st.session_state.current_branch = branch_code_upper
                         st.session_state.user_branch = branch_code_upper
-                        # Use the db_adapter version for database operations
                         set_current_branch(branch_code_upper)
                         st.success("Access granted")
                         show_toast("Branch access granted successfully!", "success")
@@ -374,7 +360,6 @@ def branch_login_page():
 # ==============================
 def login_page():
     
-    # Apply elegant login theme
     apply_login_theme()
 
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -605,7 +590,6 @@ def documents_page():
             period = st.selectbox("Statement Period", ["Last 30 Days", "Last 90 Days", "Last 6 Months", "Last Year", "All Time"])
             
             if st.button("Generate Statement", type="primary", use_container_width=True):
-                # Get period in days
                 period_days = {
                     "Last 30 Days": 30,
                     "Last 90 Days": 90,
@@ -614,16 +598,13 @@ def documents_page():
                     "All Time": 9999
                 }
                 
-                # Get customer transactions
                 sales_df = load_sales()
                 customer_sales = sales_df[sales_df["customer"] == selected_customer]
                 
-                # Filter by period
                 if period != "All Time":
                     cutoff_date = datetime.now() - timedelta(days=period_days[period])
                     customer_sales = customer_sales[pd.to_datetime(customer_sales["date"]) >= cutoff_date]
                 
-                # Build transactions
                 transactions = []
                 for _, sale in customer_sales.iterrows():
                     transactions.append({
@@ -701,20 +682,17 @@ def documents_page():
 
 
 # ==============================
-# MAIN APP
+# MAIN APP - FLAT ALPHABETICAL NAVIGATION
 # ==============================
 def main_app():
     # ==============================
     # SESSION TIMEOUT MANAGEMENT
     # ==============================
-    # Initialize session timeout
     if "last_activity" not in st.session_state:
         st.session_state.last_activity = datetime.now()
     
-    # Check if session has expired (30 minutes = 1800 seconds)
     idle_time = (datetime.now() - st.session_state.last_activity).seconds
-    if idle_time > 1800:  # 30 minutes
-        # Clear session and redirect to login
+    if idle_time > 1800:
         keys_to_keep = ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
                         "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]
         for key in list(st.session_state.keys()):
@@ -724,11 +702,10 @@ def main_app():
         show_toast("Session expired. Please login again.", "warning")
         st.rerun()
     
-    # Update last activity on any interaction
     st.session_state.last_activity = datetime.now()
     
     # ==============================
-    # PWA META TAGS (Only after login)
+    # PWA META TAGS
     # ==============================
     if is_pwa_enabled():
         st.markdown(get_pwa_meta_tags(), unsafe_allow_html=True)
@@ -745,10 +722,11 @@ def main_app():
     current_branch = st.session_state.get("current_branch", "HO")
     branch_name = BRANCHES.get(current_branch, {}).get("name", "Unknown")
     
-    # Determine current page for theme
     page = st.session_state.get("current_page", "Stock Dashboard")
     
-    # Apply theme based on current page and user preference
+    # ==============================
+    # APPLY THEME
+    # ==============================
     if st.session_state.get("auto_switch_theme", False):
         auto_theme = get_auto_theme()
         if auto_theme != st.session_state.get("current_theme"):
@@ -763,11 +741,10 @@ def main_app():
             theme = get_page_theme(page)
             apply_theme(theme)
     
-    # Initialize animations
     init_animations()
     
     # ==============================
-    # SIDEBAR - ROLE BASED NAVIGATION
+    # SIDEBAR - FLAT ALPHABETICAL NAVIGATION (NO CATEGORIES)
     # ==============================
     
     st.sidebar.markdown(f"""
@@ -780,43 +757,56 @@ def main_app():
     
     st.sidebar.markdown("---")
     
-    # Add Theme Selector to Sidebar
+    # Theme Selector
     theme_selector()
     
     st.sidebar.markdown("---")
     
+    # ==============================
+    # FLAT ALPHABETICAL NAVIGATION
+    # ==============================
     navigation_menu = get_navigation_menu(role)
-    
-    st.sidebar.markdown("### Navigation")
     
     selected_page = None
     
+    # Flatten all menu items into a single list alphabetically
+    all_items = []
     for category, items in navigation_menu.items():
-        st.sidebar.markdown(f"**{category}**")
         for item in items:
-            button_key = f"nav_{item.replace(' ', '_').replace('&', '')}"
-            if st.sidebar.button(f"{item}", key=button_key, use_container_width=True):
-                selected_page = item
-                st.session_state.current_page = item
-        st.sidebar.markdown("---")
+            all_items.append(item)
     
-    st.sidebar.markdown(f"**{username}**")
+    # Sort alphabetically
+    all_items = sorted(all_items)
+    
+    for item in all_items:
+        button_key = f"nav_{item.replace(' ', '_').replace('&', '').replace('/', '_').replace('-', '_')}"
+        if st.sidebar.button(f"{item}", key=button_key, use_container_width=True):
+            selected_page = item
+            st.session_state.current_page = item
+    
+    st.sidebar.markdown("---")
+    
+    # ==============================
+    # USER INFO & CONTROLS
+    # ==============================
+    st.sidebar.markdown(f"**👤 {username}**")
     st.sidebar.markdown(f"**Role:** {role.upper()}")
     
     if role == "cashier" and st.session_state.get("active_shift_id"):
         st.sidebar.info(f"Shift Active\nID: {st.session_state.active_shift_id[:8]}...")
     
-    if st.sidebar.button("Switch Branch", key="switch_branch_sidebar", use_container_width=True):
+    if st.sidebar.button("🔄 Switch Branch", key="switch_branch_sidebar", use_container_width=True):
         st.session_state.branch_selected = False
         st.session_state.branch_authenticated = False
         st.session_state.logged_in = False
         st.rerun()
     
     # ==============================
-    # LANGUAGE SELECTOR
+    # LANGUAGE SELECTOR - REMOVED FROM SIDEBAR
     # ==============================
-    st.sidebar.markdown("---")
-    language_selector()
+    # Language management is available via the Language Management page
+    # st.sidebar.markdown("---")
+    # language_selector()
     
     # ==============================
     # SIDEBAR FOOTER & LOGOUT
@@ -825,7 +815,7 @@ def main_app():
     st.sidebar.caption("AZIEL INVESTMENTS ERP")
     st.sidebar.caption("2026 All Rights Reserved")
     
-    if st.sidebar.button("Logout", key="logout_sidebar", use_container_width=True):
+    if st.sidebar.button("🚪 Logout", key="logout_sidebar", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key not in ["branch_selected", "branch_authenticated", "current_branch", "user_branch", "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]:
                 del st.session_state[key]
@@ -833,13 +823,13 @@ def main_app():
         st.rerun()
     
     # ==============================
-    # FLOATING ACTION BUTTON (Main Content)
+    # FLOATING ACTION BUTTON
     # ==============================
     if page in ["Stock Dashboard", "Inventory", "POS"]:
-        floating_action_button(icon="", label="Quick Action", link="#")
+        floating_action_button(icon="⚡", label="Quick Action", link="#")
     
     # ==============================
-    # MOBILE QUICK ACTIONS (Main Content)
+    # MOBILE QUICK ACTIONS
     # ==============================
     if is_mobile_device():
         show_mobile_quick_actions()
@@ -1092,7 +1082,7 @@ def main_app():
     elif page == "Supplier Bidding Portal":
         supplier_bidding_portal()
 
-    # ================= RETURNS & REFUNDS MANAGEMENT =================
+    # ================= RETURNS & REFUNDS =================
     elif page == "Returns & Refunds":
         if can_access_feature(role, "returns_management") or role in ["owner", "manager"]:
             returns_management_dashboard()
