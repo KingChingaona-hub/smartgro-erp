@@ -157,6 +157,67 @@ def get_message_template(template_type, data):
 
 
 # ==============================
+# GET CUSTOMER TOTAL SPENT
+# ==============================
+def get_customer_total_spent(customer_name, sales_df):
+    """Get total amount spent by a customer from sales data"""
+    if sales_df.empty or "customer_name" not in sales_df.columns:
+        return 0
+    
+    # Find total column
+    total_col = None
+    for col in ["final_total", "total", "amount"]:
+        if col in sales_df.columns:
+            total_col = col
+            break
+    
+    if total_col is None:
+        return 0
+    
+    # Filter sales for this customer
+    customer_sales = sales_df[sales_df["customer_name"] == customer_name]
+    if customer_sales.empty:
+        return 0
+    
+    # Get total spent
+    total_spent = customer_sales[total_col].sum()
+    return float(total_spent)
+
+
+def get_customer_latest_receipt(customer_name, sales_df):
+    """Get the latest receipt number for a customer"""
+    if sales_df.empty or "customer_name" not in sales_df.columns:
+        return "REC-001"
+    
+    # Find receipt column
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "receipt_number"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
+    
+    if receipt_col is None:
+        return "REC-001"
+    
+    # Find date column
+    date_col = None
+    for col in ["date", "sale_date", "transaction_date"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    customer_sales = sales_df[sales_df["customer_name"] == customer_name]
+    if customer_sales.empty:
+        return "REC-001"
+    
+    # Sort by date and get latest
+    if date_col:
+        customer_sales = customer_sales.sort_values(date_col, ascending=False)
+    
+    return customer_sales.iloc[0].get(receipt_col, "REC-001")
+
+
+# ==============================
 # SEND FOLLOW-UP - WITH REAL SMS
 # ==============================
 def send_followup(customer, followup_type, message):
@@ -166,32 +227,27 @@ def send_followup(customer, followup_type, message):
     phone = customer.get("phone", "")
     name = customer.get("name", "Valued Customer")
     
-    # Check if SMS is enabled
     if not settings.get("sms_enabled", True):
         return False, "SMS is disabled in settings"
     
     if not phone or phone == "":
         return False, f"No phone number available for {name}"
     
-    # Clean phone number and validate
     try:
         valid, standardized, msg = validate_zimbabwe_phone(phone)
         if not valid:
             return False, f"Invalid phone number {phone}: {msg}"
         phone_clean = standardized
     except:
-        # Manual cleaning if validation fails
         phone_clean = re.sub(r'\D', '', str(phone))
         if phone_clean.startswith('0'):
             phone_clean = phone_clean[1:]
         if not phone_clean.startswith('263'):
             phone_clean = '263' + phone_clean
     
-    # Debug info
     print(f"📱 Sending to: {name} ({phone_clean})")
     print(f"📝 Message: {message[:100]}...")
     
-    # Send SMS
     sms_result = send_sms(
         recipient=phone_clean,
         message=message,
@@ -199,7 +255,6 @@ def send_followup(customer, followup_type, message):
         sent_by=st.session_state.get("username", "system")
     )
     
-    # Log the follow-up
     df = load_followup_logs()
     log_id = f"FL{len(df)+1:08d}"
     
@@ -411,7 +466,6 @@ def automated_followup_dashboard():
                                 count += 1
                         st.success(f"✅ Sent re-engagement to {count} customers!")
                         show_toast(f"Re-engagement sent to {count} customers", "success")
-                        #st.rerun()
                 else:
                     st.success("✅ All customers are active!")
             else:
@@ -425,7 +479,6 @@ def automated_followup_dashboard():
     with tab2:
         st.markdown("## 📤 Send Follow-ups")
         
-        # Check SMS gateway status
         try:
             from backend.integrations.sms_gateway import send_sms as sms_func
             st.success("✅ SMS Gateway is available")
@@ -457,13 +510,28 @@ def automated_followup_dashboard():
                 if selected_customers:
                     st.markdown("### 📝 Message Preview")
                     sample_customer = customers_df[customers_df["customer_name"] == selected_customers[0]].iloc[0]
+                    sample_name = sample_customer.get("customer_name", "Valued Customer")
+                    
+                    # Get customer's actual total spent
+                    customer_total = get_customer_total_spent(sample_name, sales_df)
+                    latest_receipt = get_customer_latest_receipt(sample_name, sales_df)
                     
                     if followup_type == "Thank You Message":
-                        receipt_no = st.text_input("Receipt Number", value="REC-001")
-                        total = st.number_input("Total Amount ($)", min_value=0.0, value=10.0)
+                        receipt_no = st.text_input("Receipt Number", value=latest_receipt)
+                        
+                        # Show customer total spent
+                        st.info(f"💰 Customer's Total Spending: ${customer_total:.2f}")
+                        
+                        # Allow manual override if needed
+                        use_auto_total = st.checkbox("Use customer's actual total", value=True)
+                        if use_auto_total:
+                            total = customer_total
+                            st.info(f"💵 Using customer's actual total: ${total:.2f}")
+                        else:
+                            total = st.number_input("Total Amount ($)", min_value=0.0, value=customer_total if customer_total > 0 else 10.0)
                         
                         preview_data = {
-                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "customer_name": sample_name,
                             "receipt_no": receipt_no,
                             "total": total
                         }
@@ -474,21 +542,27 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                cust_name = customer_data.get("customer_name", "Valued Customer")
+                                
+                                # Get actual total for each customer
+                                cust_total = get_customer_total_spent(cust_name, sales_df)
+                                cust_receipt = get_customer_latest_receipt(cust_name, sales_df)
+                                
                                 success, msg = send_thank_you(
-                                    {"name": customer, "phone": customer_data.get("phone", "")},
-                                    receipt_no,
-                                    total
+                                    {"name": cust_name, "phone": customer_data.get("phone", "")},
+                                    cust_receipt,
+                                    cust_total if use_auto_total else total
                                 )
                                 if success:
                                     count += 1
                                 else:
-                                    st.warning(f"Failed for {customer}: {msg}")
+                                    st.warning(f"Failed for {cust_name}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Thank you messages sent to {count} customers", "success")
                     
                     elif followup_type == "Review Request":
                         preview_data = {
-                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "customer_name": sample_name,
                             "review_link": "https://azielinvestments.com/review"
                         }
                         preview_message = get_message_template("review", preview_data)
@@ -498,14 +572,15 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                cust_name = customer_data.get("customer_name", "Valued Customer")
                                 success, msg = send_review_request(
-                                    {"name": customer, "phone": customer_data.get("phone", "")},
-                                    ""
+                                    {"name": cust_name, "phone": customer_data.get("phone", "")},
+                                    get_customer_latest_receipt(cust_name, sales_df)
                                 )
                                 if success:
                                     count += 1
                                 else:
-                                    st.warning(f"Failed for {customer}: {msg}")
+                                    st.warning(f"Failed for {cust_name}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Review requests sent to {count} customers", "success")
                     
@@ -513,8 +588,11 @@ def automated_followup_dashboard():
                         discount = st.number_input("Discount (%)", min_value=5, max_value=50, value=10)
                         expiry_days = st.number_input("Valid for (days)", min_value=7, max_value=30, value=14)
                         
+                        # Show customer total spent
+                        st.info(f"💰 Customer's Total Spending: ${customer_total:.2f}")
+                        
                         preview_data = {
-                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "customer_name": sample_name,
                             "discount": discount,
                             "expiry": (datetime.now() + timedelta(days=expiry_days)).strftime("%Y-%m-%d")
                         }
@@ -525,15 +603,16 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                cust_name = customer_data.get("customer_name", "Valued Customer")
                                 success, msg = send_reengagement(
-                                    {"name": customer, "phone": customer_data.get("phone", "")},
+                                    {"name": cust_name, "phone": customer_data.get("phone", "")},
                                     discount,
                                     expiry_days
                                 )
                                 if success:
                                     count += 1
                                 else:
-                                    st.warning(f"Failed for {customer}: {msg}")
+                                    st.warning(f"Failed for {cust_name}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Re-engagement sent to {count} customers", "success")
                     
@@ -541,7 +620,7 @@ def automated_followup_dashboard():
                         discount = st.number_input("Birthday Discount (%)", min_value=5, max_value=50, value=15)
                         
                         preview_data = {
-                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "customer_name": sample_name,
                             "discount": discount
                         }
                         preview_message = get_message_template("birthday", preview_data)
@@ -551,14 +630,15 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                cust_name = customer_data.get("customer_name", "Valued Customer")
                                 success, msg = send_birthday_wish(
-                                    {"name": customer, "phone": customer_data.get("phone", "")},
+                                    {"name": cust_name, "phone": customer_data.get("phone", "")},
                                     discount
                                 )
                                 if success:
                                     count += 1
                                 else:
-                                    st.warning(f"Failed for {customer}: {msg}")
+                                    st.warning(f"Failed for {cust_name}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Birthday wishes sent to {count} customers", "success")
                     
@@ -566,7 +646,7 @@ def automated_followup_dashboard():
                         discount = st.number_input("Recovery Discount (%)", min_value=5, max_value=30, value=10)
                         
                         preview_data = {
-                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "customer_name": sample_name,
                             "discount": discount,
                             "cart_link": "https://azielinvestments.com/cart"
                         }
@@ -577,15 +657,16 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                cust_name = customer_data.get("customer_name", "Valued Customer")
                                 success, msg = send_abandoned_cart(
-                                    {"name": customer, "phone": customer_data.get("phone", "")},
+                                    {"name": cust_name, "phone": customer_data.get("phone", "")},
                                     [],
                                     discount
                                 )
                                 if success:
                                     count += 1
                                 else:
-                                    st.warning(f"Failed for {customer}: {msg}")
+                                    st.warning(f"Failed for {cust_name}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Abandoned cart recovery sent to {count} customers", "success")
                     
@@ -600,15 +681,16 @@ def automated_followup_dashboard():
                                 count = 0
                                 for customer in selected_customers:
                                     customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                    cust_name = customer_data.get("customer_name", "Valued Customer")
                                     success, msg = send_followup(
-                                        {"name": customer, "phone": customer_data.get("phone", "")},
+                                        {"name": cust_name, "phone": customer_data.get("phone", "")},
                                         "CUSTOM",
                                         custom_message
                                     )
                                     if success:
                                         count += 1
                                     else:
-                                        st.warning(f"Failed for {customer}: {msg}")
+                                        st.warning(f"Failed for {cust_name}: {msg}")
                                 st.success(f"✅ Sent to {count} customers!")
                                 show_toast(f"Custom messages sent to {count} customers", "success")
                             else:
