@@ -45,6 +45,7 @@ from backend.core.theme_manager import (
     load_theme_preference,
     get_auto_theme
 )
+from backend.core.global_styles import get_global_styles
 from backend.core.animations import (
     init_animations,
     show_toast,
@@ -741,6 +742,11 @@ def main_app():
             theme = get_page_theme(page)
             apply_theme(theme)
     
+    # ==============================
+    # APPLY GLOBAL STYLES (SELECTBOX VISIBILITY FIX)
+    # ==============================
+    st.markdown(get_global_styles(), unsafe_allow_html=True)
+    
     init_animations()
     
     # ==============================
@@ -805,8 +811,6 @@ def main_app():
     # LANGUAGE SELECTOR - REMOVED FROM SIDEBAR
     # ==============================
     # Language management is available via the Language Management page
-    # st.sidebar.markdown("---")
-    # language_selector()
     
     # ==============================
     # SIDEBAR FOOTER & LOGOUT
