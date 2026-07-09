@@ -72,7 +72,14 @@ def init_voice_files():
                 "go_to_reports": ["go to reports", "reports dashboard", "show reports"],
                 "go_to_settings": ["go to settings", "open settings", "settings"],
                 "go_to_inventory": ["go to inventory", "open inventory", "inventory"],
-                "go_to_dashboard": ["go to dashboard", "home", "main menu"]
+                "go_to_dashboard": ["go to dashboard", "home", "main menu"],
+                "go_to_purchases": ["go to purchases", "purchases", "purchase orders"],
+                "go_to_expenses": ["go to expenses", "expenses", "expense management"],
+                "go_to_loyalty": ["go to loyalty", "loyalty", "loyalty program"],
+                "go_to_suppliers": ["go to suppliers", "suppliers", "supplier management"],
+                "go_to_debtors": ["go to debtors", "debtors", "debt management"],
+                "go_to_forecasting": ["go to forecasting", "forecast", "demand forecast"],
+                "go_to_live": ["go to live", "live dashboard", "command center"]
             },
             "general": {
                 "help": ["help", "what can I do", "commands", "show commands"],
@@ -202,7 +209,9 @@ def process_voice_command(parsed_command):
         "success": False,
         "message": "Command not implemented yet",
         "action": action,
-        "params": params
+        "params": params,
+        "navigate_to": None,
+        "navigate_action": None
     }
     
     if category == "pos":
@@ -210,100 +219,130 @@ def process_voice_command(parsed_command):
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"Added {product} to cart"
+                response["message"] = f"✅ Added {product} to cart"
+                response["navigate_action"] = "ADD_TO_CART"
+                response["product"] = product
             else:
-                response["message"] = "Which product would you like to add?"
+                response["message"] = "❌ Which product would you like to add?"
         
         elif action == "checkout":
             response["success"] = True
-            response["message"] = "Proceeding to checkout"
+            response["message"] = "✅ Proceeding to checkout"
+            response["navigate_action"] = "CHECKOUT"
         
         elif action == "clear_cart":
             response["success"] = True
-            response["message"] = "Cart cleared"
+            response["message"] = "✅ Cart cleared"
+            response["navigate_action"] = "CLEAR_CART"
         
         elif action == "view_cart":
             response["success"] = True
-            response["message"] = "Showing cart contents"
+            response["message"] = "✅ Showing cart contents"
+            response["navigate_action"] = "VIEW_CART"
         
         elif action == "search_product":
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"Searching for {product}"
+                response["message"] = f"✅ Searching for {product}"
+                response["navigate_action"] = "SEARCH_PRODUCT"
+                response["product"] = product
     
     elif category == "inventory":
         if action == "view_stock":
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"Checking stock for {product}"
+                response["message"] = f"✅ Checking stock for {product}"
+                response["navigate_action"] = "VIEW_STOCK"
+                response["product"] = product
             else:
-                response["message"] = "Which product would you like to check?"
+                response["message"] = "❌ Which product would you like to check?"
         
         elif action == "add_stock":
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"Adding stock to {product}"
+                response["message"] = f"✅ Adding stock to {product}"
+                response["navigate_action"] = "ADD_STOCK"
+                response["product"] = product
     
     elif category == "sales":
         if action == "today_sales":
             response["success"] = True
-            response["message"] = "Showing today's sales"
+            response["message"] = "✅ Showing today's sales"
+            response["navigate_action"] = "TODAY_SALES"
         
         elif action == "weekly_sales":
             response["success"] = True
-            response["message"] = "Showing weekly sales"
+            response["message"] = "✅ Showing weekly sales"
+            response["navigate_action"] = "WEEKLY_SALES"
         
         elif action == "best_sellers":
             response["success"] = True
-            response["message"] = "Showing best selling products"
+            response["message"] = "✅ Showing best selling products"
+            response["navigate_action"] = "BEST_SELLERS"
     
     elif category == "customers":
         if action == "find_customer":
             name = params.get("name")
             if name:
                 response["success"] = True
-                response["message"] = f"Searching for customer {name}"
+                response["message"] = f"✅ Searching for customer {name}"
+                response["navigate_action"] = "FIND_CUSTOMER"
+                response["customer_name"] = name
             else:
-                response["message"] = "Which customer would you like to find?"
+                response["message"] = "❌ Which customer would you like to find?"
         
         elif action == "add_customer":
             name = params.get("name")
             if name:
                 response["success"] = True
-                response["message"] = f"Adding customer {name}"
+                response["message"] = f"✅ Adding customer {name}"
+                response["navigate_action"] = "ADD_CUSTOMER"
+                response["customer_name"] = name
     
     elif category == "navigation":
+        # Map voice commands to actual page names
         page_map = {
-            "go_to_stock": "Stock Dashboard",
-            "go_to_sales": "Sales Dashboard",
-            "go_to_pos": "POS",
-            "go_to_customers": "Customer Dashboard",
-            "go_to_reports": "Reports Dashboard",
-            "go_to_settings": "Settings",
-            "go_to_inventory": "Inventory",
-            "go_to_dashboard": "Stock Dashboard"
+            "go_to_stock": {"page": "Inventory", "display": "Stock Dashboard"},
+            "go_to_sales": {"page": "Sales Dashboard", "display": "Sales Dashboard"},
+            "go_to_pos": {"page": "POS", "display": "POS"},
+            "go_to_customers": {"page": "Customers", "display": "Customers Dashboard"},
+            "go_to_reports": {"page": "Reports", "display": "Reports Dashboard"},
+            "go_to_settings": {"page": "Settings", "display": "Settings"},
+            "go_to_inventory": {"page": "Inventory", "display": "Inventory"},
+            "go_to_dashboard": {"page": "Stock Dashboard", "display": "Stock Dashboard"},
+            "go_to_purchases": {"page": "Purchases", "display": "Purchases"},
+            "go_to_expenses": {"page": "Expenses", "display": "Expenses"},
+            "go_to_loyalty": {"page": "Loyalty", "display": "Loyalty Program"},
+            "go_to_suppliers": {"page": "Suppliers", "display": "Supplier Management"},
+            "go_to_debtors": {"page": "Debtors", "display": "Debtors Management"},
+            "go_to_forecasting": {"page": "Forecasting", "display": "Demand Forecasting"},
+            "go_to_live": {"page": "Live Dashboard", "display": "Live Command Center"}
         }
         
         if action in page_map:
+            page_info = page_map[action]
             response["success"] = True
-            response["message"] = f"Navigating to {page_map[action]}"
-            response["navigate_to"] = page_map[action]
+            response["message"] = f"✅ Navigating to {page_info['display']}"
+            response["navigate_to"] = page_info['page']
+            response["navigate_action"] = "NAVIGATE"
     
     elif category == "general":
         if action == "help":
             response["success"] = True
-            response["message"] = "Available commands: Add product, Checkout, View stock, Today's sales, Go to POS, and more"
+            response["message"] = "💡 Available commands: Add product, Checkout, View stock, Today's sales, Go to POS, Help, and more"
         
         elif action == "cancel":
             response["success"] = True
-            response["message"] = "Command cancelled"
+            response["message"] = "✅ Command cancelled"
+            response["navigate_action"] = "CANCEL"
         
         elif action == "logout":
             response["success"] = True
-            response["message"] = "Logging out..."
+            response["message"] = "✅ Logging out..."
+            response["navigate_action"] = "LOGOUT"
     
     return response
 
@@ -347,6 +386,9 @@ def voice_commands_dashboard():
     if "is_listening" not in st.session_state:
         st.session_state.is_listening = False
     
+    if "voice_command_result" not in st.session_state:
+        st.session_state.voice_command_result = None
+    
     # ==============================
     # TABS
     # ==============================
@@ -379,6 +421,7 @@ def voice_commands_dashboard():
         - "Today's sales"
         - "Go to POS"
         - "Search for cooking oil"
+        - "Go to reports"
         """)
         
         # Voice input
@@ -393,7 +436,7 @@ def voice_commands_dashboard():
             )
         
         with col2:
-            # Microphone button with working JavaScript
+            # Microphone button
             st.markdown("""
             <style>
             .mic-btn {
@@ -547,8 +590,25 @@ def voice_commands_dashboard():
                         if result["success"]:
                             st.info(f"💬 Response: {result['message']}")
                             
-                            if "navigate_to" in result:
+                            # Handle navigation
+                            if result.get("navigate_to"):
                                 st.success(f"🔄 Navigating to: {result['navigate_to']}")
+                                st.session_state.voice_command_result = result
+                                
+                                # Store the navigation target in session state
+                                st.session_state.navigate_to = result['navigate_to']
+                                
+                                # Use st.rerun() to trigger navigation
+                                st.rerun()
+                            
+                            # Handle POS actions
+                            if result.get("navigate_action") in ["ADD_TO_CART", "CHECKOUT", "CLEAR_CART", "VIEW_CART"]:
+                                st.session_state.voice_command_result = result
+                                # Store action for POS to handle
+                                st.session_state.pos_voice_action = result['navigate_action']
+                                if result.get("product"):
+                                    st.session_state.pos_product = result['product']
+                                st.rerun()
                         
                         log_voice_action(
                             voice_text,
@@ -565,6 +625,12 @@ def voice_commands_dashboard():
             else:
                 st.warning("Please enter or speak a command first")
         
+        # Check for navigation
+        if st.session_state.get("navigate_to"):
+            nav_target = st.session_state.navigate_to
+            st.info(f"🔄 Navigating to: {nav_target}")
+            st.session_state.navigate_to = None
+        
         # Quick action buttons
         st.markdown("### ⚡ Quick Voice Actions")
         
@@ -574,12 +640,17 @@ def voice_commands_dashboard():
             ("📦 Add to Cart", "Add bread to cart"),
             ("💰 Checkout", "Checkout"),
             ("📊 Today's Sales", "Today's sales"),
-            ("📱 Go to POS", "Go to POS")
+            ("📱 Go to POS", "Go to POS"),
+            ("📈 Go to Reports", "Go to reports"),
+            ("📦 Go to Stock", "Go to stock"),
+            ("👥 Go to Customers", "Go to customers"),
+            ("🔄 Help", "Help")
         ]
         
         for idx, (label, command) in enumerate(quick_actions):
             cols = [col1, col2, col3, col4]
-            with cols[idx]:
+            col_idx = idx % 4
+            with cols[col_idx]:
                 if st.button(label, use_container_width=True, key=f"quick_{idx}"):
                     st.session_state.voice_input = command
                     st.rerun()
