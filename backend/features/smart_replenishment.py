@@ -149,7 +149,7 @@ def calculate_reorder_quantity(product, settings, daily_sales_rate):
 
 def get_supplier_for_product(product_name, settings):
     """Get the best supplier for a product"""
-    from backend.core.database import load_suppliers, load_purchases
+    from backend.core.db_adapter import load_suppliers, load_purchases
     
     suppliers_df = load_suppliers()
     purchases_df = load_purchases()
@@ -214,7 +214,7 @@ def smart_replenishment_dashboard():
     init_replenishment_files()
     
     # Load data
-    from backend.core.database import load_products, load_sales, load_suppliers
+    from backend.core.db_adapter import load_products, load_sales, load_suppliers
     
     products_df = load_products()
     sales_df = load_sales()
