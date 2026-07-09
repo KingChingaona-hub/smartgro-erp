@@ -237,7 +237,7 @@ def user_management_page():
                             
                             # Force refresh to show new user
                             st.session_state.um_force_refresh = True
-                            st.rerun()
+                            #st.rerun()
                             
                         except Exception as e:
                             st.error(f"❌ Error creating user: {str(e)}")
