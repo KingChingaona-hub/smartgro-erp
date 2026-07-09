@@ -11,7 +11,7 @@ import re
 
 
 def user_management_page():
-    """User Management Page (Owner only) - No Auto-Reruns"""
+    """User Management Page (Owner only)"""
     
     st.title("👥 User Management")
     st.caption("Manage system users - Add, Edit, Delete, and Change Passwords")
@@ -48,6 +48,7 @@ def user_management_page():
             st.cache_data.clear()
             st.session_state.um_force_refresh = False
         
+        # Load users from database
         users_df = load_users()
         branches_df = load_branches()
         
@@ -144,6 +145,7 @@ def user_management_page():
             with col4:
                 st.metric("Cashiers", len(users_df[users_df["role"] == "cashier"]))
             
+            # Export users
             csv = users_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Export Users (CSV)",
@@ -156,7 +158,7 @@ def user_management_page():
             st.info("No users found.")
     
     # ==============================
-    # TAB 2: ADD NEW USER - FIXED
+    # TAB 2: ADD NEW USER - ENHANCED
     # ==============================
     with tab2:
         st.subheader("➕ Add New User")
@@ -188,6 +190,9 @@ def user_management_page():
             submitted = st.form_submit_button("➕ Create User", type="primary", use_container_width=True)
             
             if submitted:
+                # Reload users to ensure we have latest data
+                users_df = load_users()
+                
                 # Validate inputs
                 if not new_username:
                     st.error("❌ Username is required")
@@ -214,9 +219,7 @@ def user_management_page():
                             # Hash the password properly
                             hashed_pw = hash_password(new_password)
                             
-                            # Reload users to ensure we have latest data
-                            users_df = load_users()
-                            
+                            # Create new user
                             new_user = pd.DataFrame([{
                                 "username": new_username,
                                 "password": hashed_pw,
@@ -228,6 +231,7 @@ def user_management_page():
                                 "last_login": ""
                             }])
                             
+                            # Save to database
                             users_df = pd.concat([users_df, new_user], ignore_index=True)
                             save_users(users_df)
                             
@@ -237,13 +241,13 @@ def user_management_page():
                             
                             # Force refresh to show new user
                             st.session_state.um_force_refresh = True
-                            #st.rerun()
+                            st.rerun()
                             
                         except Exception as e:
                             st.error(f"❌ Error creating user: {str(e)}")
     
     # ==============================
-    # TAB 3: CHANGE PASSWORD - FIXED
+    # TAB 3: CHANGE PASSWORD
     # ==============================
     with tab3:
         st.subheader("🔐 Change User Password")
