@@ -422,8 +422,10 @@ def user_management_page():
                             "last_login": ""
                         }])
                         
-                        users_df = pd.concat([users_df, new_user], ignore_index=True)
-                        save_users(users_df)
+                        # IMPORTANT: Load fresh users before saving to avoid overwriting
+                        current_users = load_users()
+                        updated_users = pd.concat([current_users, new_user], ignore_index=True)
+                        save_users(updated_users)
                         
                         log_audit("USER_CREATED", f"Created user: {new_username} ({new_role})")
                         
@@ -477,8 +479,8 @@ def user_management_page():
                     with col1:
                         if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
                             try:
-                                users_df = load_users()
-                                idx = users_df[users_df["username"] == edit_user].index[0]
+                                current_users = load_users()
+                                idx = current_users[current_users["username"] == edit_user].index[0]
                                 
                                 # Validate phone
                                 if edit_phone:
@@ -486,12 +488,12 @@ def user_management_page():
                                     if not valid:
                                         st.error(f"❌ Phone: {msg}")
                                         st.stop()
-                                    elif standardized_phone != user_data.get("phone") and standardized_phone in users_df["phone"].values:
+                                    elif standardized_phone != user_data.get("phone") and standardized_phone in current_users["phone"].values:
                                         st.error(f"❌ Phone number already in use by another user")
                                         st.stop()
-                                    users_df.loc[idx, "phone"] = standardized_phone
+                                    current_users.loc[idx, "phone"] = standardized_phone
                                 else:
-                                    users_df.loc[idx, "phone"] = ""
+                                    current_users.loc[idx, "phone"] = ""
                                 
                                 # Validate WhatsApp
                                 if edit_whatsapp:
@@ -499,22 +501,22 @@ def user_management_page():
                                     if not valid:
                                         st.error(f"❌ WhatsApp: {msg}")
                                         st.stop()
-                                    elif "whatsapp" in users_df.columns and standardized_whatsapp != user_data.get("whatsapp") and standardized_whatsapp in users_df["whatsapp"].values:
+                                    elif "whatsapp" in current_users.columns and standardized_whatsapp != user_data.get("whatsapp") and standardized_whatsapp in current_users["whatsapp"].values:
                                         st.error(f"❌ WhatsApp number already in use by another user")
                                         st.stop()
-                                    users_df.loc[idx, "whatsapp"] = standardized_whatsapp
+                                    current_users.loc[idx, "whatsapp"] = standardized_whatsapp
                                 else:
-                                    users_df.loc[idx, "whatsapp"] = ""
+                                    current_users.loc[idx, "whatsapp"] = ""
                                 
-                                users_df.loc[idx, "full_name"] = edit_full_name
-                                users_df.loc[idx, "role"] = edit_role
-                                users_df.loc[idx, "branch_id"] = edit_branch
-                                users_df.loc[idx, "mobile_enabled"] = edit_mobile
-                                users_df.loc[idx, "two_factor_enabled"] = edit_2fa
-                                users_df.loc[idx, "active"] = edit_active
-                                users_df.loc[idx, "force_password_change"] = edit_force_password
+                                current_users.loc[idx, "full_name"] = edit_full_name
+                                current_users.loc[idx, "role"] = edit_role
+                                current_users.loc[idx, "branch_id"] = edit_branch
+                                current_users.loc[idx, "mobile_enabled"] = edit_mobile
+                                current_users.loc[idx, "two_factor_enabled"] = edit_2fa
+                                current_users.loc[idx, "active"] = edit_active
+                                current_users.loc[idx, "force_password_change"] = edit_force_password
                                 
-                                save_users(users_df)
+                                save_users(current_users)
                                 log_audit("USER_UPDATED", f"Updated user: {edit_user}")
                                 st.session_state.um_force_refresh = True
                                 st.success(f"✅ User '{edit_user}' updated successfully!")
@@ -583,12 +585,12 @@ def user_management_page():
                                 st.error("❌ Passwords do not match")
                             else:
                                 try:
-                                    users_df = load_users()
+                                    current_users = load_users()
                                     hashed_pw = hash_password(new_password)
-                                    idx = users_df[users_df["username"] == password_user].index[0]
-                                    users_df.loc[idx, "password"] = hashed_pw
-                                    users_df.loc[idx, "force_password_change"] = force_change
-                                    save_users(users_df)
+                                    idx = current_users[current_users["username"] == password_user].index[0]
+                                    current_users.loc[idx, "password"] = hashed_pw
+                                    current_users.loc[idx, "force_password_change"] = force_change
+                                    save_users(current_users)
                                     
                                     log_audit("PASSWORD_CHANGED", f"Changed password for: {password_user}")
                                     st.session_state.um_force_refresh = True
@@ -603,12 +605,12 @@ def user_management_page():
                                 characters = string.ascii_letters + string.digits + "!@#$%^&*"
                                 random_password = ''.join(random.choice(characters) for _ in range(12))
                                 
-                                users_df = load_users()
+                                current_users = load_users()
                                 hashed_pw = hash_password(random_password)
-                                idx = users_df[users_df["username"] == password_user].index[0]
-                                users_df.loc[idx, "password"] = hashed_pw
-                                users_df.loc[idx, "force_password_change"] = True
-                                save_users(users_df)
+                                idx = current_users[current_users["username"] == password_user].index[0]
+                                current_users.loc[idx, "password"] = hashed_pw
+                                current_users.loc[idx, "force_password_change"] = True
+                                save_users(current_users)
                                 
                                 st.success(f"✅ Password for '{password_user}' changed to:")
                                 st.code(random_password)
@@ -656,10 +658,10 @@ def user_management_page():
                         
                         if st.button(f"🔘 {status_text} User", use_container_width=True):
                             try:
-                                users_df = load_users()
-                                idx = users_df[users_df["username"] == delete_user].index[0]
-                                users_df.loc[idx, "active"] = not current_status
-                                save_users(users_df)
+                                current_users = load_users()
+                                idx = current_users[current_users["username"] == delete_user].index[0]
+                                current_users.loc[idx, "active"] = not current_status
+                                save_users(current_users)
                                 new_status = "deactivated" if not current_status else "activated"
                                 log_audit(f"USER_{new_status.upper()}", f"{new_status} user: {delete_user}")
                                 st.session_state.um_force_refresh = True
@@ -683,9 +685,9 @@ def user_management_page():
                                         confirm = st.checkbox("⚠️ I understand this action CANNOT be undone")
                                         if confirm:
                                             try:
-                                                users_df = load_users()
-                                                users_df = users_df[users_df["username"] != delete_user]
-                                                save_users(users_df)
+                                                current_users = load_users()
+                                                current_users = current_users[current_users["username"] != delete_user]
+                                                save_users(current_users)
                                                 log_audit("USER_DELETED", f"Deleted user: {delete_user}")
                                                 st.session_state.um_force_refresh = True
                                                 st.success(f"✅ User '{delete_user}' deleted permanently!")
@@ -697,9 +699,9 @@ def user_management_page():
                                     confirm = st.checkbox("⚠️ I understand this action CANNOT be undone")
                                     if confirm:
                                         try:
-                                            users_df = load_users()
-                                            users_df = users_df[users_df["username"] != delete_user]
-                                            save_users(users_df)
+                                            current_users = load_users()
+                                            current_users = current_users[current_users["username"] != delete_user]
+                                            save_users(current_users)
                                             log_audit("USER_DELETED", f"Deleted user: {delete_user}")
                                             st.session_state.um_force_refresh = True
                                             st.success(f"✅ User '{delete_user}' deleted permanently!")
