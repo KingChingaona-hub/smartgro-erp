@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import secrets
+import re
 
 from backend.core.db_adapter import (
     load_customers,
@@ -23,10 +24,18 @@ except ImportError:
 
 # Try to import WhatsApp utility
 try:
-    from backend.utils.phone_utils import get_whatsapp_link
+    from backend.utils.phone_utils import get_whatsapp_link, validate_zimbabwe_phone
 except ImportError:
     def get_whatsapp_link(phone, message):
         return f"https://wa.me/263{phone.lstrip('0')}?text={message.replace(' ', '%20')}"
+    
+    def validate_zimbabwe_phone(phone):
+        phone = re.sub(r'\D', '', str(phone))
+        if phone.startswith('0'):
+            phone = phone[1:]
+        if not phone.startswith('263'):
+            phone = '263' + phone
+        return True, phone, "Valid"
 
 # ==============================
 # FILE PATHS
@@ -161,11 +170,26 @@ def send_followup(customer, followup_type, message):
     if not settings.get("sms_enabled", True):
         return False, "SMS is disabled in settings"
     
-    if not phone:
-        return False, "No phone number available"
+    if not phone or phone == "":
+        return False, f"No phone number available for {name}"
     
-    # Clean phone number
-    phone_clean = phone.replace("+", "").replace(" ", "").replace("-", "")
+    # Clean phone number and validate
+    try:
+        valid, standardized, msg = validate_zimbabwe_phone(phone)
+        if not valid:
+            return False, f"Invalid phone number {phone}: {msg}"
+        phone_clean = standardized
+    except:
+        # Manual cleaning if validation fails
+        phone_clean = re.sub(r'\D', '', str(phone))
+        if phone_clean.startswith('0'):
+            phone_clean = phone_clean[1:]
+        if not phone_clean.startswith('263'):
+            phone_clean = '263' + phone_clean
+    
+    # Debug info
+    print(f"📱 Sending to: {name} ({phone_clean})")
+    print(f"📝 Message: {message[:100]}...")
     
     # Send SMS
     sms_result = send_sms(
@@ -189,7 +213,7 @@ def send_followup(customer, followup_type, message):
         "sent_date": datetime.now().isoformat(),
         "status": "SENT" if sms_result.get("success", False) else "FAILED",
         "response": sms_result.get("message", ""),
-        "notes": f"Sent via SMS. Result: {sms_result.get('message', 'Unknown')}"
+        "notes": f"Sent via SMS. Phone: {phone_clean}. Result: {sms_result.get('message', 'Unknown')}"
     }])
     
     df = pd.concat([df, new_log], ignore_index=True)
@@ -351,13 +375,11 @@ def automated_followup_dashboard():
         with col5:
             st.metric("✅ Success Rate", f"{stats['success_rate']:.1f}%")
         
-        # Follow-up by type
         if stats["by_type"]:
             st.markdown("### 📊 Follow-up by Type")
             types_df = pd.DataFrame(list(stats["by_type"].items()), columns=["Type", "Count"])
             st.bar_chart(types_df.set_index("Type"))
         
-        # Customers needing follow-up
         st.markdown("### 🎯 Customers Needing Attention")
         
         if not customers_df.empty:
@@ -389,7 +411,7 @@ def automated_followup_dashboard():
                                 count += 1
                         st.success(f"✅ Sent re-engagement to {count} customers!")
                         show_toast(f"Re-engagement sent to {count} customers", "success")
-                        st.rerun()
+                        #st.rerun()
                 else:
                     st.success("✅ All customers are active!")
             else:
@@ -403,9 +425,9 @@ def automated_followup_dashboard():
     with tab2:
         st.markdown("## 📤 Send Follow-ups")
         
-        # Check if SMS gateway is available
+        # Check SMS gateway status
         try:
-            from backend.integrations.sms_gateway import send_sms
+            from backend.integrations.sms_gateway import send_sms as sms_func
             st.success("✅ SMS Gateway is available")
         except:
             st.warning("⚠️ SMS Gateway not available. Messages will be logged only.")
@@ -432,7 +454,6 @@ def automated_followup_dashboard():
                     format_func=lambda x: f"{x} - {customers_df[customers_df['customer_name'] == x]['phone'].iloc[0] if 'phone' in customers_df.columns else ''}"
                 )
                 
-                # Preview message
                 if selected_customers:
                     st.markdown("### 📝 Message Preview")
                     sample_customer = customers_df[customers_df["customer_name"] == selected_customers[0]].iloc[0]
@@ -453,16 +474,17 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                                success, _ = send_thank_you(
+                                success, msg = send_thank_you(
                                     {"name": customer, "phone": customer_data.get("phone", "")},
                                     receipt_no,
                                     total
                                 )
                                 if success:
                                     count += 1
+                                else:
+                                    st.warning(f"Failed for {customer}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Thank you messages sent to {count} customers", "success")
-                            #st.rerun()
                     
                     elif followup_type == "Review Request":
                         preview_data = {
@@ -476,15 +498,16 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                                success, _ = send_review_request(
+                                success, msg = send_review_request(
                                     {"name": customer, "phone": customer_data.get("phone", "")},
                                     ""
                                 )
                                 if success:
                                     count += 1
+                                else:
+                                    st.warning(f"Failed for {customer}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Review requests sent to {count} customers", "success")
-                            #st.rerun()
                     
                     elif followup_type == "Re-engagement Campaign":
                         discount = st.number_input("Discount (%)", min_value=5, max_value=50, value=10)
@@ -502,16 +525,17 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                                success, _ = send_reengagement(
+                                success, msg = send_reengagement(
                                     {"name": customer, "phone": customer_data.get("phone", "")},
                                     discount,
                                     expiry_days
                                 )
                                 if success:
                                     count += 1
+                                else:
+                                    st.warning(f"Failed for {customer}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Re-engagement sent to {count} customers", "success")
-                            #st.rerun()
                     
                     elif followup_type == "Birthday Wishes":
                         discount = st.number_input("Birthday Discount (%)", min_value=5, max_value=50, value=15)
@@ -527,15 +551,16 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                                success, _ = send_birthday_wish(
+                                success, msg = send_birthday_wish(
                                     {"name": customer, "phone": customer_data.get("phone", "")},
                                     discount
                                 )
                                 if success:
                                     count += 1
+                                else:
+                                    st.warning(f"Failed for {customer}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Birthday wishes sent to {count} customers", "success")
-                            #st.rerun()
                     
                     elif followup_type == "Abandoned Cart Recovery":
                         discount = st.number_input("Recovery Discount (%)", min_value=5, max_value=30, value=10)
@@ -552,16 +577,17 @@ def automated_followup_dashboard():
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                                success, _ = send_abandoned_cart(
+                                success, msg = send_abandoned_cart(
                                     {"name": customer, "phone": customer_data.get("phone", "")},
                                     [],
                                     discount
                                 )
                                 if success:
                                     count += 1
+                                else:
+                                    st.warning(f"Failed for {customer}: {msg}")
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Abandoned cart recovery sent to {count} customers", "success")
-                            #st.rerun()
                     
                     elif followup_type == "Custom Message":
                         custom_message = st.text_area("Custom Message", height=150)
@@ -574,16 +600,17 @@ def automated_followup_dashboard():
                                 count = 0
                                 for customer in selected_customers:
                                     customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                                    success, _ = send_followup(
+                                    success, msg = send_followup(
                                         {"name": customer, "phone": customer_data.get("phone", "")},
                                         "CUSTOM",
                                         custom_message
                                     )
                                     if success:
                                         count += 1
+                                    else:
+                                        st.warning(f"Failed for {customer}: {msg}")
                                 st.success(f"✅ Sent to {count} customers!")
                                 show_toast(f"Custom messages sent to {count} customers", "success")
-                                #st.rerun()
                             else:
                                 st.error("Please enter a message")
             else:
