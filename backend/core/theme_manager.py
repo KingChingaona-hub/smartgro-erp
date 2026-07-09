@@ -138,10 +138,10 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - BLACK & WHITE ONLY
+# THEME APPLICATION - BLACK & WHITE WITH WHITE DROPDOWN BACKGROUND
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS - BLACK & WHITE ONLY - ALL DROPDOWN ITEMS INCLUDED"""
+    """Apply theme CSS - DROPDOWN SECTION ALWAYS HAS WHITE BACKGROUND"""
     
     # Determine if dark mode
     is_dark = colors.get("background_color", "#FFFFFF") == "#000000"
@@ -155,12 +155,12 @@ def apply_theme(colors):
     secondary_bg = colors.get("secondary_bg", "#F5F5F5")
     text_secondary = colors.get("text_secondary", "#333333")
     
-    # Dropdown specific colors
-    dropdown_bg = "#FFFFFF" if not is_dark else "#1A1A1A"
-    dropdown_text = "#000000" if not is_dark else "#FFFFFF"
-    dropdown_border = "#CCCCCC" if not is_dark else "#444444"
-    dropdown_hover_bg = "#000000" if not is_dark else "#FFFFFF"
-    dropdown_hover_text = "#FFFFFF" if not is_dark else "#000000"
+    # Dropdown specific colors - ALWAYS WHITE BACKGROUND
+    dropdown_bg = "#FFFFFF"  # ALWAYS WHITE for dropdown section
+    dropdown_text = "#000000"  # ALWAYS BLACK text
+    dropdown_border = "#CCCCCC"  # Light gray border
+    dropdown_hover_bg = "#000000"  # Black on hover
+    dropdown_hover_text = "#FFFFFF"  # White text on hover
     
     css = f"""
     <style>
@@ -238,7 +238,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DROPDOWNS (SELECTBOX) - COMPLETE FIX FOR ALL ITEMS
+           DROPDOWNS - ALWAYS WHITE BACKGROUND
            ============================== */
         
         /* Selectbox container - the visible input box */
@@ -267,7 +267,7 @@ def apply_theme(colors):
             fill: {dropdown_text} !important;
         }}
         
-        /* ===== DROPDOWN MENU (THE DROPDOWN LIST) ===== */
+        /* ===== DROPDOWN MENU (THE DROPDOWN LIST) - ALWAYS WHITE ===== */
         div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
             border: 1px solid {dropdown_border} !important;
@@ -278,7 +278,7 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* ===== DROPDOWN ITEMS (THE OPTIONS) ===== */
+        /* ===== DROPDOWN ITEMS (THE OPTIONS) - ALWAYS WHITE ===== */
         div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
@@ -320,7 +320,7 @@ def apply_theme(colors):
             font-weight: 500 !important;
         }}
         
-        /* ===== SIDEBAR DROPDOWNS ===== */
+        /* ===== SIDEBAR DROPDOWNS - ALWAYS WHITE ===== */
         div[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -348,7 +348,7 @@ def apply_theme(colors):
             color: {dropdown_hover_text} !important;
         }}
         
-        /* ===== MULTI-SELECT DROPDOWNS ===== */
+        /* ===== MULTI-SELECT DROPDOWNS - ALWAYS WHITE ===== */
         div[data-baseweb="select"] [data-testid="stMultiSelect"] {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -368,7 +368,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           INPUT FIELDS - BLACK & WHITE
+           INPUT FIELDS - ALWAYS WHITE
            ============================== */
         
         .stTextInput > div > div > input,
@@ -398,7 +398,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DATE INPUT CALENDAR
+           DATE INPUT CALENDAR - ALWAYS WHITE
            ============================== */
         
         div[data-baseweb="calendar"] {{
@@ -442,7 +442,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DATAFRAMES / TABLES
+           DATAFRAMES / TABLES - ALWAYS WHITE
            ============================== */
         
         .stDataFrame {{
