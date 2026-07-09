@@ -63,7 +63,7 @@ CUSTOMER_SUB = {
 }
 
 # ==============================
-# MAIN MENU - ALPHABETICAL WITHOUT CATEGORIES
+# MAIN MENU - FLAT ALPHABETICAL (NO CATEGORIES)
 # ==============================
 def main_menu():
     st.sidebar.title("AZIEL ERP")
@@ -72,6 +72,7 @@ def main_menu():
     sorted_modules = sorted(MODULES.items())
     menu_items = [f"{icon} {name}" for name, icon in sorted_modules]
     
+    # Display as a flat list without any category headers
     module = st.sidebar.radio(
         "Modules",
         menu_items
@@ -110,7 +111,6 @@ def sub_menu(module):
         return choice
     
     elif module == "Customers":
-        # Sort customer sub menu alphabetically
         sorted_customers = sorted(CUSTOMER_SUB.items())
         customer_items = [f"{icon} {name}" for name, icon in sorted_customers]
         choice = st.sidebar.radio("Customer Menu", customer_items)
