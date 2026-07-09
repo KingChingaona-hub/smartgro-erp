@@ -462,7 +462,7 @@ def automated_followup_dashboard():
                                     count += 1
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Thank you messages sent to {count} customers", "success")
-                            st.rerun()
+                            #st.rerun()
                     
                     elif followup_type == "Review Request":
                         preview_data = {
@@ -484,7 +484,7 @@ def automated_followup_dashboard():
                                     count += 1
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Review requests sent to {count} customers", "success")
-                            st.rerun()
+                            #st.rerun()
                     
                     elif followup_type == "Re-engagement Campaign":
                         discount = st.number_input("Discount (%)", min_value=5, max_value=50, value=10)
@@ -511,7 +511,7 @@ def automated_followup_dashboard():
                                     count += 1
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Re-engagement sent to {count} customers", "success")
-                            st.rerun()
+                            #st.rerun()
                     
                     elif followup_type == "Birthday Wishes":
                         discount = st.number_input("Birthday Discount (%)", min_value=5, max_value=50, value=15)
@@ -535,7 +535,7 @@ def automated_followup_dashboard():
                                     count += 1
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Birthday wishes sent to {count} customers", "success")
-                            st.rerun()
+                            #st.rerun()
                     
                     elif followup_type == "Abandoned Cart Recovery":
                         discount = st.number_input("Recovery Discount (%)", min_value=5, max_value=30, value=10)
@@ -561,7 +561,7 @@ def automated_followup_dashboard():
                                     count += 1
                             st.success(f"✅ Sent to {count} customers!")
                             show_toast(f"Abandoned cart recovery sent to {count} customers", "success")
-                            st.rerun()
+                            #st.rerun()
                     
                     elif followup_type == "Custom Message":
                         custom_message = st.text_area("Custom Message", height=150)
@@ -583,7 +583,7 @@ def automated_followup_dashboard():
                                         count += 1
                                 st.success(f"✅ Sent to {count} customers!")
                                 show_toast(f"Custom messages sent to {count} customers", "success")
-                                st.rerun()
+                                #st.rerun()
                             else:
                                 st.error("Please enter a message")
             else:
