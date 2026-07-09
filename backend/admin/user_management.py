@@ -61,12 +61,12 @@ def user_management_page():
                             st.session_state.um_message = "❌ Failed to create default users."
                             st.session_state.um_message_type = "error"
                         st.session_state.um_loading = False
-                        st.rerun()
+                        #st.rerun()
             
             with col2:
                 if st.button("🔄 Refresh", use_container_width=True):
                     st.cache_data.clear()
-                    st.rerun()
+                    #st.rerun()
             return
             
     except Exception as e:
@@ -227,7 +227,7 @@ def user_management_page():
                             st.balloons()
                             
                             # Clear form by resetting session state
-                            st.rerun()
+                            #st.rerun()
                             
                         except Exception as e:
                             st.error(f"❌ Error creating user: {str(e)}")
@@ -292,7 +292,7 @@ def user_management_page():
                                     
                                     st.success(f"✅ Password for '{selected_user}' changed successfully!")
                                     st.info(f"🔑 New password: {new_password}")
-                                    st.rerun()
+                                    #st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Error changing password: {str(e)}")
                     
@@ -310,7 +310,7 @@ def user_management_page():
                                 
                                 st.success(f"✅ Password for '{selected_user}' changed to: **{random_password}**")
                                 st.info("📋 Please provide this password to the user. They can change it later.")
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error generating password: {str(e)}")
     
@@ -356,7 +356,7 @@ def user_management_page():
                                 save_users(users_df)
                                 new_status = "deactivated" if not current_status else "activated"
                                 st.success(f"✅ User '{user_to_manage}' {new_status} successfully!")
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error updating user: {str(e)}")
                     
@@ -372,7 +372,7 @@ def user_management_page():
                                         users_df = users_df[users_df["username"] != user_to_manage]
                                         save_users(users_df)
                                         st.success(f"✅ User '{user_to_manage}' deleted permanently!")
-                                        st.rerun()
+                                        #st.rerun()
                                     except Exception as e:
                                         st.error(f"❌ Error deleting user: {str(e)}")
                     
@@ -475,14 +475,14 @@ def user_management_page():
                         save_users(users_df)
                         st.success(f"✅ User '{edit_user}' updated successfully!")
                         st.session_state.editing_user = None
-                        st.rerun()
+                        #st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error updating user: {str(e)}")
             
             with col2:
                 if st.form_submit_button("❌ Cancel", use_container_width=True):
                     st.session_state.editing_user = None
-                    st.rerun()
+                    #st.rerun()
     
     # ==============================
     # REFRESH BUTTON
@@ -490,7 +490,7 @@ def user_management_page():
     st.markdown("---")
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
-        st.rerun()
+        #st.rerun()
 
 
 # ==============================
