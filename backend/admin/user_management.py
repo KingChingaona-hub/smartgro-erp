@@ -13,7 +13,7 @@ import secrets
 
 
 def user_management_page():
-    """User Management Page (Owner only) - Complete rewrite"""
+    """User Management Page"""
     
     st.title("👥 User Management")
     st.caption("Manage system users - Add, Edit, Delete, and Change Passwords")
@@ -85,12 +85,12 @@ def user_management_page():
                             st.session_state.um_message = "❌ Failed to create default users."
                             st.session_state.um_message_type = "error"
                         st.session_state.um_loading = False
-                        st.rerun()
+                        #st.rerun()
             
             with col2:
                 if st.button("🔄 Refresh", use_container_width=True):
                     st.cache_data.clear()
-                    st.rerun()
+                    #st.rerun()
             return
             
     except Exception as e:
@@ -255,7 +255,7 @@ def user_management_page():
                         log_audit("BULK_DEACTIVATE", f"Deactivated users: {', '.join(selected_users)}")
                         st.session_state.um_force_refresh = True
                         st.success(f"✅ Deactivated {len(selected_users)} users")
-                        st.rerun()
+                        #st.rerun()
                 
                 with col3:
                     if st.button("🗑️ Bulk Delete", use_container_width=True):
@@ -275,7 +275,7 @@ def user_management_page():
                             log_audit("BULK_DELETE", f"Deleted users: {', '.join(selected_users)}")
                             st.session_state.um_force_refresh = True
                             st.success(f"✅ Deleted {len(selected_users)} users")
-                            st.rerun()
+                            #st.rerun()
                 
                 with col4:
                     if st.button("📥 Bulk Export", use_container_width=True):
@@ -435,7 +435,7 @@ def user_management_page():
                         st.session_state.um_force_refresh = True
                         
                         # Force rerun to show success
-                        st.rerun()
+                        #st.rerun()
                         
                     except Exception as e:
                         st.error(f"❌ Error creating user: {str(e)}")
@@ -520,7 +520,7 @@ def user_management_page():
                                 log_audit("USER_UPDATED", f"Updated user: {edit_user}")
                                 st.session_state.um_force_refresh = True
                                 st.success(f"✅ User '{edit_user}' updated successfully!")
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error updating user: {str(e)}")
                     
@@ -595,7 +595,7 @@ def user_management_page():
                                     log_audit("PASSWORD_CHANGED", f"Changed password for: {password_user}")
                                     st.session_state.um_force_refresh = True
                                     st.success(f"✅ Password for '{password_user}' changed successfully!")
-                                    st.rerun()
+                                    #st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Error changing password: {str(e)}")
                     
@@ -617,7 +617,7 @@ def user_management_page():
                                 st.info("📋 Please provide this password to the user. They can change it later.")
                                 log_audit("PASSWORD_RESET", f"Generated new password for: {password_user}")
                                 st.session_state.um_force_refresh = True
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error generating password: {str(e)}")
         else:
@@ -666,7 +666,7 @@ def user_management_page():
                                 log_audit(f"USER_{new_status.upper()}", f"{new_status} user: {delete_user}")
                                 st.session_state.um_force_refresh = True
                                 st.success(f"✅ User '{delete_user}' {new_status} successfully!")
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error updating user: {str(e)}")
                     
@@ -691,7 +691,7 @@ def user_management_page():
                                                 log_audit("USER_DELETED", f"Deleted user: {delete_user}")
                                                 st.session_state.um_force_refresh = True
                                                 st.success(f"✅ User '{delete_user}' deleted permanently!")
-                                                st.rerun()
+                                                #st.rerun()
                                             except Exception as e:
                                                 st.error(f"❌ Error deleting user: {str(e)}")
                                 else:
@@ -743,7 +743,7 @@ def user_management_page():
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.session_state.um_force_refresh = True
-        st.rerun()
+        #st.rerun()
 
 
 # ==============================
