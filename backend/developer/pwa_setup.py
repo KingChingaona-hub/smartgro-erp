@@ -2,9 +2,7 @@ import streamlit as st
 import json
 from pathlib import Path
 from datetime import datetime
-import base64
 import hashlib
-import re
 import shutil
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -19,33 +17,30 @@ PWA_ICONS_DIR = Path("static/icons")
 PWA_VERSION_FILE = Path("static") / "version.json"
 PWA_BACKUP_DIR = DATA_DIR / "pwa_backups"
 
-# ==============================
-# INITIALIZATION
-# ==============================
+
 def init_pwa_files():
     """Initialize PWA-related files"""
     DATA_DIR.mkdir(exist_ok=True)
     PWA_ICONS_DIR.mkdir(parents=True, exist_ok=True)
     PWA_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     Path("static").mkdir(exist_ok=True)
-    
+
     if not PWA_CONFIG_FILE.exists():
         config = get_default_config()
         with open(PWA_CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
-    
+
     if not PWA_MANIFEST_FILE.exists():
         generate_manifest()
-    
+
     if not PWA_SW_FILE.exists():
         generate_service_worker()
-    
+
     if not PWA_VERSION_FILE.exists():
         update_pwa_version()
 
 
 def get_default_config() -> Dict[str, Any]:
-    """Get default PWA configuration"""
     return {
         "enabled": True,
         "app_name": "SmartGro Retail",
@@ -62,8 +57,6 @@ def get_default_config() -> Dict[str, Any]:
         "cache_strategy": "network_first",
         "offline_page": "/offline",
         "push_enabled": True,
-        "vapid_public_key": "",
-        "vapid_private_key": "",
         "auto_update": True,
         "update_interval": 3600,
         "splash_screen": True,
@@ -74,48 +67,22 @@ def get_default_config() -> Dict[str, Any]:
 
 
 def load_pwa_config() -> Dict[str, Any]:
-    """Load PWA configuration"""
     if not PWA_CONFIG_FILE.exists():
         DATA_DIR.mkdir(exist_ok=True)
         config = get_default_config()
         with open(PWA_CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
-    
+
     with open(PWA_CONFIG_FILE, "r") as f:
         return json.load(f)
 
 
 def save_pwa_config(config: Dict[str, Any]) -> None:
-    """Save PWA configuration"""
-    is_valid, message = validate_pwa_config(config)
-    if not is_valid:
-        raise ValueError(f"Invalid configuration: {message}")
-    
     with open(PWA_CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
 
 
-def validate_pwa_config(config: Dict[str, Any]) -> Tuple[bool, str]:
-    """Validate PWA configuration"""
-    required_fields = ["app_name", "app_short_name", "theme_color"]
-    for field in required_fields:
-        if not config.get(field):
-            return False, f"Missing required field: {field}"
-    
-    if len(config.get("app_name", "")) > 50:
-        return False, "App name too long (max 50 characters)"
-    
-    if len(config.get("app_short_name", "")) > 20:
-        return False, "Short name too long (max 20 characters)"
-    
-    if not config.get("theme_color", "").startswith("#"):
-        return False, "Theme color must be a hex color code"
-    
-    return True, "Valid"
-
-
 def show_toast(message: str, type: str = "info") -> None:
-    """Show a toast notification"""
     if type == "success":
         st.success(f"✅ {message}")
     elif type == "error":
@@ -126,11 +93,7 @@ def show_toast(message: str, type: str = "info") -> None:
         st.info(f"ℹ️ {message}")
 
 
-# ==============================
-# PWA VERSION MANAGEMENT
-# ==============================
 def update_pwa_version() -> str:
-    """Update PWA version"""
     version_data = {
         "version": datetime.now().strftime("%Y.%m.%d.%H%M"),
         "updated": datetime.now().isoformat(),
@@ -141,46 +104,40 @@ def update_pwa_version() -> str:
 
 
 def get_pwa_version() -> Dict[str, Any]:
-    """Get current PWA version"""
     if PWA_VERSION_FILE.exists():
         return json.loads(PWA_VERSION_FILE.read_text())
     return {"version": "unknown", "updated": "unknown"}
 
 
-# ==============================
-# PWA BACKUP & RESTORE
-# ==============================
 def backup_pwa_config() -> Tuple[bool, str]:
-    """Backup PWA configuration"""
     if not PWA_CONFIG_FILE.exists():
         return False, "No configuration to backup"
-    
+
     try:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_file = PWA_BACKUP_DIR / f"pwa_config_{timestamp}.json"
         shutil.copy(PWA_CONFIG_FILE, backup_file)
-        
+
         backups = sorted(PWA_BACKUP_DIR.glob("pwa_config_*.json"))
         if len(backups) > 10:
             for old_backup in backups[:-10]:
                 old_backup.unlink()
-        
+
         return True, f"Backup created: {backup_file.name}"
     except Exception as e:
         return False, f"Backup failed: {str(e)}"
 
 
 def restore_pwa_config(backup_file: Optional[Path] = None) -> Tuple[bool, str]:
-    """Restore PWA configuration from backup"""
     if not backup_file:
         backups = sorted(PWA_BACKUP_DIR.glob("pwa_config_*.json"))
         if not backups:
             return False, "No backups found"
         backup_file = backups[-1]
-    
+
     if not backup_file.exists():
         return False, f"Backup file not found: {backup_file}"
-    
+
     try:
         shutil.copy(backup_file, PWA_CONFIG_FILE)
         return True, f"Restored from: {backup_file.name}"
@@ -189,34 +146,29 @@ def restore_pwa_config(backup_file: Optional[Path] = None) -> Tuple[bool, str]:
 
 
 def clear_pwa_cache() -> Tuple[bool, str]:
-    """Clear PWA cache files"""
     try:
         files_removed = 0
-        
+
         for file in [PWA_MANIFEST_FILE, PWA_SW_FILE, PWA_VERSION_FILE]:
             if file.exists():
                 file.unlink()
                 files_removed += 1
-        
+
         if PWA_ICONS_DIR.exists():
             for icon in PWA_ICONS_DIR.glob("*.png"):
                 icon.unlink()
                 files_removed += 1
-        
+
         init_pwa_files()
-        
+
         return True, f"Cache cleared ({files_removed} files removed)"
     except Exception as e:
         return False, f"Failed to clear cache: {str(e)}"
 
 
-# ==============================
-# MANIFEST GENERATION
-# ==============================
 def generate_manifest() -> None:
-    """Generate PWA manifest file"""
     config = load_pwa_config()
-    
+
     manifest = {
         "name": config.get("app_name", "SmartGro Retail"),
         "short_name": config.get("app_short_name", "SmartGro"),
@@ -228,12 +180,11 @@ def generate_manifest() -> None:
         "start_url": config.get("start_url", "/"),
         "scope": config.get("scope", "/"),
         "icons": [],
-        "splash_pages": None,
         "categories": ["business", "productivity", "retail"],
         "lang": "en-US",
         "dir": "ltr"
     }
-    
+
     for size in config.get("icon_sizes", [72, 96, 128, 144, 152, 192, 384, 512]):
         manifest["icons"].append({
             "src": f"/static/icons/icon-{size}x{size}.png",
@@ -241,34 +192,15 @@ def generate_manifest() -> None:
             "type": "image/png",
             "purpose": "any maskable"
         })
-    
+
     PWA_MANIFEST_FILE.write_text(json.dumps(manifest, indent=2))
 
 
-def safe_generate_manifest() -> Tuple[bool, str]:
-    """Safely generate manifest with error handling"""
-    try:
-        generate_manifest()
-        return True, "Manifest generated successfully"
-    except Exception as e:
-        return False, f"Error generating manifest: {str(e)}"
-
-
-# ==============================
-# SERVICE WORKER GENERATION
-# ==============================
 def generate_service_worker() -> None:
-    """Generate service worker file"""
     config = load_pwa_config()
     version_info = get_pwa_version()
-    
-    sw_content = f"""
-// ==============================
-// Service Worker - SmartGro Retail
-// Version: {version_info.get('version', '1.0.0')}
-// Build: {version_info.get('build', 'unknown')}
-// ==============================
 
+    sw_content = f"""
 const CACHE_NAME = 'smartgro-v{version_info.get('build', '1')}';
 const STATIC_CACHE = 'smartgro-static-v{version_info.get('build', '1')}';
 const DYNAMIC_CACHE = 'smartgro-dynamic-v{version_info.get('build', '1')}';
@@ -286,7 +218,6 @@ self.addEventListener('install', function(event) {{
     event.waitUntil(
         caches.open(STATIC_CACHE)
             .then(function(cache) {{
-                console.log('Caching static files...');
                 return cache.addAll(STATIC_FILES);
             }})
             .then(function() {{
@@ -306,7 +237,6 @@ self.addEventListener('activate', function(event) {{
                                    cacheName !== DYNAMIC_CACHE;
                         }})
                         .map(function(cacheName) {{
-                            console.log('Deleting old cache:', cacheName);
                             return caches.delete(cacheName);
                         }})
                 );
@@ -393,114 +323,28 @@ async function networkFirstWithCacheFallback(request) {{
         return new Response('Offline', {{ status: 503 }});
     }}
 }}
-
-self.addEventListener('push', function(event) {{
-    const data = event.data.json();
-    const options = {{
-        body: data.body || 'New notification',
-        icon: '/static/icons/icon-192x192.png',
-        badge: '/static/icons/icon-72x72.png',
-        vibrate: [200, 100, 200],
-        data: {{
-            url: data.url || '/'
-        }},
-        actions: [
-            {{
-                action: 'open',
-                title: 'Open App'
-            }},
-            {{
-                action: 'dismiss',
-                title: 'Dismiss'
-            }}
-        ]
-    }};
-    
-    event.waitUntil(
-        self.registration.showNotification(data.title || 'SmartGro', options)
-    );
-}});
-
-self.addEventListener('notificationclick', function(event) {{
-    event.notification.close();
-    
-    if (event.action === 'dismiss') {{
-        return;
-    }}
-    
-    const urlToOpen = event.notification.data?.url || '/';
-    
-    event.waitUntil(
-        clients.matchAll({{
-            type: 'window',
-            includeUncontrolled: true
-        }})
-        .then(function(windowClients) {{
-            for (let client of windowClients) {{
-                if (client.url === urlToOpen && 'focus' in client) {{
-                    return client.focus();
-                }}
-            }}
-            if (clients.openWindow) {{
-                return clients.openWindow(urlToOpen);
-            }}
-        }})
-    );
-}});
-
-self.addEventListener('sync', function(event) {{
-    if (event.tag === 'sync-data') {{
-        event.waitUntil(syncData());
-    }}
-}});
-
-async function syncData() {{
-    console.log('Syncing offline data...');
-    try {{
-        const cache = await caches.open(DYNAMIC_CACHE);
-        const requests = await cache.keys();
-        for (const request of requests) {{
-            if (request.url.startsWith('/api/')) {{
-                try {{
-                    const response = await fetch(request);
-                    if (response.ok) {{
-                        await cache.delete(request);
-                    }}
-                }} catch (e) {{
-                    console.log('Sync failed for:', request.url);
-                }}
-            }}
-        }}
-    }} catch (error) {{
-        console.error('Sync error:', error);
-    }}
-}}
     """
-    
+
     PWA_SW_FILE.write_text(sw_content)
 
 
-# ==============================
-# ICON GENERATION
-# ==============================
 def generate_icon_png(size: int, color: str = "#6366F1") -> bool:
-    """Generate a simple PNG icon (placeholder)"""
     try:
         from PIL import Image, ImageDraw, ImageFont
-        
+
         img = Image.new('RGB', (size, size), color=color)
         draw = ImageDraw.Draw(img)
-        
+
         border_color = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
         border_color = tuple(int(c * 0.8) for c in border_color)
         draw.rectangle([0, 0, size-1, size-1], outline=border_color, width=2)
-        
+
         if size >= 128:
             try:
                 font = ImageFont.truetype("arial.ttf", size // 4)
             except:
                 font = ImageFont.load_default()
-            
+
             text = "SG"
             bbox = draw.textbbox((0, 0), text, font=font)
             text_width = bbox[2] - bbox[0]
@@ -508,7 +352,7 @@ def generate_icon_png(size: int, color: str = "#6366F1") -> bool:
             x = (size - text_width) // 2
             y = (size - text_height) // 2
             draw.text((x, y), text, fill="white", font=font)
-        
+
         img.save(PWA_ICONS_DIR / f"icon-{size}x{size}.png")
         return True
     except:
@@ -516,33 +360,28 @@ def generate_icon_png(size: int, color: str = "#6366F1") -> bool:
 
 
 def generate_all_icons() -> int:
-    """Generate all PWA icons"""
     config = load_pwa_config()
     generated = 0
-    
+
     for size in config.get("icon_sizes", [72, 96, 128, 144, 152, 192, 384, 512]):
         icon_path = PWA_ICONS_DIR / f"icon-{size}x{size}.png"
         if not icon_path.exists():
             if generate_icon_png(size, config.get("theme_color", "#6366F1")):
                 generated += 1
-    
+
     for size in config.get("ios_icon_sizes", [180, 192, 512]):
         icon_path = PWA_ICONS_DIR / f"apple-icon-{size}x{size}.png"
         if not icon_path.exists():
             if generate_icon_png(size, config.get("theme_color", "#6366F1")):
                 generated += 1
-    
+
     return generated
 
 
-# ==============================
-# META TAGS GENERATION
-# ==============================
 def generate_meta_tags() -> str:
-    """Generate PWA meta tags for HTML"""
     config = load_pwa_config()
     version_info = get_pwa_version()
-    
+
     tags = f"""
 <!-- PWA Meta Tags -->
 <meta name="application-name" content="{config.get('app_name', 'SmartGro Retail')}">
@@ -565,11 +404,7 @@ def generate_meta_tags() -> str:
     return tags
 
 
-# ==============================
-# PWA ANALYTICS
-# ==============================
 def get_pwa_analytics() -> Dict[str, Any]:
-    """Get PWA usage analytics"""
     config = load_pwa_config()
     version_info = get_pwa_version()
     
@@ -590,170 +425,28 @@ def get_pwa_analytics() -> Dict[str, Any]:
     }
 
 
-# ==============================
-# PWA INSTALL PROMPT
-# ==============================
 def pwa_install_prompt() -> str:
-    """Generate PWA install prompt HTML"""
-    return """
-    <style>
-        #pwa-install-prompt {
-            display: none;
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 9999;
-            background: white;
-            padding: 15px 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-            max-width: 450px;
-            width: 90%;
-            border: 1px solid #e0e0e0;
-            animation: slideUp 0.5s ease;
-        }
-        .pwa-prompt-content {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 15px;
-        }
-        .pwa-prompt-text {
-            flex: 1;
-        }
-        .pwa-prompt-text strong {
-            display: block;
-            font-size: 1rem;
-            color: #333;
-        }
-        .pwa-prompt-text span {
-            font-size: 0.85rem;
-            color: #666;
-        }
-        .pwa-prompt-btn {
-            background: #6366F1;
-            color: white;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-            white-space: nowrap;
-            transition: background 0.3s ease;
-        }
-        .pwa-prompt-btn:hover {
-            background: #4f52d9;
-        }
-        .pwa-prompt-close {
-            background: none;
-            border: none;
-            font-size: 1.2rem;
-            cursor: pointer;
-            color: #999;
-            padding: 0 5px;
-            transition: color 0.3s ease;
-        }
-        .pwa-prompt-close:hover {
-            color: #333;
-        }
-        @keyframes slideUp {
-            from {
-                transform: translateX(-50%) translateY(20px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(-50%) translateY(0);
-                opacity: 1;
-            }
-        }
-    </style>
-    <div id="pwa-install-prompt">
-        <div class="pwa-prompt-content">
-            <div class="pwa-prompt-text">
-                <strong>📱 Install SmartGro App</strong>
-                <span>Add to home screen for the best experience</span>
-            </div>
-            <button class="pwa-prompt-btn" onclick="installPWA()">Install</button>
-            <button class="pwa-prompt-close" onclick="dismissInstallPrompt()">✕</button>
-        </div>
-    </div>
-    <script>
-    let deferredPrompt;
-    
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        document.getElementById('pwa-install-prompt').style.display = 'block';
-    });
-    
-    async function installPWA() {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            const result = await deferredPrompt.userChoice;
-            if (result.outcome === 'accepted') {
-                document.getElementById('pwa-install-prompt').style.display = 'none';
-            }
-            deferredPrompt = null;
-        } else {
-            alert('📱 To install this app:\\n\\n' +
-                  '📱 Android: Tap menu (⋮) → "Add to Home Screen"\\n' +
-                  '📱 iPhone: Tap Share (⬆) → "Add to Home Screen"\\n' +
-                  '💻 Desktop: Look for install icon in address bar');
-        }
-    }
-    
-    function dismissInstallPrompt() {
-        document.getElementById('pwa-install-prompt').style.display = 'none';
-    }
-    
-    window.addEventListener('appinstalled', (evt) => {
-        document.getElementById('pwa-install-prompt').style.display = 'none';
-        console.log('App installed successfully');
-    });
-    </script>
-    """
+    """Return empty string to hide the prompt"""
+    return ""
 
 
-# ==============================
-# OFFLINE STATUS INDICATOR
-# ==============================
 def offline_status_indicator() -> str:
-    """Generate offline status indicator HTML"""
-    return """
-    <div id="online-status" style="display: none; padding: 10px; border-radius: 5px; margin: 10px 0; background: #d4edda; color: #155724;">
-        ✅ Online
-    </div>
-    <script>
-    function updateOnlineStatus() {
-        const statusDiv = document.getElementById('online-status');
-        if (navigator.onLine) {
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = '✅ Online';
-            statusDiv.style.background = '#d4edda';
-            statusDiv.style.color = '#155724';
-            statusDiv.style.border = '1px solid #c3e6cb';
-        } else {
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = '📴 Offline - Some features may be limited';
-            statusDiv.style.background = '#f8d7da';
-            statusDiv.style.color = '#721c24';
-            statusDiv.style.border = '1px solid #f5c6cb';
-        }
-    }
-    
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    updateOnlineStatus();
-    </script>
-    """
+    """Return empty string to hide the status"""
+    return ""
 
 
-# ==============================
-# PWA TESTING TOOLS
-# ==============================
+def pwa_shortcuts() -> str:
+    """Return empty string to hide shortcuts"""
+    return ""
+
+
+def check_https() -> str:
+    """Return empty string to hide HTTPS check"""
+    return ""
+
+
 def pwa_test_tools() -> None:
-    """PWA testing and validation tools"""
+    """PWA testing and validation tools - simplified without debug"""
     st.markdown("### 🧪 PWA Testing Tools")
     
     col1, col2 = st.columns(2)
@@ -771,28 +464,7 @@ def pwa_test_tools() -> None:
                 show_toast(f"❌ Cannot access manifest: {str(e)}", "error")
         
         if st.button("🔍 Test Service Worker", use_container_width=True):
-            st.markdown("""
-            <div id="sw-test-result" style="padding: 10px; border-radius: 5px; margin: 10px 0; background: #f8f9fa;">
-                ⏳ Testing...
-            </div>
-            <script>
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.ready.then(reg => {
-                    document.getElementById('sw-test-result').innerHTML = '✅ Service Worker Active';
-                    document.getElementById('sw-test-result').style.background = '#d4edda';
-                    document.getElementById('sw-test-result').style.color = '#155724';
-                }).catch(err => {
-                    document.getElementById('sw-test-result').innerHTML = '❌ Service Worker Error: ' + err.message;
-                    document.getElementById('sw-test-result').style.background = '#f8d7da';
-                    document.getElementById('sw-test-result').style.color = '#721c24';
-                });
-            } else {
-                document.getElementById('sw-test-result').innerHTML = '❌ Service Worker not supported in this browser';
-                document.getElementById('sw-test-result').style.background = '#f8d7da';
-                document.getElementById('sw-test-result').style.color = '#721c24';
-            }
-            </script>
-            """, unsafe_allow_html=True)
+            st.info("🔄 Check browser console for service worker status")
     
     with col2:
         if st.button("📊 Get Analytics", use_container_width=True):
@@ -803,77 +475,12 @@ def pwa_test_tools() -> None:
             success, message = clear_pwa_cache()
             if success:
                 show_toast(message, "success")
-                #st.rerun()
             else:
                 show_toast(message, "error")
 
 
-# ==============================
-# PWA SHORTCUTS
-# ==============================
-def pwa_shortcuts() -> str:
-    """Generate PWA keyboard shortcuts HTML"""
-    return """
-    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;">
-        <h4>⌨️ Keyboard Shortcuts</h4>
-        <table style="width: 100%; border-collapse: collapse;">
-            <tr style="border-bottom: 1px solid #ddd;">
-                <th style="padding: 8px; text-align: left;">Shortcut</th>
-                <th style="padding: 8px; text-align: left;">Action</th>
-            </tr>
-            <tr>
-                <td style="padding: 8px;"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd></td>
-                <td style="padding: 8px;">Install PWA</td>
-            </tr>
-            <tr>
-                <td style="padding: 8px;"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd></td>
-                <td style="padding: 8px;">Clear Cache</td>
-            </tr>
-            <tr>
-                <td style="padding: 8px;"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd></td>
-                <td style="padding: 8px;">Reload PWA</td>
-            </tr>
-            <tr>
-                <td style="padding: 8px;"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd></td>
-                <td style="padding: 8px;">Toggle Developer Tools</td>
-            </tr>
-        </table>
-    </div>
-    """
-
-
-# ==============================
-# HTTPS CHECK
-# ==============================
-def check_https() -> str:
-    """Check if app is running over HTTPS"""
-    return """
-    <div id="https-status" style="padding: 10px; border-radius: 5px; margin: 10px 0; background: #f8f9fa;">
-        ⏳ Checking HTTPS...
-    </div>
-    <script>
-    if (window.location.protocol === 'https:') {
-        document.getElementById('https-status').innerHTML = '✅ HTTPS enabled';
-        document.getElementById('https-status').style.background = '#d4edda';
-        document.getElementById('https-status').style.color = '#155724';
-    } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        document.getElementById('https-status').innerHTML = '⚠️ Running locally - HTTPS not required for development';
-        document.getElementById('https-status').style.background = '#fff3cd';
-        document.getElementById('https-status').style.color = '#856404';
-    } else {
-        document.getElementById('https-status').innerHTML = '❌ HTTPS required for PWA features';
-        document.getElementById('https-status').style.background = '#f8d7da';
-        document.getElementById('https-status').style.color = '#721c24';
-    }
-    </script>
-    """
-
-
-# ==============================
-# PWA SETUP DASHBOARD
-# ==============================
 def pwa_setup_dashboard():
-    """PWA Setup Dashboard"""
+    """PWA Setup Dashboard - CLEAN VERSION"""
     
     st.title("📱 PWA Setup")
     st.caption("Configure Progressive Web App settings")
@@ -905,10 +512,6 @@ def pwa_setup_dashboard():
     with tab1:
         st.markdown("## ⚙️ PWA Settings")
         st.caption("Configure your Progressive Web App")
-        
-        st.markdown(check_https(), unsafe_allow_html=True)
-        st.markdown(pwa_install_prompt(), unsafe_allow_html=True)
-        st.markdown(offline_status_indicator(), unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
@@ -962,8 +565,6 @@ def pwa_setup_dashboard():
             splash_screen = st.checkbox("Splash Screen", value=config.get("splash_screen", True))
             ios_enabled = st.checkbox("iOS Support", value=config.get("ios_enabled", True))
             splash_color = st.color_picker("Splash Screen Color", value=config.get("splash_screen_color", "#6366F1"))
-        
-        st.markdown(pwa_shortcuts(), unsafe_allow_html=True)
         
         if st.button("💾 Save PWA Settings", type="primary", use_container_width=True):
             try:
@@ -1070,7 +671,7 @@ def pwa_setup_dashboard():
         st.json(version_info)
     
     # ==============================
-    # TAB 3: ICONS - FIXED
+    # TAB 3: ICONS
     # ==============================
     with tab3:
         st.markdown("## 🖼️ PWA Icons")
@@ -1166,8 +767,6 @@ def pwa_setup_dashboard():
         st.markdown("## 📋 PWA Preview")
         st.caption("Preview your PWA settings")
         
-        st.markdown(pwa_install_prompt(), unsafe_allow_html=True)
-        
         st.markdown("### 📱 App Preview")
         
         col1, col2 = st.columns([1, 2])
@@ -1246,7 +845,6 @@ def pwa_setup_dashboard():
         st.markdown("## 🧪 PWA Testing Tools")
         st.caption("Test and validate your PWA configuration")
         
-        st.markdown(check_https(), unsafe_allow_html=True)
         pwa_test_tools()
         
         st.markdown("### 📊 PWA Analytics")
@@ -1261,18 +859,6 @@ def pwa_setup_dashboard():
             st.metric("Icons", analytics.get('icons', 0))
         with col4:
             st.metric("Backups", analytics.get('backups', 0))
-        
-        st.markdown("### 🔧 Diagnostic Information")
-        st.json({
-            "config_file": str(PWA_CONFIG_FILE),
-            "manifest_file": str(PWA_MANIFEST_FILE),
-            "sw_file": str(PWA_SW_FILE),
-            "icons_dir": str(PWA_ICONS_DIR),
-            "backup_dir": str(PWA_BACKUP_DIR),
-            "config_exists": PWA_CONFIG_FILE.exists(),
-            "manifest_exists": PWA_MANIFEST_FILE.exists(),
-            "sw_exists": PWA_SW_FILE.exists()
-        })
     
     # ==============================
     # TAB 6: BACKUP
@@ -1286,7 +872,6 @@ def pwa_setup_dashboard():
             success, message = backup_pwa_config()
             if success:
                 show_toast(message, "success")
-                #st.rerun()
             else:
                 show_toast(message, "error")
         
@@ -1305,7 +890,6 @@ def pwa_setup_dashboard():
                     success, message = restore_pwa_config(backup_file)
                     if success:
                         show_toast(message, "success")
-                        #st.rerun()
                     else:
                         show_toast(message, "error")
                 except Exception as e:
@@ -1321,7 +905,6 @@ def pwa_setup_dashboard():
                 success, message = clear_pwa_cache()
                 if success:
                     show_toast(message, "success")
-                    #st.rerun()
                 else:
                     show_toast(message, "error")
         
@@ -1355,37 +938,31 @@ def pwa_setup_dashboard():
 
 
 # ==============================
-# PWA UTILITY FUNCTIONS
+# UTILITY FUNCTIONS
 # ==============================
 def get_pwa_meta_tags() -> str:
-    """Get PWA meta tags for embedding in HTML"""
     return generate_meta_tags()
 
 
 def get_pwa_config() -> Dict[str, Any]:
-    """Get PWA configuration"""
     return load_pwa_config()
 
 
 def is_pwa_enabled() -> bool:
-    """Check if PWA is enabled"""
     config = load_pwa_config()
     return config.get("enabled", True)
 
 
 def get_pwa_version_info() -> Dict[str, Any]:
-    """Get PWA version information"""
     return get_pwa_version()
 
 
 def get_pwa_install_prompt() -> str:
-    """Get PWA install prompt HTML"""
-    return pwa_install_prompt()
+    return ""
 
 
 def get_offline_status() -> str:
-    """Get offline status indicator HTML"""
-    return offline_status_indicator()
+    return ""
 
 
 # ==============================
