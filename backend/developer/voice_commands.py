@@ -653,7 +653,7 @@ def voice_commands_dashboard():
             with cols[col_idx]:
                 if st.button(label, use_container_width=True, key=f"quick_{idx}"):
                     st.session_state.voice_input = command
-                    st.rerun()
+                    #st.rerun()
     
     # ==============================
     # TAB 2: AVAILABLE COMMANDS
