@@ -823,7 +823,7 @@ def main_app():
     # ==============================
     st.sidebar.markdown("---")
     st.sidebar.caption("AZIEL INVESTMENTS ERP")
-    st.sidebar.caption("2024 All Rights Reserved")
+    st.sidebar.caption("2026 All Rights Reserved")
     
     if st.sidebar.button("Logout", key="logout_sidebar", use_container_width=True):
         for key in list(st.session_state.keys()):
