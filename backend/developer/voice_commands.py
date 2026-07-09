@@ -341,6 +341,12 @@ def voice_commands_dashboard():
     if "voice_input" not in st.session_state:
         st.session_state.voice_input = ""
     
+    if "voice_transcript" not in st.session_state:
+        st.session_state.voice_transcript = ""
+    
+    if "is_listening" not in st.session_state:
+        st.session_state.is_listening = False
+    
     # ==============================
     # TABS
     # ==============================
@@ -387,22 +393,18 @@ def voice_commands_dashboard():
             )
         
         with col2:
-            # Working microphone button
+            # Microphone button with working JavaScript
             st.markdown("""
             <style>
-            .mic-container {
-                margin-top: 25px;
-                display: flex;
-                justify-content: center;
-            }
             .mic-btn {
                 background: linear-gradient(135deg, #6366F1, #8B5CF6);
                 border: none;
                 color: white;
-                padding: 14px 24px;
+                padding: 12px 20px;
                 border-radius: 50px;
-                font-size: 22px;
+                font-size: 20px;
                 cursor: pointer;
+                margin-top: 25px;
                 width: 100%;
                 transition: all 0.3s ease;
                 box-shadow: 0 4px 15px rgba(99,102,241,0.4);
@@ -411,9 +413,6 @@ def voice_commands_dashboard():
             .mic-btn:hover {
                 transform: scale(1.05);
                 box-shadow: 0 6px 25px rgba(99,102,241,0.6);
-            }
-            .mic-btn:active {
-                transform: scale(0.95);
             }
             .mic-btn.listening {
                 background: linear-gradient(135deg, #EF4444, #DC2626);
@@ -427,49 +426,43 @@ def voice_commands_dashboard():
             .mic-status {
                 text-align: center;
                 font-size: 12px;
-                color: #666;
                 margin-top: 5px;
                 min-height: 20px;
+                color: #666;
             }
-            .mic-status.active {
+            .mic-status.listening {
                 color: #EF4444;
                 font-weight: bold;
+                animation: pulse 1.5s infinite;
             }
             </style>
             
-            <div class="mic-container">
-                <button class="mic-btn" id="micButton">🎤</button>
-            </div>
+            <button class="mic-btn" id="micButton">🎤</button>
             <div class="mic-status" id="micStatus">Click to speak</div>
             
             <script>
             (function() {
                 const micBtn = document.getElementById('micButton');
                 const micStatus = document.getElementById('micStatus');
+                const inputField = document.querySelector('input[data-testid="stTextInput"]');
                 
                 if (!micBtn) return;
                 
                 let recognition = null;
                 let isListening = false;
                 
-                micBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    toggleVoiceRecognition();
-                });
-                
-                function toggleVoiceRecognition() {
+                micBtn.addEventListener('click', function() {
                     if (isListening) {
                         stopRecognition();
                     } else {
                         startRecognition();
                     }
-                }
+                });
                 
                 function startRecognition() {
                     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                     if (!SpeechRecognition) {
                         micStatus.textContent = '❌ Browser not supported';
-                        micStatus.className = 'mic-status';
                         return;
                     }
                     
@@ -477,58 +470,44 @@ def voice_commands_dashboard():
                     recognition.lang = 'en-US';
                     recognition.interimResults = true;
                     recognition.continuous = false;
-                    recognition.maxAlternatives = 1;
                     
                     recognition.onstart = function() {
                         isListening = true;
                         micBtn.classList.add('listening');
-                        micBtn.textContent = '🔴 Listening...';
+                        micBtn.textContent = '🔴 Stop';
                         micStatus.textContent = '🎤 Speak now...';
-                        micStatus.className = 'mic-status active';
+                        micStatus.className = 'mic-status listening';
                     };
                     
                     recognition.onresult = function(event) {
-                        let finalTranscript = '';
-                        let interimTranscript = '';
-                        
+                        let transcript = '';
                         for (let i = event.resultIndex; i < event.results.length; i++) {
+                            transcript += event.results[i][0].transcript;
                             if (event.results[i].isFinal) {
-                                finalTranscript += event.results[i][0].transcript;
-                            } else {
-                                interimTranscript += event.results[i][0].transcript;
-                            }
-                        }
-                        
-                        const inputField = document.querySelector('[data-testid="stTextInput"] input');
-                        if (inputField) {
-                            if (finalTranscript) {
-                                inputField.value = finalTranscript;
-                                micStatus.textContent = '✅ ' + finalTranscript;
-                                // Trigger process after a short delay
+                                if (inputField) {
+                                    inputField.value = transcript;
+                                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
+                                micStatus.textContent = '✅ ' + transcript;
+                                stopRecognition();
                                 setTimeout(function() {
-                                    const processBtn = document.querySelector('button[data-testid="baseButton-secondary"]');
-                                    if (processBtn && processBtn.textContent.includes('Process')) {
-                                        processBtn.click();
+                                    const buttons = document.querySelectorAll('button');
+                                    for (let btn of buttons) {
+                                        if (btn.textContent.includes('Process')) {
+                                            btn.click();
+                                            break;
+                                        }
                                     }
-                                }, 500);
-                            } else if (interimTranscript) {
-                                inputField.value = interimTranscript + '...';
-                                micStatus.textContent = '🎤 ' + interimTranscript;
+                                }, 300);
                             }
                         }
                     };
                     
                     recognition.onerror = function(event) {
-                        let errorMsg = event.error;
-                        if (errorMsg === 'not-allowed') {
-                            errorMsg = 'Please allow microphone access';
-                        } else if (errorMsg === 'no-speech') {
-                            errorMsg = 'No speech detected';
-                        } else if (errorMsg === 'audio-capture') {
-                            errorMsg = 'No microphone found';
-                        }
-                        micStatus.textContent = '❌ Error: ' + errorMsg;
-                        micStatus.className = 'mic-status';
+                        let msg = event.error;
+                        if (msg === 'not-allowed') msg = 'Microphone access denied';
+                        else if (msg === 'no-speech') msg = 'No speech detected';
+                        micStatus.textContent = '❌ ' + msg;
                         stopRecognition();
                     };
                     
@@ -536,37 +515,25 @@ def voice_commands_dashboard():
                         stopRecognition();
                     };
                     
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        micStatus.textContent = '❌ Error starting: ' + e.message;
-                        micStatus.className = 'mic-status';
-                        isListening = false;
-                        micBtn.classList.remove('listening');
-                        micBtn.textContent = '🎤';
-                    }
+                    recognition.start();
                 }
                 
                 function stopRecognition() {
                     isListening = false;
                     micBtn.classList.remove('listening');
                     micBtn.textContent = '🎤';
+                    micStatus.textContent = 'Click to speak';
+                    micStatus.className = 'mic-status';
                     if (recognition) {
-                        try {
-                            recognition.stop();
-                        } catch (e) {}
+                        try { recognition.stop(); } catch(e) {}
                         recognition = null;
-                    }
-                    if (micStatus.textContent.startsWith('🎤')) {
-                        micStatus.textContent = 'Click to speak';
-                        micStatus.className = 'mic-status';
                     }
                 }
             })();
             </script>
             """, unsafe_allow_html=True)
         
-        # Process button and result
+        # Process button
         if st.button("🔍 Process Command", key="process_voice"):
             if voice_text:
                 with st.spinner("Processing command..."):
