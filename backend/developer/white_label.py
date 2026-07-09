@@ -30,7 +30,7 @@ def init_branding_files():
             "accent_color": "#FF6584",
             "logo_url": "",
             "favicon_url": "",
-            "footer_text": "© 2024 Aziel Investments. All rights reserved.",
+            "footer_text": "© 2026 Aziel Investments. All rights reserved.",
             "receipt_footer": "Thank you for shopping with us!",
             "email_footer": "Aziel Investments - Smart Retail ERP System",
             "custom_css": "",
@@ -317,7 +317,7 @@ def white_label_dashboard():
             })
             save_branding_settings(settings)
             show_toast("Branding updated!", "success")
-            st.rerun()
+            #st.rerun()
     
     # ==============================
     # TAB 2: LOGO
@@ -358,7 +358,7 @@ def white_label_dashboard():
                 settings["logo_url"] = ""
                 save_branding_settings(settings)
                 show_toast("Logo removed", "success")
-                st.rerun()
+                #st.rerun()
     
     # ==============================
     # TAB 3: CUSTOM CSS
@@ -390,7 +390,7 @@ def white_label_dashboard():
             settings["custom_css"] = custom_css
             save_branding_settings(settings)
             show_toast("Custom CSS updated!", "success")
-            st.rerun()
+            #st.rerun()
         
         st.markdown("### 🎨 CSS Examples")
         with st.expander("Show CSS Examples"):
