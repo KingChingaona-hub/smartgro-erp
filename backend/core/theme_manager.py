@@ -138,10 +138,10 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - BLACK & WHITE WITH WHITE DROPDOWN BACKGROUND
+# THEME APPLICATION - FIXED DROPDOWN VISIBILITY
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS - DROPDOWN SECTION ALWAYS HAS WHITE BACKGROUND"""
+    """Apply theme CSS - DROPDOWN ITEMS ALWAYS VISIBLE"""
     
     # Determine if dark mode
     is_dark = colors.get("background_color", "#FFFFFF") == "#000000"
@@ -155,10 +155,12 @@ def apply_theme(colors):
     secondary_bg = colors.get("secondary_bg", "#F5F5F5")
     text_secondary = colors.get("text_secondary", "#333333")
     
-    # Dropdown specific colors - ALWAYS WHITE BACKGROUND
-    dropdown_bg = "#FFFFFF"  # ALWAYS WHITE for dropdown section
-    dropdown_text = "#000000"  # ALWAYS BLACK text
-    dropdown_border = "#CCCCCC"  # Light gray border
+    # DROPDOWN COLORS - ALWAYS CONTRASTING
+    # In dark mode: white background, black text (so items are visible)
+    # In light mode: white background, black text
+    dropdown_bg = "#FFFFFF"  # ALWAYS WHITE background for dropdown
+    dropdown_text = "#000000"  # ALWAYS BLACK text for dropdown items
+    dropdown_border = "#CCCCCC"
     dropdown_hover_bg = "#000000"  # Black on hover
     dropdown_hover_text = "#FFFFFF"  # White text on hover
     
@@ -238,7 +240,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DROPDOWNS - ALWAYS WHITE BACKGROUND
+           DROPDOWNS - ALWAYS VISIBLE
            ============================== */
         
         /* Selectbox container - the visible input box */
@@ -267,7 +269,7 @@ def apply_theme(colors):
             fill: {dropdown_text} !important;
         }}
         
-        /* ===== DROPDOWN MENU (THE DROPDOWN LIST) - ALWAYS WHITE ===== */
+        /* ===== DROPDOWN MENU - ALWAYS WHITE BACKGROUND ===== */
         div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
             border: 1px solid {dropdown_border} !important;
@@ -278,7 +280,7 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* ===== DROPDOWN ITEMS (THE OPTIONS) - ALWAYS WHITE ===== */
+        /* ===== DROPDOWN ITEMS - ALWAYS BLACK TEXT ON WHITE BACKGROUND ===== */
         div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
@@ -294,20 +296,20 @@ def apply_theme(colors):
             border-bottom: none !important;
         }}
         
-        /* Hover state for dropdown items */
+        /* Hover state - BLACK background with WHITE text */
         div[data-baseweb="select"] ul li:hover {{
             background-color: {dropdown_hover_bg} !important;
             color: {dropdown_hover_text} !important;
         }}
         
-        /* Selected/active state for dropdown items */
+        /* Selected/active state - BLACK background with WHITE text */
         div[data-baseweb="select"] ul li[aria-selected="true"] {{
             background-color: {dropdown_hover_bg} !important;
             color: {dropdown_hover_text} !important;
             font-weight: 600 !important;
         }}
         
-        /* Focus state for dropdown items */
+        /* Focus state */
         div[data-baseweb="select"] ul li:focus {{
             outline: none !important;
             background-color: {dropdown_hover_bg} !important;
@@ -320,7 +322,7 @@ def apply_theme(colors):
             font-weight: 500 !important;
         }}
         
-        /* ===== SIDEBAR DROPDOWNS - ALWAYS WHITE ===== */
+        /* ===== SIDEBAR DROPDOWNS - ALWAYS VISIBLE ===== */
         div[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -348,7 +350,7 @@ def apply_theme(colors):
             color: {dropdown_hover_text} !important;
         }}
         
-        /* ===== MULTI-SELECT DROPDOWNS - ALWAYS WHITE ===== */
+        /* ===== MULTI-SELECT ===== */
         div[data-baseweb="select"] [data-testid="stMultiSelect"] {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -368,7 +370,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           INPUT FIELDS - ALWAYS WHITE
+           INPUT FIELDS - ALWAYS VISIBLE
            ============================== */
         
         .stTextInput > div > div > input,
@@ -398,7 +400,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DATE INPUT CALENDAR - ALWAYS WHITE
+           DATE INPUT CALENDAR
            ============================== */
         
         div[data-baseweb="calendar"] {{
@@ -442,7 +444,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DATAFRAMES / TABLES - ALWAYS WHITE
+           DATAFRAMES / TABLES
            ============================== */
         
         .stDataFrame {{
