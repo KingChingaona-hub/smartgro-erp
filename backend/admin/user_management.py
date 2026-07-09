@@ -38,6 +38,10 @@ def user_management_page():
         st.session_state.um_force_refresh = False
     if "um_audit_log" not in st.session_state:
         st.session_state.um_audit_log = []
+    if "user_created" not in st.session_state:
+        st.session_state.user_created = False
+    if "user_created_name" not in st.session_state:
+        st.session_state.user_created_name = ""
     
     # ==============================
     # AUDIT LOG FUNCTION
@@ -296,11 +300,18 @@ def user_management_page():
             )
     
     # ==============================
-    # TAB 2: ADD USER
+    # TAB 2: ADD USER - FIXED CONTINUOUS RUNNING
     # ==============================
     with tab2:
         st.subheader("➕ Add New User")
         st.caption("Create a new user account with proper validation")
+        
+        # Check if user was just created
+        if st.session_state.user_created:
+            st.success(f"✅ User '{st.session_state.user_created_name}' created successfully!")
+            st.balloons()
+            st.session_state.user_created = False
+            st.session_state.user_created_name = ""
         
         with st.form("add_user_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -330,6 +341,7 @@ def user_management_page():
             submitted = st.form_submit_button("➕ Create User", type="primary", use_container_width=True)
             
             if submitted:
+                # Reload users to check for duplicates
                 users_df = load_users()
                 errors = []
                 warnings = []
@@ -415,11 +427,12 @@ def user_management_page():
                         
                         log_audit("USER_CREATED", f"Created user: {new_username} ({new_role})")
                         
-                        st.success(f"✅ User '{new_username}' created successfully!")
-                        st.info(f"🔑 Password: {new_password}")
-                        st.balloons()
-                        
+                        # Set session state to show success message
+                        st.session_state.user_created = True
+                        st.session_state.user_created_name = new_username
                         st.session_state.um_force_refresh = True
+                        
+                        # Force rerun to show success
                         st.rerun()
                         
                     except Exception as e:
