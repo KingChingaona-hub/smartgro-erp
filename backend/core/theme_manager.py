@@ -141,15 +141,26 @@ def get_auto_theme():
 # THEME APPLICATION - BLACK & WHITE ONLY
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS - BLACK & WHITE ONLY"""
+    """Apply theme CSS - BLACK & WHITE ONLY - ALL DROPDOWN ITEMS INCLUDED"""
     
     # Determine if dark mode
     is_dark = colors.get("background_color", "#FFFFFF") == "#000000"
     
-    # Set colors for dropdowns based on theme
+    # Set colors based on theme
+    bg_color = colors.get("background_color", "#FFFFFF")
+    text_color = colors.get("text_color", "#000000")
+    border_color = colors.get("border_color", "#CCCCCC")
+    card_bg = colors.get("card_bg", "#FFFFFF")
+    sidebar_bg = colors.get("sidebar_bg", "#F5F5F5")
+    secondary_bg = colors.get("secondary_bg", "#F5F5F5")
+    text_secondary = colors.get("text_secondary", "#333333")
+    
+    # Dropdown specific colors
     dropdown_bg = "#FFFFFF" if not is_dark else "#1A1A1A"
     dropdown_text = "#000000" if not is_dark else "#FFFFFF"
     dropdown_border = "#CCCCCC" if not is_dark else "#444444"
+    dropdown_hover_bg = "#000000" if not is_dark else "#FFFFFF"
+    dropdown_hover_text = "#FFFFFF" if not is_dark else "#000000"
     
     css = f"""
     <style>
@@ -158,63 +169,63 @@ def apply_theme(colors):
            ============================== */
         
         .stApp {{
-            background-color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {bg_color} !important;
         }}
         
         .main .block-container {{
-            background-color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {bg_color} !important;
         }}
         
         /* Headers */
         h1, h2, h3, h4, h5, h6 {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
         }}
         
         /* All text */
         p, li, span, label, div, .stMarkdown, .stMarkdown p {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
         }}
         
         /* Sidebar */
         [data-testid="stSidebar"] {{
-            background-color: {colors.get("sidebar_bg", "#F5F5F5")} !important;
-            border-right: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
+            background-color: {sidebar_bg} !important;
+            border-right: 1px solid {border_color} !important;
         }}
         
         [data-testid="stSidebar"] .stMarkdown,
         [data-testid="stSidebar"] p,
         [data-testid="stSidebar"] span,
         [data-testid="stSidebar"] label {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
         }}
         
         /* Cards / Expanders / Metrics */
         [data-testid="stExpander"],
         [data-testid="stMetric"] {{
-            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
-            border: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
+            background-color: {card_bg} !important;
+            border: 1px solid {border_color} !important;
             border-radius: 8px !important;
         }}
         
         [data-testid="stExpander"] summary p {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
         }}
         
         [data-testid="stMetricValue"] {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
             font-size: 1.8rem !important;
             font-weight: 600 !important;
         }}
         
         [data-testid="stMetricLabel"] {{
-            color: {colors.get("text_secondary", "#333333")} !important;
+            color: {text_secondary} !important;
         }}
         
         /* Buttons - Black & White */
         .stButton > button {{
-            background-color: {colors.get("text_color", "#000000")} !important;
-            color: {colors.get("background_color", "#FFFFFF")} !important;
-            border: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
+            background-color: {text_color} !important;
+            color: {bg_color} !important;
+            border: 1px solid {border_color} !important;
             border-radius: 8px !important;
             padding: 8px 16px !important;
             font-weight: 500 !important;
@@ -227,10 +238,10 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DROPDOWNS (SELECTBOX) - BLACK & WHITE
+           DROPDOWNS (SELECTBOX) - COMPLETE FIX FOR ALL ITEMS
            ============================== */
         
-        /* Selectbox container */
+        /* Selectbox container - the visible input box */
         div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -239,23 +250,24 @@ def apply_theme(colors):
             min-height: 38px !important;
         }}
         
+        /* The inner div of selectbox */
         div[data-baseweb="select"] > div > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
         }}
         
-        /* Selected value text */
+        /* Selected value text (what you see when dropdown is closed) */
         div[data-baseweb="select"] > div > div > div {{
             color: {dropdown_text} !important;
             font-weight: 500 !important;
         }}
         
-        /* Dropdown arrow */
+        /* Dropdown arrow icon */
         div[data-baseweb="select"] svg {{
             fill: {dropdown_text} !important;
         }}
         
-        /* Dropdown menu */
+        /* ===== DROPDOWN MENU (THE DROPDOWN LIST) ===== */
         div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
             border: 1px solid {dropdown_border} !important;
@@ -266,7 +278,7 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* Dropdown items */
+        /* ===== DROPDOWN ITEMS (THE OPTIONS) ===== */
         div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
@@ -277,28 +289,38 @@ def apply_theme(colors):
             border-bottom: 1px solid {dropdown_border} !important;
         }}
         
+        /* Last item - remove border */
         div[data-baseweb="select"] ul li:last-child {{
             border-bottom: none !important;
         }}
         
+        /* Hover state for dropdown items */
         div[data-baseweb="select"] ul li:hover {{
-            background-color: {colors.get("text_color", "#000000")} !important;
-            color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {dropdown_hover_bg} !important;
+            color: {dropdown_hover_text} !important;
         }}
         
+        /* Selected/active state for dropdown items */
         div[data-baseweb="select"] ul li[aria-selected="true"] {{
-            background-color: {colors.get("text_color", "#000000")} !important;
-            color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {dropdown_hover_bg} !important;
+            color: {dropdown_hover_text} !important;
             font-weight: 600 !important;
+        }}
+        
+        /* Focus state for dropdown items */
+        div[data-baseweb="select"] ul li:focus {{
+            outline: none !important;
+            background-color: {dropdown_hover_bg} !important;
+            color: {dropdown_hover_text} !important;
         }}
         
         /* Selectbox label */
         .stSelectbox label {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
             font-weight: 500 !important;
         }}
         
-        /* Sidebar selectbox */
+        /* ===== SIDEBAR DROPDOWNS ===== */
         div[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -313,11 +335,36 @@ def apply_theme(colors):
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
+            border-bottom: 1px solid {dropdown_border} !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li:hover {{
-            background-color: {colors.get("text_color", "#000000")} !important;
-            color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {dropdown_hover_bg} !important;
+            color: {dropdown_hover_text} !important;
+        }}
+        
+        div[data-testid="stSidebar"] div[data-baseweb="select"] ul li[aria-selected="true"] {{
+            background-color: {dropdown_hover_bg} !important;
+            color: {dropdown_hover_text} !important;
+        }}
+        
+        /* ===== MULTI-SELECT DROPDOWNS ===== */
+        div[data-baseweb="select"] [data-testid="stMultiSelect"] {{
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
+        }}
+        
+        /* Multi-select tags/pills */
+        div[data-baseweb="tag"] {{
+            background-color: {text_color} !important;
+            color: {bg_color} !important;
+            border-radius: 4px !important;
+            padding: 2px 8px !important;
+            margin: 2px !important;
+        }}
+        
+        div[data-baseweb="tag"] svg {{
+            fill: {bg_color} !important;
         }}
         
         /* ==============================
@@ -337,8 +384,8 @@ def apply_theme(colors):
         .stTextInput > div > div > input:focus,
         .stNumberInput > div > div > input:focus,
         .stTextArea > div > div > textarea:focus {{
-            border-color: {colors.get("text_color", "#000000")} !important;
-            box-shadow: 0 0 0 2px {colors.get("text_color", "#000000")}20 !important;
+            border-color: {text_color} !important;
+            box-shadow: 0 0 0 2px {text_color}20 !important;
         }}
         
         .stTextInput label,
@@ -346,12 +393,12 @@ def apply_theme(colors):
         .stSelectbox label,
         .stTextArea label,
         .stDateInput label {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
             font-weight: 500 !important;
         }}
         
         /* ==============================
-           DATE INPUT
+           DATE INPUT CALENDAR
            ============================== */
         
         div[data-baseweb="calendar"] {{
@@ -369,8 +416,8 @@ def apply_theme(colors):
         }}
         
         div[data-baseweb="calendar"] button:hover {{
-            background-color: {colors.get("text_color", "#000000")} !important;
-            color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {dropdown_hover_bg} !important;
+            color: {dropdown_hover_text} !important;
         }}
         
         /* ==============================
@@ -382,20 +429,20 @@ def apply_theme(colors):
         }}
         
         .stTabs [data-baseweb="tab"] {{
-            background-color: {colors.get("secondary_bg", "#F5F5F5")} !important;
+            background-color: {secondary_bg} !important;
             border-radius: 8px !important;
             padding: 8px 16px !important;
-            color: {colors.get("text_color", "#000000")} !important;
-            border: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
+            color: {text_color} !important;
+            border: 1px solid {border_color} !important;
         }}
         
         .stTabs [aria-selected="true"] {{
-            background-color: {colors.get("text_color", "#000000")} !important;
-            color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {text_color} !important;
+            color: {bg_color} !important;
         }}
         
         /* ==============================
-           DATAFRAMES
+           DATAFRAMES / TABLES
            ============================== */
         
         .stDataFrame {{
@@ -409,8 +456,8 @@ def apply_theme(colors):
         }}
         
         .dataframe th {{
-            background-color: {colors.get("text_color", "#000000")} !important;
-            color: {colors.get("background_color", "#FFFFFF")} !important;
+            background-color: {text_color} !important;
+            color: {bg_color} !important;
             padding: 10px !important;
         }}
         
@@ -421,7 +468,7 @@ def apply_theme(colors):
         }}
         
         .dataframe tr:hover td {{
-            background-color: {colors.get("text_color", "#000000")}20 !important;
+            background-color: {text_color}20 !important;
         }}
         
         /* ==============================
@@ -441,7 +488,7 @@ def apply_theme(colors):
         
         .stCheckbox label,
         .stRadio label {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
         }}
         
         /* ==============================
@@ -449,8 +496,8 @@ def apply_theme(colors):
            ============================== */
         
         code {{
-            background-color: {colors.get("secondary_bg", "#F5F5F5")} !important;
-            color: {colors.get("text_color", "#000000")} !important;
+            background-color: {secondary_bg} !important;
+            color: {text_color} !important;
             border-radius: 4px !important;
             padding: 2px 6px !important;
         }}
@@ -460,7 +507,7 @@ def apply_theme(colors):
            ============================== */
         
         hr {{
-            border-color: {colors.get("border_color", "#CCCCCC")} !important;
+            border-color: {border_color} !important;
         }}
         
         /* ==============================
@@ -468,7 +515,7 @@ def apply_theme(colors):
            ============================== */
         
         a {{
-            color: {colors.get("text_color", "#000000")} !important;
+            color: {text_color} !important;
         }}
         
         a:hover {{
@@ -480,7 +527,7 @@ def apply_theme(colors):
            ============================== */
         
         .stCaption {{
-            color: {colors.get("text_secondary", "#333333")} !important;
+            color: {text_secondary} !important;
         }}
         
         /* ==============================
@@ -488,7 +535,7 @@ def apply_theme(colors):
            ============================== */
         
         .stProgress > div > div {{
-            background-color: {colors.get("text_color", "#000000")} !important;
+            background-color: {text_color} !important;
         }}
     </style>
     """
