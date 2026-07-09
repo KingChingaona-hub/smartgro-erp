@@ -14,7 +14,29 @@ def branch_management_page():
         st.error("❌ Access Denied. Only system owner can access branch management.")
         return
     
-    # Load branches
+    # ==============================
+    # SESSION STATE INITIALIZATION
+    # ==============================
+    if "bm_message" not in st.session_state:
+        st.session_state.bm_message = ""
+    if "bm_message_type" not in st.session_state:
+        st.session_state.bm_message_type = ""
+    if "bm_force_refresh" not in st.session_state:
+        st.session_state.bm_force_refresh = False
+    if "bm_branch_created" not in st.session_state:
+        st.session_state.bm_branch_created = False
+    if "bm_branch_updated" not in st.session_state:
+        st.session_state.bm_branch_updated = False
+    if "bm_branch_deleted" not in st.session_state:
+        st.session_state.bm_branch_deleted = False
+    
+    # ==============================
+    # LOAD BRANCHES
+    # ==============================
+    if st.session_state.bm_force_refresh:
+        st.cache_data.clear()
+        st.session_state.bm_force_refresh = False
+    
     df = load_branches()
     
     # ==============================
@@ -32,6 +54,22 @@ def branch_management_page():
                 df[col] = ""
     
     save_branches(df)
+    
+    # ==============================
+    # DISPLAY MESSAGE
+    # ==============================
+    if st.session_state.bm_message:
+        if st.session_state.bm_message_type == "success":
+            st.success(st.session_state.bm_message)
+            if st.session_state.bm_branch_created:
+                st.balloons()
+                st.session_state.bm_branch_created = False
+        elif st.session_state.bm_message_type == "error":
+            st.error(st.session_state.bm_message)
+        else:
+            st.info(st.session_state.bm_message)
+        st.session_state.bm_message = ""
+        st.session_state.bm_message_type = ""
     
     # ==============================
     # DISPLAY EXISTING BRANCHES
@@ -58,7 +96,7 @@ def branch_management_page():
     st.markdown("---")
     
     # ==============================
-    # ADD NEW BRANCH
+    # TAB 1: ADD BRANCH
     # ==============================
     st.subheader("➕ Add New Branch")
     
@@ -78,44 +116,54 @@ def branch_management_page():
         submitted = st.form_submit_button("➕ Add Branch", type="primary", use_container_width=True)
         
         if submitted:
+            # Validate
             if branch_id.strip() == "":
-                st.error("❌ Branch Code is required")
+                st.session_state.bm_message = "❌ Branch Code is required"
+                st.session_state.bm_message_type = "error"
             elif branch_name.strip() == "":
-                st.error("❌ Branch Name is required")
+                st.session_state.bm_message = "❌ Branch Name is required"
+                st.session_state.bm_message_type = "error"
             elif branch_id.upper() in df["branch_id"].astype(str).str.upper().tolist():
-                st.error(f"❌ Branch Code '{branch_id.upper()}' already exists!")
+                st.session_state.bm_message = f"❌ Branch Code '{branch_id.upper()}' already exists!"
+                st.session_state.bm_message_type = "error"
             else:
-                new_branch = pd.DataFrame([{
-                    "branch_id": branch_id.strip().upper(),
-                    "branch_name": branch_name.strip(),
-                    "location": location.strip(),
-                    "level": level,
-                    "active": active
-                }])
-                
-                df = pd.concat([df, new_branch], ignore_index=True)
-                save_branches(df)
-                
-                st.success(f"✅ Branch '{branch_name}' added successfully!")
-                st.balloons()
-                st.rerun()
+                try:
+                    new_branch = pd.DataFrame([{
+                        "branch_id": branch_id.strip().upper(),
+                        "branch_name": branch_name.strip(),
+                        "location": location.strip(),
+                        "level": level,
+                        "active": active
+                    }])
+                    
+                    current_df = load_branches()
+                    updated_df = pd.concat([current_df, new_branch], ignore_index=True)
+                    save_branches(updated_df)
+                    
+                    st.session_state.bm_message = f"✅ Branch '{branch_name}' added successfully!"
+                    st.session_state.bm_message_type = "success"
+                    st.session_state.bm_branch_created = True
+                    st.session_state.bm_force_refresh = True
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.bm_message = f"❌ Error adding branch: {str(e)}"
+                    st.session_state.bm_message_type = "error"
     
     st.markdown("---")
     
     # ==============================
-    # UPDATE / EDIT BRANCH
+    # TAB 2: EDIT BRANCH
     # ==============================
     st.subheader("✏️ Update / Edit Branch")
     
     if not df.empty:
-        # Create a list of branch names for selection
         branch_names = df["branch_name"].tolist()
         selected_branch = st.selectbox("Select Branch to Update", branch_names, key="update_branch_select")
         
         if selected_branch:
             row = df[df["branch_name"] == selected_branch].iloc[0]
             
-            with st.form("update_branch_form", clear_on_submit=False):
+            with st.form("update_branch_form"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -132,35 +180,55 @@ def branch_management_page():
                 
                 with col_btn1:
                     if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
-                        idx = row.name
-                        df.at[idx, "branch_name"] = update_branch_name
-                        df.at[idx, "location"] = update_location
-                        df.at[idx, "level"] = update_level
-                        df.at[idx, "active"] = update_active
-                        
-                        save_branches(df)
-                        st.success(f"✅ Branch '{update_branch_name}' updated successfully!")
-                        st.rerun()
+                        if not update_branch_name.strip():
+                            st.session_state.bm_message = "❌ Branch Name is required"
+                            st.session_state.bm_message_type = "error"
+                        else:
+                            try:
+                                current_df = load_branches()
+                                idx = current_df[current_df["branch_name"] == selected_branch].index[0]
+                                current_df.at[idx, "branch_name"] = update_branch_name
+                                current_df.at[idx, "location"] = update_location
+                                current_df.at[idx, "level"] = update_level
+                                current_df.at[idx, "active"] = update_active
+                                
+                                save_branches(current_df)
+                                
+                                st.session_state.bm_message = f"✅ Branch '{update_branch_name}' updated successfully!"
+                                st.session_state.bm_message_type = "success"
+                                st.session_state.bm_branch_updated = True
+                                st.session_state.bm_force_refresh = True
+                                st.rerun()
+                            except Exception as e:
+                                st.session_state.bm_message = f"❌ Error updating branch: {str(e)}"
+                                st.session_state.bm_message_type = "error"
                 
                 with col_btn2:
                     if st.form_submit_button("🗑️ Delete Branch", use_container_width=True):
-                        st.warning("⚠️ Check the box below to confirm deletion")
-                        confirm = st.checkbox("I understand this action CANNOT be undone")
-                        if confirm:
-                            if len(df) <= 1:
-                                st.error("❌ At least one branch must remain in the system.")
-                            else:
-                                df = df[df["branch_name"] != selected_branch]
-                                save_branches(df)
-                                st.success(f"✅ Branch '{selected_branch}' deleted successfully!")
+                        if len(df) <= 1:
+                            st.session_state.bm_message = "❌ At least one branch must remain in the system."
+                            st.session_state.bm_message_type = "error"
+                        else:
+                            try:
+                                current_df = load_branches()
+                                current_df = current_df[current_df["branch_name"] != selected_branch]
+                                save_branches(current_df)
+                                
+                                st.session_state.bm_message = f"✅ Branch '{selected_branch}' deleted successfully!"
+                                st.session_state.bm_message_type = "success"
+                                st.session_state.bm_branch_deleted = True
+                                st.session_state.bm_force_refresh = True
                                 st.rerun()
+                            except Exception as e:
+                                st.session_state.bm_message = f"❌ Error deleting branch: {str(e)}"
+                                st.session_state.bm_message_type = "error"
     else:
         st.info("No branches available to update. Add a branch first.")
     
     st.markdown("---")
     
     # ==============================
-    # QUICK DELETE SECTION (Alternative)
+    # TAB 3: QUICK DELETE
     # ==============================
     st.subheader("🗑️ Quick Delete Branch")
     
@@ -174,10 +242,19 @@ def branch_management_page():
             if st.button("🗑️ Confirm Delete", use_container_width=True):
                 confirm = st.checkbox("✅ I confirm I want to delete this branch")
                 if confirm:
-                    df = df[df["branch_name"] != delete_branch_name]
-                    save_branches(df)
-                    st.success(f"✅ Branch '{delete_branch_name}' deleted successfully!")
-                    st.rerun()
+                    try:
+                        current_df = load_branches()
+                        current_df = current_df[current_df["branch_name"] != delete_branch_name]
+                        save_branches(current_df)
+                        
+                        st.session_state.bm_message = f"✅ Branch '{delete_branch_name}' deleted successfully!"
+                        st.session_state.bm_message_type = "success"
+                        st.session_state.bm_branch_deleted = True
+                        st.session_state.bm_force_refresh = True
+                        st.rerun()
+                    except Exception as e:
+                        st.session_state.bm_message = f"❌ Error deleting branch: {str(e)}"
+                        st.session_state.bm_message_type = "error"
     elif not df.empty and len(df) == 1:
         st.info("Cannot delete the only remaining branch. Add another branch first.")
     
@@ -187,4 +264,12 @@ def branch_management_page():
     st.markdown("---")
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
+        st.session_state.bm_force_refresh = True
         st.rerun()
+
+
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    branch_management_page()
