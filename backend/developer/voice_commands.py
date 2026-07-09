@@ -387,20 +387,26 @@ def voice_commands_dashboard():
             )
         
         with col2:
+            # Working microphone button
             st.markdown("""
             <style>
+            .mic-container {
+                margin-top: 25px;
+                display: flex;
+                justify-content: center;
+            }
             .mic-btn {
                 background: linear-gradient(135deg, #6366F1, #8B5CF6);
                 border: none;
                 color: white;
-                padding: 12px 20px;
+                padding: 14px 24px;
                 border-radius: 50px;
-                font-size: 20px;
+                font-size: 22px;
                 cursor: pointer;
-                margin-top: 25px;
                 width: 100%;
                 transition: all 0.3s ease;
                 box-shadow: 0 4px 15px rgba(99,102,241,0.4);
+                font-weight: bold;
             }
             .mic-btn:hover {
                 transform: scale(1.05);
@@ -418,86 +424,145 @@ def voice_commands_dashboard():
                 70% { box-shadow: 0 0 0 15px rgba(239,68,68,0); }
                 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
             }
+            .mic-status {
+                text-align: center;
+                font-size: 12px;
+                color: #666;
+                margin-top: 5px;
+                min-height: 20px;
+            }
+            .mic-status.active {
+                color: #EF4444;
+                font-weight: bold;
+            }
             </style>
             
-            <button class="mic-btn" id="micButton" onclick="startVoiceRecognition()">🎤</button>
+            <div class="mic-container">
+                <button class="mic-btn" id="micButton">🎤</button>
+            </div>
+            <div class="mic-status" id="micStatus">Click to speak</div>
             
             <script>
-            function startVoiceRecognition() {
-                const btn = document.getElementById('micButton');
-                if (btn.dataset.listening === 'true') return;
+            (function() {
+                const micBtn = document.getElementById('micButton');
+                const micStatus = document.getElementById('micStatus');
                 
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) {
-                    alert('Voice recognition not supported in this browser. Please type your command.');
-                    return;
+                if (!micBtn) return;
+                
+                let recognition = null;
+                let isListening = false;
+                
+                micBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    toggleVoiceRecognition();
+                });
+                
+                function toggleVoiceRecognition() {
+                    if (isListening) {
+                        stopRecognition();
+                    } else {
+                        startRecognition();
+                    }
                 }
                 
-                const recognition = new SpeechRecognition();
-                recognition.lang = 'en-US';
-                recognition.interimResults = true;
-                recognition.continuous = false;
-                
-                btn.dataset.listening = 'true';
-                btn.classList.add('listening');
-                btn.textContent = '🔴 Listening...';
-                
-                let timeoutId = setTimeout(function() {
-                    recognition.stop();
-                    resetButton(btn);
-                }, 15000);
-                
-                recognition.onresult = function(event) {
-                    clearTimeout(timeoutId);
-                    let finalTranscript = '';
-                    
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        if (event.results[i].isFinal) {
-                            finalTranscript += event.results[i][0].transcript;
-                        }
+                function startRecognition() {
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    if (!SpeechRecognition) {
+                        micStatus.textContent = '❌ Browser not supported';
+                        micStatus.className = 'mic-status';
+                        return;
                     }
                     
-                    if (finalTranscript) {
-                        resetButton(btn);
+                    recognition = new SpeechRecognition();
+                    recognition.lang = 'en-US';
+                    recognition.interimResults = true;
+                    recognition.continuous = false;
+                    recognition.maxAlternatives = 1;
+                    
+                    recognition.onstart = function() {
+                        isListening = true;
+                        micBtn.classList.add('listening');
+                        micBtn.textContent = '🔴 Listening...';
+                        micStatus.textContent = '🎤 Speak now...';
+                        micStatus.className = 'mic-status active';
+                    };
+                    
+                    recognition.onresult = function(event) {
+                        let finalTranscript = '';
+                        let interimTranscript = '';
+                        
+                        for (let i = event.resultIndex; i < event.results.length; i++) {
+                            if (event.results[i].isFinal) {
+                                finalTranscript += event.results[i][0].transcript;
+                            } else {
+                                interimTranscript += event.results[i][0].transcript;
+                            }
+                        }
+                        
                         const inputField = document.querySelector('[data-testid="stTextInput"] input');
                         if (inputField) {
-                            inputField.value = finalTranscript;
-                            inputField.dispatchEvent(new Event('input', { bubbles: true }));
-                        }
-                        // Click process button
-                        setTimeout(function() {
-                            const processBtn = document.querySelector('button[data-testid="baseButton-secondary"]');
-                            if (processBtn && processBtn.textContent.includes('Process')) {
-                                processBtn.click();
+                            if (finalTranscript) {
+                                inputField.value = finalTranscript;
+                                micStatus.textContent = '✅ ' + finalTranscript;
+                                // Trigger process after a short delay
+                                setTimeout(function() {
+                                    const processBtn = document.querySelector('button[data-testid="baseButton-secondary"]');
+                                    if (processBtn && processBtn.textContent.includes('Process')) {
+                                        processBtn.click();
+                                    }
+                                }, 500);
+                            } else if (interimTranscript) {
+                                inputField.value = interimTranscript + '...';
+                                micStatus.textContent = '🎤 ' + interimTranscript;
                             }
-                        }, 300);
+                        }
+                    };
+                    
+                    recognition.onerror = function(event) {
+                        let errorMsg = event.error;
+                        if (errorMsg === 'not-allowed') {
+                            errorMsg = 'Please allow microphone access';
+                        } else if (errorMsg === 'no-speech') {
+                            errorMsg = 'No speech detected';
+                        } else if (errorMsg === 'audio-capture') {
+                            errorMsg = 'No microphone found';
+                        }
+                        micStatus.textContent = '❌ Error: ' + errorMsg;
+                        micStatus.className = 'mic-status';
+                        stopRecognition();
+                    };
+                    
+                    recognition.onend = function() {
+                        stopRecognition();
+                    };
+                    
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        micStatus.textContent = '❌ Error starting: ' + e.message;
+                        micStatus.className = 'mic-status';
+                        isListening = false;
+                        micBtn.classList.remove('listening');
+                        micBtn.textContent = '🎤';
                     }
-                };
-                
-                recognition.onerror = function(event) {
-                    clearTimeout(timeoutId);
-                    resetButton(btn);
-                    alert('Error: ' + event.error + '. Please try again or type your command.');
-                };
-                
-                recognition.onend = function() {
-                    clearTimeout(timeoutId);
-                    resetButton(btn);
-                };
-                
-                try {
-                    recognition.start();
-                } catch (e) {
-                    resetButton(btn);
-                    alert('Error starting voice recognition. Please try again.');
                 }
-            }
-            
-            function resetButton(btn) {
-                btn.dataset.listening = 'false';
-                btn.classList.remove('listening');
-                btn.textContent = '🎤';
-            }
+                
+                function stopRecognition() {
+                    isListening = false;
+                    micBtn.classList.remove('listening');
+                    micBtn.textContent = '🎤';
+                    if (recognition) {
+                        try {
+                            recognition.stop();
+                        } catch (e) {}
+                        recognition = null;
+                    }
+                    if (micStatus.textContent.startsWith('🎤')) {
+                        micStatus.textContent = 'Click to speak';
+                        micStatus.className = 'mic-status';
+                    }
+                }
+            })();
             </script>
             """, unsafe_allow_html=True)
         
