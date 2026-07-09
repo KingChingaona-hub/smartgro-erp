@@ -507,7 +507,7 @@ def user_management_page():
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.session_state.um_force_refresh = True
-        st.rerun()
+        #st.rerun()
 
 
 # ==============================
