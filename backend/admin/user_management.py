@@ -71,12 +71,12 @@ def user_management_page():
                             st.session_state.um_message = "❌ Failed to create default users."
                             st.session_state.um_message_type = "error"
                         st.session_state.um_loading = False
-                        st.rerun()
+                        #st.rerun()
             
             with col2:
                 if st.button("🔄 Refresh", use_container_width=True):
                     st.cache_data.clear()
-                    st.rerun()
+                    #st.rerun()
             return
             
     except Exception as e:
@@ -241,7 +241,7 @@ def user_management_page():
                             
                             # Force refresh to show new user
                             st.session_state.um_force_refresh = True
-                            st.rerun()
+                            #st.rerun()
                             
                         except Exception as e:
                             st.error(f"❌ Error creating user: {str(e)}")
@@ -307,7 +307,7 @@ def user_management_page():
                                     st.success(f"✅ Password for '{selected_user}' changed successfully!")
                                     st.info(f"🔑 New password: {new_password}")
                                     st.session_state.um_force_refresh = True
-                                    st.rerun()
+                                    #st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Error changing password: {str(e)}")
                     
@@ -326,7 +326,7 @@ def user_management_page():
                                 st.success(f"✅ Password for '{selected_user}' changed to: **{random_password}**")
                                 st.info("📋 Please provide this password to the user. They can change it later.")
                                 st.session_state.um_force_refresh = True
-                                st.rerun()
+                                #st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error generating password: {str(e)}")
     
@@ -390,7 +390,7 @@ def user_management_page():
                                         save_users(users_df)
                                         st.success(f"✅ User '{user_to_manage}' deleted permanently!")
                                         st.session_state.um_force_refresh = True
-                                        st.rerun()
+                                        #st.rerun()
                                     except Exception as e:
                                         st.error(f"❌ Error deleting user: {str(e)}")
                     
@@ -429,7 +429,7 @@ def user_management_page():
                     with col3:
                         if st.button("📝 Edit User Details", use_container_width=True):
                             st.session_state.editing_user = user_to_manage
-                            st.rerun()
+                            #st.rerun()
             else:
                 st.info("No other users available to manage.")
         else:
@@ -495,14 +495,14 @@ def user_management_page():
                         st.success(f"✅ User '{edit_user}' updated successfully!")
                         st.session_state.editing_user = None
                         st.session_state.um_force_refresh = True
-                        st.rerun()
+                        #st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error updating user: {str(e)}")
             
             with col2:
                 if st.form_submit_button("❌ Cancel", use_container_width=True):
                     st.session_state.editing_user = None
-                    st.rerun()
+                    #st.rerun()
     
     # ==============================
     # REFRESH BUTTON
@@ -511,7 +511,7 @@ def user_management_page():
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.session_state.um_force_refresh = True
-        st.rerun()
+        #st.rerun()
 
 
 # ==============================
