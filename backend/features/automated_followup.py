@@ -5,15 +5,28 @@ from pathlib import Path
 import json
 import secrets
 
-# ==============================
-# IMPORT FROM CORRECT MODULE
-# ==============================
 from backend.core.db_adapter import (
     load_customers,
     load_sales,
     load_products,
     to_float
 )
+
+# Try to import SMS gateway
+try:
+    from backend.integrations.sms_gateway import send_sms
+except ImportError:
+    # Fallback if SMS gateway not available
+    def send_sms(phone, message, sms_type="GENERAL", sent_by="system"):
+        print(f"📱 SMS would be sent to {phone}: {message[:50]}...")
+        return {"success": True, "message": "SMS logged (gateway not available)"}
+
+# Try to import WhatsApp utility
+try:
+    from backend.utils.phone_utils import get_whatsapp_link
+except ImportError:
+    def get_whatsapp_link(phone, message):
+        return f"https://wa.me/263{phone.lstrip('0')}?text={message.replace(' ', '%20')}"
 
 # ==============================
 # FILE PATHS
@@ -30,7 +43,6 @@ def init_followup_files():
     """Initialize follow-up related files"""
     DATA_DIR.mkdir(exist_ok=True)
     
-    # Follow-up settings
     if not FOLLOWUP_FILE.exists():
         settings = {
             "enabled": True,
@@ -53,7 +65,6 @@ def init_followup_files():
         with open(FOLLOWUP_FILE, "w") as f:
             json.dump(settings, f, indent=2)
     
-    # Follow-up logs
     if not FOLLOWUP_LOG_FILE.exists():
         df = pd.DataFrame(columns=[
             "log_id", "customer_name", "customer_phone", "customer_email",
@@ -61,7 +72,6 @@ def init_followup_files():
         ])
         df.to_csv(FOLLOWUP_LOG_FILE, index=False)
     
-    # Follow-up schedule
     if not FOLLOWUP_SCHEDULE_FILE.exists():
         df = pd.DataFrame(columns=[
             "schedule_id", "customer_name", "customer_phone", "followup_type",
@@ -138,35 +148,54 @@ def get_message_template(template_type, data):
 
 
 # ==============================
-# FOLLOW-UP FUNCTIONS
+# SEND FOLLOW-UP - WITH REAL SMS
 # ==============================
 def send_followup(customer, followup_type, message):
-    """Send a follow-up message to a customer"""
+    """Send a follow-up message to a customer via SMS/WhatsApp"""
     
-    # In production, this would send via SMS/WhatsApp/Email
-    # For now, log the follow-up
+    settings = load_followup_settings()
+    phone = customer.get("phone", "")
+    name = customer.get("name", "Valued Customer")
     
+    # Check if SMS is enabled
+    if not settings.get("sms_enabled", True):
+        return False, "SMS is disabled in settings"
+    
+    if not phone:
+        return False, "No phone number available"
+    
+    # Clean phone number
+    phone_clean = phone.replace("+", "").replace(" ", "").replace("-", "")
+    
+    # Send SMS
+    sms_result = send_sms(
+        recipient=phone_clean,
+        message=message,
+        sms_type="FOLLOWUP",
+        sent_by=st.session_state.get("username", "system")
+    )
+    
+    # Log the follow-up
     df = load_followup_logs()
-    
     log_id = f"FL{len(df)+1:08d}"
     
     new_log = pd.DataFrame([{
         "log_id": log_id,
-        "customer_name": customer.get("name", ""),
-        "customer_phone": customer.get("phone", ""),
+        "customer_name": name,
+        "customer_phone": phone,
         "customer_email": customer.get("email", ""),
         "followup_type": followup_type,
         "message": message[:500],
         "sent_date": datetime.now().isoformat(),
-        "status": "SENT",
-        "response": "",
-        "notes": ""
+        "status": "SENT" if sms_result.get("success", False) else "FAILED",
+        "response": sms_result.get("message", ""),
+        "notes": f"Sent via SMS. Result: {sms_result.get('message', 'Unknown')}"
     }])
     
     df = pd.concat([df, new_log], ignore_index=True)
     save_followup_logs(df)
     
-    return True, log_id
+    return sms_result.get("success", False), sms_result.get("message", "")
 
 
 def send_thank_you(customer, receipt_no, total):
@@ -235,7 +264,8 @@ def get_followup_stats():
             "total": 0,
             "by_type": {},
             "sent_today": 0,
-            "last_7_days": 0
+            "last_7_days": 0,
+            "success_rate": 0
         }
     
     df["sent_date"] = pd.to_datetime(df["sent_date"])
@@ -245,63 +275,28 @@ def get_followup_stats():
     sent_today = len(df[df["sent_date"] >= datetime.now().replace(hour=0, minute=0, second=0)])
     last_7_days = len(df[df["sent_date"] >= datetime.now() - timedelta(days=7)])
     
+    success_count = len(df[df["status"] == "SENT"])
+    success_rate = (success_count / total * 100) if total > 0 else 0
+    
     return {
         "total": total,
         "by_type": by_type,
         "sent_today": sent_today,
-        "last_7_days": last_7_days
+        "last_7_days": last_7_days,
+        "success_rate": success_rate
     }
 
 
-# ==============================
-# TOAST NOTIFICATION
-# ==============================
 def show_toast(message, type="info"):
     """Display a toast notification"""
-    colors = {
-        "info": "#4CAF50",
-        "success": "#4CAF50",
-        "warning": "#FF9800",
-        "error": "#f44336"
-    }
-    icon = {
-        "info": "ℹ️",
-        "success": "✅",
-        "warning": "⚠️",
-        "error": "❌"
-    }
-    
-    toast_html = f"""
-    <div style="
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background-color: {colors.get(type, '#4CAF50')};
-        color: white;
-        padding: 12px 24px;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        z-index: 9999;
-        animation: slideIn 0.5s ease;
-        max-width: 400px;
-    ">
-        <span style="font-size: 1.2rem; margin-right: 8px;">{icon.get(type, 'ℹ️')}</span>
-        {message}
-    </div>
-    <style>
-        @keyframes slideIn {{
-            from {{
-                transform: translateX(100%);
-                opacity: 0;
-            }}
-            to {{
-                transform: translateX(0);
-                opacity: 1;
-            }}
-        }}
-    </style>
-    """
-    st.markdown(toast_html, unsafe_allow_html=True)
+    if type == "success":
+        st.success(f"✅ {message}")
+    elif type == "error":
+        st.error(f"❌ {message}")
+    elif type == "warning":
+        st.warning(f"⚠️ {message}")
+    else:
+        st.info(f"ℹ️ {message}")
 
 
 # ==============================
@@ -321,7 +316,6 @@ def automated_followup_dashboard():
     
     init_followup_files()
     
-    # Load data from correct module
     customers_df = load_customers()
     sales_df = load_sales()
     products_df = load_products()
@@ -345,7 +339,7 @@ def automated_followup_dashboard():
         
         stats = get_followup_stats()
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("📤 Total Follow-ups", stats["total"])
         with col2:
@@ -354,6 +348,8 @@ def automated_followup_dashboard():
             st.metric("📊 Last 7 Days", stats["last_7_days"])
         with col4:
             st.metric("👥 Customers", len(customers_df) if not customers_df.empty else 0)
+        with col5:
+            st.metric("✅ Success Rate", f"{stats['success_rate']:.1f}%")
         
         # Follow-up by type
         if stats["by_type"]:
@@ -365,12 +361,10 @@ def automated_followup_dashboard():
         st.markdown("### 🎯 Customers Needing Attention")
         
         if not customers_df.empty:
-            # Check if last_purchase_date exists
             if "last_purchase_date" in customers_df.columns:
                 customers_df["last_purchase_date"] = pd.to_datetime(customers_df["last_purchase_date"], errors="coerce")
                 customers_df["days_inactive"] = (datetime.now() - customers_df["last_purchase_date"]).dt.days
                 
-                # Customers inactive > 30 days
                 inactive = customers_df[customers_df["days_inactive"] > 30]
                 
                 if not inactive.empty:
@@ -409,6 +403,13 @@ def automated_followup_dashboard():
     with tab2:
         st.markdown("## 📤 Send Follow-ups")
         
+        # Check if SMS gateway is available
+        try:
+            from backend.integrations.sms_gateway import send_sms
+            st.success("✅ SMS Gateway is available")
+        except:
+            st.warning("⚠️ SMS Gateway not available. Messages will be logged only.")
+        
         followup_type = st.selectbox(
             "Select Follow-up Type",
             [
@@ -421,7 +422,6 @@ def automated_followup_dashboard():
             ]
         )
         
-        # Customer selection
         if not customers_df.empty:
             customer_list = customers_df["customer_name"].tolist() if "customer_name" in customers_df.columns else []
             
@@ -432,109 +432,160 @@ def automated_followup_dashboard():
                     format_func=lambda x: f"{x} - {customers_df[customers_df['customer_name'] == x]['phone'].iloc[0] if 'phone' in customers_df.columns else ''}"
                 )
                 
-                if followup_type == "Thank You Message":
-                    receipt_no = st.text_input("Receipt Number")
-                    total = st.number_input("Total Amount ($)", min_value=0.0, value=0.0)
+                # Preview message
+                if selected_customers:
+                    st.markdown("### 📝 Message Preview")
+                    sample_customer = customers_df[customers_df["customer_name"] == selected_customers[0]].iloc[0]
                     
-                    if st.button("📤 Send Thank You", type="primary", use_container_width=True):
-                        count = 0
-                        for customer in selected_customers:
-                            customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                            success, _ = send_thank_you(
-                                {"name": customer, "phone": customer_data.get("phone", "")},
-                                receipt_no,
-                                total
-                            )
-                            if success:
-                                count += 1
-                        st.success(f"✅ Sent to {count} customers!")
-                        show_toast(f"Thank you messages sent to {count} customers", "success")
-                
-                elif followup_type == "Review Request":
-                    if st.button("📤 Send Review Request", type="primary", use_container_width=True):
-                        count = 0
-                        for customer in selected_customers:
-                            customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                            success, _ = send_review_request(
-                                {"name": customer, "phone": customer_data.get("phone", "")},
-                                ""
-                            )
-                            if success:
-                                count += 1
-                        st.success(f"✅ Sent to {count} customers!")
-                        show_toast(f"Review requests sent to {count} customers", "success")
-                
-                elif followup_type == "Re-engagement Campaign":
-                    discount = st.number_input("Discount (%)", min_value=5, max_value=50, value=10)
-                    expiry_days = st.number_input("Valid for (days)", min_value=7, max_value=30, value=14)
-                    
-                    if st.button("📤 Send Re-engagement", type="primary", use_container_width=True):
-                        count = 0
-                        for customer in selected_customers:
-                            customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                            success, _ = send_reengagement(
-                                {"name": customer, "phone": customer_data.get("phone", "")},
-                                discount,
-                                expiry_days
-                            )
-                            if success:
-                                count += 1
-                        st.success(f"✅ Sent to {count} customers!")
-                        show_toast(f"Re-engagement sent to {count} customers", "success")
-                
-                elif followup_type == "Birthday Wishes":
-                    discount = st.number_input("Birthday Discount (%)", min_value=5, max_value=50, value=15)
-                    
-                    if st.button("🎂 Send Birthday Wishes", type="primary", use_container_width=True):
-                        count = 0
-                        for customer in selected_customers:
-                            customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                            success, _ = send_birthday_wish(
-                                {"name": customer, "phone": customer_data.get("phone", "")},
-                                discount
-                            )
-                            if success:
-                                count += 1
-                        st.success(f"✅ Sent to {count} customers!")
-                        show_toast(f"Birthday wishes sent to {count} customers", "success")
-                
-                elif followup_type == "Abandoned Cart Recovery":
-                    discount = st.number_input("Recovery Discount (%)", min_value=5, max_value=30, value=10)
-                    
-                    if st.button("🛒 Send Recovery", type="primary", use_container_width=True):
-                        count = 0
-                        for customer in selected_customers:
-                            customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                            success, _ = send_abandoned_cart(
-                                {"name": customer, "phone": customer_data.get("phone", "")},
-                                [],
-                                discount
-                            )
-                            if success:
-                                count += 1
-                        st.success(f"✅ Sent to {count} customers!")
-                        show_toast(f"Abandoned cart recovery sent to {count} customers", "success")
-                
-                elif followup_type == "Custom Message":
-                    custom_message = st.text_area("Custom Message", height=150)
-                    custom_subject = st.text_input("Subject (optional)")
-                    
-                    if st.button("📤 Send Custom Message", type="primary", use_container_width=True):
-                        if custom_message:
+                    if followup_type == "Thank You Message":
+                        receipt_no = st.text_input("Receipt Number", value="REC-001")
+                        total = st.number_input("Total Amount ($)", min_value=0.0, value=10.0)
+                        
+                        preview_data = {
+                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "receipt_no": receipt_no,
+                            "total": total
+                        }
+                        preview_message = get_message_template("thank_you", preview_data)
+                        st.info(f"💬 {preview_message}")
+                        
+                        if st.button("📤 Send Thank You", type="primary", use_container_width=True):
                             count = 0
                             for customer in selected_customers:
                                 customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
-                                success, _ = send_followup(
+                                success, _ = send_thank_you(
                                     {"name": customer, "phone": customer_data.get("phone", "")},
-                                    "CUSTOM",
-                                    custom_message
+                                    receipt_no,
+                                    total
                                 )
                                 if success:
                                     count += 1
                             st.success(f"✅ Sent to {count} customers!")
-                            show_toast(f"Custom messages sent to {count} customers", "success")
-                        else:
-                            st.error("Please enter a message")
+                            show_toast(f"Thank you messages sent to {count} customers", "success")
+                            st.rerun()
+                    
+                    elif followup_type == "Review Request":
+                        preview_data = {
+                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "review_link": "https://azielinvestments.com/review"
+                        }
+                        preview_message = get_message_template("review", preview_data)
+                        st.info(f"💬 {preview_message}")
+                        
+                        if st.button("📤 Send Review Request", type="primary", use_container_width=True):
+                            count = 0
+                            for customer in selected_customers:
+                                customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                success, _ = send_review_request(
+                                    {"name": customer, "phone": customer_data.get("phone", "")},
+                                    ""
+                                )
+                                if success:
+                                    count += 1
+                            st.success(f"✅ Sent to {count} customers!")
+                            show_toast(f"Review requests sent to {count} customers", "success")
+                            st.rerun()
+                    
+                    elif followup_type == "Re-engagement Campaign":
+                        discount = st.number_input("Discount (%)", min_value=5, max_value=50, value=10)
+                        expiry_days = st.number_input("Valid for (days)", min_value=7, max_value=30, value=14)
+                        
+                        preview_data = {
+                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "discount": discount,
+                            "expiry": (datetime.now() + timedelta(days=expiry_days)).strftime("%Y-%m-%d")
+                        }
+                        preview_message = get_message_template("reengagement", preview_data)
+                        st.info(f"💬 {preview_message}")
+                        
+                        if st.button("📤 Send Re-engagement", type="primary", use_container_width=True):
+                            count = 0
+                            for customer in selected_customers:
+                                customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                success, _ = send_reengagement(
+                                    {"name": customer, "phone": customer_data.get("phone", "")},
+                                    discount,
+                                    expiry_days
+                                )
+                                if success:
+                                    count += 1
+                            st.success(f"✅ Sent to {count} customers!")
+                            show_toast(f"Re-engagement sent to {count} customers", "success")
+                            st.rerun()
+                    
+                    elif followup_type == "Birthday Wishes":
+                        discount = st.number_input("Birthday Discount (%)", min_value=5, max_value=50, value=15)
+                        
+                        preview_data = {
+                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "discount": discount
+                        }
+                        preview_message = get_message_template("birthday", preview_data)
+                        st.info(f"💬 {preview_message}")
+                        
+                        if st.button("🎂 Send Birthday Wishes", type="primary", use_container_width=True):
+                            count = 0
+                            for customer in selected_customers:
+                                customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                success, _ = send_birthday_wish(
+                                    {"name": customer, "phone": customer_data.get("phone", "")},
+                                    discount
+                                )
+                                if success:
+                                    count += 1
+                            st.success(f"✅ Sent to {count} customers!")
+                            show_toast(f"Birthday wishes sent to {count} customers", "success")
+                            st.rerun()
+                    
+                    elif followup_type == "Abandoned Cart Recovery":
+                        discount = st.number_input("Recovery Discount (%)", min_value=5, max_value=30, value=10)
+                        
+                        preview_data = {
+                            "customer_name": sample_customer.get("customer_name", "Valued Customer"),
+                            "discount": discount,
+                            "cart_link": "https://azielinvestments.com/cart"
+                        }
+                        preview_message = get_message_template("abandoned_cart", preview_data)
+                        st.info(f"💬 {preview_message}")
+                        
+                        if st.button("🛒 Send Recovery", type="primary", use_container_width=True):
+                            count = 0
+                            for customer in selected_customers:
+                                customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                success, _ = send_abandoned_cart(
+                                    {"name": customer, "phone": customer_data.get("phone", "")},
+                                    [],
+                                    discount
+                                )
+                                if success:
+                                    count += 1
+                            st.success(f"✅ Sent to {count} customers!")
+                            show_toast(f"Abandoned cart recovery sent to {count} customers", "success")
+                            st.rerun()
+                    
+                    elif followup_type == "Custom Message":
+                        custom_message = st.text_area("Custom Message", height=150)
+                        
+                        if custom_message:
+                            st.info(f"💬 Preview: {custom_message}")
+                        
+                        if st.button("📤 Send Custom Message", type="primary", use_container_width=True):
+                            if custom_message:
+                                count = 0
+                                for customer in selected_customers:
+                                    customer_data = customers_df[customers_df["customer_name"] == customer].iloc[0]
+                                    success, _ = send_followup(
+                                        {"name": customer, "phone": customer_data.get("phone", "")},
+                                        "CUSTOM",
+                                        custom_message
+                                    )
+                                    if success:
+                                        count += 1
+                                st.success(f"✅ Sent to {count} customers!")
+                                show_toast(f"Custom messages sent to {count} customers", "success")
+                                st.rerun()
+                            else:
+                                st.error("Please enter a message")
             else:
                 st.warning("No customers found")
         else:
@@ -552,13 +603,9 @@ def automated_followup_dashboard():
             st.dataframe(
                 schedule_df,
                 use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "scheduled_date": st.column_config.DatetimeColumn("Scheduled Date")
-                }
+                hide_index=True
             )
             
-            # Add to schedule
             st.markdown("### ➕ Schedule New Follow-up")
             
             col1, col2 = st.columns(2)
@@ -602,7 +649,6 @@ def automated_followup_dashboard():
         logs_df = load_followup_logs()
         
         if not logs_df.empty:
-            # Filters
             col1, col2 = st.columns(2)
             with col1:
                 type_filter = st.selectbox("Filter by Type", ["All"] + logs_df["followup_type"].unique().tolist())
@@ -621,7 +667,6 @@ def automated_followup_dashboard():
                 hide_index=True
             )
             
-            # Export
             csv = filtered_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Export Follow-up Logs (CSV)",
