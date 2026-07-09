@@ -21,7 +21,6 @@ def init_replenishment_files():
     """Initialize replenishment-related files"""
     DATA_DIR.mkdir(exist_ok=True)
     
-    # Replenishment settings
     if not REPLENISHMENT_FILE.exists():
         settings = {
             "auto_replenish": True,
@@ -36,7 +35,6 @@ def init_replenishment_files():
         with open(REPLENISHMENT_FILE, "w") as f:
             json.dump(settings, f, indent=2)
     
-    # Auto PO records
     if not AUTO_PO_FILE.exists():
         df = pd.DataFrame(columns=[
             "po_number", "supplier", "product_name", "product_barcode",
@@ -46,7 +44,6 @@ def init_replenishment_files():
         ])
         df.to_csv(AUTO_PO_FILE, index=False)
     
-    # Replenishment logs
     if not REPLENISHMENT_LOG_FILE.exists():
         df = pd.DataFrame(columns=[
             "log_id", "date", "product_name", "barcode",
@@ -91,6 +88,36 @@ def save_replenishment_logs(df):
     df.to_csv(REPLENISHMENT_LOG_FILE, index=False)
 
 
+def find_date_column(df):
+    """Find the date column in a DataFrame"""
+    if df is None or df.empty:
+        return None
+    for col in ["date", "sale_date", "transaction_date", "created_at", "order_date"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def find_product_column(df):
+    """Find the product name column in a DataFrame"""
+    if df is None or df.empty:
+        return None
+    for col in ["name", "product_name", "Product", "item_name"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def find_items_column(df):
+    """Find the items/quantity column in a DataFrame"""
+    if df is None or df.empty:
+        return None
+    for col in ["items", "quantity", "qty", "item_count"]:
+        if col in df.columns:
+            return col
+    return None
+
+
 # ==============================
 # CORE REPLENISHMENT LOGIC
 # ==============================
@@ -102,41 +129,31 @@ def calculate_reorder_quantity(product, settings, daily_sales_rate):
     cost = float(product.get("cost", 0))
     price = float(product.get("price", 0))
     
-    # If stock is above reorder level, no need to reorder
     if current_stock > reorder_level:
         return 0, None
     
-    # Calculate lead time demand
     lead_time_days = settings.get("lead_time_days", 3)
     safety_stock_days = settings.get("safety_stock_days", 7)
     
     lead_time_demand = daily_sales_rate * lead_time_days
     safety_stock = daily_sales_rate * safety_stock_days
     
-    # Calculate Economic Order Quantity (EOQ)
     annual_demand = daily_sales_rate * 365
-    ordering_cost = 50  # Assumed fixed cost per order
-    holding_cost = cost * 0.25  # 25% of unit cost
+    ordering_cost = 50
+    holding_cost = cost * 0.25
     
     if holding_cost > 0:
         eoq = np.sqrt((2 * annual_demand * ordering_cost) / holding_cost)
     else:
         eoq = 0
     
-    # Recommended order quantity
-    recommended_qty = max(
-        eoq,
-        lead_time_demand + safety_stock - current_stock
-    )
+    recommended_qty = max(eoq, lead_time_demand + safety_stock - current_stock)
     
-    # Apply min/max constraints
     min_qty = settings.get("min_order_quantity", 10)
     max_qty = settings.get("max_order_quantity", 1000)
     
     recommended_qty = max(min_qty, recommended_qty)
     recommended_qty = min(max_qty, recommended_qty)
-    
-    # Round up to nearest 10
     recommended_qty = int(np.ceil(recommended_qty / 10) * 10)
     
     return recommended_qty, {
@@ -157,16 +174,13 @@ def get_supplier_for_product(product_name, settings):
     if suppliers_df.empty:
         return None
     
-    # Get purchase history for this product
-    product_purchases = purchases_df[purchases_df["product_name"] == product_name]
+    if not purchases_df.empty and "product_name" in purchases_df.columns:
+        product_purchases = purchases_df[purchases_df["product_name"] == product_name]
+        if not product_purchases.empty and "supplier" in product_purchases.columns and "cost_price" in product_purchases.columns:
+            best_supplier = product_purchases.groupby("supplier")["cost_price"].min().idxmin()
+            return best_supplier
     
-    if not product_purchases.empty:
-        # Find supplier with best price
-        best_supplier = product_purchases.groupby("supplier")["cost_price"].min().idxmin()
-        return best_supplier
-    
-    # If no history, use first available supplier
-    return suppliers_df.iloc[0]["name"]
+    return suppliers_df.iloc[0]["name"] if "name" in suppliers_df.columns else None
 
 
 def generate_auto_po(product, recommended_qty, supplier, settings):
@@ -185,7 +199,7 @@ def generate_auto_po(product, recommended_qty, supplier, settings):
         "total_cost": total_cost,
         "reorder_level": product.get("reorder_level", 0),
         "current_stock": product.get("stock", 0),
-        "reason": f"Auto-replenishment: Stock below reorder level",
+        "reason": "Auto-replenishment: Stock below reorder level",
         "status": "PENDING_APPROVAL" if not settings.get("auto_approve", False) else "APPROVED",
         "created_date": datetime.now().isoformat(),
         "approved_date": datetime.now().isoformat() if settings.get("auto_approve", False) else "",
@@ -213,7 +227,6 @@ def smart_replenishment_dashboard():
     
     init_replenishment_files()
     
-    # Load data
     from backend.core.db_adapter import load_products, load_sales, load_suppliers
     
     products_df = load_products()
@@ -242,23 +255,32 @@ def smart_replenishment_dashboard():
     with tab1:
         st.markdown("## 📊 Replenishment Dashboard")
         
+        # Find date column in sales data
+        date_col = find_date_column(sales_df)
+        product_col = find_product_column(sales_df)
+        items_col = find_items_column(sales_df)
+        
         # Calculate daily sales rate for each product
-        sales_df["date"] = pd.to_datetime(sales_df["date"])
+        product_sales = {}
+        
+        if not sales_df.empty and date_col and product_col:
+            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+            sales_df = sales_df.dropna(subset=[date_col])
+            
+            for product in products_df["name"].unique():
+                product_sales_data = sales_df[sales_df[product_col] == product]
+                if not product_sales_data.empty:
+                    recent_sales = product_sales_data[product_sales_data[date_col] >= datetime.now() - timedelta(days=30)]
+                    if items_col:
+                        daily_rate = recent_sales[items_col].sum() / 30 if not recent_sales.empty else 0
+                    else:
+                        daily_rate = len(recent_sales) / 30 if not recent_sales.empty else 0
+                    product_sales[product] = daily_rate
         
         # Products that need replenishment
         products_df["stock"] = pd.to_numeric(products_df["stock"], errors="coerce").fillna(0)
         products_df["reorder_level"] = pd.to_numeric(products_df["reorder_level"], errors="coerce").fillna(0)
         
-        # Calculate days of stock
-        product_sales = {}
-        for product in products_df["name"].unique():
-            product_sales_data = sales_df[sales_df["name"] == product]
-            if not product_sales_data.empty:
-                recent_sales = product_sales_data[product_sales_data["date"] >= datetime.now() - timedelta(days=30)]
-                daily_rate = recent_sales["items"].sum() / 30 if not recent_sales.empty else 0
-                product_sales[product] = daily_rate
-        
-        # Calculate replenishment needs
         needs_replenishment = []
         for _, product in products_df.iterrows():
             current_stock = float(product["stock"])
@@ -304,7 +326,6 @@ def smart_replenishment_dashboard():
                 }
             )
             
-            # Chart
             fig = px.bar(
                 needs_df,
                 x="Product",
@@ -323,14 +344,26 @@ def smart_replenishment_dashboard():
     with tab2:
         st.markdown("## 🔄 Replenishment Recommendations")
         
+        # Find columns
+        date_col = find_date_column(sales_df)
+        product_col = find_product_column(sales_df)
+        items_col = find_items_column(sales_df)
+        
         # Calculate daily sales rate
         product_sales = {}
-        for product in products_df["name"].unique():
-            product_sales_data = sales_df[sales_df["name"] == product]
-            if not product_sales_data.empty:
-                recent_sales = product_sales_data[product_sales_data["date"] >= datetime.now() - timedelta(days=30)]
-                daily_rate = recent_sales["items"].sum() / 30 if not recent_sales.empty else 0
-                product_sales[product] = daily_rate
+        if not sales_df.empty and date_col and product_col:
+            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+            sales_df = sales_df.dropna(subset=[date_col])
+            
+            for product in products_df["name"].unique():
+                product_sales_data = sales_df[sales_df[product_col] == product]
+                if not product_sales_data.empty:
+                    recent_sales = product_sales_data[product_sales_data[date_col] >= datetime.now() - timedelta(days=30)]
+                    if items_col:
+                        daily_rate = recent_sales[items_col].sum() / 30 if not recent_sales.empty else 0
+                    else:
+                        daily_rate = len(recent_sales) / 30 if not recent_sales.empty else 0
+                    product_sales[product] = daily_rate
         
         # Generate recommendations
         recommendations = []
@@ -371,7 +404,6 @@ def smart_replenishment_dashboard():
                 }
             )
             
-            # Generate PO button
             if st.button("📝 Generate Purchase Orders for All", type="primary", use_container_width=True):
                 po_count = 0
                 for _, rec in recommendations_df.iterrows():
@@ -387,7 +419,6 @@ def smart_replenishment_dashboard():
                 
                 st.success(f"✅ Generated {po_count} purchase orders!")
                 
-                # Log
                 logs_df = load_replenishment_logs()
                 for _, rec in recommendations_df.iterrows():
                     new_log = pd.DataFrame([{
@@ -418,7 +449,6 @@ def smart_replenishment_dashboard():
         po_df = load_auto_po()
         
         if not po_df.empty:
-            # Filter by status
             status_filter = st.selectbox("Filter by Status", ["All", "PENDING_APPROVAL", "APPROVED", "REJECTED", "COMPLETED"])
             
             filtered_df = po_df.copy()
@@ -434,7 +464,6 @@ def smart_replenishment_dashboard():
                 }
             )
             
-            # Approve/reject buttons for pending POs
             pending_po = po_df[po_df["status"] == "PENDING_APPROVAL"]
             if not pending_po.empty:
                 st.markdown("### 🔄 Pending Approvals")
@@ -553,7 +582,6 @@ def smart_replenishment_dashboard():
         logs_df = load_replenishment_logs()
         
         if not logs_df.empty:
-            # Format dates
             logs_df["date"] = pd.to_datetime(logs_df["date"])
             logs_df["date"] = logs_df["date"].dt.strftime("%Y-%m-%d %H:%M")
             
@@ -563,7 +591,6 @@ def smart_replenishment_dashboard():
                 hide_index=True
             )
             
-            # Export
             csv = logs_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Export Logs (CSV)",
