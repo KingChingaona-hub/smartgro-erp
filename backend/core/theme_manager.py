@@ -9,167 +9,47 @@ from datetime import datetime
 THEME_FILE = Path("data/user_theme.json")
 
 # ==============================
-# AVAILABLE THEMES
+# AVAILABLE THEMES - ONLY BLACK & WHITE
 # ==============================
 AVAILABLE_THEMES = {
     "light": {
         "name": "Light Mode",
         "icon": "☀️",
-        "description": "Clean and bright - perfect for daytime",
+        "description": "Clean white background with black text",
         "colors": {
-            "primary_color": "#6366F1",
-            "primary_hover": "#4F46E5",
             "background_color": "#FFFFFF",
-            "secondary_bg": "#F8F9FA",
-            "text_color": "#1F2937",
-            "text_secondary": "#6B7280",
-            "border_color": "#E5E7EB",
+            "text_color": "#000000",
+            "border_color": "#CCCCCC",
             "card_bg": "#FFFFFF",
-            "sidebar_bg": "#F3F4F6",
-            "success": "#10B981",
-            "warning": "#F59E0B",
-            "error": "#EF4444",
-            "info": "#3B82F6"
+            "sidebar_bg": "#F5F5F5",
+            "secondary_bg": "#F5F5F5",
+            "text_secondary": "#333333",
+            "primary_color": "#000000",
+            "primary_hover": "#333333",
+            "success": "#000000",
+            "warning": "#000000",
+            "error": "#000000",
+            "info": "#000000"
         }
     },
     "dark": {
         "name": "Dark Mode",
         "icon": "🌙",
-        "description": "Easy on the eyes - great for nighttime",
+        "description": "Black background with white text",
         "colors": {
-            "primary_color": "#8B5CF6",
-            "primary_hover": "#7C3AED",
-            "background_color": "#0F172A",
-            "secondary_bg": "#1E293B",
-            "text_color": "#F1F5F9",
-            "text_secondary": "#94A3B8",
-            "border_color": "#334155",
-            "card_bg": "#1E293B",
-            "sidebar_bg": "#1E293B",
-            "success": "#10B981",
-            "warning": "#F59E0B",
-            "error": "#EF4444",
-            "info": "#3B82F6"
-        }
-    },
-    "high_contrast": {
-        "name": "High Contrast",
-        "icon": "♿",
-        "description": "Maximum readability - accessibility focused",
-        "colors": {
-            "primary_color": "#FFD700",
-            "primary_hover": "#FFC107",
             "background_color": "#000000",
-            "secondary_bg": "#1A1A1A",
             "text_color": "#FFFFFF",
-            "text_secondary": "#CCCCCC",
-            "border_color": "#FFFFFF",
+            "border_color": "#444444",
             "card_bg": "#1A1A1A",
-            "sidebar_bg": "#000000",
-            "success": "#00FF00",
-            "warning": "#FFA500",
-            "error": "#FF0000",
-            "info": "#00BFFF"
-        }
-    },
-    "ocean": {
-        "name": "Ocean Blue",
-        "icon": "🌊",
-        "description": "Calming blue tones",
-        "colors": {
-            "primary_color": "#0077B6",
-            "primary_hover": "#023E8A",
-            "background_color": "#CAF0F8",
-            "secondary_bg": "#ADE8F4",
-            "text_color": "#03045E",
-            "text_secondary": "#0077B6",
-            "border_color": "#48CAE4",
-            "card_bg": "#FFFFFF",
-            "sidebar_bg": "#90E0EF",
-            "success": "#00B4D8",
-            "warning": "#FFB703",
-            "error": "#FB8500",
-            "info": "#0096C7"
-        }
-    },
-    "forest": {
-        "name": "Forest Green",
-        "icon": "🌿",
-        "description": "Natural and refreshing",
-        "colors": {
-            "primary_color": "#2E8B57",
-            "primary_hover": "#1B5E20",
-            "background_color": "#F1F8E9",
-            "secondary_bg": "#DCEDC8",
-            "text_color": "#1B5E20",
-            "text_secondary": "#388E3C",
-            "border_color": "#81C784",
-            "card_bg": "#FFFFFF",
-            "sidebar_bg": "#C8E6C9",
-            "success": "#4CAF50",
-            "warning": "#FFC107",
-            "error": "#F44336",
-            "info": "#2196F3"
-        }
-    },
-    "sunset": {
-        "name": "Sunset",
-        "icon": "🌅",
-        "description": "Warm and energetic",
-        "colors": {
-            "primary_color": "#FF6B35",
-            "primary_hover": "#E85D04",
-            "background_color": "#FFF3E0",
-            "secondary_bg": "#FFE0B2",
-            "text_color": "#4A2B0A",
-            "text_secondary": "#E65100",
-            "border_color": "#FFB74D",
-            "card_bg": "#FFFFFF",
-            "sidebar_bg": "#FFCC80",
-            "success": "#66BB6A",
-            "warning": "#FFA726",
-            "error": "#EF5350",
-            "info": "#42A5F5"
-        }
-    },
-    "midnight": {
-        "name": "Midnight",
-        "icon": "🌃",
-        "description": "Deep blue night theme",
-        "colors": {
-            "primary_color": "#00B4D8",
-            "primary_hover": "#0077B6",
-            "background_color": "#001F3F",
-            "secondary_bg": "#003366",
-            "text_color": "#E0E0E0",
-            "text_secondary": "#A0A0A0",
-            "border_color": "#007BFF",
-            "card_bg": "#003366",
-            "sidebar_bg": "#001F3F",
-            "success": "#00FF88",
-            "warning": "#FFB347",
-            "error": "#FF4444",
-            "info": "#00BFFF"
-        }
-    },
-    "royal": {
-        "name": "Royal Purple",
-        "icon": "👑",
-        "description": "Elegant and sophisticated",
-        "colors": {
-            "primary_color": "#9B59B6",
-            "primary_hover": "#8E44AD",
-            "background_color": "#F5F0FF",
-            "secondary_bg": "#E8DAEF",
-            "text_color": "#4A235A",
-            "text_secondary": "#6C3483",
-            "border_color": "#D2B4DE",
-            "card_bg": "#FFFFFF",
-            "sidebar_bg": "#E8DAEF",
-            "success": "#2ECC71",
-            "warning": "#F39C12",
-            "error": "#E74C3C",
-            "info": "#3498DB"
+            "sidebar_bg": "#1A1A1A",
+            "secondary_bg": "#1A1A1A",
+            "text_secondary": "#CCCCCC",
+            "primary_color": "#FFFFFF",
+            "primary_hover": "#CCCCCC",
+            "success": "#FFFFFF",
+            "warning": "#FFFFFF",
+            "error": "#FFFFFF",
+            "info": "#FFFFFF"
         }
     }
 }
@@ -178,46 +58,46 @@ AVAILABLE_THEMES = {
 # PAGE-SPECIFIC THEMES
 # ==============================
 PAGE_THEMES = {
-    "Stock Dashboard": "forest",
-    "Inventory": "forest",
-    "POS": "sunset",
-    "Sales History": "ocean",
-    "Sales Dashboard": "ocean",
-    "Cash Dashboard": "sunset",
-    "Purchases": "forest",
-    "Purchases Dashboard": "forest",
-    "Income": "ocean",
-    "Income Dashboard": "ocean",
-    "Expenses": "sunset",
-    "Expenses Dashboard": "sunset",
-    "P&L": "royal",
-    "Customer Dashboard": "royal",
-    "Retention Dashboard": "royal",
-    "Segmentation Dashboard": "royal",
-    "Lifecycle Dashboard": "royal",
-    "Business Advisor": "royal",
-    "Debtors": "sunset",
-    "Debtors Dashboard": "sunset",
-    "Reports Dashboard": "ocean",
-    "Shift Management": "forest",
-    "Branch Management": "forest",
-    "Branch Performance": "ocean",
-    "User Management": "royal",
+    "Stock Dashboard": "light",
+    "Inventory": "light",
+    "POS": "light",
+    "Sales History": "light",
+    "Sales Dashboard": "light",
+    "Cash Dashboard": "light",
+    "Purchases": "light",
+    "Purchases Dashboard": "light",
+    "Income": "light",
+    "Income Dashboard": "light",
+    "Expenses": "light",
+    "Expenses Dashboard": "light",
+    "P&L": "light",
+    "Customer Dashboard": "light",
+    "Retention Dashboard": "light",
+    "Segmentation Dashboard": "light",
+    "Lifecycle Dashboard": "light",
+    "Business Advisor": "light",
+    "Debtors": "light",
+    "Debtors Dashboard": "light",
+    "Reports Dashboard": "light",
+    "Shift Management": "light",
+    "Branch Management": "light",
+    "Branch Performance": "light",
+    "User Management": "light",
     "Settings": "light",
-    "Mobile Dashboard": "ocean",
-    "Demand Forecasting": "royal",
-    "Live Dashboard": "sunset",
-    "Returns & Refunds": "sunset",
-    "Returns Management": "sunset",
-    "Barcode Generator": "forest",
-    "Customer App": "royal",
-    "Customer Insights": "royal",
-    "Customer 360 View": "royal",
+    "Mobile Dashboard": "light",
+    "Demand Forecasting": "light",
+    "Live Dashboard": "light",
+    "Returns & Refunds": "light",
+    "Returns Management": "light",
+    "Barcode Generator": "light",
+    "Customer App": "light",
+    "Customer Insights": "light",
+    "Customer 360 View": "light",
     "Security Dashboard": "dark",
-    "Language Management": "ocean",
+    "Language Management": "light",
     "Offline Mode": "dark",
-    "Financial Closing": "sunset",
-    "Supplier Bidding": "forest"
+    "Financial Closing": "light",
+    "Supplier Bidding": "light"
 }
 
 # ==============================
@@ -258,121 +138,127 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - FIXED FOR ALL DROPDOWNS WITH WHITE BACKGROUND
+# THEME APPLICATION - BLACK & WHITE ONLY
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS to the Streamlit app - ALL DROPDOWNS HAVE WHITE BACKGROUND"""
+    """Apply theme CSS - BLACK & WHITE ONLY"""
+    
+    # Determine if dark mode
+    is_dark = colors.get("background_color", "#FFFFFF") == "#000000"
+    
+    # Set colors for dropdowns based on theme
+    dropdown_bg = "#FFFFFF" if not is_dark else "#1A1A1A"
+    dropdown_text = "#000000" if not is_dark else "#FFFFFF"
+    dropdown_border = "#CCCCCC" if not is_dark else "#444444"
     
     css = f"""
     <style>
-        /* Global Styles */
+        /* ==============================
+           GLOBAL STYLES
+           ============================== */
+        
         .stApp {{
-            background-color: {colors.get("background_color", "#FFFFFF")};
+            background-color: {colors.get("background_color", "#FFFFFF")} !important;
         }}
         
         .main .block-container {{
-            background-color: {colors.get("background_color", "#FFFFFF")};
+            background-color: {colors.get("background_color", "#FFFFFF")} !important;
         }}
         
         /* Headers */
         h1, h2, h3, h4, h5, h6 {{
-            color: {colors.get("text_color", "#1F2937")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
         }}
         
-        /* Text */
-        p, li, span, label, div {{
-            color: {colors.get("text_color", "#1F2937")};
-        }}
-        
-        .stMarkdown p, .stMarkdown li {{
-            color: {colors.get("text_color", "#1F2937")};
+        /* All text */
+        p, li, span, label, div, .stMarkdown, .stMarkdown p {{
+            color: {colors.get("text_color", "#000000")} !important;
         }}
         
         /* Sidebar */
         [data-testid="stSidebar"] {{
-            background-color: {colors.get("sidebar_bg", "#F3F4F6")};
-            border-right: 1px solid {colors.get("border_color", "#E5E7EB")};
+            background-color: {colors.get("sidebar_bg", "#F5F5F5")} !important;
+            border-right: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
         }}
         
         [data-testid="stSidebar"] .stMarkdown,
         [data-testid="stSidebar"] p,
         [data-testid="stSidebar"] span,
         [data-testid="stSidebar"] label {{
-            color: {colors.get("text_color", "#1F2937")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
         }}
         
         /* Cards / Expanders / Metrics */
         [data-testid="stExpander"],
         [data-testid="stMetric"] {{
-            background-color: {colors.get("card_bg", "#FFFFFF")};
-            border: 1px solid {colors.get("border_color", "#E5E7EB")};
-            border-radius: 12px;
+            background-color: {colors.get("card_bg", "#FFFFFF")} !important;
+            border: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
+            border-radius: 8px !important;
         }}
         
         [data-testid="stExpander"] summary p {{
-            color: {colors.get("text_color", "#1F2937")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
         }}
         
         [data-testid="stMetricValue"] {{
-            color: {colors.get("primary_color", "#6366F1")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
             font-size: 1.8rem !important;
             font-weight: 600 !important;
         }}
         
         [data-testid="stMetricLabel"] {{
-            color: {colors.get("text_secondary", "#6B7280")} !important;
+            color: {colors.get("text_secondary", "#333333")} !important;
         }}
         
-        /* Buttons */
+        /* Buttons - Black & White */
         .stButton > button {{
-            background: linear-gradient(135deg, {colors.get("primary_color", "#6366F1")} 0%, {colors.get("primary_hover", "#4F46E5")} 100%);
-            color: white !important;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 16px;
-            font-weight: 500;
-            transition: all 0.3s ease;
+            background-color: {colors.get("text_color", "#000000")} !important;
+            color: {colors.get("background_color", "#FFFFFF")} !important;
+            border: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
+            border-radius: 8px !important;
+            padding: 8px 16px !important;
+            font-weight: 500 !important;
+            transition: all 0.3s ease !important;
         }}
         
         .stButton > button:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            opacity: 0.9;
+            opacity: 0.8 !important;
+            transform: translateY(-2px) !important;
         }}
         
         /* ==============================
-           SELECTBOX FIX - WHITE BACKGROUND FOR ALL DROPDOWNS
+           DROPDOWNS (SELECTBOX) - BLACK & WHITE
            ============================== */
         
-        /* Selectbox container - ALWAYS WHITE */
+        /* Selectbox container */
         div[data-baseweb="select"] > div {{
-            background-color: #FFFFFF !important;
-            color: #1F2937 !important;
-            border: 1px solid #D1D5DB !important;
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
+            border: 1px solid {dropdown_border} !important;
             border-radius: 8px !important;
             min-height: 38px !important;
         }}
         
         div[data-baseweb="select"] > div > div {{
-            background-color: #FFFFFF !important;
-            color: #1F2937 !important;
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
         }}
         
         /* Selected value text */
         div[data-baseweb="select"] > div > div > div {{
-            color: #1F2937 !important;
+            color: {dropdown_text} !important;
             font-weight: 500 !important;
         }}
         
         /* Dropdown arrow */
         div[data-baseweb="select"] svg {{
-            fill: #6B7280 !important;
+            fill: {dropdown_text} !important;
         }}
         
-        /* Dropdown menu - ALWAYS WHITE */
+        /* Dropdown menu */
         div[data-baseweb="select"] ul {{
-            background-color: #FFFFFF !important;
-            border: 1px solid #D1D5DB !important;
+            background-color: {dropdown_bg} !important;
+            border: 1px solid {dropdown_border} !important;
             border-radius: 8px !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
             max-height: 300px !important;
@@ -380,15 +266,15 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* Dropdown items - ALWAYS DARK TEXT ON WHITE */
+        /* Dropdown items */
         div[data-baseweb="select"] ul li {{
-            color: #1F2937 !important;
-            background-color: #FFFFFF !important;
+            color: {dropdown_text} !important;
+            background-color: {dropdown_bg} !important;
             padding: 10px 14px !important;
             font-size: 14px !important;
             cursor: pointer !important;
             transition: all 0.2s ease !important;
-            border-bottom: 1px solid #E5E7EB !important;
+            border-bottom: 1px solid {dropdown_border} !important;
         }}
         
         div[data-baseweb="select"] ul li:last-child {{
@@ -396,81 +282,63 @@ def apply_theme(colors):
         }}
         
         div[data-baseweb="select"] ul li:hover {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #FFFFFF !important;
+            background-color: {colors.get("text_color", "#000000")} !important;
+            color: {colors.get("background_color", "#FFFFFF")} !important;
         }}
         
         div[data-baseweb="select"] ul li[aria-selected="true"] {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #FFFFFF !important;
+            background-color: {colors.get("text_color", "#000000")} !important;
+            color: {colors.get("background_color", "#FFFFFF")} !important;
             font-weight: 600 !important;
         }}
         
-        /* Selectbox label - ADAPT TO THEME */
+        /* Selectbox label */
         .stSelectbox label {{
-            color: {colors.get("text_color", "#1F2937")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
             font-weight: 500 !important;
         }}
         
-        /* Sidebar selectbox - ALWAYS WHITE */
+        /* Sidebar selectbox */
         div[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
-            background-color: #FFFFFF !important;
-            color: #1F2937 !important;
-            border-color: #D1D5DB !important;
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
+            border-color: {dropdown_border} !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul {{
-            background-color: #FFFFFF !important;
-            border-color: #D1D5DB !important;
+            background-color: {dropdown_bg} !important;
+            border-color: {dropdown_border} !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li {{
-            color: #1F2937 !important;
-            background-color: #FFFFFF !important;
+            color: {dropdown_text} !important;
+            background-color: {dropdown_bg} !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li:hover {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #FFFFFF !important;
-        }}
-        
-        /* Multi-select - ALWAYS WHITE */
-        div[data-baseweb="select"] [data-testid="stMultiSelect"] {{
-            background-color: #FFFFFF !important;
-        }}
-        
-        /* Multi-select tags */
-        div[data-baseweb="tag"] {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #FFFFFF !important;
-            border-radius: 4px !important;
-            padding: 2px 8px !important;
-            margin: 2px !important;
-        }}
-        
-        div[data-baseweb="tag"] svg {{
-            fill: #FFFFFF !important;
+            background-color: {colors.get("text_color", "#000000")} !important;
+            color: {colors.get("background_color", "#FFFFFF")} !important;
         }}
         
         /* ==============================
-           INPUT FIELDS - ALWAYS WHITE
+           INPUT FIELDS - BLACK & WHITE
            ============================== */
         
         .stTextInput > div > div > input,
         .stNumberInput > div > div > input,
         .stTextArea > div > div > textarea,
         .stDateInput > div > div > input {{
-            background-color: #FFFFFF !important;
-            color: #1F2937 !important;
-            border: 1px solid #D1D5DB !important;
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
+            border: 1px solid {dropdown_border} !important;
             border-radius: 8px !important;
         }}
         
         .stTextInput > div > div > input:focus,
         .stNumberInput > div > div > input:focus,
         .stTextArea > div > div > textarea:focus {{
-            border-color: {colors.get("primary_color", "#6366F1")} !important;
-            box-shadow: 0 0 0 2px {colors.get("primary_color", "#6366F1")}20 !important;
+            border-color: {colors.get("text_color", "#000000")} !important;
+            box-shadow: 0 0 0 2px {colors.get("text_color", "#000000")}20 !important;
         }}
         
         .stTextInput label,
@@ -478,32 +346,31 @@ def apply_theme(colors):
         .stSelectbox label,
         .stTextArea label,
         .stDateInput label {{
-            color: {colors.get("text_color", "#1F2937")} !important;
-            font-weight: 500;
+            color: {colors.get("text_color", "#000000")} !important;
+            font-weight: 500 !important;
         }}
         
         /* ==============================
            DATE INPUT
            ============================== */
         
-        /* Date input calendar popup */
         div[data-baseweb="calendar"] {{
-            background-color: #FFFFFF !important;
-            border: 1px solid #D1D5DB !important;
+            background-color: {dropdown_bg} !important;
+            border: 1px solid {dropdown_border} !important;
             border-radius: 8px !important;
         }}
         
         div[data-baseweb="calendar"] div {{
-            color: #1F2937 !important;
+            color: {dropdown_text} !important;
         }}
         
         div[data-baseweb="calendar"] button {{
-            color: #1F2937 !important;
+            color: {dropdown_text} !important;
         }}
         
         div[data-baseweb="calendar"] button:hover {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: #FFFFFF !important;
+            background-color: {colors.get("text_color", "#000000")} !important;
+            color: {colors.get("background_color", "#FFFFFF")} !important;
         }}
         
         /* ==============================
@@ -515,16 +382,16 @@ def apply_theme(colors):
         }}
         
         .stTabs [data-baseweb="tab"] {{
-            background-color: {colors.get("secondary_bg", "#F8F9FA")} !important;
+            background-color: {colors.get("secondary_bg", "#F5F5F5")} !important;
             border-radius: 8px !important;
             padding: 8px 16px !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
-            border: 1px solid {colors.get("border_color", "#E5E7EB")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
+            border: 1px solid {colors.get("border_color", "#CCCCCC")} !important;
         }}
         
         .stTabs [aria-selected="true"] {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: white !important;
+            background-color: {colors.get("text_color", "#000000")} !important;
+            color: {colors.get("background_color", "#FFFFFF")} !important;
         }}
         
         /* ==============================
@@ -532,99 +399,96 @@ def apply_theme(colors):
            ============================== */
         
         .stDataFrame {{
-            background-color: #FFFFFF;
+            background-color: {dropdown_bg} !important;
         }}
         
         .dataframe {{
-            background-color: #FFFFFF !important;
-            color: #1F2937 !important;
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
             border-radius: 10px !important;
         }}
         
         .dataframe th {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-            color: white !important;
+            background-color: {colors.get("text_color", "#000000")} !important;
+            color: {colors.get("background_color", "#FFFFFF")} !important;
             padding: 10px !important;
         }}
         
         .dataframe td {{
-            color: #1F2937 !important;
+            color: {dropdown_text} !important;
             padding: 8px !important;
-            border-bottom: 1px solid #E5E7EB !important;
+            border-bottom: 1px solid {dropdown_border} !important;
         }}
         
         .dataframe tr:hover td {{
-            background-color: #F3F4F6 !important;
+            background-color: {colors.get("text_color", "#000000")}20 !important;
         }}
         
         /* ==============================
            ALERT MESSAGES
            ============================== */
         
-        .stSuccess {{
-            background-color: {colors.get("success", "#10B981")}20 !important;
-            border-left: 4px solid {colors.get("success", "#10B981")} !important;
+        .stSuccess, .stWarning, .stError, .stInfo {{
+            background-color: {dropdown_bg} !important;
+            border: 1px solid {dropdown_border} !important;
             border-radius: 8px !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
+            color: {dropdown_text} !important;
         }}
         
-        .stWarning {{
-            background-color: {colors.get("warning", "#F59E0B")}20 !important;
-            border-left: 4px solid {colors.get("warning", "#F59E0B")} !important;
-            border-radius: 8px !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
-        }}
+        /* ==============================
+           CHECKBOX & RADIO
+           ============================== */
         
-        .stError {{
-            background-color: {colors.get("error", "#EF4444")}20 !important;
-            border-left: 4px solid {colors.get("error", "#EF4444")} !important;
-            border-radius: 8px !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
-        }}
-        
-        .stInfo {{
-            background-color: {colors.get("info", "#3B82F6")}20 !important;
-            border-left: 4px solid {colors.get("info", "#3B82F6")} !important;
-            border-radius: 8px !important;
-            color: {colors.get("text_color", "#1F2937")} !important;
-        }}
-        
-        /* Progress Bar */
-        .stProgress > div > div {{
-            background-color: {colors.get("primary_color", "#6366F1")} !important;
-        }}
-        
-        /* Checkbox & Radio */
         .stCheckbox label,
         .stRadio label {{
-            color: {colors.get("text_color", "#1F2937")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
         }}
         
-        /* Code Blocks */
+        /* ==============================
+           CODE BLOCKS
+           ============================== */
+        
         code {{
-            background-color: {colors.get("secondary_bg", "#F8F9FA")} !important;
-            color: {colors.get("primary_color", "#6366F1")} !important;
+            background-color: {colors.get("secondary_bg", "#F5F5F5")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
             border-radius: 4px !important;
             padding: 2px 6px !important;
         }}
         
-        /* Horizontal Rule */
+        /* ==============================
+           HORIZONTAL RULE
+           ============================== */
+        
         hr {{
-            border-color: {colors.get("border_color", "#E5E7EB")} !important;
+            border-color: {colors.get("border_color", "#CCCCCC")} !important;
         }}
         
-        /* Links */
+        /* ==============================
+           LINKS
+           ============================== */
+        
         a {{
-            color: {colors.get("primary_color", "#6366F1")} !important;
+            color: {colors.get("text_color", "#000000")} !important;
         }}
         
         a:hover {{
-            color: {colors.get("primary_hover", "#4F46E5")} !important;
+            opacity: 0.7 !important;
         }}
         
-        /* Caption */
+        /* ==============================
+           CAPTION
+           ============================== */
+        
         .stCaption {{
-            color: {colors.get("text_secondary", "#6B7280")} !important;
+            color: {colors.get("text_secondary", "#333333")} !important;
+        }}
+        
+        /* ==============================
+           PROGRESS BAR
+           ============================== */
+        
+        .stProgress > div > div {{
+            background-color: {colors.get("text_color", "#000000")} !important;
         }}
     </style>
     """
@@ -646,84 +510,41 @@ def apply_page_theme(page_name):
 
 
 def apply_login_theme():
-    """Apply professional login page theme"""
+    """Apply login page theme - Black & White"""
     login_colors = {
-        "background_color": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-        "text_color": "#FFFFFF",
-        "text_secondary": "rgba(255,255,255,0.8)",
-        "border_color": "rgba(255,255,255,0.2)",
-        "primary_color": "#FF6584",
-        "primary_hover": "#FF85A4",
-        "card_bg": "rgba(255,255,255,0.1)",
-        "secondary_bg": "rgba(255,255,255,0.05)",
-        "sidebar_bg": "#1E1E2E",
-        "success": "#10B981",
-        "warning": "#F59E0B",
-        "error": "#EF4444",
-        "info": "#3B82F6"
+        "background_color": "#FFFFFF",
+        "text_color": "#000000",
+        "text_secondary": "#333333",
+        "border_color": "#CCCCCC",
+        "primary_color": "#000000",
+        "primary_hover": "#333333",
+        "card_bg": "#FFFFFF",
+        "secondary_bg": "#F5F5F5",
+        "sidebar_bg": "#F5F5F5",
+        "success": "#000000",
+        "warning": "#000000",
+        "error": "#000000",
+        "info": "#000000"
     }
-    
-    css = f"""
-    <style>
-        .stApp {{
-            background: {login_colors["background_color"]};
-        }}
-        h1, h2, h3, h4, h5, h6, p, label, span {{
-            color: {login_colors["text_color"]} !important;
-        }}
-        .stForm {{
-            background: {login_colors["card_bg"]};
-            border-radius: 20px;
-            padding: 35px;
-            backdrop-filter: blur(10px);
-            border: 1px solid {login_colors["border_color"]};
-        }}
-        .stTextInput > div > div > input {{
-            background: white !important;
-            color: #1f2937 !important;
-            border-radius: 30px !important;
-            padding: 12px 20px !important;
-            border: none !important;
-        }}
-        .stButton > button {{
-            background: linear-gradient(135deg, {login_colors["primary_color"]} 0%, {login_colors["primary_hover"]} 100%) !important;
-            color: white !important;
-            border-radius: 30px !important;
-            padding: 12px 30px !important;
-            font-weight: bold !important;
-            width: 100% !important;
-        }}
-        .stButton > button:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(255,101,132,0.4);
-        }}
-        .stCaption {{
-            color: {login_colors["text_secondary"]} !important;
-        }}
-        hr {{
-            border-color: {login_colors["border_color"]};
-        }}
-    </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
+    apply_theme(login_colors)
 
 
 def apply_branch_selection_theme():
-    """Apply pure white theme for branch selection"""
+    """Apply branch selection theme - Black & White"""
     branch_colors = {
         "background_color": "#FFFFFF",
-        "text_color": "#1a1a2e",
-        "text_secondary": "#666666",
-        "border_color": "#e0e0e0",
-        "primary_color": "#6366F1",
-        "primary_hover": "#4F46E5",
+        "text_color": "#000000",
+        "text_secondary": "#333333",
+        "border_color": "#CCCCCC",
+        "primary_color": "#000000",
+        "primary_hover": "#333333",
         "card_bg": "#FFFFFF",
-        "secondary_bg": "#F8F9FA",
-        "sidebar_bg": "#F3F4F6",
-        "success": "#10B981",
-        "warning": "#F59E0B",
-        "error": "#EF4444",
-        "info": "#3B82F6"
+        "secondary_bg": "#F5F5F5",
+        "sidebar_bg": "#F5F5F5",
+        "success": "#000000",
+        "warning": "#000000",
+        "error": "#000000",
+        "info": "#000000"
     }
     apply_theme(branch_colors)
 
@@ -790,10 +611,8 @@ def theme_selector():
         colors = theme["colors"]
         st.markdown(f"""
         <div style="background: {colors['card_bg']}; padding: 12px; border-radius: 10px; border: 1px solid {colors['border_color']};">
-            <p style="color: {colors['primary_color']};"><strong>■ Primary Color</strong></p>
-            <p style="color: {colors['success']};"><strong>■ Success Color</strong></p>
-            <p style="color: {colors['warning']};"><strong>■ Warning Color</strong></p>
-            <p style="color: {colors['error']};"><strong>■ Error Color</strong></p>
+            <p style="color: {colors['text_color']};"><strong>■ Text Color</strong></p>
+            <p style="color: {colors['background_color']}; background: {colors['text_color']}; padding: 4px;"><strong>■ Background Color</strong></p>
         </div>
         """, unsafe_allow_html=True)
     
