@@ -29,21 +29,17 @@ def init_pwa_files():
     PWA_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     Path("static").mkdir(exist_ok=True)
     
-    # PWA Config - only create if doesn't exist
     if not PWA_CONFIG_FILE.exists():
         config = get_default_config()
         with open(PWA_CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
     
-    # Generate manifest if it doesn't exist
     if not PWA_MANIFEST_FILE.exists():
         generate_manifest()
     
-    # Generate service worker if it doesn't exist
     if not PWA_SW_FILE.exists():
         generate_service_worker()
     
-    # Generate version file if it doesn't exist
     if not PWA_VERSION_FILE.exists():
         update_pwa_version()
 
@@ -91,7 +87,6 @@ def load_pwa_config() -> Dict[str, Any]:
 
 def save_pwa_config(config: Dict[str, Any]) -> None:
     """Save PWA configuration"""
-    # Validate before saving
     is_valid, message = validate_pwa_config(config)
     if not is_valid:
         raise ValueError(f"Invalid configuration: {message}")
@@ -120,7 +115,7 @@ def validate_pwa_config(config: Dict[str, Any]) -> Tuple[bool, str]:
 
 
 def show_toast(message: str, type: str = "info") -> None:
-    """Show a toast notification using Streamlit"""
+    """Show a toast notification"""
     if type == "success":
         st.success(f"✅ {message}")
     elif type == "error":
@@ -165,7 +160,6 @@ def backup_pwa_config() -> Tuple[bool, str]:
         backup_file = PWA_BACKUP_DIR / f"pwa_config_{timestamp}.json"
         shutil.copy(PWA_CONFIG_FILE, backup_file)
         
-        # Keep only last 10 backups
         backups = sorted(PWA_BACKUP_DIR.glob("pwa_config_*.json"))
         if len(backups) > 10:
             for old_backup in backups[:-10]:
@@ -179,7 +173,6 @@ def backup_pwa_config() -> Tuple[bool, str]:
 def restore_pwa_config(backup_file: Optional[Path] = None) -> Tuple[bool, str]:
     """Restore PWA configuration from backup"""
     if not backup_file:
-        # Get latest backup
         backups = sorted(PWA_BACKUP_DIR.glob("pwa_config_*.json"))
         if not backups:
             return False, "No backups found"
@@ -200,19 +193,16 @@ def clear_pwa_cache() -> Tuple[bool, str]:
     try:
         files_removed = 0
         
-        # Remove manifest and service worker
         for file in [PWA_MANIFEST_FILE, PWA_SW_FILE, PWA_VERSION_FILE]:
             if file.exists():
                 file.unlink()
                 files_removed += 1
         
-        # Remove icons
         if PWA_ICONS_DIR.exists():
             for icon in PWA_ICONS_DIR.glob("*.png"):
                 icon.unlink()
                 files_removed += 1
         
-        # Reinitialize files
         init_pwa_files()
         
         return True, f"Cache cleared ({files_removed} files removed)"
@@ -244,7 +234,6 @@ def generate_manifest() -> None:
         "dir": "ltr"
     }
     
-    # Generate icons
     for size in config.get("icon_sizes", [72, 96, 128, 144, 152, 192, 384, 512]):
         manifest["icons"].append({
             "src": f"/static/icons/icon-{size}x{size}.png",
@@ -253,7 +242,6 @@ def generate_manifest() -> None:
             "purpose": "any maskable"
         })
     
-    # Write manifest
     PWA_MANIFEST_FILE.write_text(json.dumps(manifest, indent=2))
 
 
@@ -285,7 +273,6 @@ const CACHE_NAME = 'smartgro-v{version_info.get('build', '1')}';
 const STATIC_CACHE = 'smartgro-static-v{version_info.get('build', '1')}';
 const DYNAMIC_CACHE = 'smartgro-dynamic-v{version_info.get('build', '1')}';
 
-// Files to cache
 const STATIC_FILES = [
     '/',
     '/index.html',
@@ -295,9 +282,6 @@ const STATIC_FILES = [
     '/static/app.js'
 ];
 
-// ==============================
-// INSTALL
-// ==============================
 self.addEventListener('install', function(event) {{
     event.waitUntil(
         caches.open(STATIC_CACHE)
@@ -311,9 +295,6 @@ self.addEventListener('install', function(event) {{
     );
 }});
 
-// ==============================
-// ACTIVATE
-// ==============================
 self.addEventListener('activate', function(event) {{
     event.waitUntil(
         caches.keys()
@@ -336,13 +317,9 @@ self.addEventListener('activate', function(event) {{
     );
 }});
 
-// ==============================
-// FETCH - Network First Strategy
-// ==============================
 self.addEventListener('fetch', function(event) {{
     const url = new URL(event.request.url);
     
-    // Skip non-GET requests and browser extensions
     if (event.request.method !== 'GET' || 
         url.protocol === 'chrome-extension:' ||
         url.protocol === 'chrome:' ||
@@ -350,33 +327,24 @@ self.addEventListener('fetch', function(event) {{
         return;
     }}
     
-    // API calls - network first
     if (url.pathname.startsWith('/api/')) {{
         event.respondWith(networkFirst(event.request));
         return;
     }}
     
-    // Static assets - cache first
     if (url.pathname.match(/\\.(css|js|png|jpg|jpeg|gif|svg|ico)$/)) {{
         event.respondWith(cacheFirst(event.request));
         return;
     }}
     
-    // HTML pages - network first with cache fallback
     if (url.pathname.endsWith('/') || url.pathname.match(/\\.html$/)) {{
         event.respondWith(networkFirstWithCacheFallback(event.request));
         return;
     }}
     
-    // Everything else - network first
     event.respondWith(networkFirst(event.request));
 }});
 
-// ==============================
-// STRATEGIES
-// ==============================
-
-// Cache First Strategy
 async function cacheFirst(request) {{
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {{
@@ -392,7 +360,6 @@ async function cacheFirst(request) {{
     }}
 }}
 
-// Network First Strategy
 async function networkFirst(request) {{
     try {{
         const networkResponse = await fetch(request);
@@ -408,7 +375,6 @@ async function networkFirst(request) {{
     }}
 }}
 
-// Network First with Cache Fallback
 async function networkFirstWithCacheFallback(request) {{
     try {{
         const networkResponse = await fetch(request);
@@ -428,9 +394,6 @@ async function networkFirstWithCacheFallback(request) {{
     }}
 }}
 
-// ==============================
-// PUSH NOTIFICATIONS
-// ==============================
 self.addEventListener('push', function(event) {{
     const data = event.data.json();
     const options = {{
@@ -485,9 +448,6 @@ self.addEventListener('notificationclick', function(event) {{
     );
 }});
 
-// ==============================
-// BACKGROUND SYNC
-// ==============================
 self.addEventListener('sync', function(event) {{
     if (event.tag === 'sync-data') {{
         event.waitUntil(syncData());
@@ -496,8 +456,6 @@ self.addEventListener('sync', function(event) {{
 
 async function syncData() {{
     console.log('Syncing offline data...');
-    
-    // Sync pending requests
     try {{
         const cache = await caches.open(DYNAMIC_CACHE);
         const requests = await cache.keys();
@@ -530,16 +488,13 @@ def generate_icon_png(size: int, color: str = "#6366F1") -> bool:
     try:
         from PIL import Image, ImageDraw, ImageFont
         
-        # Create image
         img = Image.new('RGB', (size, size), color=color)
         draw = ImageDraw.Draw(img)
         
-        # Draw border
         border_color = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
         border_color = tuple(int(c * 0.8) for c in border_color)
         draw.rectangle([0, 0, size-1, size-1], outline=border_color, width=2)
         
-        # Draw text (if size is large enough)
         if size >= 128:
             try:
                 font = ImageFont.truetype("arial.ttf", size // 4)
@@ -554,7 +509,6 @@ def generate_icon_png(size: int, color: str = "#6366F1") -> bool:
             y = (size - text_height) // 2
             draw.text((x, y), text, fill="white", font=font)
         
-        # Save
         img.save(PWA_ICONS_DIR / f"icon-{size}x{size}.png")
         return True
     except:
@@ -572,7 +526,6 @@ def generate_all_icons() -> int:
             if generate_icon_png(size, config.get("theme_color", "#6366F1")):
                 generated += 1
     
-    # Generate iOS icons
     for size in config.get("ios_icon_sizes", [180, 192, 512]):
         icon_path = PWA_ICONS_DIR / f"apple-icon-{size}x{size}.png"
         if not icon_path.exists():
@@ -620,16 +573,9 @@ def get_pwa_analytics() -> Dict[str, Any]:
     config = load_pwa_config()
     version_info = get_pwa_version()
     
-    # Check if manifest is accessible
     manifest_accessible = PWA_MANIFEST_FILE.exists()
-    
-    # Check if service worker is registered
     sw_accessible = PWA_SW_FILE.exists()
-    
-    # Count icon files
     icon_count = len(list(PWA_ICONS_DIR.glob("*.png"))) if PWA_ICONS_DIR.exists() else 0
-    
-    # Check backups
     backup_count = len(list(PWA_BACKUP_DIR.glob("pwa_config_*.json"))) if PWA_BACKUP_DIR.exists() else 0
     
     return {
@@ -645,10 +591,10 @@ def get_pwa_analytics() -> Dict[str, Any]:
 
 
 # ==============================
-# PWA INSTALL PROMPT - FIXED (Hidden by default)
+# PWA INSTALL PROMPT
 # ==============================
 def pwa_install_prompt() -> str:
-    """Generate PWA install prompt HTML - Hidden by default, shows when install is possible"""
+    """Generate PWA install prompt HTML"""
     return """
     <style>
         #pwa-install-prompt {
@@ -719,18 +665,6 @@ def pwa_install_prompt() -> str:
             to {
                 transform: translateX(-50%) translateY(0);
                 opacity: 1;
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            #pwa-install-prompt {
-                background: #1e1e1e;
-                border-color: #333;
-            }
-            .pwa-prompt-text strong {
-                color: #eee;
-            }
-            .pwa-prompt-text span {
-                color: #aaa;
             }
         }
     </style>
@@ -810,8 +744,6 @@ def offline_status_indicator() -> str:
     
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
-    
-    // Initial check
     updateOnlineStatus();
     </script>
     """
@@ -871,7 +803,7 @@ def pwa_test_tools() -> None:
             success, message = clear_pwa_cache()
             if success:
                 show_toast(message, "success")
-                st.rerun()
+                #st.rerun()
             else:
                 show_toast(message, "error")
 
@@ -952,12 +884,7 @@ def pwa_setup_dashboard():
         st.error("❌ Access Denied. PWA setup is for owners, managers, and developers only.")
         return
     
-    # Initialize files
-    DATA_DIR.mkdir(exist_ok=True)
-    PWA_ICONS_DIR.mkdir(parents=True, exist_ok=True)
-    PWA_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    Path("static").mkdir(exist_ok=True)
-    
+    init_pwa_files()
     config = load_pwa_config()
     
     # ==============================
@@ -979,13 +906,8 @@ def pwa_setup_dashboard():
         st.markdown("## ⚙️ PWA Settings")
         st.caption("Configure your Progressive Web App")
         
-        # Display HTTPS status
         st.markdown(check_https(), unsafe_allow_html=True)
-        
-        # Display install prompt (hidden by default)
         st.markdown(pwa_install_prompt(), unsafe_allow_html=True)
-        
-        # Display online status
         st.markdown(offline_status_indicator(), unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
@@ -995,7 +917,6 @@ def pwa_setup_dashboard():
             app_name = st.text_input("App Name", value=config.get("app_name", "SmartGro Retail"))
             app_short_name = st.text_input("Short Name", value=config.get("app_short_name", "SmartGro"))
             app_description = st.text_area("Description", value=config.get("app_description", "Smart Retail ERP System"))
-            
             theme_color = st.color_picker("Theme Color", value=config.get("theme_color", "#6366F1"))
             background_color = st.color_picker("Background Color", value=config.get("background_color", "#FFFFFF"))
         
@@ -1042,7 +963,6 @@ def pwa_setup_dashboard():
             ios_enabled = st.checkbox("iOS Support", value=config.get("ios_enabled", True))
             splash_color = st.color_picker("Splash Screen Color", value=config.get("splash_screen_color", "#6366F1"))
         
-        # Display shortcuts
         st.markdown(pwa_shortcuts(), unsafe_allow_html=True)
         
         if st.button("💾 Save PWA Settings", type="primary", use_container_width=True):
@@ -1068,11 +988,7 @@ def pwa_setup_dashboard():
                     "ios_enabled": ios_enabled
                 })
                 save_pwa_config(config)
-                
-                # Backup before regenerating
                 backup_pwa_config()
-                
-                # Regenerate files
                 generate_manifest()
                 generate_service_worker()
                 update_pwa_version()
@@ -1149,13 +1065,12 @@ def pwa_setup_dashboard():
         3. Confirm the installation
         """)
         
-        # Display version info
-        st.markdown("### 📦 Version History")
         version_info = get_pwa_version()
+        st.markdown("### 📦 Version History")
         st.json(version_info)
     
     # ==============================
-    # TAB 3: ICONS
+    # TAB 3: ICONS - FIXED
     # ==============================
     with tab3:
         st.markdown("## 🖼️ PWA Icons")
@@ -1207,7 +1122,7 @@ def pwa_setup_dashboard():
                 cols = st.columns(4)
                 for idx, icon in enumerate(icons[:12]):
                     with cols[idx % 4]:
-                        st.image(str(icon), caption=icon.name, use_container_width=True)
+                        st.image(str(icon), caption=icon.name, use_column_width=True)
                 if len(icons) > 12:
                     st.caption(f"Showing 12 of {len(icons)} icons")
             else:
@@ -1251,7 +1166,6 @@ def pwa_setup_dashboard():
         st.markdown("## 📋 PWA Preview")
         st.caption("Preview your PWA settings")
         
-        # Display install prompt (hidden by default)
         st.markdown(pwa_install_prompt(), unsafe_allow_html=True)
         
         st.markdown("### 📱 App Preview")
@@ -1332,10 +1246,7 @@ def pwa_setup_dashboard():
         st.markdown("## 🧪 PWA Testing Tools")
         st.caption("Test and validate your PWA configuration")
         
-        # HTTPS check
         st.markdown(check_https(), unsafe_allow_html=True)
-        
-        # Testing tools
         pwa_test_tools()
         
         st.markdown("### 📊 PWA Analytics")
@@ -1370,17 +1281,15 @@ def pwa_setup_dashboard():
         st.markdown("## 💾 Backup & Restore")
         st.caption("Manage PWA configuration backups")
         
-        # Backup section
         st.markdown("### 📤 Create Backup")
         if st.button("📤 Create Backup", type="primary", use_container_width=True):
             success, message = backup_pwa_config()
             if success:
                 show_toast(message, "success")
-                st.rerun()
+                #st.rerun()
             else:
                 show_toast(message, "error")
         
-        # Restore section
         st.markdown("### 📥 Restore Backup")
         
         backups = sorted(PWA_BACKUP_DIR.glob("pwa_config_*.json"), reverse=True)
@@ -1396,7 +1305,7 @@ def pwa_setup_dashboard():
                     success, message = restore_pwa_config(backup_file)
                     if success:
                         show_toast(message, "success")
-                        st.rerun()
+                        #st.rerun()
                     else:
                         show_toast(message, "error")
                 except Exception as e:
@@ -1404,7 +1313,6 @@ def pwa_setup_dashboard():
         else:
             st.info("No backups found")
         
-        # Clear cache section
         st.markdown("### 🧹 Maintenance")
         
         col1, col2 = st.columns(2)
@@ -1413,21 +1321,16 @@ def pwa_setup_dashboard():
                 success, message = clear_pwa_cache()
                 if success:
                     show_toast(message, "success")
-                    st.rerun()
+                    #st.rerun()
                 else:
                     show_toast(message, "error")
         
         with col2:
             if st.button("🔄 Reset to Default", use_container_width=True):
                 try:
-                    # Backup current config
                     backup_pwa_config()
-                    
-                    # Reset config
                     default_config = get_default_config()
                     save_pwa_config(default_config)
-                    
-                    # Regenerate files
                     generate_manifest()
                     generate_service_worker()
                     update_pwa_version()
@@ -1437,7 +1340,6 @@ def pwa_setup_dashboard():
                 except Exception as e:
                     show_toast(f"Error resetting: {str(e)}", "error")
         
-        # List backups
         st.markdown("### 📋 Backup History")
         if backups:
             backup_data = []
@@ -1477,7 +1379,7 @@ def get_pwa_version_info() -> Dict[str, Any]:
 
 
 def get_pwa_install_prompt() -> str:
-    """Get PWA install prompt HTML - Hidden by default"""
+    """Get PWA install prompt HTML"""
     return pwa_install_prompt()
 
 
