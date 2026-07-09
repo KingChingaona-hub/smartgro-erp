@@ -20,7 +20,6 @@ def init_voice_files():
     """Initialize voice command files"""
     DATA_DIR.mkdir(exist_ok=True)
     
-    # Voice settings
     if not VOICE_SETTINGS_FILE.exists():
         settings = {
             "enabled": True,
@@ -34,7 +33,6 @@ def init_voice_files():
         with open(VOICE_SETTINGS_FILE, "w") as f:
             json.dump(settings, f, indent=2)
     
-    # Voice commands
     if not VOICE_COMMANDS_FILE.exists():
         commands = {
             "pos": {
@@ -87,7 +85,6 @@ def init_voice_files():
         with open(VOICE_COMMANDS_FILE, "w") as f:
             json.dump(commands, f, indent=2)
     
-    # Voice logs
     if not VOICE_LOGS_FILE.exists():
         df = pd.DataFrame(columns=[
             "log_id", "timestamp", "command", "category", "action",
@@ -151,14 +148,12 @@ def parse_voice_command(text):
     text = text.lower().strip()
     commands = load_voice_commands()
     
-    # Try to match against all commands
     for category, category_commands in commands.items():
         for action, patterns in category_commands.items():
             for pattern in patterns:
                 pattern_clean = pattern.replace("{product}", "").replace("{amount}", "").replace("{number}", "").replace("{name}", "").strip()
                 
                 if pattern_clean and pattern_clean in text:
-                    # Extract parameters
                     params = {}
                     
                     if "{product}" in pattern:
@@ -210,7 +205,6 @@ def process_voice_command(parsed_command):
         "params": params
     }
     
-    # POS Commands
     if category == "pos":
         if action == "add_to_cart":
             product = params.get("product")
@@ -238,7 +232,6 @@ def process_voice_command(parsed_command):
                 response["success"] = True
                 response["message"] = f"Searching for {product}"
     
-    # Inventory Commands
     elif category == "inventory":
         if action == "view_stock":
             product = params.get("product")
@@ -254,7 +247,6 @@ def process_voice_command(parsed_command):
                 response["success"] = True
                 response["message"] = f"Adding stock to {product}"
     
-    # Sales Commands
     elif category == "sales":
         if action == "today_sales":
             response["success"] = True
@@ -268,7 +260,6 @@ def process_voice_command(parsed_command):
             response["success"] = True
             response["message"] = "Showing best selling products"
     
-    # Customers Commands
     elif category == "customers":
         if action == "find_customer":
             name = params.get("name")
@@ -284,7 +275,6 @@ def process_voice_command(parsed_command):
                 response["success"] = True
                 response["message"] = f"Adding customer {name}"
     
-    # Navigation Commands
     elif category == "navigation":
         page_map = {
             "go_to_stock": "Stock Dashboard",
@@ -302,7 +292,6 @@ def process_voice_command(parsed_command):
             response["message"] = f"Navigating to {page_map[action]}"
             response["navigate_to"] = page_map[action]
     
-    # General Commands
     elif category == "general":
         if action == "help":
             response["success"] = True
@@ -319,9 +308,6 @@ def process_voice_command(parsed_command):
     return response
 
 
-# ==============================
-# TOAST NOTIFICATION
-# ==============================
 def show_toast(message, type="info"):
     """Show a toast notification using Streamlit"""
     if type == "success":
@@ -351,6 +337,9 @@ def voice_commands_dashboard():
     
     init_voice_files()
     settings = load_voice_settings()
+    
+    if "voice_input" not in st.session_state:
+        st.session_state.voice_input = ""
     
     # ==============================
     # TABS
@@ -393,11 +382,11 @@ def voice_commands_dashboard():
             voice_text = st.text_input(
                 "Type or speak your command",
                 placeholder="e.g., Add bread to cart",
-                key="voice_input"
+                key="voice_input",
+                value=st.session_state.voice_input
             )
         
         with col2:
-            # Improved JavaScript with better structure
             st.markdown("""
             <style>
             .mic-btn {
@@ -431,125 +420,84 @@ def voice_commands_dashboard():
             }
             </style>
             
-            <button class="mic-btn" id="micButton">🎤</button>
+            <button class="mic-btn" id="micButton" onclick="startVoiceRecognition()">🎤</button>
             
             <script>
-            (function() {
-                const micBtn = document.getElementById('micButton');
-                if (!micBtn) return;
+            function startVoiceRecognition() {
+                const btn = document.getElementById('micButton');
+                if (btn.dataset.listening === 'true') return;
                 
-                // Prevent multiple listeners
-                if (micBtn.dataset.listenerAdded) return;
-                micBtn.dataset.listenerAdded = 'true';
-                
-                micBtn.addEventListener('click', function() {
-                    const btn = this;
-                    
-                    // Check if already listening
-                    if (btn.dataset.listening === 'true') return;
-                    
-                    // Check browser support
-                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                    if (!SpeechRecognition) {
-                        alert('Voice recognition not supported in this browser. Please type your command.');
-                        return;
-                    }
-                    
-                    // Setup recognition
-                    const recognition = new SpeechRecognition();
-                    recognition.lang = 'en-US';
-                    recognition.interimResults = true;
-                    recognition.continuous = false;
-                    recognition.maxAlternatives = 1;
-                    
-                    // Visual feedback
-                    btn.dataset.listening = 'true';
-                    btn.classList.add('listening');
-                    btn.textContent = '🔴 Listening...';
-                    
-                    // Timeout safety (15 seconds)
-                    let timeoutId = setTimeout(function() {
-                        recognition.stop();
-                        resetButton(btn);
-                    }, 15000);
-                    
-                    // Results handler
-                    recognition.onresult = function(event) {
-                        clearTimeout(timeoutId);
-                        let finalTranscript = '';
-                        let interimTranscript = '';
-                        
-                        for (let i = event.resultIndex; i < event.results.length; i++) {
-                            const transcript = event.results[i][0].transcript;
-                            if (event.results[i].isFinal) {
-                                finalTranscript += transcript;
-                            } else {
-                                interimTranscript += transcript;
-                            }
-                        }
-                        
-                        // Update input with final or interim
-                        const inputField = document.getElementById('voice_input');
-                        if (inputField) {
-                            inputField.value = finalTranscript || interimTranscript;
-                        }
-                        
-                        // If we have final result, trigger process
-                        if (finalTranscript) {
-                            resetButton(btn);
-                            // Find and click the process button
-                            const buttons = document.querySelectorAll('.stButton button');
-                            for (let b of buttons) {
-                                if (b.textContent.includes('Process')) {
-                                    b.click();
-                                    break;
-                                }
-                            }
-                        }
-                    };
-                    
-                    recognition.onerror = function(event) {
-                        clearTimeout(timeoutId);
-                        resetButton(btn);
-                        
-                        // User-friendly error messages
-                        let errorMsg = '';
-                        switch(event.error) {
-                            case 'not-allowed':
-                                errorMsg = 'Microphone access denied. Please allow microphone access and try again.';
-                                break;
-                            case 'no-speech':
-                                errorMsg = 'No speech detected. Please try again.';
-                                break;
-                            case 'audio-capture':
-                                errorMsg = 'No microphone found. Please connect a microphone and try again.';
-                                break;
-                            default:
-                                errorMsg = 'Error: ' + event.error + '. Please try again or type your command.';
-                        }
-                        alert(errorMsg);
-                    };
-                    
-                    recognition.onend = function() {
-                        clearTimeout(timeoutId);
-                        resetButton(btn);
-                    };
-                    
-                    // Start recognition
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        resetButton(btn);
-                        alert('Error starting voice recognition. Please try again.');
-                    }
-                });
-                
-                function resetButton(btn) {
-                    btn.dataset.listening = 'false';
-                    btn.classList.remove('listening');
-                    btn.textContent = '🎤';
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    alert('Voice recognition not supported in this browser. Please type your command.');
+                    return;
                 }
-            })();
+                
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'en-US';
+                recognition.interimResults = true;
+                recognition.continuous = false;
+                
+                btn.dataset.listening = 'true';
+                btn.classList.add('listening');
+                btn.textContent = '🔴 Listening...';
+                
+                let timeoutId = setTimeout(function() {
+                    recognition.stop();
+                    resetButton(btn);
+                }, 15000);
+                
+                recognition.onresult = function(event) {
+                    clearTimeout(timeoutId);
+                    let finalTranscript = '';
+                    
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        if (event.results[i].isFinal) {
+                            finalTranscript += event.results[i][0].transcript;
+                        }
+                    }
+                    
+                    if (finalTranscript) {
+                        resetButton(btn);
+                        const inputField = document.querySelector('[data-testid="stTextInput"] input');
+                        if (inputField) {
+                            inputField.value = finalTranscript;
+                            inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                        // Click process button
+                        setTimeout(function() {
+                            const processBtn = document.querySelector('button[data-testid="baseButton-secondary"]');
+                            if (processBtn && processBtn.textContent.includes('Process')) {
+                                processBtn.click();
+                            }
+                        }, 300);
+                    }
+                };
+                
+                recognition.onerror = function(event) {
+                    clearTimeout(timeoutId);
+                    resetButton(btn);
+                    alert('Error: ' + event.error + '. Please try again or type your command.');
+                };
+                
+                recognition.onend = function() {
+                    clearTimeout(timeoutId);
+                    resetButton(btn);
+                };
+                
+                try {
+                    recognition.start();
+                } catch (e) {
+                    resetButton(btn);
+                    alert('Error starting voice recognition. Please try again.');
+                }
+            }
+            
+            function resetButton(btn) {
+                btn.dataset.listening = 'false';
+                btn.classList.remove('listening');
+                btn.textContent = '🎤';
+            }
             </script>
             """, unsafe_allow_html=True)
         
@@ -640,7 +588,6 @@ def voice_commands_dashboard():
                     hide_index=True
                 )
                 
-                # Export
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Export Voice Logs (CSV)",
@@ -694,7 +641,6 @@ def voice_commands_dashboard():
             st.success("✅ Voice settings saved successfully!")
             show_toast("Voice settings updated!", "success")
         
-        # Add custom command
         st.markdown("### ➕ Add Custom Command")
         
         col1, col2 = st.columns(2)
