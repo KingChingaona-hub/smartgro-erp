@@ -139,12 +139,12 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - FIXED WITH WHITE INPUTS
+# THEME APPLICATION - FIXED WITH VISIBLE BUTTONS
 # ==============================
 def apply_theme(colors):
     
     bg_color = colors.get("background_color", "#FFFFFF")
-    text_color = colors.get("text_color", "#F3E9E9")
+    text_color = colors.get("text_color", "#000000")
     border_color = colors.get("border_color", "#CCCCCC")
     card_bg = colors.get("card_bg", "#FFFFFF")
     sidebar_bg = colors.get("sidebar_bg", "#F0F0F0")
@@ -159,10 +159,12 @@ def apply_theme(colors):
     dropdown_border = "#CCCCCC"
     
     # ========================================
-    # FIXED BUTTON COLORS - PROPER CONTRAST
+    # BUTTON COLORS - MAXIMUM CONTRAST
     # ========================================
-    button_bg = text_color      # Button background = text color (black in light, white in dark)
-    button_text = bg_color      # Button text = background color (white in light, black in dark)
+    # In light mode: black button with white text
+    # In dark mode: white button with black text
+    button_bg = text_color
+    button_text = bg_color
     
     css = f"""
     <style>
@@ -220,38 +222,43 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           BUTTONS - FIXED CONTRAST
+           BUTTONS - BOLD AND VISIBLE
            ============================== */
         
+        /* Regular buttons */
         .stButton > button {{
             background-color: {button_bg} !important;
             color: {button_text} !important;
             border: 2px solid {button_bg} !important;
             border-radius: 8px !important;
-            padding: 10px 24px !important;
-            font-weight: 600 !important;
+            padding: 12px 28px !important;
+            font-weight: 700 !important;
             font-size: 16px !important;
             transition: all 0.3s ease !important;
             cursor: pointer !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+            letter-spacing: 0.5px !important;
         }}
         
         .stButton > button:hover {{
             opacity: 0.85 !important;
             transform: translateY(-2px) !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25) !important;
         }}
         
         .stButton > button:active {{
             transform: translateY(0px) !important;
         }}
         
+        /* Primary buttons */
         .stButton > button[kind="primary"] {{
             background-color: {button_bg} !important;
             color: {button_text} !important;
             border: 2px solid {button_bg} !important;
+            font-weight: 700 !important;
         }}
         
+        /* Secondary buttons */
         .stButton > button[kind="secondary"] {{
             background-color: transparent !important;
             color: {button_bg} !important;
@@ -263,38 +270,56 @@ def apply_theme(colors):
             color: {button_text} !important;
         }}
         
+        /* Form submit buttons - LOGIN BUTTON */
         .stForm button[type="submit"] {{
             background-color: {button_bg} !important;
             color: {button_text} !important;
             border: 2px solid {button_bg} !important;
             border-radius: 8px !important;
-            padding: 10px 24px !important;
-            font-weight: 600 !important;
-            font-size: 16px !important;
+            padding: 14px 28px !important;
+            font-weight: 700 !important;
+            font-size: 18px !important;
             transition: all 0.3s ease !important;
             cursor: pointer !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2) !important;
             width: 100% !important;
+            letter-spacing: 1px !important;
+            text-transform: uppercase !important;
         }}
         
         .stForm button[type="submit"]:hover {{
             opacity: 0.85 !important;
             transform: translateY(-2px) !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.3) !important;
         }}
         
         .stForm button[type="submit"]:active {{
             transform: translateY(0px) !important;
         }}
         
-        .css-1v0mbdj, .css-1v0mbdj button,
-        .st-emotion-cache-1v0mbdj, .st-emotion-cache-1v0mbdj button {{
+        /* Login/Signup specific buttons - EXTRA VISIBILITY */
+        .css-1v0mbdj button,
+        .st-emotion-cache-1v0mbdj button,
+        .css-1v0mbdj .stButton > button,
+        .st-emotion-cache-1v0mbdj .stButton > button {{
             background-color: {button_bg} !important;
             color: {button_text} !important;
             border: 2px solid {button_bg} !important;
             border-radius: 8px !important;
-            padding: 10px 24px !important;
-            font-weight: 600 !important;
+            padding: 14px 28px !important;
+            font-weight: 700 !important;
+            font-size: 18px !important;
+            width: 100% !important;
+            letter-spacing: 1px !important;
+            text-transform: uppercase !important;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2) !important;
+        }}
+        
+        .css-1v0mbdj button:hover,
+        .st-emotion-cache-1v0mbdj button:hover {{
+            opacity: 0.85 !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.3) !important;
         }}
         
         /* ==============================
@@ -437,7 +462,7 @@ def apply_theme(colors):
             color: {input_text} !important;
             border: 1px solid {border_color} !important;
             border-radius: 8px !important;
-            padding: 10px 12px !important;
+            padding: 12px 14px !important;
             font-size: 16px !important;
         }}
         
@@ -618,6 +643,10 @@ def apply_theme(colors):
             background-color: {text_color} !important;
             color: {input_bg} !important;
         }}
+        
+        /* ==============================
+           LOGIN PAGE SPECIFIC FIXES
+           ============================== */
         
         .css-1v0mbdj {{
             background-color: {card_bg} !important;
