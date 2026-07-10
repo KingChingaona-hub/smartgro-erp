@@ -308,44 +308,52 @@ def branch_login_page():
     
     apply_branch_selection_theme()
     
-    st.markdown('<div class="centered-form">', unsafe_allow_html=True)
+    # Use columns to center the form like login page
+    col1, col2, col3 = st.columns([1, 2, 1])
     
-    st.title("Aziel Investments")
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("### Branch Access")
-    
-    branch_code = st.text_input("Branch Code", placeholder="Enter branch code", key="branch_code_input")
-    branch_password = st.text_input("Branch Password", type="password", placeholder="Enter branch password", key="branch_password_input")
-    
-    col_a, col_b = st.columns(2)
-    
-    with col_a:
-        if st.button("Branch Login", type="primary", use_container_width=True):
-            if branch_code and branch_password:
-                branch_code_upper = branch_code.upper()
-                if branch_code_upper in BRANCHES:
-                    if BRANCHES[branch_code_upper]["password"] == branch_password:
-                        st.session_state.branch_selected = True
-                        st.session_state.branch_authenticated = True
-                        st.session_state.current_branch = branch_code_upper
-                        st.session_state.user_branch = branch_code_upper
-                        set_current_branch(branch_code_upper)
-                        st.success("Access granted")
-                        show_toast("Branch access granted successfully!", "success")
-                        st.rerun()
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        st.markdown(
+            "<h2 style='text-align:center;'>AZIEL INVESTMENTS</h2>",
+            unsafe_allow_html=True
+        )
+        
+        st.markdown(
+            "<p style='text-align:center;color:rgba(255,255,255,0.9);'>Smart Retail ERP System</p>",
+            unsafe_allow_html=True
+        )
+        
+        st.markdown("---")
+        
+        with st.form("branch_login_form"):
+            branch_code = st.text_input("Branch Code", placeholder="Enter branch code")
+            branch_password = st.text_input("Branch Password", type="password", placeholder="Enter branch password")
+            
+            login_btn = st.form_submit_button("Branch Login", use_container_width=True)
+            
+            if login_btn:
+                if branch_code and branch_password:
+                    branch_code_upper = branch_code.upper()
+                    if branch_code_upper in BRANCHES:
+                        if BRANCHES[branch_code_upper]["password"] == branch_password:
+                            st.session_state.branch_selected = True
+                            st.session_state.branch_authenticated = True
+                            st.session_state.current_branch = branch_code_upper
+                            st.session_state.user_branch = branch_code_upper
+                            set_current_branch(branch_code_upper)
+                            st.success("Access granted")
+                            show_toast("Branch access granted successfully!", "success")
+                            st.rerun()
+                        else:
+                            st.error("Invalid branch password")
+                            show_toast("Invalid branch password", "error")
                     else:
-                        st.error("Invalid branch password")
-                        show_toast("Invalid branch password", "error")
+                        st.error("Invalid branch code")
+                        show_toast("Invalid branch code", "error")
                 else:
-                    st.error("Invalid branch code")
-                    show_toast("Invalid branch code", "error")
-            else:
-                st.error("Please enter branch code and password")
-                show_toast("Please enter branch code and password", "warning")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+                    st.error("Please enter branch code and password")
+                    show_toast("Please enter branch code and password", "warning")
 
 
 # ==============================
