@@ -24,14 +24,14 @@ AVAILABLE_THEMES = {
             "sidebar_bg": "#F0F0F0",
             "secondary_bg": "#F5F5F5",
             "text_secondary": "#555555",
-            "primary_color": "#000000",
-            "primary_hover": "#333333",
+            "primary_color": "#F2E1E1",
+            "primary_hover": "#F12AE4",
             "input_bg": "#FFFFFF",
             "input_text": "#000000",
-            "success": "#000000",
-            "warning": "#000000",
-            "error": "#000000",
-            "info": "#000000"
+            "success": "#14EA8A",
+            "warning": "#B5E312",
+            "error": "#F71111",
+            "info": "#1888EB"
         }
     },
     "dark": {
@@ -42,14 +42,14 @@ AVAILABLE_THEMES = {
             "background_color": "#0D0D0D",
             "text_color": "#FFFFFF",
             "border_color": "#444444",
-            "card_bg": "#1A1A1A",
+            "card_bg": "#7222D4",
             "sidebar_bg": "#1A1A1A",
-            "secondary_bg": "#222222",
+            "secondary_bg": "#C7AEAE",
             "text_secondary": "#AAAAAA",
             "primary_color": "#FFFFFF",
             "primary_hover": "#CCCCCC",
             "input_bg": "#FFFFFF",
-            "input_text": "#000000",
+            "input_text": "#BAB1B1",
             "success": "#FFFFFF",
             "warning": "#FFFFFF",
             "error": "#FFFFFF",
@@ -145,7 +145,7 @@ def apply_theme(colors):
     """Apply theme CSS - Only for main app, not login pages"""
     
     bg_color = colors.get("background_color", "#FFFFFF")
-    text_color = colors.get("text_color", "#000000")
+    text_color = colors.get("text_color", "#E3DDDD")
     border_color = colors.get("border_color", "#CCCCCC")
     card_bg = colors.get("card_bg", "#FFFFFF")
     sidebar_bg = colors.get("sidebar_bg", "#F0F0F0")
@@ -153,10 +153,10 @@ def apply_theme(colors):
     text_secondary = colors.get("text_secondary", "#555555")
     
     input_bg = "#FFFFFF"
-    input_text = "#000000"
+    input_text = "#ECE2E2"
     
     dropdown_bg = "#FFFFFF"
-    dropdown_text = "#000000"
+    dropdown_text = "#E8DBDB"
     dropdown_border = "#CCCCCC"
     
     button_bg = text_color
