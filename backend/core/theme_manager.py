@@ -145,7 +145,7 @@ def apply_theme(colors):
     """Apply theme CSS - Only for main app, not login pages"""
     
     bg_color = colors.get("background_color", "#FFFFFF")
-    text_color = colors.get("text_color", "#E3DDDD")
+    text_color = colors.get("text_color", "#000000")
     border_color = colors.get("border_color", "#CCCCCC")
     card_bg = colors.get("card_bg", "#FFFFFF")
     sidebar_bg = colors.get("sidebar_bg", "#F0F0F0")
@@ -153,11 +153,7 @@ def apply_theme(colors):
     text_secondary = colors.get("text_secondary", "#555555")
     
     input_bg = "#FFFFFF"
-    input_text = "#ECE2E2"
-    
-    dropdown_bg = "#FFFFFF"
-    dropdown_text = "#E8DBDB"
-    dropdown_border = "#CCCCCC"
+    input_text = "#000000"
     
     button_bg = text_color
     button_text = bg_color
@@ -281,129 +277,6 @@ def apply_theme(colors):
             transform: translateY(0px) !important;
         }}
         
-        .stSelectbox div[data-baseweb="select"] {{
-            background-color: {dropdown_bg} !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] > div {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-            border: 1px solid {dropdown_border} !important;
-            border-radius: 8px !important;
-            min-height: 38px !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] > div > div {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] > div > div > div {{
-            color: {dropdown_text} !important;
-            font-weight: 500 !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] svg {{
-            fill: {dropdown_text} !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] ul {{
-            background-color: {dropdown_bg} !important;
-            border: 1px solid {dropdown_border} !important;
-            border-radius: 8px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-            max-height: 300px !important;
-            overflow-y: auto !important;
-            padding: 4px 0 !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] ul li {{
-            color: {dropdown_text} !important;
-            background-color: {dropdown_bg} !important;
-            padding: 10px 14px !important;
-            font-size: 14px !important;
-            cursor: pointer !important;
-            transition: all 0.2s ease !important;
-            border-bottom: 1px solid {dropdown_border} !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] ul li:last-child {{
-            border-bottom: none !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] ul li:hover {{
-            background-color: {text_color} !important;
-            color: {dropdown_bg} !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] ul li[aria-selected="true"] {{
-            background-color: {text_color} !important;
-            color: {dropdown_bg} !important;
-            font-weight: 600 !important;
-        }}
-        
-        .stSelectbox div[data-baseweb="select"] ul li:focus {{
-            outline: none !important;
-            background-color: {text_color} !important;
-            color: {dropdown_bg} !important;
-        }}
-        
-        .stSelectbox label {{
-            color: {text_color} !important;
-            font-weight: 500 !important;
-        }}
-        
-        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-            border-color: {dropdown_border} !important;
-        }}
-        
-        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul {{
-            background-color: {dropdown_bg} !important;
-            border-color: {dropdown_border} !important;
-        }}
-        
-        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul li {{
-            color: {dropdown_text} !important;
-            background-color: {dropdown_bg} !important;
-            border-bottom: 1px solid {dropdown_border} !important;
-        }}
-        
-        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul li:hover {{
-            background-color: {text_color} !important;
-            color: {dropdown_bg} !important;
-        }}
-        
-        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul li[aria-selected="true"] {{
-            background-color: {text_color} !important;
-            color: {dropdown_bg} !important;
-        }}
-        
-        .stSelectbox select {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-        }}
-        
-        .stSelectbox option {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-        }}
-        
-        .stMultiSelect div[data-baseweb="select"] ul {{
-            background-color: {dropdown_bg} !important;
-        }}
-        
-        .stMultiSelect div[data-baseweb="select"] ul li {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-        }}
-        
-        .stMultiSelect div[data-baseweb="select"] ul li:hover {{
-            background-color: {text_color} !important;
-            color: {dropdown_bg} !important;
-        }}
-        
         .stTextInput > div > div > input,
         .stNumberInput > div > div > input,
         .stTextArea > div > div > textarea,
@@ -481,23 +354,6 @@ def apply_theme(colors):
         
         .dataframe tr:hover td {{
             background-color: {text_color}20 !important;
-        }}
-        
-        .stTabs [data-baseweb="tab-list"] {{
-            gap: 8px;
-        }}
-        
-        .stTabs [data-baseweb="tab"] {{
-            background-color: {secondary_bg} !important;
-            border-radius: 8px !important;
-            padding: 8px 16px !important;
-            color: {text_color} !important;
-            border: 1px solid {border_color} !important;
-        }}
-        
-        .stTabs [aria-selected="true"] {{
-            background-color: {text_color} !important;
-            color: {bg_color} !important;
         }}
         
         .stSuccess {{
@@ -592,7 +448,6 @@ def apply_no_theme():
     """Apply NO theme - use Streamlit defaults"""
     css = """
     <style>
-        /* Remove all custom styling - use Streamlit defaults */
         .stApp {
             background-color: transparent !important;
         }
