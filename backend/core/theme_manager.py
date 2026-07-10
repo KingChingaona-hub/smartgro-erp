@@ -165,6 +165,12 @@ def apply_theme(colors):
     dropdown_text = "#000000"
     dropdown_border = "#CCCCCC"
     
+    # BUTTON COLORS - CONTRASTING
+    button_bg = text_color  # Use text color for button background
+    button_text = bg_color  # Use background color for button text
+    button_hover_bg = text_color  # Same as background but with opacity
+    button_hover_text = bg_color
+    
     css = f"""
     <style>
         /* ==============================
@@ -229,20 +235,87 @@ def apply_theme(colors):
             color: {text_secondary} !important;
         }}
         
-        /* Buttons */
+        /* ==============================
+           BUTTONS - ALWAYS VISIBLE
+           ============================== */
+        
+        /* Regular buttons */
         .stButton > button {{
-            background-color: {text_color} !important;
-            color: {bg_color} !important;
-            border: 1px solid {border_color} !important;
+            background-color: {button_bg} !important;
+            color: {button_text} !important;
+            border: 2px solid {button_bg} !important;
             border-radius: 8px !important;
-            padding: 8px 16px !important;
-            font-weight: 500 !important;
+            padding: 10px 24px !important;
+            font-weight: 600 !important;
+            font-size: 16px !important;
             transition: all 0.3s ease !important;
+            cursor: pointer !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
         }}
         
         .stButton > button:hover {{
-            opacity: 0.8 !important;
+            opacity: 0.85 !important;
             transform: translateY(-2px) !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+        }}
+        
+        .stButton > button:active {{
+            transform: translateY(0px) !important;
+        }}
+        
+        /* Primary button variant */
+        .stButton > button[kind="primary"] {{
+            background-color: {button_bg} !important;
+            color: {button_text} !important;
+            border: 2px solid {button_bg} !important;
+        }}
+        
+        /* Secondary button variant */
+        .stButton > button[kind="secondary"] {{
+            background-color: transparent !important;
+            color: {button_bg} !important;
+            border: 2px solid {button_bg} !important;
+        }}
+        
+        .stButton > button[kind="secondary"]:hover {{
+            background-color: {button_bg} !important;
+            color: {button_text} !important;
+        }}
+        
+        /* Form submit buttons */
+        .stForm button[type="submit"] {{
+            background-color: {button_bg} !important;
+            color: {button_text} !important;
+            border: 2px solid {button_bg} !important;
+            border-radius: 8px !important;
+            padding: 10px 24px !important;
+            font-weight: 600 !important;
+            font-size: 16px !important;
+            transition: all 0.3s ease !important;
+            cursor: pointer !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+            width: 100% !important;
+        }}
+        
+        .stForm button[type="submit"]:hover {{
+            opacity: 0.85 !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+        }}
+        
+        .stForm button[type="submit"]:active {{
+            transform: translateY(0px) !important;
+        }}
+        
+        /* Login/Signup specific buttons */
+        .css-1v0mbdj, .css-1v0mbdj button,
+        .st-emotion-cache-1v0mbdj, .st-emotion-cache-1v0mbdj button {{
+            background-color: {button_bg} !important;
+            color: {button_text} !important;
+            border: 2px solid {button_bg} !important;
+            border-radius: 8px !important;
+            padding: 10px 24px !important;
+            font-weight: 600 !important;
         }}
         
         /* ==============================
@@ -396,27 +469,31 @@ def apply_theme(colors):
         .stTextInput > div > div > input,
         .stNumberInput > div > div > input,
         .stTextArea > div > div > textarea,
-        .stDateInput > div > div > input {{
+        .stDateInput > div > div > input,
+        .stPasswordInput > div > div > input {{
             background-color: {input_bg} !important;
             color: {input_text} !important;
             border: 1px solid {border_color} !important;
             border-radius: 8px !important;
-            padding: 8px 12px !important;
+            padding: 10px 12px !important;
+            font-size: 16px !important;
         }}
         
         /* Placeholder text */
         .stTextInput > div > div > input::placeholder,
         .stNumberInput > div > div > input::placeholder,
-        .stTextArea > div > div > textarea::placeholder {{
+        .stTextArea > div > div > textarea::placeholder,
+        .stPasswordInput > div > div > input::placeholder {{
             color: #999999 !important;
         }}
         
         /* Input focus states */
         .stTextInput > div > div > input:focus,
         .stNumberInput > div > div > input:focus,
-        .stTextArea > div > div > textarea:focus {{
+        .stTextArea > div > div > textarea:focus,
+        .stPasswordInput > div > div > input:focus {{
             border-color: {text_color} !important;
-            box-shadow: 0 0 0 2px {text_color}20 !important;
+            box-shadow: 0 0 0 3px {text_color}30 !important;
             outline: none !important;
         }}
         
@@ -425,14 +502,16 @@ def apply_theme(colors):
         .stNumberInput label,
         .stSelectbox label,
         .stTextArea label,
-        .stDateInput label {{
+        .stDateInput label,
+        .stPasswordInput label {{
             color: {text_color} !important;
             font-weight: 500 !important;
         }}
         
         /* Sidebar inputs - ALWAYS WHITE */
         [data-testid="stSidebar"] .stTextInput > div > div > input,
-        [data-testid="stSidebar"] .stNumberInput > div > div > input {{
+        [data-testid="stSidebar"] .stNumberInput > div > div > input,
+        [data-testid="stSidebar"] .stPasswordInput > div > div > input {{
             background-color: {input_bg} !important;
             color: {input_text} !important;
             border-color: {border_color} !important;
@@ -615,20 +694,32 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           FORM SUBMIT BUTTONS
+           LOGIN PAGE SPECIFIC FIXES
            ============================== */
         
-        .stForm button[type="submit"] {{
-            background-color: {text_color} !important;
-            color: {bg_color} !important;
-            border: none !important;
-            border-radius: 8px !important;
-            padding: 8px 24px !important;
-            font-weight: 500 !important;
+        /* Fix for login container */
+        .css-1v0mbdj {{
+            background-color: {card_bg} !important;
+            border-radius: 12px !important;
+            padding: 40px !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1) !important;
         }}
         
-        .stForm button[type="submit"]:hover {{
-            opacity: 0.8 !important;
+        /* Ensure login form elements are visible */
+        .stForm {{
+            background-color: {card_bg} !important;
+        }}
+        
+        /* Password input visibility toggle */
+        .stPasswordInput button {{
+            background: transparent !important;
+            border: none !important;
+            color: {text_color} !important;
+        }}
+        
+        .stPasswordInput button:hover {{
+            background: transparent !important;
+            opacity: 0.7 !important;
         }}
     </style>
     """
@@ -650,7 +741,7 @@ def apply_page_theme(page_name):
 
 
 def apply_login_theme():
-    """Apply login page theme - Clean Black & White"""
+    """Apply login page theme - Clean Black & White with visible buttons"""
     login_colors = {
         "background_color": "#F5F5F5",
         "text_color": "#000000",
@@ -672,7 +763,7 @@ def apply_login_theme():
 
 
 def apply_branch_selection_theme():
-    """Apply branch selection theme - Clean Black & White"""
+    """Apply branch selection theme - Clean Black & White with visible buttons"""
     branch_colors = {
         "background_color": "#FFFFFF",
         "text_color": "#000000",
