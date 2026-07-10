@@ -89,7 +89,7 @@ from backend.modules.debtors_dashboard import debtors_dashboard
 from backend.modules.returns_management import returns_management_dashboard
 from backend.modules.shift_management import shift_management_page
 from backend.modules.settings_page import settings_page
-
+from backend.modules.welcome_page import welcome_page
 # ==============================
 # CUSTOMER IMPORTS
 # ==============================
@@ -695,7 +695,7 @@ def main_app():
     idle_time = (datetime.now() - st.session_state.last_activity).seconds
     if idle_time > 1800:
         keys_to_keep = ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
-                        "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]
+                        "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme", "welcome_seen"]
         for key in list(st.session_state.keys()):
             if key not in keys_to_keep:
                 del st.session_state[key]
@@ -724,6 +724,14 @@ def main_app():
     branch_name = BRANCHES.get(current_branch, {}).get("name", "Unknown")
     
     page = st.session_state.get("current_page", "Stock Dashboard")
+    
+    # ==============================
+    # CHECK IF WELCOME PAGE SHOULD BE SHOWN
+    # ==============================
+    # Show welcome page on first login after authentication
+    if not st.session_state.get("welcome_seen", False):
+        welcome_page()
+        return  # Stop here, don't show sidebar or navigation
     
     # ==============================
     # APPLY THEME
@@ -806,6 +814,7 @@ def main_app():
         st.session_state.branch_selected = False
         st.session_state.branch_authenticated = False
         st.session_state.logged_in = False
+        st.session_state.welcome_seen = False  # Reset welcome flag
         st.rerun()
     
     # ==============================
