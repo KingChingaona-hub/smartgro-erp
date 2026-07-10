@@ -202,27 +202,9 @@ def get_global_styles():
         }
         
         /* ==============================
-           BUTTONS - REMOVED FIXED COLORS
+           BUTTONS - COMPLETELY REMOVED
+           All button styles are now controlled by theme_manager.py
            ============================== */
-        
-        /* Buttons now controlled by theme_manager.py */
-        /* Only minimal styles here */
-        .stButton > button {
-            border-radius: 8px !important;
-            padding: 8px 16px !important;
-            font-weight: 500 !important;
-            transition: all 0.3s ease !important;
-            cursor: pointer !important;
-        }
-        
-        .stButton > button:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-        }
-        
-        .stButton > button:active {
-            transform: translateY(0) !important;
-        }
         
         /* ==============================
            ALERT MESSAGES
