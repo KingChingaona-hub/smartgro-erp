@@ -167,9 +167,9 @@ def apply_theme(colors):
     
     # BUTTON COLORS - CONTRASTING
     button_bg = text_color  # Use text color for button background
-    button_text = bg_color  # Use background color for button text
+    button_text = text_color  # Use background color for button text
     button_hover_bg = text_color  # Same as background but with opacity
-    button_hover_text = bg_color
+    button_hover_text = text_color
     
     css = f"""
     <style>
