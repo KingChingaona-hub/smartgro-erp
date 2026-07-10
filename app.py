@@ -45,7 +45,7 @@ from backend.core.theme_manager import (
     load_theme_preference,
     get_auto_theme
 )
-from backend.core.global_styles import get_global_styles
+# from backend.core.global_styles import get_global_styles  # DISABLED - Using theme_manager only
 from backend.core.animations import (
     init_animations,
     show_toast,
@@ -195,7 +195,6 @@ st.set_page_config(
 # ==============================
 st.markdown("""
 <script>
-    // Prevent automatic refresh
     window.addEventListener('load', function() {
         if (window.performance) {
             if (performance.navigation.type == 1) {
@@ -204,35 +203,29 @@ st.markdown("""
         }
     });
     
-    // Prevent page from auto-refreshing
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
-            // Page is hidden - do nothing
         }
     });
     
-    // Track user activity to prevent auto-refresh
     let lastActivity = Date.now();
-    const TIMEOUT = 30 * 60 * 1000; // 30 minutes
+    const TIMEOUT = 30 * 60 * 1000;
     
     function updateActivity() {
         lastActivity = Date.now();
     }
     
-    // Update activity on user interaction
     document.addEventListener('click', updateActivity);
     document.addEventListener('keydown', updateActivity);
     document.addEventListener('scroll', updateActivity);
     document.addEventListener('touchstart', updateActivity);
     
-    // Check for inactivity
     setInterval(function() {
         const inactiveTime = Date.now() - lastActivity;
         if (inactiveTime > TIMEOUT) {
-            // Session expired - redirect to login
             window.location.href = window.location.origin + '/?logout=true';
         }
-    }, 60000); // Check every minute
+    }, 60000);
 </script>
 """, unsafe_allow_html=True)
 
@@ -301,7 +294,6 @@ if "logged_in" not in st.session_state:
     st.session_state.current_page = "Stock Dashboard"
     st.session_state.last_activity = datetime.now()
 
-# Initialize theme settings
 if "current_theme" not in st.session_state:
     st.session_state.current_theme = load_theme_preference()
 if "auto_switch_theme" not in st.session_state:
@@ -330,7 +322,7 @@ def branch_login_page():
     col_a, col_b = st.columns(2)
     
     with col_a:
-        if st.button("Access Branch", type="primary", use_container_width=True):
+        if st.button("Branch Login", type="primary", use_container_width=True):
             if branch_code and branch_password:
                 branch_code_upper = branch_code.upper()
                 if branch_code_upper in BRANCHES:
@@ -743,9 +735,10 @@ def main_app():
             apply_theme(theme)
     
     # ==============================
-    # APPLY GLOBAL STYLES (SELECTBOX VISIBILITY FIX)
+    # GLOBAL STYLES - DISABLED
+    # Using theme_manager only for all styling
     # ==============================
-    st.markdown(get_global_styles(), unsafe_allow_html=True)
+    # st.markdown(get_global_styles(), unsafe_allow_html=True)
     
     init_animations()
     
@@ -1249,4 +1242,4 @@ if not st.session_state.get("branch_selected", False):
 elif not st.session_state.logged_in:
     login_page()
 else:
-    main_app()
+    main_app()m fs
