@@ -246,11 +246,16 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DROPDOWNS - ALWAYS VISIBLE
+           DROPDOWNS - ALWAYS VISIBLE WITH WHITE BACKGROUND
            ============================== */
         
-        /* Selectbox container - the visible input box */
-        div[data-baseweb="select"] > div {{
+        /* Target all selectbox containers */
+        .stSelectbox div[data-baseweb="select"] {{
+            background-color: {dropdown_bg} !important;
+        }}
+        
+        /* The main select box - visible input area */
+        .stSelectbox div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
             border: 1px solid {dropdown_border} !important;
@@ -258,25 +263,25 @@ def apply_theme(colors):
             min-height: 38px !important;
         }}
         
-        /* The inner div of selectbox */
-        div[data-baseweb="select"] > div > div {{
+        /* Inner container of selectbox */
+        .stSelectbox div[data-baseweb="select"] > div > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
         }}
         
-        /* Selected value text (what you see when dropdown is closed) */
-        div[data-baseweb="select"] > div > div > div {{
+        /* Selected value text */
+        .stSelectbox div[data-baseweb="select"] > div > div > div {{
             color: {dropdown_text} !important;
             font-weight: 500 !important;
         }}
         
-        /* Dropdown arrow icon */
-        div[data-baseweb="select"] svg {{
+        /* Dropdown arrow */
+        .stSelectbox div[data-baseweb="select"] svg {{
             fill: {dropdown_text} !important;
         }}
         
-        /* Dropdown menu - ALWAYS WHITE BACKGROUND */
-        div[data-baseweb="select"] ul {{
+        /* Dropdown menu - ALWAYS WHITE */
+        .stSelectbox div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
             border: 1px solid {dropdown_border} !important;
             border-radius: 8px !important;
@@ -286,8 +291,8 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* Dropdown items - ALWAYS VISIBLE */
-        div[data-baseweb="select"] ul li {{
+        /* Dropdown items */
+        .stSelectbox div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
             padding: 10px 14px !important;
@@ -298,25 +303,25 @@ def apply_theme(colors):
         }}
         
         /* Last item - remove border */
-        div[data-baseweb="select"] ul li:last-child {{
+        .stSelectbox div[data-baseweb="select"] ul li:last-child {{
             border-bottom: none !important;
         }}
         
         /* Hover state */
-        div[data-baseweb="select"] ul li:hover {{
+        .stSelectbox div[data-baseweb="select"] ul li:hover {{
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
         }}
         
         /* Selected/active state */
-        div[data-baseweb="select"] ul li[aria-selected="true"] {{
+        .stSelectbox div[data-baseweb="select"] ul li[aria-selected="true"] {{
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
             font-weight: 600 !important;
         }}
         
         /* Focus state */
-        div[data-baseweb="select"] ul li:focus {{
+        .stSelectbox div[data-baseweb="select"] ul li:focus {{
             outline: none !important;
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
@@ -329,29 +334,56 @@ def apply_theme(colors):
         }}
         
         /* ===== SIDEBAR DROPDOWNS ===== */
-        div[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
+        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
             border-color: {dropdown_border} !important;
         }}
         
-        div[data-testid="stSidebar"] div[data-baseweb="select"] ul {{
+        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
             border-color: {dropdown_border} !important;
         }}
         
-        div[data-testid="stSidebar"] div[data-baseweb="select"] ul li {{
+        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
             border-bottom: 1px solid {dropdown_border} !important;
         }}
         
-        div[data-testid="stSidebar"] div[data-baseweb="select"] ul li:hover {{
+        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul li:hover {{
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
         }}
         
-        div[data-testid="stSidebar"] div[data-baseweb="select"] ul li[aria-selected="true"] {{
+        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] ul li[aria-selected="true"] {{
+            background-color: {text_color} !important;
+            color: {dropdown_bg} !important;
+        }}
+        
+        /* ===== ADDITIONAL DROPDOWN FIXES FOR INVISIBLE TEXT ===== */
+        /* Fix for any select containers without data-baseweb */
+        .stSelectbox select {{
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
+        }}
+        
+        .stSelectbox option {{
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
+        }}
+        
+        /* Fix for multiselect dropdowns */
+        .stMultiSelect div[data-baseweb="select"] ul {{
+            background-color: {dropdown_bg} !important;
+        }}
+        
+        .stMultiSelect div[data-baseweb="select"] ul li {{
+            background-color: {dropdown_bg} !important;
+            color: {dropdown_text} !important;
+        }}
+        
+        .stMultiSelect div[data-baseweb="select"] ul li:hover {{
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
         }}
@@ -360,6 +392,7 @@ def apply_theme(colors):
            INPUT FIELDS - ALWAYS WHITE BACKGROUND
            ============================== */
         
+        /* Text inputs */
         .stTextInput > div > div > input,
         .stNumberInput > div > div > input,
         .stTextArea > div > div > textarea,
@@ -371,12 +404,14 @@ def apply_theme(colors):
             padding: 8px 12px !important;
         }}
         
+        /* Placeholder text */
         .stTextInput > div > div > input::placeholder,
         .stNumberInput > div > div > input::placeholder,
         .stTextArea > div > div > textarea::placeholder {{
             color: #999999 !important;
         }}
         
+        /* Input focus states */
         .stTextInput > div > div > input:focus,
         .stNumberInput > div > div > input:focus,
         .stTextArea > div > div > textarea:focus {{
@@ -385,6 +420,7 @@ def apply_theme(colors):
             outline: none !important;
         }}
         
+        /* Input labels */
         .stTextInput label,
         .stNumberInput label,
         .stSelectbox label,
@@ -576,6 +612,23 @@ def apply_theme(colors):
         div[data-baseweb="calendar"] button:hover {{
             background-color: {text_color} !important;
             color: {input_bg} !important;
+        }}
+        
+        /* ==============================
+           FORM SUBMIT BUTTONS
+           ============================== */
+        
+        .stForm button[type="submit"] {{
+            background-color: {text_color} !important;
+            color: {bg_color} !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 8px 24px !important;
+            font-weight: 500 !important;
+        }}
+        
+        .stForm button[type="submit"]:hover {{
+            opacity: 0.8 !important;
         }}
     </style>
     """
