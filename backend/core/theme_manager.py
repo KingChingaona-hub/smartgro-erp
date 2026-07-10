@@ -48,8 +48,8 @@ AVAILABLE_THEMES = {
             "text_secondary": "#AAAAAA",
             "primary_color": "#FFFFFF",
             "primary_hover": "#CCCCCC",
-            "input_bg": "#FFFFFF",  # ALWAYS WHITE
-            "input_text": "#000000",  # ALWAYS BLACK TEXT
+            "input_bg": "#FFFFFF",
+            "input_text": "#000000",
             "success": "#FFFFFF",
             "warning": "#FFFFFF",
             "error": "#FFFFFF",
@@ -108,7 +108,6 @@ PAGE_THEMES = {
 # THEME PERSISTENCE
 # ==============================
 def save_theme_preference(theme_name):
-    """Save user's theme preference"""
     try:
         THEME_FILE.parent.mkdir(exist_ok=True)
         with open(THEME_FILE, "w") as f:
@@ -120,7 +119,6 @@ def save_theme_preference(theme_name):
 
 
 def load_theme_preference():
-    """Load user's saved theme preference"""
     if THEME_FILE.exists():
         try:
             with open(THEME_FILE, "r") as f:
@@ -134,7 +132,6 @@ def load_theme_preference():
 
 
 def get_auto_theme():
-    """Automatically select theme based on time of day"""
     current_hour = datetime.now().hour
     if current_hour >= 18 or current_hour < 6:
         return "dark"
@@ -145,9 +142,7 @@ def get_auto_theme():
 # THEME APPLICATION - FIXED WITH WHITE INPUTS
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS - WHITE INPUT FIELDS ALWAYS"""
     
-    # Get colors with fallbacks
     bg_color = colors.get("background_color", "#FFFFFF")
     text_color = colors.get("text_color", "#000000")
     border_color = colors.get("border_color", "#CCCCCC")
@@ -156,27 +151,21 @@ def apply_theme(colors):
     secondary_bg = colors.get("secondary_bg", "#F5F5F5")
     text_secondary = colors.get("text_secondary", "#555555")
     
-    # INPUT FIELDS - ALWAYS WHITE BACKGROUND WITH BLACK TEXT
     input_bg = "#FFFFFF"
     input_text = "#000000"
     
-    # DROPDOWN - ALWAYS WHITE BACKGROUND WITH BLACK TEXT
     dropdown_bg = "#FFFFFF"
     dropdown_text = "#000000"
     dropdown_border = "#CCCCCC"
     
-    # BUTTON COLORS - CONTRASTING
-    button_bg = text_color  # Use text color for button background
-    button_text = text_color  # Use background color for button text
-    button_hover_bg = text_color  # Same as background but with opacity
-    button_hover_text = text_color
+    # ========================================
+    # FIXED BUTTON COLORS - PROPER CONTRAST
+    # ========================================
+    button_bg = text_color      # Button background = text color (black in light, white in dark)
+    button_text = bg_color      # Button text = background color (white in light, black in dark)
     
     css = f"""
     <style>
-        /* ==============================
-           GLOBAL STYLES
-           ============================== */
-        
         .stApp {{
             background-color: {bg_color} !important;
         }}
@@ -185,17 +174,14 @@ def apply_theme(colors):
             background-color: {bg_color} !important;
         }}
         
-        /* Headers */
         h1, h2, h3, h4, h5, h6 {{
             color: {text_color} !important;
         }}
         
-        /* All text */
         p, li, span, label, div, .stMarkdown, .stMarkdown p {{
             color: {text_color} !important;
         }}
         
-        /* Sidebar */
         [data-testid="stSidebar"] {{
             background-color: {sidebar_bg} !important;
             border-right: 1px solid {border_color} !important;
@@ -208,12 +194,10 @@ def apply_theme(colors):
             color: {text_color} !important;
         }}
         
-        /* Sidebar text override for dark mode */
         [data-testid="stSidebar"] .stSelectbox label {{
             color: {text_color} !important;
         }}
         
-        /* Cards / Expanders / Metrics */
         [data-testid="stExpander"],
         [data-testid="stMetric"] {{
             background-color: {card_bg} !important;
@@ -236,10 +220,9 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           BUTTONS - ALWAYS VISIBLE
+           BUTTONS - FIXED CONTRAST
            ============================== */
         
-        /* Regular buttons */
         .stButton > button {{
             background-color: {button_bg} !important;
             color: {button_text} !important;
@@ -263,14 +246,12 @@ def apply_theme(colors):
             transform: translateY(0px) !important;
         }}
         
-        /* Primary button variant */
         .stButton > button[kind="primary"] {{
             background-color: {button_bg} !important;
             color: {button_text} !important;
             border: 2px solid {button_bg} !important;
         }}
         
-        /* Secondary button variant */
         .stButton > button[kind="secondary"] {{
             background-color: transparent !important;
             color: {button_bg} !important;
@@ -282,7 +263,6 @@ def apply_theme(colors):
             color: {button_text} !important;
         }}
         
-        /* Form submit buttons */
         .stForm button[type="submit"] {{
             background-color: {button_bg} !important;
             color: {button_text} !important;
@@ -307,7 +287,6 @@ def apply_theme(colors):
             transform: translateY(0px) !important;
         }}
         
-        /* Login/Signup specific buttons */
         .css-1v0mbdj, .css-1v0mbdj button,
         .st-emotion-cache-1v0mbdj, .st-emotion-cache-1v0mbdj button {{
             background-color: {button_bg} !important;
@@ -319,15 +298,13 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DROPDOWNS - ALWAYS VISIBLE WITH WHITE BACKGROUND
+           DROPDOWNS
            ============================== */
         
-        /* Target all selectbox containers */
         .stSelectbox div[data-baseweb="select"] {{
             background-color: {dropdown_bg} !important;
         }}
         
-        /* The main select box - visible input area */
         .stSelectbox div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -336,24 +313,20 @@ def apply_theme(colors):
             min-height: 38px !important;
         }}
         
-        /* Inner container of selectbox */
         .stSelectbox div[data-baseweb="select"] > div > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
         }}
         
-        /* Selected value text */
         .stSelectbox div[data-baseweb="select"] > div > div > div {{
             color: {dropdown_text} !important;
             font-weight: 500 !important;
         }}
         
-        /* Dropdown arrow */
         .stSelectbox div[data-baseweb="select"] svg {{
             fill: {dropdown_text} !important;
         }}
         
-        /* Dropdown menu - ALWAYS WHITE */
         .stSelectbox div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
             border: 1px solid {dropdown_border} !important;
@@ -364,7 +337,6 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* Dropdown items */
         .stSelectbox div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
@@ -375,38 +347,32 @@ def apply_theme(colors):
             border-bottom: 1px solid {dropdown_border} !important;
         }}
         
-        /* Last item - remove border */
         .stSelectbox div[data-baseweb="select"] ul li:last-child {{
             border-bottom: none !important;
         }}
         
-        /* Hover state */
         .stSelectbox div[data-baseweb="select"] ul li:hover {{
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
         }}
         
-        /* Selected/active state */
         .stSelectbox div[data-baseweb="select"] ul li[aria-selected="true"] {{
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
             font-weight: 600 !important;
         }}
         
-        /* Focus state */
         .stSelectbox div[data-baseweb="select"] ul li:focus {{
             outline: none !important;
             background-color: {text_color} !important;
             color: {dropdown_bg} !important;
         }}
         
-        /* Selectbox label */
         .stSelectbox label {{
             color: {text_color} !important;
             font-weight: 500 !important;
         }}
         
-        /* ===== SIDEBAR DROPDOWNS ===== */
         [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -434,8 +400,6 @@ def apply_theme(colors):
             color: {dropdown_bg} !important;
         }}
         
-        /* ===== ADDITIONAL DROPDOWN FIXES FOR INVISIBLE TEXT ===== */
-        /* Fix for any select containers without data-baseweb */
         .stSelectbox select {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -446,7 +410,6 @@ def apply_theme(colors):
             color: {dropdown_text} !important;
         }}
         
-        /* Fix for multiselect dropdowns */
         .stMultiSelect div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
         }}
@@ -462,10 +425,9 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           INPUT FIELDS - ALWAYS WHITE BACKGROUND
+           INPUT FIELDS
            ============================== */
         
-        /* Text inputs */
         .stTextInput > div > div > input,
         .stNumberInput > div > div > input,
         .stTextArea > div > div > textarea,
@@ -479,7 +441,6 @@ def apply_theme(colors):
             font-size: 16px !important;
         }}
         
-        /* Placeholder text */
         .stTextInput > div > div > input::placeholder,
         .stNumberInput > div > div > input::placeholder,
         .stTextArea > div > div > textarea::placeholder,
@@ -487,7 +448,6 @@ def apply_theme(colors):
             color: #999999 !important;
         }}
         
-        /* Input focus states */
         .stTextInput > div > div > input:focus,
         .stNumberInput > div > div > input:focus,
         .stTextArea > div > div > textarea:focus,
@@ -497,7 +457,6 @@ def apply_theme(colors):
             outline: none !important;
         }}
         
-        /* Input labels */
         .stTextInput label,
         .stNumberInput label,
         .stSelectbox label,
@@ -508,7 +467,6 @@ def apply_theme(colors):
             font-weight: 500 !important;
         }}
         
-        /* Sidebar inputs - ALWAYS WHITE */
         [data-testid="stSidebar"] .stTextInput > div > div > input,
         [data-testid="stSidebar"] .stNumberInput > div > div > input,
         [data-testid="stSidebar"] .stPasswordInput > div > div > input {{
@@ -606,18 +564,10 @@ def apply_theme(colors):
             color: {input_text} !important;
         }}
         
-        /* ==============================
-           CHECKBOX & RADIO
-           ============================== */
-        
         .stCheckbox label,
         .stRadio label {{
             color: {text_color} !important;
         }}
-        
-        /* ==============================
-           CODE BLOCKS
-           ============================== */
         
         code {{
             background-color: {secondary_bg} !important;
@@ -626,17 +576,9 @@ def apply_theme(colors):
             padding: 2px 6px !important;
         }}
         
-        /* ==============================
-           HORIZONTAL RULE
-           ============================== */
-        
         hr {{
             border-color: {border_color} !important;
         }}
-        
-        /* ==============================
-           LINKS
-           ============================== */
         
         a {{
             color: {text_color} !important;
@@ -646,33 +588,17 @@ def apply_theme(colors):
             opacity: 0.7 !important;
         }}
         
-        /* ==============================
-           CAPTION
-           ============================== */
-        
         .stCaption {{
             color: {text_secondary} !important;
         }}
-        
-        /* ==============================
-           PROGRESS BAR
-           ============================== */
         
         .stProgress > div > div {{
             background-color: {text_color} !important;
         }}
         
-        /* ==============================
-           SELECT SLIDER
-           ============================== */
-        
         div[data-baseweb="slider"] {{
             background-color: {text_color} !important;
         }}
-        
-        /* ==============================
-           DATE INPUT CALENDAR
-           ============================== */
         
         div[data-baseweb="calendar"] {{
             background-color: {input_bg} !important;
@@ -693,11 +619,6 @@ def apply_theme(colors):
             color: {input_bg} !important;
         }}
         
-        /* ==============================
-           LOGIN PAGE SPECIFIC FIXES
-           ============================== */
-        
-        /* Fix for login container */
         .css-1v0mbdj {{
             background-color: {card_bg} !important;
             border-radius: 12px !important;
@@ -705,12 +626,10 @@ def apply_theme(colors):
             box-shadow: 0 4px 20px rgba(0,0,0,0.1) !important;
         }}
         
-        /* Ensure login form elements are visible */
         .stForm {{
             background-color: {card_bg} !important;
         }}
         
-        /* Password input visibility toggle */
         .stPasswordInput button {{
             background: transparent !important;
             border: none !important;
@@ -728,20 +647,17 @@ def apply_theme(colors):
 
 
 def get_page_theme(page_name):
-    """Get theme colors for specific page"""
     theme_name = PAGE_THEMES.get(page_name, "light")
     theme_config = AVAILABLE_THEMES.get(theme_name, AVAILABLE_THEMES["light"])
     return theme_config["colors"]
 
 
 def apply_page_theme(page_name):
-    """Apply theme based on current page"""
     colors = get_page_theme(page_name)
     apply_theme(colors)
 
 
 def apply_login_theme():
-    """Apply login page theme - Clean Black & White with visible buttons"""
     login_colors = {
         "background_color": "#F5F5F5",
         "text_color": "#000000",
@@ -763,7 +679,6 @@ def apply_login_theme():
 
 
 def apply_branch_selection_theme():
-    """Apply branch selection theme - Clean Black & White with visible buttons"""
     branch_colors = {
         "background_color": "#FFFFFF",
         "text_color": "#000000",
@@ -784,17 +699,11 @@ def apply_branch_selection_theme():
     apply_theme(branch_colors)
 
 
-# ==============================
-# THEME SELECTOR WIDGET
-# ==============================
 def theme_selector():
-    """Display theme selector in sidebar"""
     st.sidebar.markdown("### 🎨 Theme Settings")
     
-    # Get current theme
     current_theme = st.session_state.get("current_theme", load_theme_preference())
     
-    # Auto-switch option
     auto_switch = st.sidebar.checkbox(
         "🌓 Auto-switch (Day/Night)",
         value=st.session_state.get("auto_switch_theme", False),
@@ -818,7 +727,6 @@ def theme_selector():
             st.session_state.auto_switch_theme = False
             st.rerun()
     else:
-        # Theme selection dropdown
         theme_options = list(AVAILABLE_THEMES.keys())
         theme_labels = [f"{AVAILABLE_THEMES[t]['icon']} {AVAILABLE_THEMES[t]['name']}" for t in theme_options]
         
@@ -840,7 +748,6 @@ def theme_selector():
             save_theme_preference(selected_theme)
             st.rerun()
     
-    # Theme preview
     with st.sidebar.expander("🎨 Theme Preview"):
         theme = AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES["light"])
         colors = theme["colors"]
@@ -864,12 +771,10 @@ def theme_selector():
 
 
 def get_current_theme():
-    """Get current theme name"""
     return st.session_state.get("current_theme", load_theme_preference())
 
 
 def set_theme(theme_name):
-    """Set and apply a theme programmatically"""
     if theme_name in AVAILABLE_THEMES:
         st.session_state.current_theme = theme_name
         colors = AVAILABLE_THEMES[theme_name]["colors"]
