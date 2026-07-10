@@ -144,7 +144,7 @@ def get_auto_theme():
 def apply_theme(colors):
     
     bg_color = colors.get("background_color", "#FFFFFF")
-    text_color = colors.get("text_color", "#000000")
+    text_color = colors.get("text_color", "#F3E9E9")
     border_color = colors.get("border_color", "#CCCCCC")
     card_bg = colors.get("card_bg", "#FFFFFF")
     sidebar_bg = colors.get("sidebar_bg", "#F0F0F0")
