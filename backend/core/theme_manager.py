@@ -159,9 +159,9 @@ def apply_theme(colors):
     input_text = colors.get("input_text", "#000000")
     
     # Dropdown always uses white background with black text for visibility
-    dropdown_bg = "#FFFFFF"
-    dropdown_text = "#000000"
-    dropdown_border = "#CCCCCC"
+    dropdown_bg = "#140303"
+    dropdown_text = "#F4EBEB"
+    dropdown_border = "#D41111"
     
     css = f"""
     <style>
