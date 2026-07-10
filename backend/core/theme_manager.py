@@ -48,8 +48,8 @@ AVAILABLE_THEMES = {
             "text_secondary": "#AAAAAA",
             "primary_color": "#FFFFFF",
             "primary_hover": "#CCCCCC",
-            "input_bg": "#1A1A1A",
-            "input_text": "#FFFFFF",
+            "input_bg": "#FFFFFF",  # ALWAYS WHITE
+            "input_text": "#000000",  # ALWAYS BLACK TEXT
             "success": "#FFFFFF",
             "warning": "#FFFFFF",
             "error": "#FFFFFF",
@@ -142,10 +142,10 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - FIXED
+# THEME APPLICATION - FIXED WITH WHITE INPUTS
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS - PROPER CONTRAST FOR VISIBILITY"""
+    """Apply theme CSS - WHITE INPUT FIELDS ALWAYS"""
     
     # Get colors with fallbacks
     bg_color = colors.get("background_color", "#FFFFFF")
@@ -155,13 +155,15 @@ def apply_theme(colors):
     sidebar_bg = colors.get("sidebar_bg", "#F0F0F0")
     secondary_bg = colors.get("secondary_bg", "#F5F5F5")
     text_secondary = colors.get("text_secondary", "#555555")
-    input_bg = colors.get("input_bg", "#FFFFFF")
-    input_text = colors.get("input_text", "#B4AAAA")
     
-    # Dropdown always uses white background with black text for visibility
-    dropdown_bg = "#140303"
-    dropdown_text = "#F4EBEB"
-    dropdown_border = "#D41111"
+    # INPUT FIELDS - ALWAYS WHITE BACKGROUND WITH BLACK TEXT
+    input_bg = "#FFFFFF"
+    input_text = "#000000"
+    
+    # DROPDOWN - ALWAYS WHITE BACKGROUND WITH BLACK TEXT
+    dropdown_bg = "#FFFFFF"
+    dropdown_text = "#000000"
+    dropdown_border = "#CCCCCC"
     
     css = f"""
     <style>
@@ -355,7 +357,7 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           INPUT FIELDS - PROPER CONTRAST
+           INPUT FIELDS - ALWAYS WHITE BACKGROUND
            ============================== */
         
         .stTextInput > div > div > input,
@@ -366,12 +368,13 @@ def apply_theme(colors):
             color: {input_text} !important;
             border: 1px solid {border_color} !important;
             border-radius: 8px !important;
+            padding: 8px 12px !important;
         }}
         
         .stTextInput > div > div > input::placeholder,
         .stNumberInput > div > div > input::placeholder,
         .stTextArea > div > div > textarea::placeholder {{
-            color: {text_secondary} !important;
+            color: #999999 !important;
         }}
         
         .stTextInput > div > div > input:focus,
@@ -379,6 +382,7 @@ def apply_theme(colors):
         .stTextArea > div > div > textarea:focus {{
             border-color: {text_color} !important;
             box-shadow: 0 0 0 2px {text_color}20 !important;
+            outline: none !important;
         }}
         
         .stTextInput label,
@@ -388,6 +392,14 @@ def apply_theme(colors):
         .stDateInput label {{
             color: {text_color} !important;
             font-weight: 500 !important;
+        }}
+        
+        /* Sidebar inputs - ALWAYS WHITE */
+        [data-testid="stSidebar"] .stTextInput > div > div > input,
+        [data-testid="stSidebar"] .stNumberInput > div > div > input {{
+            background-color: {input_bg} !important;
+            color: {input_text} !important;
+            border-color: {border_color} !important;
         }}
         
         /* ==============================
