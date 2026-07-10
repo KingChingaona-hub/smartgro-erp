@@ -1,15 +1,14 @@
 # backend/core/global_styles.py
 
 def get_global_styles():
-    """Return global CSS styles for the application - FIXED for selectbox visibility"""
+    """Return global CSS styles for the application - FIXED for theme compatibility"""
     
     return """
     <style>
         /* ==============================
-           SELECTBOX STYLING FIX - CRITICAL
+           SELECTBOX STYLING FIX
            ============================== */
         
-        /* Base selectbox container */
         div[data-baseweb="select"] > div {
             background-color: #ffffff !important;
             color: #000000 !important;
@@ -27,7 +26,6 @@ def get_global_styles():
             color: #000000 !important;
         }
         
-        /* Dropdown menu */
         div[data-baseweb="select"] ul {
             background-color: #ffffff !important;
             border: 1px solid #d0d0d0 !important;
@@ -39,7 +37,6 @@ def get_global_styles():
             z-index: 999999 !important;
         }
         
-        /* Dropdown items */
         div[data-baseweb="select"] ul li {
             color: #000000 !important;
             background-color: #ffffff !important;
@@ -56,30 +53,28 @@ def get_global_styles():
         }
         
         div[data-baseweb="select"] ul li:hover {
-            background-color: #6366F1 !important;
+            background-color: #000000 !important;
             color: #ffffff !important;
         }
         
         div[data-baseweb="select"] ul li[aria-selected="true"] {
-            background-color: #6366F1 !important;
+            background-color: #000000 !important;
             color: #ffffff !important;
             font-weight: 600 !important;
         }
         
-        /* Selectbox label */
         .stSelectbox label {
             color: #000000 !important;
             font-weight: 500 !important;
         }
         
-        /* Selectbox placeholder */
         div[data-baseweb="select"] [data-testid="stSelectbox"] {
             background-color: #ffffff !important;
             color: #000000 !important;
         }
         
         /* ==============================
-           SIDEBAR SELECTBOX FIX
+           SIDEBAR SELECTBOX
            ============================== */
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] > div {
@@ -104,12 +99,12 @@ def get_global_styles():
         }
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li:hover {
-            background-color: #6366F1 !important;
+            background-color: #000000 !important;
             color: #ffffff !important;
         }
         
         /* ==============================
-           MULTI-SELECT FIX
+           MULTI-SELECT
            ============================== */
         
         div[data-baseweb="select"] [data-testid="stMultiSelect"] {
@@ -138,8 +133,8 @@ def get_global_styles():
         .stTextInput > div > div > input:focus,
         .stNumberInput > div > div > input:focus,
         .stTextArea > div > div > textarea:focus {
-            border-color: #6366F1 !important;
-            box-shadow: 0 0 0 2px rgba(99,102,241,0.2) !important;
+            border-color: #000000 !important;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.1) !important;
             outline: none !important;
         }
         
@@ -153,7 +148,7 @@ def get_global_styles():
         }
         
         /* ==============================
-           SIDEBAR INPUT FIX
+           SIDEBAR INPUTS
            ============================== */
         
         div[data-testid="stSidebar"] .stTextInput > div > div > input {
@@ -169,7 +164,7 @@ def get_global_styles():
         }
         
         /* ==============================
-           DATAFRAME / TABLE FIX
+           DATAFRAME / TABLE
            ============================== */
         
         .dataframe {
@@ -180,11 +175,11 @@ def get_global_styles():
         }
         
         .dataframe th {
-            background-color: #6366F1 !important;
+            background-color: #000000 !important;
             color: #ffffff !important;
             padding: 10px !important;
             font-weight: 600 !important;
-            border: 1px solid #4F46E5 !important;
+            border: 1px solid #333333 !important;
         }
         
         .dataframe td {
@@ -203,87 +198,26 @@ def get_global_styles():
         }
         
         .dataframe tr:hover td {
-            background-color: #e0e7ff !important;
+            background-color: #f0f0f0 !important;
         }
         
         /* ==============================
-           DARK MODE COMPATIBILITY
+           BUTTONS - REMOVED FIXED COLORS
            ============================== */
         
-        @media (prefers-color-scheme: dark) {
-            div[data-baseweb="select"] > div {
-                background-color: #1e1e1e !important;
-                color: #ffffff !important;
-                border-color: #444 !important;
-            }
-            
-            div[data-baseweb="select"] > div > div {
-                background-color: #1e1e1e !important;
-                color: #ffffff !important;
-            }
-            
-            div[data-baseweb="select"] > div > div > div {
-                color: #ffffff !important;
-            }
-            
-            div[data-baseweb="select"] ul {
-                background-color: #1e1e1e !important;
-                border-color: #444 !important;
-            }
-            
-            div[data-baseweb="select"] ul li {
-                color: #ffffff !important;
-                background-color: #1e1e1e !important;
-                border-bottom-color: #333 !important;
-            }
-            
-            div[data-baseweb="select"] ul li:hover {
-                background-color: #6366F1 !important;
-                color: #ffffff !important;
-            }
-            
-            div[data-baseweb="select"] ul li[aria-selected="true"] {
-                background-color: #6366F1 !important;
-                color: #ffffff !important;
-            }
-            
-            .stSelectbox label {
-                color: #ffffff !important;
-            }
-            
-            .dataframe td {
-                color: #ffffff !important;
-                background-color: #1e1e1e !important;
-                border-color: #333 !important;
-            }
-            
-            .dataframe tr:nth-child(even) td {
-                background-color: #2a2a2a !important;
-            }
-            
-            .dataframe tr:hover td {
-                background-color: #1a2a4a !important;
-            }
-        }
-        
-        /* ==============================
-           BUTTONS
-           ============================== */
-        
+        /* Buttons now controlled by theme_manager.py */
+        /* Only minimal styles here */
         .stButton > button {
-            background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%) !important;
-            color: white !important;
-            border: none !important;
             border-radius: 8px !important;
             padding: 8px 16px !important;
             font-weight: 500 !important;
             transition: all 0.3s ease !important;
+            cursor: pointer !important;
         }
         
         .stButton > button:hover {
             transform: translateY(-2px) !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-            opacity: 0.9 !important;
         }
         
         .stButton > button:active {
@@ -331,18 +265,12 @@ def get_global_styles():
            ============================== */
         
         [data-testid="stMetricValue"] {
-            color: #6366F1 !important;
             font-size: 1.8rem !important;
             font-weight: 600 !important;
         }
         
         [data-testid="stMetricLabel"] {
-            color: #6B7280 !important;
             font-size: 0.9rem !important;
-        }
-        
-        [data-testid="stMetricDelta"] {
-            color: #10B981 !important;
         }
         
         /* ==============================
@@ -357,15 +285,14 @@ def get_global_styles():
             background-color: #f8f9fa !important;
             border-radius: 8px !important;
             padding: 8px 16px !important;
-            color: #333 !important;
             border: 1px solid #e5e7eb !important;
             transition: all 0.3s ease !important;
         }
         
         .stTabs [aria-selected="true"] {
-            background-color: #6366F1 !important;
-            color: white !important;
-            border-color: #6366F1 !important;
+            background-color: #000000 !important;
+            color: #ffffff !important;
+            border-color: #000000 !important;
         }
         
         /* ==============================
@@ -381,10 +308,6 @@ def get_global_styles():
         
         [data-testid="stExpander"] summary {
             padding: 8px 12px !important;
-        }
-        
-        [data-testid="stExpander"] summary p {
-            color: #1F2937 !important;
         }
         
         /* ==============================
@@ -409,7 +332,6 @@ def get_global_styles():
         
         code {
             background-color: #f8f9fa !important;
-            color: #6366F1 !important;
             border-radius: 4px !important;
             padding: 2px 6px !important;
             font-size: 0.9em !important;
@@ -437,7 +359,6 @@ def get_global_styles():
            ============================== */
         
         .stProgress > div > div {
-            background-color: #6366F1 !important;
             border-radius: 10px !important;
         }
         
@@ -447,7 +368,7 @@ def get_global_styles():
         }
         
         /* ==============================
-           CAPTION / HELP TEXT
+           CAPTION
            ============================== */
         
         .stCaption {
@@ -469,12 +390,10 @@ def get_global_styles():
            ============================== */
         
         a {
-            color: #6366F1 !important;
             text-decoration: none !important;
         }
         
         a:hover {
-            color: #4F46E5 !important;
             text-decoration: underline !important;
         }
         
