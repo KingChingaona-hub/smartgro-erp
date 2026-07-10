@@ -1242,4 +1242,4 @@ if not st.session_state.get("branch_selected", False):
 elif not st.session_state.logged_in:
     login_page()
 else:
-    main_app()m fs
+    main_app()
