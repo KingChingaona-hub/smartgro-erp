@@ -13,6 +13,10 @@ def welcome_page():
     current_branch = st.session_state.get("current_branch", "HO")
     branch_name = st.session_state.get("branch_name", "Unknown")
     
+    # Initialize footer section state
+    if "footer_section" not in st.session_state:
+        st.session_state.footer_section = None
+    
     # Get current time for greeting
     current_hour = datetime.now().hour
     if current_hour < 12:
@@ -313,6 +317,45 @@ def welcome_page():
             font-size: 1rem;
         }
         
+        .footer-content {
+            background: white;
+            padding: 25px;
+            border-radius: 16px;
+            margin-top: 20px;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+        }
+        
+        .footer-content h3 {
+            color: #1a1a2e;
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+        
+        .footer-content p, .footer-content li {
+            color: #4a5568;
+            line-height: 1.8;
+        }
+        
+        .footer-content ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .footer-content ul li {
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .footer-content ul li:last-child {
+            border-bottom: none;
+        }
+        
+        .footer-content ul li strong {
+            color: #1a1a2e;
+        }
+        
         .welcome-footer {
             text-align: center;
             color: #6B7280;
@@ -330,15 +373,26 @@ def welcome_page():
             flex-wrap: wrap;
         }
         
-        .welcome-footer .footer-links a {
+        .welcome-footer .footer-links button {
+            background: none;
+            border: none;
             color: #6B7280;
-            text-decoration: none;
-            font-size: 0.8rem;
-            transition: color 0.3s ease;
+            font-size: 0.85rem;
+            cursor: pointer;
+            padding: 5px 10px;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
         }
         
-        .welcome-footer .footer-links a:hover {
+        .welcome-footer .footer-links button:hover {
             color: #FF6B35;
+            transform: translateY(-2px);
+        }
+        
+        .welcome-footer .footer-links button.active {
+            color: #FF6B35;
+            font-weight: 600;
+            border-bottom: 2px solid #FF6B35;
         }
         
         @media (max-width: 768px) {
@@ -361,6 +415,9 @@ def welcome_page():
             .get-started-section {
                 padding: 30px 20px;
             }
+            .welcome-footer .footer-links {
+                gap: 15px;
+            }
         }
         
         @media (max-width: 480px) {
@@ -378,6 +435,10 @@ def welcome_page():
             }
             .section-title {
                 font-size: 1.5rem;
+            }
+            .welcome-footer .footer-links {
+                flex-direction: column;
+                gap: 5px;
             }
         }
     </style>
@@ -422,7 +483,15 @@ def welcome_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # About Section
+    # Check if footer section is active and show content
+    if st.session_state.footer_section:
+        st.markdown(f"""
+        <div class="footer-content">
+            {get_footer_content(st.session_state.footer_section)}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # About Section (always visible)
     st.markdown("""
     <div class="section-title">About <span>SmartGro ERP</span></div>
     """, unsafe_allow_html=True)
@@ -498,21 +567,123 @@ def welcome_page():
             st.session_state.current_page = "Stock Dashboard"
             st.rerun()
     
-    # Footer
+    # Footer with clickable links
+    st.markdown('<div class="welcome-footer">', unsafe_allow_html=True)
+    st.markdown('<div class="footer-links">', unsafe_allow_html=True)
+    
+    # Define footer sections
+    footer_sections = ["About", "Features", "Support", "Privacy Policy", "Terms"]
+    
+    for section in footer_sections:
+        is_active = st.session_state.footer_section == section
+        active_class = "active" if is_active else ""
+        if st.button(section, key=f"footer_{section}", use_container_width=False):
+            if st.session_state.footer_section == section:
+                st.session_state.footer_section = None
+            else:
+                st.session_state.footer_section = section
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     st.markdown(f"""
-    <div class="welcome-footer">
-        <div class="footer-links">
-            <a href="#">About</a>
-            <a href="#">Features</a>
-            <a href="#">Support</a>
-            <a href="#">Privacy Policy</a>
-            <a href="#">Terms</a>
-        </div>
-        <p>SmartGro ERP v2.0 • © {datetime.now().year} All Rights Reserved</p>
-        <p style="font-size: 0.7rem; margin-top: 5px;">
-            Logged in as: <strong>{username}</strong> • Role: <strong>{role.upper()}</strong> • Branch: <strong>{branch_name}</strong>
-        </p>
-    </div>
+    <p>SmartGro ERP v2.0 • © {datetime.now().year} All Rights Reserved</p>
+    <p style="font-size: 0.7rem; margin-top: 5px;">
+        Logged in as: <strong>{username}</strong> • Role: <strong>{role.upper()}</strong> • Branch: <strong>{branch_name}</strong>
+    </p>
     """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def get_footer_content(section):
+    """Return content for footer sections"""
+    
+    content = {
+        "About": """
+        <h3>📖 About SmartGro ERP</h3>
+        <p><strong>SmartGro ERP</strong> is a cutting-edge Enterprise Resource Planning solution built for modern retail and distribution businesses.</p>
+        <br>
+        <p><strong>Our Mission:</strong> To empower businesses with intelligent, user-friendly tools that streamline operations, drive growth, and deliver actionable insights.</p>
+        <br>
+        <p><strong>Our Vision:</strong> To become the preferred ERP platform for retail and distribution businesses across Africa and beyond.</p>
+        <br>
+        <p><strong>Key Values:</strong></p>
+        <ul>
+            <li><strong>Innovation</strong> - Continuously evolving with modern technology</li>
+            <li><strong>Reliability</strong> - Built for businesses that depend on us</li>
+            <li><strong>Simplicity</strong> - Easy to use, powerful in execution</li>
+            <li><strong>Growth</strong> - Helping businesses scale and succeed</li>
+        </ul>
+        """,
+        
+        "Features": """
+        <h3>✨ SmartGro ERP Features</h3>
+        <p>SmartGro ERP comes packed with powerful features designed to simplify your business operations:</p>
+        <br>
+        <ul>
+            <li><strong>📦 Inventory Management</strong> - Real-time stock tracking, low stock alerts, and product management</li>
+            <li><strong>💳 Point of Sale (POS)</strong> - Fast checkout with barcode scanning and customer management</li>
+            <li><strong>📊 Analytics & Reports</strong> - Sales dashboards, profit analysis, and business intelligence</li>
+            <li><strong>👥 Customer Management</strong> - Track history, loyalty programs, and retention insights</li>
+            <li><strong>💰 Cash & Finance</strong> - Income, expenses, purchases, and cash flow management</li>
+            <li><strong>🔐 Multi-Branch Support</strong> - Centralized control with branch-level reporting</li>
+            <li><strong>📱 Mobile Dashboard</strong> - Access your business from anywhere</li>
+            <li><strong>🔔 Auto Notifications</strong> - Low stock alerts and important updates</li>
+            <li><strong>📄 Document Generation</strong> - Invoices, delivery notes, credit notes, and more</li>
+        </ul>
+        """,
+        
+        "Support": """
+        <h3>🆘 Support Center</h3>
+        <p>We're here to help you succeed with SmartGro ERP.</p>
+        <br>
+        <p><strong>📧 Email Support:</strong> support@smartgro.com</p>
+        <p><strong>📞 Phone Support:</strong> +27 11 234 5678</p>
+        <p><strong>🕐 Business Hours:</strong> Monday - Friday, 8:00 AM - 6:00 PM (SAST)</p>
+        <br>
+        <p><strong>📚 Resources:</strong></p>
+        <ul>
+            <li><strong>📖 User Guide</strong> - Comprehensive documentation</li>
+            <li><strong>🎥 Video Tutorials</strong> - Step-by-step guides</li>
+            <li><strong>💬 Community Forum</strong> - Connect with other users</li>
+            <li><strong>🐛 Bug Report</strong> - Report issues or suggest improvements</li>
+        </ul>
+        <br>
+        <p><em>Response time: Within 24 hours for all support requests.</em></p>
+        """,
+        
+        "Privacy Policy": """
+        <h3>🔒 Privacy Policy</h3>
+        <p>At SmartGro ERP, we take your privacy seriously. Here's how we protect your data:</p>
+        <br>
+        <p><strong>Data Collection:</strong> We only collect data necessary for business operations - inventory, sales, customer, and financial data.</p>
+        <p><strong>Data Storage:</strong> All data is encrypted and stored securely on our servers with regular backups.</p>
+        <p><strong>Data Sharing:</strong> We never sell or share your data with third parties without your explicit consent.</p>
+        <p><strong>Data Access:</strong> Only authorized personnel with specific roles can access data based on their permissions.</p>
+        <p><strong>Data Retention:</strong> Data is retained for as long as your account is active and as required by law.</p>
+        <p><strong>Your Rights:</strong> You have the right to access, modify, or delete your data at any time.</p>
+        <br>
+        <p><em>Last updated: {datetime.now().strftime('%B %d, %Y')}</em></p>
+        """,
+        
+        "Terms": """
+        <h3>📋 Terms of Service</h3>
+        <p>By using SmartGro ERP, you agree to the following terms:</p>
+        <br>
+        <p><strong>1. Acceptance of Terms:</strong> By using SmartGro ERP, you agree to these terms. If you don't agree, please don't use the service.</p>
+        <p><strong>2. Account Security:</strong> You are responsible for maintaining the security of your account and password.</p>
+        <p><strong>3. Data Ownership:</strong> All data you enter into SmartGro ERP belongs to you and your organization.</p>
+        <p><strong>4. Service Availability:</strong> We strive for 99.9% uptime but cannot guarantee uninterrupted service.</p>
+        <p><strong>5. Updates:</strong> We may update the service and these terms from time to time.</p>
+        <p><strong>6. Termination:</strong> Either party may terminate the service at any time with notice.</p>
+        <p><strong>7. Liability:</strong> We are not liable for indirect, incidental, or consequential damages.</p>
+        <p><strong>8. Governing Law:</strong> These terms are governed by the laws of South Africa.</p>
+        <br>
+        <p><em>Last updated: {datetime.now().strftime('%B %d, %Y')}</em></p>
+        """
+    }
+    
+    return content.get(section, "<p>Content not found.</p>")
