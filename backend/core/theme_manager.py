@@ -9,23 +9,25 @@ from datetime import datetime
 THEME_FILE = Path("data/user_theme.json")
 
 # ==============================
-# AVAILABLE THEMES - ONLY BLACK & WHITE
+# AVAILABLE THEMES - PROPER CONTRAST
 # ==============================
 AVAILABLE_THEMES = {
     "light": {
         "name": "Light Mode",
         "icon": "☀️",
-        "description": "Clean white background with black text",
+        "description": "Light background with dark text",
         "colors": {
             "background_color": "#FFFFFF",
             "text_color": "#000000",
             "border_color": "#CCCCCC",
             "card_bg": "#FFFFFF",
-            "sidebar_bg": "#F5F5F5",
+            "sidebar_bg": "#F0F0F0",
             "secondary_bg": "#F5F5F5",
-            "text_secondary": "#333333",
+            "text_secondary": "#555555",
             "primary_color": "#000000",
             "primary_hover": "#333333",
+            "input_bg": "#FFFFFF",
+            "input_text": "#000000",
             "success": "#000000",
             "warning": "#000000",
             "error": "#000000",
@@ -35,17 +37,19 @@ AVAILABLE_THEMES = {
     "dark": {
         "name": "Dark Mode",
         "icon": "🌙",
-        "description": "Black background with white text",
+        "description": "Dark background with light text",
         "colors": {
-            "background_color": "#000000",
+            "background_color": "#0D0D0D",
             "text_color": "#FFFFFF",
             "border_color": "#444444",
             "card_bg": "#1A1A1A",
             "sidebar_bg": "#1A1A1A",
-            "secondary_bg": "#1A1A1A",
-            "text_secondary": "#CCCCCC",
+            "secondary_bg": "#222222",
+            "text_secondary": "#AAAAAA",
             "primary_color": "#FFFFFF",
             "primary_hover": "#CCCCCC",
+            "input_bg": "#1A1A1A",
+            "input_text": "#FFFFFF",
             "success": "#FFFFFF",
             "warning": "#FFFFFF",
             "error": "#FFFFFF",
@@ -138,31 +142,26 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - FIXED DROPDOWN VISIBILITY
+# THEME APPLICATION - FIXED
 # ==============================
 def apply_theme(colors):
-    """Apply theme CSS - DROPDOWN ITEMS ALWAYS VISIBLE"""
+    """Apply theme CSS - PROPER CONTRAST FOR VISIBILITY"""
     
-    # Determine if dark mode
-    is_dark = colors.get("background_color", "#FFFFFF") == "#000000"
-    
-    # Set colors based on theme
+    # Get colors with fallbacks
     bg_color = colors.get("background_color", "#FFFFFF")
     text_color = colors.get("text_color", "#000000")
     border_color = colors.get("border_color", "#CCCCCC")
     card_bg = colors.get("card_bg", "#FFFFFF")
-    sidebar_bg = colors.get("sidebar_bg", "#F5F5F5")
+    sidebar_bg = colors.get("sidebar_bg", "#F0F0F0")
     secondary_bg = colors.get("secondary_bg", "#F5F5F5")
-    text_secondary = colors.get("text_secondary", "#333333")
+    text_secondary = colors.get("text_secondary", "#555555")
+    input_bg = colors.get("input_bg", "#FFFFFF")
+    input_text = colors.get("input_text", "#000000")
     
-    # DROPDOWN COLORS - ALWAYS CONTRASTING
-    # In dark mode: white background, black text (so items are visible)
-    # In light mode: white background, black text
-    dropdown_bg = "#FFFFFF"  # ALWAYS WHITE background for dropdown
-    dropdown_text = "#000000"  # ALWAYS BLACK text for dropdown items
+    # Dropdown always uses white background with black text for visibility
+    dropdown_bg = "#FFFFFF"
+    dropdown_text = "#000000"
     dropdown_border = "#CCCCCC"
-    dropdown_hover_bg = "#000000"  # Black on hover
-    dropdown_hover_text = "#FFFFFF"  # White text on hover
     
     css = f"""
     <style>
@@ -201,6 +200,11 @@ def apply_theme(colors):
             color: {text_color} !important;
         }}
         
+        /* Sidebar text override for dark mode */
+        [data-testid="stSidebar"] .stSelectbox label {{
+            color: {text_color} !important;
+        }}
+        
         /* Cards / Expanders / Metrics */
         [data-testid="stExpander"],
         [data-testid="stMetric"] {{
@@ -223,7 +227,7 @@ def apply_theme(colors):
             color: {text_secondary} !important;
         }}
         
-        /* Buttons - Black & White */
+        /* Buttons */
         .stButton > button {{
             background-color: {text_color} !important;
             color: {bg_color} !important;
@@ -269,7 +273,7 @@ def apply_theme(colors):
             fill: {dropdown_text} !important;
         }}
         
-        /* ===== DROPDOWN MENU - ALWAYS WHITE BACKGROUND ===== */
+        /* Dropdown menu - ALWAYS WHITE BACKGROUND */
         div[data-baseweb="select"] ul {{
             background-color: {dropdown_bg} !important;
             border: 1px solid {dropdown_border} !important;
@@ -280,7 +284,7 @@ def apply_theme(colors):
             padding: 4px 0 !important;
         }}
         
-        /* ===== DROPDOWN ITEMS - ALWAYS BLACK TEXT ON WHITE BACKGROUND ===== */
+        /* Dropdown items - ALWAYS VISIBLE */
         div[data-baseweb="select"] ul li {{
             color: {dropdown_text} !important;
             background-color: {dropdown_bg} !important;
@@ -296,24 +300,24 @@ def apply_theme(colors):
             border-bottom: none !important;
         }}
         
-        /* Hover state - BLACK background with WHITE text */
+        /* Hover state */
         div[data-baseweb="select"] ul li:hover {{
-            background-color: {dropdown_hover_bg} !important;
-            color: {dropdown_hover_text} !important;
+            background-color: {text_color} !important;
+            color: {dropdown_bg} !important;
         }}
         
-        /* Selected/active state - BLACK background with WHITE text */
+        /* Selected/active state */
         div[data-baseweb="select"] ul li[aria-selected="true"] {{
-            background-color: {dropdown_hover_bg} !important;
-            color: {dropdown_hover_text} !important;
+            background-color: {text_color} !important;
+            color: {dropdown_bg} !important;
             font-weight: 600 !important;
         }}
         
         /* Focus state */
         div[data-baseweb="select"] ul li:focus {{
             outline: none !important;
-            background-color: {dropdown_hover_bg} !important;
-            color: {dropdown_hover_text} !important;
+            background-color: {text_color} !important;
+            color: {dropdown_bg} !important;
         }}
         
         /* Selectbox label */
@@ -322,7 +326,7 @@ def apply_theme(colors):
             font-weight: 500 !important;
         }}
         
-        /* ===== SIDEBAR DROPDOWNS - ALWAYS VISIBLE ===== */
+        /* ===== SIDEBAR DROPDOWNS ===== */
         div[data-testid="stSidebar"] div[data-baseweb="select"] > div {{
             background-color: {dropdown_bg} !important;
             color: {dropdown_text} !important;
@@ -341,46 +345,33 @@ def apply_theme(colors):
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li:hover {{
-            background-color: {dropdown_hover_bg} !important;
-            color: {dropdown_hover_text} !important;
+            background-color: {text_color} !important;
+            color: {dropdown_bg} !important;
         }}
         
         div[data-testid="stSidebar"] div[data-baseweb="select"] ul li[aria-selected="true"] {{
-            background-color: {dropdown_hover_bg} !important;
-            color: {dropdown_hover_text} !important;
-        }}
-        
-        /* ===== MULTI-SELECT ===== */
-        div[data-baseweb="select"] [data-testid="stMultiSelect"] {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-        }}
-        
-        /* Multi-select tags/pills */
-        div[data-baseweb="tag"] {{
             background-color: {text_color} !important;
-            color: {bg_color} !important;
-            border-radius: 4px !important;
-            padding: 2px 8px !important;
-            margin: 2px !important;
-        }}
-        
-        div[data-baseweb="tag"] svg {{
-            fill: {bg_color} !important;
+            color: {dropdown_bg} !important;
         }}
         
         /* ==============================
-           INPUT FIELDS - ALWAYS VISIBLE
+           INPUT FIELDS - PROPER CONTRAST
            ============================== */
         
         .stTextInput > div > div > input,
         .stNumberInput > div > div > input,
         .stTextArea > div > div > textarea,
         .stDateInput > div > div > input {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-            border: 1px solid {dropdown_border} !important;
+            background-color: {input_bg} !important;
+            color: {input_text} !important;
+            border: 1px solid {border_color} !important;
             border-radius: 8px !important;
+        }}
+        
+        .stTextInput > div > div > input::placeholder,
+        .stNumberInput > div > div > input::placeholder,
+        .stTextArea > div > div > textarea::placeholder {{
+            color: {text_secondary} !important;
         }}
         
         .stTextInput > div > div > input:focus,
@@ -400,26 +391,39 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DATE INPUT CALENDAR
+           DATA FRAMES
            ============================== */
         
-        div[data-baseweb="calendar"] {{
-            background-color: {dropdown_bg} !important;
-            border: 1px solid {dropdown_border} !important;
+        .stDataFrame {{
+            background-color: {input_bg} !important;
+        }}
+        
+        .dataframe {{
+            background-color: {input_bg} !important;
+            color: {input_text} !important;
             border-radius: 8px !important;
         }}
         
-        div[data-baseweb="calendar"] div {{
-            color: {dropdown_text} !important;
+        .dataframe th {{
+            background-color: {text_color} !important;
+            color: {bg_color} !important;
+            padding: 10px !important;
+            border: 1px solid {border_color} !important;
         }}
         
-        div[data-baseweb="calendar"] button {{
-            color: {dropdown_text} !important;
+        .dataframe td {{
+            color: {input_text} !important;
+            padding: 8px !important;
+            border-bottom: 1px solid {border_color} !important;
+            background-color: {input_bg} !important;
         }}
         
-        div[data-baseweb="calendar"] button:hover {{
-            background-color: {dropdown_hover_bg} !important;
-            color: {dropdown_hover_text} !important;
+        .dataframe tr:nth-child(even) td {{
+            background-color: {secondary_bg} !important;
+        }}
+        
+        .dataframe tr:hover td {{
+            background-color: {text_color}20 !important;
         }}
         
         /* ==============================
@@ -444,44 +448,35 @@ def apply_theme(colors):
         }}
         
         /* ==============================
-           DATAFRAMES / TABLES
-           ============================== */
-        
-        .stDataFrame {{
-            background-color: {dropdown_bg} !important;
-        }}
-        
-        .dataframe {{
-            background-color: {dropdown_bg} !important;
-            color: {dropdown_text} !important;
-            border-radius: 10px !important;
-        }}
-        
-        .dataframe th {{
-            background-color: {text_color} !important;
-            color: {bg_color} !important;
-            padding: 10px !important;
-        }}
-        
-        .dataframe td {{
-            color: {dropdown_text} !important;
-            padding: 8px !important;
-            border-bottom: 1px solid {dropdown_border} !important;
-        }}
-        
-        .dataframe tr:hover td {{
-            background-color: {text_color}20 !important;
-        }}
-        
-        /* ==============================
            ALERT MESSAGES
            ============================== */
         
-        .stSuccess, .stWarning, .stError, .stInfo {{
-            background-color: {dropdown_bg} !important;
-            border: 1px solid {dropdown_border} !important;
+        .stSuccess {{
+            background-color: {input_bg} !important;
+            border: 1px solid {border_color} !important;
             border-radius: 8px !important;
-            color: {dropdown_text} !important;
+            color: {input_text} !important;
+        }}
+        
+        .stWarning {{
+            background-color: {input_bg} !important;
+            border: 1px solid {border_color} !important;
+            border-radius: 8px !important;
+            color: {input_text} !important;
+        }}
+        
+        .stError {{
+            background-color: {input_bg} !important;
+            border: 1px solid {border_color} !important;
+            border-radius: 8px !important;
+            color: {input_text} !important;
+        }}
+        
+        .stInfo {{
+            background-color: {input_bg} !important;
+            border: 1px solid {border_color} !important;
+            border-radius: 8px !important;
+            color: {input_text} !important;
         }}
         
         /* ==============================
@@ -539,6 +534,37 @@ def apply_theme(colors):
         .stProgress > div > div {{
             background-color: {text_color} !important;
         }}
+        
+        /* ==============================
+           SELECT SLIDER
+           ============================== */
+        
+        div[data-baseweb="slider"] {{
+            background-color: {text_color} !important;
+        }}
+        
+        /* ==============================
+           DATE INPUT CALENDAR
+           ============================== */
+        
+        div[data-baseweb="calendar"] {{
+            background-color: {input_bg} !important;
+            border: 1px solid {border_color} !important;
+            border-radius: 8px !important;
+        }}
+        
+        div[data-baseweb="calendar"] div {{
+            color: {input_text} !important;
+        }}
+        
+        div[data-baseweb="calendar"] button {{
+            color: {input_text} !important;
+        }}
+        
+        div[data-baseweb="calendar"] button:hover {{
+            background-color: {text_color} !important;
+            color: {input_bg} !important;
+        }}
     </style>
     """
     
@@ -559,17 +585,19 @@ def apply_page_theme(page_name):
 
 
 def apply_login_theme():
-    """Apply login page theme - Black & White"""
+    """Apply login page theme - Clean Black & White"""
     login_colors = {
-        "background_color": "#FFFFFF",
+        "background_color": "#F5F5F5",
         "text_color": "#000000",
-        "text_secondary": "#333333",
+        "text_secondary": "#555555",
         "border_color": "#CCCCCC",
         "primary_color": "#000000",
         "primary_hover": "#333333",
         "card_bg": "#FFFFFF",
         "secondary_bg": "#F5F5F5",
         "sidebar_bg": "#F5F5F5",
+        "input_bg": "#FFFFFF",
+        "input_text": "#000000",
         "success": "#000000",
         "warning": "#000000",
         "error": "#000000",
@@ -579,17 +607,19 @@ def apply_login_theme():
 
 
 def apply_branch_selection_theme():
-    """Apply branch selection theme - Black & White"""
+    """Apply branch selection theme - Clean Black & White"""
     branch_colors = {
         "background_color": "#FFFFFF",
         "text_color": "#000000",
-        "text_secondary": "#333333",
+        "text_secondary": "#555555",
         "border_color": "#CCCCCC",
         "primary_color": "#000000",
         "primary_hover": "#333333",
         "card_bg": "#FFFFFF",
         "secondary_bg": "#F5F5F5",
-        "sidebar_bg": "#F5F5F5",
+        "sidebar_bg": "#F0F0F0",
+        "input_bg": "#FFFFFF",
+        "input_text": "#000000",
         "success": "#000000",
         "warning": "#000000",
         "error": "#000000",
@@ -658,10 +688,19 @@ def theme_selector():
     with st.sidebar.expander("🎨 Theme Preview"):
         theme = AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES["light"])
         colors = theme["colors"]
+        bg = colors.get("background_color", "#FFFFFF")
+        text = colors.get("text_color", "#000000")
+        border = colors.get("border_color", "#CCCCCC")
+        
         st.markdown(f"""
-        <div style="background: {colors['card_bg']}; padding: 12px; border-radius: 10px; border: 1px solid {colors['border_color']};">
-            <p style="color: {colors['text_color']};"><strong>■ Text Color</strong></p>
-            <p style="color: {colors['background_color']}; background: {colors['text_color']}; padding: 4px;"><strong>■ Background Color</strong></p>
+        <div style="background: {bg}; padding: 12px; border-radius: 10px; border: 1px solid {border};">
+            <p style="color: {text};"><strong>■ Text Color</strong></p>
+            <p style="color: {text}; background: {bg}; padding: 4px; border: 1px solid {text};">
+                <strong>■ Border Color</strong>
+            </p>
+            <div style="background: {text}; color: {bg}; padding: 4px; border-radius: 4px;">
+                <strong>■ Background Color</strong>
+            </div>
         </div>
         """, unsafe_allow_html=True)
     
