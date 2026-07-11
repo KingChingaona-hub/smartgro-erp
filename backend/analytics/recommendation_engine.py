@@ -88,6 +88,16 @@ def get_quantity_column(df):
     return None
 
 
+def get_customer_column(df):
+    """Find customer column"""
+    if df is None or df.empty:
+        return None
+    for col in ["customer", "customer_name", "client", "buyer"]:
+        if col in df.columns:
+            return col
+    return None
+
+
 # ==============================
 # RECOMMENDATION ENGINE
 # ==============================
@@ -372,16 +382,6 @@ class RecommendationEngine:
         }
 
 
-def get_customer_column(df):
-    """Find customer column"""
-    if df is None or df.empty:
-        return None
-    for col in ["customer", "customer_name", "client", "buyer"]:
-        if col in df.columns:
-            return col
-    return None
-
-
 # ==============================
 # RECOMMENDATION DASHBOARD
 # ==============================
@@ -521,7 +521,7 @@ def recommendation_engine_dashboard():
             product_col = get_product_column(products_df)
             
             if product_col:
-                search_term = st.text_input("Search Product", placeholder="Type product name...")
+                search_term = st.text_input("Search Product", placeholder="Type product name...", key="product_search")
                 
                 # Filter products
                 filtered_products = products_df[products_df[product_col].astype(str).str.contains(
@@ -531,7 +531,8 @@ def recommendation_engine_dashboard():
                 if not filtered_products.empty:
                     selected_product = st.selectbox(
                         "Select Product",
-                        filtered_products[product_col].tolist()
+                        filtered_products[product_col].tolist(),
+                        key="product_select"
                     )
                     
                     if selected_product:
@@ -540,7 +541,8 @@ def recommendation_engine_dashboard():
                         rec_type = st.radio(
                             "Recommendation Type",
                             ["Frequently Bought Together (Cross-sell)", "Up-sell (Higher Value)"],
-                            horizontal=True
+                            horizontal=True,
+                            key="rec_type"
                         )
                         
                         if rec_type == "Frequently Bought Together (Cross-sell)":
@@ -617,7 +619,7 @@ def recommendation_engine_dashboard():
             customer_col = get_customer_column(customers_df)
             
             if customer_col:
-                search_customer = st.text_input("Search Customer", placeholder="Type customer name...")
+                search_customer = st.text_input("Search Customer", placeholder="Type customer name...", key="customer_search")
                 
                 if search_customer:
                     # Find customer
@@ -698,10 +700,12 @@ def recommendation_engine_dashboard():
             product_col = get_product_column(products_df)
             
             if product_col:
-                cart_products = []
+                # Initialize cart if not exists
+                if "bundle_cart" not in st.session_state:
+                    st.session_state.bundle_cart = []
                 
                 # Product search for cart
-                search_cart = st.text_input("Search Product to Add", placeholder="Type product name...")
+                search_cart = st.text_input("Search Product to Add", placeholder="Type product name...", key="cart_search")
                 
                 filtered_cart = products_df[products_df[product_col].astype(str).str.contains(
                     search_cart, case=False, na=False
@@ -710,13 +714,12 @@ def recommendation_engine_dashboard():
                 if not filtered_cart.empty:
                     selected_cart_product = st.selectbox(
                         "Select Product",
-                        filtered_cart[product_col].tolist()
+                        filtered_cart[product_col].tolist(),
+                        key="cart_product_select"
                     )
                     
-                    if st.button("➕ Add to Cart", use_container_width=True):
+                    if st.button("➕ Add to Cart", use_container_width=True, key="add_to_cart_btn"):
                         if selected_cart_product:
-                            if "bundle_cart" not in st.session_state:
-                                st.session_state.bundle_cart = []
                             if selected_cart_product not in st.session_state.bundle_cart:
                                 st.session_state.bundle_cart.append(selected_cart_product)
                                 st.success(f"Added {selected_cart_product} to cart")
@@ -724,7 +727,7 @@ def recommendation_engine_dashboard():
                                 st.warning(f"{selected_cart_product} already in cart")
                 
                 # Display cart
-                if "bundle_cart" in st.session_state and st.session_state.bundle_cart:
+                if st.session_state.bundle_cart:
                     st.markdown("#### 🧾 Current Cart")
                     
                     cart_df = pd.DataFrame({
@@ -737,12 +740,12 @@ def recommendation_engine_dashboard():
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("🗑️ Clear Cart", use_container_width=True):
+                        if st.button("🗑️ Clear Cart", use_container_width=True, key="clear_cart_btn"):
                             st.session_state.bundle_cart = []
                             st.rerun()
                     
                     with col2:
-                        if st.button("🎯 Get Bundle Recommendations", type="primary", use_container_width=True):
+                        if st.button("🎯 Get Bundle Recommendations", type="primary", use_container_width=True, key="get_bundle_btn"):
                             if len(st.session_state.bundle_cart) >= 2:
                                 recommendations = st.session_state.recommendation_engine.get_bundle_recommendations(
                                     st.session_state.bundle_cart, 5
@@ -760,7 +763,6 @@ def recommendation_engine_dashboard():
                                                 <p style="font-size: 20px; color: #2ecc71; margin: 5px 0;">${row['price']:.2f}</p>
                                                 <p style="font-size: 11px; color: #666;">{row.get('category', 'Uncategorized')}</p>
                                                 <p style="font-size: 12px; color: #999; margin-top: 5px;">🎯 Score: {row.get('score', 0):.0f}</p>
-                                                <button style="background:#6366F1;color:white;border:none;border-radius:5px;padding:5px 10px;cursor:pointer;margin-top:5px;">Add to Cart</button>
                                             </div>
                                             """, unsafe_allow_html=True)
                                 else:
