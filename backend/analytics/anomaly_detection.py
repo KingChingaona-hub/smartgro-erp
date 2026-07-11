@@ -76,10 +76,18 @@ def convert_df_column_to_float(df, column_name):
         return df
     if column_name not in df.columns:
         return df
+    
+    # Create a copy to avoid modifying original
+    df = df.copy()
+    
     try:
-        # Force conversion to float using pandas to_numeric with errors='coerce'
+        # Convert to string first to handle Decimal objects
+        df[column_name] = df[column_name].astype(str)
+        # Replace empty strings with '0'
+        df[column_name] = df[column_name].replace('', '0')
+        # Convert to float
         df[column_name] = pd.to_numeric(df[column_name], errors='coerce').astype(float)
-        # Fill any NaN values with 0
+        # Fill NaN with 0
         df[column_name] = df[column_name].fillna(0.0)
     except Exception as e:
         try:
@@ -105,11 +113,34 @@ def ensure_numeric_series(series):
     if series is None:
         return pd.Series([])
     try:
-        # Convert to float, coercing errors
-        return pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
+        # Convert to string first to handle Decimal
+        series = series.astype(str)
+        series = series.replace('', '0')
+        # Convert to float
+        result = pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
+        return result
     except:
         # If all else fails
-        return series.apply(lambda x: float(x) if x is not None else 0.0)
+        return series.apply(lambda x: float(x) if x is not None and x != '' else 0.0)
+
+
+def safe_quantile(series, q):
+    """Safely calculate quantile, handling Decimal objects"""
+    if series is None or len(series) == 0:
+        return 0.0
+    
+    # Ensure series is float
+    clean_series = ensure_numeric_series(series)
+    
+    try:
+        return float(clean_series.quantile(q))
+    except Exception as e:
+        # If quantile fails, try using numpy
+        try:
+            values = clean_series.values
+            return float(np.percentile(values, q * 100))
+        except:
+            return 0.0
 
 
 # ==============================
@@ -134,7 +165,7 @@ class AnomalyDetector:
         
         self.sales_anomalies = []
         
-        if sales_df.empty:
+        if sales_df is None or sales_df.empty:
             return self.sales_anomalies
         
         # Make a copy to avoid modifying original
@@ -197,7 +228,8 @@ class AnomalyDetector:
             amount_values = recent_sales[amount_col]
             
             if not amount_values.empty and len(amount_values) > 0:
-                threshold = float(amount_values.quantile(0.95))
+                # Use safe_quantile to avoid Decimal issues
+                threshold = safe_quantile(amount_values, 0.95)
                 large_transactions = recent_sales[recent_sales[amount_col] > threshold]
                 
                 for _, row in large_transactions.iterrows():
@@ -240,7 +272,7 @@ class AnomalyDetector:
         
         self.inventory_anomalies = []
         
-        if products_df.empty:
+        if products_df is None or products_df.empty:
             return self.inventory_anomalies
         
         products_df = products_df.copy()
@@ -333,7 +365,7 @@ class AnomalyDetector:
         
         self.price_anomalies = []
         
-        if products_df.empty:
+        if products_df is None or products_df.empty:
             return self.price_anomalies
         
         products_df = products_df.copy()
@@ -427,7 +459,7 @@ class AnomalyDetector:
                 if not monthly_expenses.empty:
                     amount_values = monthly_expenses["amount"]
                     if not amount_values.empty and len(amount_values) > 0:
-                        threshold = float(amount_values.quantile(0.90))
+                        threshold = safe_quantile(amount_values, 0.90)
                         high_expenses = monthly_expenses[monthly_expenses["amount"] > threshold]
                         
                         for _, row in high_expenses.iterrows():
@@ -485,7 +517,7 @@ class AnomalyDetector:
         
         self.customer_anomalies = []
         
-        if customers_df.empty or sales_df.empty:
+        if customers_df is None or customers_df.empty or sales_df is None or sales_df.empty:
             return self.customer_anomalies
         
         customers_df = customers_df.copy()
@@ -547,7 +579,7 @@ class AnomalyDetector:
                 if not customer_spending.empty:
                     amount_values = customer_spending[amount_col]
                     if not amount_values.empty and len(amount_values) > 0:
-                        threshold = float(amount_values.quantile(0.95))
+                        threshold = safe_quantile(amount_values, 0.95)
                         
                         high_spenders = customer_spending[customer_spending[amount_col] > threshold]
                         
