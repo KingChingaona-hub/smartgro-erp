@@ -340,6 +340,7 @@ def branch_login_page():
                             st.session_state.branch_selected = True
                             st.session_state.branch_authenticated = True
                             st.session_state.current_branch = branch_code_upper
+                            st.session_state.branch_name = BRANCHES[branch_code_upper]["name"]
                             st.session_state.user_branch = branch_code_upper
                             set_current_branch(branch_code_upper)
                             st.success("Access granted")
@@ -398,6 +399,7 @@ def login_page():
                     st.session_state.logged_in = True
                     st.session_state.username = username
                     st.session_state.role = role
+                    st.session_state.branch_name = branch_name
                     show_toast(f"Welcome back, {username}!", "success")
                     show_confetti()
                     st.session_state.last_activity = datetime.now()
