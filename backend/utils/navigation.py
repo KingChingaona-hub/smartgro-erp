@@ -68,20 +68,6 @@ CUSTOMER_SUB = {
 }
 
 # ==============================
-# ANALYTICS SUB MENU - NEW
-# ==============================
-ANALYTICS_SUB = {
-    "Anomaly Detection": "🚨",
-    "Automated Insights": "📧",
-    "Churn Prediction": "🎯",
-    "Competitor Price Monitoring": "🏪",
-    "Inventory Optimizer": "📊",
-    "Predictive Analytics": "🔮",
-    "Profit Center Analysis": "📊",
-    "Recommendation Engine": "🛍️"
-}
-
-# ==============================
 # MAIN MENU - FLAT ALPHABETICAL (NO CATEGORIES)
 # ==============================
 def main_menu():
@@ -94,7 +80,8 @@ def main_menu():
     # Display as a flat list without any category headers
     module = st.sidebar.radio(
         "Modules",
-        menu_items
+        menu_items,
+        key="main_menu_radio"
     )
     
     return module.split(" ", 1)[1]
@@ -105,20 +92,11 @@ def main_menu():
 def sub_menu(module):
     
     # ==============================
-    # ANALYTICS - NEW DATA SCIENCE MODULES
-    # ==============================
-    if module == "Analytics":
-        sorted_analytics = sorted(ANALYTICS_SUB.items())
-        analytics_items = [f"{icon} {name}" for name, icon in sorted_analytics]
-        choice = st.sidebar.radio("Analytics Menu", analytics_items)
-        return choice.split(" ", 1)[1]
-    
-    # ==============================
     # STOCK
     # ==============================
-    elif module == "Stock":
+    if module == "Stock":
         options = ["Barcode Generator", "Inventory", "Stock Dashboard"]
-        choice = st.sidebar.radio("Stock Menu", options)
+        choice = st.sidebar.radio("Stock Menu", options, key="stock_menu_radio")
         return choice
     
     # ==============================
@@ -126,7 +104,7 @@ def sub_menu(module):
     # ==============================
     elif module == "Sales":
         options = ["Returns & Refunds", "Sales Dashboard", "Sales History"]
-        choice = st.sidebar.radio("Sales Menu", options)
+        choice = st.sidebar.radio("Sales Menu", options, key="sales_menu_radio")
         return choice
     
     # ==============================
@@ -134,7 +112,7 @@ def sub_menu(module):
     # ==============================
     elif module == "Purchases":
         options = ["Purchases", "Purchases Dashboard", "Supplier Bidding"]
-        choice = st.sidebar.radio("Purchases Menu", options)
+        choice = st.sidebar.radio("Purchases Menu", options, key="purchases_menu_radio")
         return choice
     
     # ==============================
@@ -142,7 +120,7 @@ def sub_menu(module):
     # ==============================
     elif module == "Income":
         options = ["Income", "Income Dashboard"]
-        choice = st.sidebar.radio("Income Menu", options)
+        choice = st.sidebar.radio("Income Menu", options, key="income_menu_radio")
         return choice
     
     # ==============================
@@ -150,7 +128,7 @@ def sub_menu(module):
     # ==============================
     elif module == "Expenses":
         options = ["Expenses", "Expenses Dashboard"]
-        choice = st.sidebar.radio("Expenses Menu", options)
+        choice = st.sidebar.radio("Expenses Menu", options, key="expenses_menu_radio")
         return choice
     
     # ==============================
@@ -159,7 +137,7 @@ def sub_menu(module):
     elif module == "Customers":
         sorted_customers = sorted(CUSTOMER_SUB.items())
         customer_items = [f"{icon} {name}" for name, icon in sorted_customers]
-        choice = st.sidebar.radio("Customer Menu", customer_items)
+        choice = st.sidebar.radio("Customer Menu", customer_items, key="customers_menu_radio")
         return choice.split(" ", 1)[1]
     
     # ==============================
@@ -167,7 +145,7 @@ def sub_menu(module):
     # ==============================
     elif module == "Credit & Debtors":
         options = ["Debtors", "Debtors Dashboard"]
-        choice = st.sidebar.radio("Debtors Menu", options)
+        choice = st.sidebar.radio("Debtors Menu", options, key="debtors_menu_radio")
         return choice
     
     # ==============================
@@ -181,7 +159,7 @@ def sub_menu(module):
             "📊 Return Analytics",
             "📜 Return History"
         ]
-        choice = st.sidebar.radio("Returns Menu", options)
+        choice = st.sidebar.radio("Returns Menu", options, key="returns_menu_radio")
         return choice
     
     # ==============================
@@ -290,7 +268,7 @@ def sub_menu(module):
         return "Business Advisor"
     
     # ==============================
-    # NEW DATA SCIENCE MODULES (Single Page)
+    # NEW DATA SCIENCE MODULES - SINGLE PAGE
     # ==============================
     elif module == "Anomaly Detection":
         return "Anomaly Detection"
@@ -307,4 +285,7 @@ def sub_menu(module):
     elif module == "Recommendation Engine":
         return "Recommendation Engine"
     
+    # ==============================
+    # FALLBACK
+    # ==============================
     return module
