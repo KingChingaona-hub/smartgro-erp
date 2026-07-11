@@ -303,6 +303,7 @@ if "logged_in" not in st.session_state:
     st.session_state.branch_authenticated = False
     st.session_state.current_page = "Stock Dashboard"
     st.session_state.last_activity = datetime.now()
+    st.session_state.modules_debug = False  # Debug flag
 
 if "current_theme" not in st.session_state:
     st.session_state.current_theme = load_theme_preference()
@@ -768,7 +769,7 @@ def main_app():
     init_animations()
     
     # ==============================
-    # SIDEBAR - FLAT ALPHABETICAL NAVIGATION (NO CATEGORIES)
+    # SIDEBAR - FLAT ALPHABETICAL NAVIGATION
     # ==============================
     
     st.sidebar.markdown(f"""
@@ -798,6 +799,14 @@ def main_app():
             all_items.append(item)
     
     all_items = sorted(all_items)
+    
+    # DEBUG: Show all items in sidebar expander
+    with st.sidebar.expander("📋 Menu Items (Debug)", expanded=False):
+        st.write(f"Total items: {len(all_items)}")
+        for item in all_items:
+            st.write(f"• {item}")
+    
+    st.sidebar.markdown("---")
     
     for item in all_items:
         button_key = f"nav_{item.replace(' ', '_').replace('&', '').replace('/', '_').replace('-', '_')}"
