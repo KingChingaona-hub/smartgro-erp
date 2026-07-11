@@ -373,7 +373,7 @@ def welcome_page():
             flex-wrap: wrap;
         }
         
-        .welcome-footer .footer-links button {
+        .welcome-footer .footer-links .footer-link {
             background: none;
             border: none;
             color: #6B7280;
@@ -382,14 +382,15 @@ def welcome_page():
             padding: 5px 10px;
             transition: all 0.3s ease;
             font-family: 'Inter', sans-serif;
+            text-decoration: none;
         }
         
-        .welcome-footer .footer-links button:hover {
+        .welcome-footer .footer-links .footer-link:hover {
             color: #FF6B35;
             transform: translateY(-2px);
         }
         
-        .welcome-footer .footer-links button.active {
+        .welcome-footer .footer-links .footer-link.active {
             color: #FF6B35;
             font-weight: 600;
             border-bottom: 2px solid #FF6B35;
@@ -567,22 +568,33 @@ def welcome_page():
             st.session_state.current_page = "Stock Dashboard"
             st.rerun()
     
-    # Footer with clickable links
+    # Footer with clickable links using columns for better layout
     st.markdown('<div class="welcome-footer">', unsafe_allow_html=True)
     st.markdown('<div class="footer-links">', unsafe_allow_html=True)
     
     # Define footer sections
     footer_sections = ["About", "Features", "Support", "Privacy Policy", "Terms"]
     
-    for section in footer_sections:
-        is_active = st.session_state.footer_section == section
-        active_class = "active" if is_active else ""
-        if st.button(section, key=f"footer_{section}", use_container_width=False):
-            if st.session_state.footer_section == section:
-                st.session_state.footer_section = None
-            else:
-                st.session_state.footer_section = section
-            st.rerun()
+    # Create columns for footer links
+    cols = st.columns(len(footer_sections))
+    
+    for idx, section in enumerate(footer_sections):
+        with cols[idx]:
+            is_active = st.session_state.footer_section == section
+            active_class = "active" if is_active else ""
+            
+            # Use a button for each footer link
+            if st.button(
+                section, 
+                key=f"footer_{section}",
+                use_container_width=True,
+                help=f"Click to view {section}"
+            ):
+                if st.session_state.footer_section == section:
+                    st.session_state.footer_section = None
+                else:
+                    st.session_state.footer_section = section
+                st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
     
