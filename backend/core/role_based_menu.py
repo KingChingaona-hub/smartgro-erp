@@ -1,6 +1,98 @@
 import streamlit as st
 from backend.core.auth import can_access_feature
 
+
+def _get_permission_key(item):
+    """Helper function to map menu items to permission keys"""
+    
+    # NEW DATA SCIENCE MODULES
+    if item == "Anomaly Detection":
+        return "anomaly_detection"
+    elif item == "Automated Insights":
+        return "automated_insights"
+    elif item == "Churn Prediction":
+        return "churn_prediction"
+    elif item == "Inventory Optimizer":
+        return "inventory_optimizer"
+    elif item == "Recommendation Engine":
+        return "recommendation_engine"
+    
+    # Existing mappings
+    elif item == "Branch Management":
+        return "branch_management"
+    elif item == "Branch Performance":
+        return "branch_performance"
+    elif item == "User Management":
+        return "user_management"
+    elif item == "Shift Management":
+        return "shift_management"
+    elif item == "Settings":
+        return "settings"
+    elif item == "Mobile Dashboard":
+        return "mobile_dashboard"
+    elif item == "Demand Forecasting":
+        return "demand_forecasting"
+    elif item == "Live Dashboard":
+        return "live_dashboard"
+    elif item == "Barcode Generator":
+        return "inventory_view"
+    elif item == "Customer App":
+        return "customer_app"
+    elif item == "Customer Insights":
+        return "customer_insights"
+    elif item == "Security Dashboard":
+        return "security"
+    elif item == "Language Management":
+        return "language_management"
+    elif item == "Offline Mode":
+        return "offline_mode"
+    elif item == "Financial Closing":
+        return "financial_closing"
+    elif item == "Supplier Bidding":
+        return "supplier_bidding"
+    elif item == "Customer 360 View":
+        return "customer_360"
+    elif item == "Returns & Refunds":
+        return "returns_management"
+    elif item == "Documents":
+        return "documents"
+    elif item == "Profit Center Analysis":
+        return "profit_analysis"
+    elif item == "Predictive Analytics":
+        return "predictive_analytics"
+    elif item == "Competitor Price Monitoring":
+        return "competitor_price"
+    elif item == "Payment Gateway":
+        return "payment_gateway"
+    elif item == "Accounting Sync":
+        return "accounting_sync"
+    elif item == "E-commerce Sync":
+        return "ecommerce_sync"
+    elif item == "SMS Gateway":
+        return "sms_gateway"
+    elif item == "Smart Replenishment":
+        return "smart_replenishment"
+    elif item == "Automated Follow-up":
+        return "automated_followup"
+    elif item == "Workflow Approvals":
+        return "workflow_approvals"
+    elif item == "PWA Setup":
+        return "pwa_setup"
+    elif item == "Voice Commands":
+        return "voice_commands"
+    elif item == "Barcode Scanner":
+        return "barcode_scanner"
+    elif item == "White Label":
+        return "white_label"
+    elif item == "Multi-Tenant":
+        return "multi_tenant"
+    elif item == "API Developer":
+        return "api_developer"
+    
+    # Return None if no mapping found
+    return None
+
+
 def get_visible_modules(role):
     """Return modules visible to a specific role"""
     
@@ -180,8 +272,8 @@ def get_navigation_menu(role):
     for category, items in menu_structure.items():
         visible_items = []
         for item in items:
-            # Map menu item to permission key
-            perm_key = self._get_permission_key(item)
+            # Map menu item to permission key using helper function
+            perm_key = _get_permission_key(item)
             
             # Check if user has permission
             if perm_key:
@@ -197,97 +289,6 @@ def get_navigation_menu(role):
             filtered_menu[category] = visible_items
     
     return filtered_menu
-
-
-def _get_permission_key(item):
-    """Helper function to map menu items to permission keys"""
-    
-    # NEW DATA SCIENCE MODULES
-    if item == "Anomaly Detection":
-        return "anomaly_detection"
-    elif item == "Automated Insights":
-        return "automated_insights"
-    elif item == "Churn Prediction":
-        return "churn_prediction"
-    elif item == "Inventory Optimizer":
-        return "inventory_optimizer"
-    elif item == "Recommendation Engine":
-        return "recommendation_engine"
-    
-    # Existing mappings
-    elif item == "Branch Management":
-        return "branch_management"
-    elif item == "Branch Performance":
-        return "branch_performance"
-    elif item == "User Management":
-        return "user_management"
-    elif item == "Shift Management":
-        return "shift_management"
-    elif item == "Settings":
-        return "settings"
-    elif item == "Mobile Dashboard":
-        return "mobile_dashboard"
-    elif item == "Demand Forecasting":
-        return "demand_forecasting"
-    elif item == "Live Dashboard":
-        return "live_dashboard"
-    elif item == "Barcode Generator":
-        return "inventory_view"
-    elif item == "Customer App":
-        return "customer_app"
-    elif item == "Customer Insights":
-        return "customer_insights"
-    elif item == "Security Dashboard":
-        return "security"
-    elif item == "Language Management":
-        return "language_management"
-    elif item == "Offline Mode":
-        return "offline_mode"
-    elif item == "Financial Closing":
-        return "financial_closing"
-    elif item == "Supplier Bidding":
-        return "supplier_bidding"
-    elif item == "Customer 360 View":
-        return "customer_360"
-    elif item == "Returns & Refunds":
-        return "returns_management"
-    elif item == "Documents":
-        return "documents"
-    elif item == "Profit Center Analysis":
-        return "profit_analysis"
-    elif item == "Predictive Analytics":
-        return "predictive_analytics"
-    elif item == "Competitor Price Monitoring":
-        return "competitor_price"
-    elif item == "Payment Gateway":
-        return "payment_gateway"
-    elif item == "Accounting Sync":
-        return "accounting_sync"
-    elif item == "E-commerce Sync":
-        return "ecommerce_sync"
-    elif item == "SMS Gateway":
-        return "sms_gateway"
-    elif item == "Smart Replenishment":
-        return "smart_replenishment"
-    elif item == "Automated Follow-up":
-        return "automated_followup"
-    elif item == "Workflow Approvals":
-        return "workflow_approvals"
-    elif item == "PWA Setup":
-        return "pwa_setup"
-    elif item == "Voice Commands":
-        return "voice_commands"
-    elif item == "Barcode Scanner":
-        return "barcode_scanner"
-    elif item == "White Label":
-        return "white_label"
-    elif item == "Multi-Tenant":
-        return "multi_tenant"
-    elif item == "API Developer":
-        return "api_developer"
-    
-    # Return None if no mapping found
-    return None
 
 
 def get_mobile_menu(role):
