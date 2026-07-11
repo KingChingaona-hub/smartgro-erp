@@ -369,7 +369,7 @@ def welcome_page():
             display: flex;
             justify-content: center;
             gap: 25px;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
             flex-wrap: wrap;
         }
         
@@ -484,14 +484,6 @@ def welcome_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # Check if footer section is active and show content
-    if st.session_state.footer_section:
-        st.markdown(f"""
-        <div class="footer-content">
-            {get_footer_content(st.session_state.footer_section)}
-        </div>
-        """, unsafe_allow_html=True)
-    
     # About Section (always visible)
     st.markdown("""
     <div class="section-title">About <span>SmartGro ERP</span></div>
@@ -568,38 +560,49 @@ def welcome_page():
             st.session_state.current_page = "Stock Dashboard"
             st.rerun()
     
-    # Footer with clickable links using columns for better layout
+    # Footer with clickable links
     st.markdown('<div class="welcome-footer">', unsafe_allow_html=True)
     st.markdown('<div class="footer-links">', unsafe_allow_html=True)
     
-    # Define footer sections
-    footer_sections = ["About", "Features", "Support", "Privacy Policy", "Terms"]
+    # Define footer sections with their display names and keys
+    footer_sections = [
+        {"key": "about", "label": "About"},
+        {"key": "features", "label": "Features"},
+        {"key": "support", "label": "Support"},
+        {"key": "privacy", "label": "Privacy Policy"},
+        {"key": "terms", "label": "Terms"}
+    ]
     
     # Create columns for footer links
     cols = st.columns(len(footer_sections))
     
     for idx, section in enumerate(footer_sections):
         with cols[idx]:
-            is_active = st.session_state.footer_section == section
-            active_class = "active" if is_active else ""
+            is_active = st.session_state.footer_section == section["key"]
             
-            # Use a button for each footer link
             if st.button(
-                section, 
-                key=f"footer_{section}",
-                use_container_width=True,
-                help=f"Click to view {section}"
+                section["label"], 
+                key=f"footer_{section['key']}",
+                use_container_width=True
             ):
-                if st.session_state.footer_section == section:
+                if st.session_state.footer_section == section["key"]:
                     st.session_state.footer_section = None
                 else:
-                    st.session_state.footer_section = section
+                    st.session_state.footer_section = section["key"]
                 st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # Show footer content BELOW the links
+    if st.session_state.footer_section:
+        st.markdown(f"""
+        <div class="footer-content">
+            {get_footer_content(st.session_state.footer_section)}
+        </div>
+        """, unsafe_allow_html=True)
+    
     st.markdown(f"""
-    <p>SmartGro ERP v2.0 • © {datetime.now().year} All Rights Reserved</p>
+    <p style="margin-top: 20px;">SmartGro ERP v2.0 • © {datetime.now().year} All Rights Reserved</p>
     <p style="font-size: 0.7rem; margin-top: 5px;">
         Logged in as: <strong>{username}</strong> • Role: <strong>{role.upper()}</strong> • Branch: <strong>{branch_name}</strong>
     </p>
@@ -614,7 +617,7 @@ def get_footer_content(section):
     """Return content for footer sections"""
     
     content = {
-        "About": """
+        "about": """
         <h3>📖 About SmartGro ERP</h3>
         <p><strong>SmartGro ERP</strong> is a cutting-edge Enterprise Resource Planning solution built for modern retail and distribution businesses.</p>
         <br>
@@ -631,7 +634,7 @@ def get_footer_content(section):
         </ul>
         """,
         
-        "Features": """
+        "features": """
         <h3>✨ SmartGro ERP Features</h3>
         <p>SmartGro ERP comes packed with powerful features designed to simplify your business operations:</p>
         <br>
@@ -648,7 +651,7 @@ def get_footer_content(section):
         </ul>
         """,
         
-        "Support": """
+        "support": """
         <h3>🆘 Support Center</h3>
         <p>We're here to help you succeed with SmartGro ERP.</p>
         <br>
@@ -667,7 +670,7 @@ def get_footer_content(section):
         <p><em>Response time: Within 24 hours for all support requests.</em></p>
         """,
         
-        "Privacy Policy": """
+        "privacy": """
         <h3>🔒 Privacy Policy</h3>
         <p>At SmartGro ERP, we take your privacy seriously. Here's how we protect your data:</p>
         <br>
@@ -678,10 +681,10 @@ def get_footer_content(section):
         <p><strong>Data Retention:</strong> Data is retained for as long as your account is active and as required by law.</p>
         <p><strong>Your Rights:</strong> You have the right to access, modify, or delete your data at any time.</p>
         <br>
-        <p><em>Last updated: {datetime.now().strftime('%B %d, %Y')}</em></p>
+        <p><em>Last updated: """ + datetime.now().strftime('%B %d, %Y') + """</em></p>
         """,
         
-        "Terms": """
+        "terms": """
         <h3>📋 Terms of Service</h3>
         <p>By using SmartGro ERP, you agree to the following terms:</p>
         <br>
@@ -694,7 +697,7 @@ def get_footer_content(section):
         <p><strong>7. Liability:</strong> We are not liable for indirect, incidental, or consequential damages.</p>
         <p><strong>8. Governing Law:</strong> These terms are governed by the laws of Zimbabwe.</p>
         <br>
-        <p><em>Last updated: {datetime.now().strftime('%B %d, %Y')}</em></p>
+        <p><em>Last updated: """ + datetime.now().strftime('%B %d, %Y') + """</em></p>
         """
     }
     
