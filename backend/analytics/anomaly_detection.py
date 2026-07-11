@@ -81,17 +81,22 @@ def convert_df_column_to_float(df, column_name):
     df = df.copy()
     
     try:
-        # Convert to string first to handle Decimal objects
-        df[column_name] = df[column_name].astype(str)
-        # Replace empty strings with '0'
-        df[column_name] = df[column_name].replace('', '0')
-        # Convert to float
-        df[column_name] = pd.to_numeric(df[column_name], errors='coerce').astype(float)
-        # Fill NaN with 0
-        df[column_name] = df[column_name].fillna(0.0)
+        # Convert to float using a safe method
+        # First, ensure we have a clean series
+        series = df[column_name]
+        
+        # Handle Decimal objects by converting to string first
+        if series.dtype == object:
+            # Convert to string, replace None/empty with '0'
+            series = series.astype(str).replace(['None', 'nan', ''], '0')
+            # Convert to float
+            df[column_name] = pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
+        else:
+            # Try direct conversion
+            df[column_name] = pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
     except Exception as e:
+        # Fallback: manual conversion
         try:
-            # Fallback: manual conversion
             df[column_name] = df[column_name].apply(lambda x: float(x) if x is not None and x != '' else 0.0)
         except Exception:
             pass
@@ -113,11 +118,12 @@ def ensure_numeric_series(series):
     if series is None:
         return pd.Series([])
     try:
-        # Convert to string first to handle Decimal
-        series = series.astype(str)
-        series = series.replace('', '0')
-        # Convert to float
-        result = pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
+        # Handle Decimal objects by converting to string first
+        if series.dtype == object:
+            series = series.astype(str).replace(['None', 'nan', ''], '0')
+            result = pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
+        else:
+            result = pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
         return result
     except:
         # If all else fails
@@ -125,22 +131,76 @@ def ensure_numeric_series(series):
 
 
 def safe_quantile(series, q):
-    """Safely calculate quantile, handling Decimal objects"""
+    """Safely calculate quantile using numpy, avoiding Decimal issues"""
     if series is None or len(series) == 0:
         return 0.0
     
-    # Ensure series is float
-    clean_series = ensure_numeric_series(series)
-    
+    # Ensure we have a clean numpy array of floats
     try:
-        return float(clean_series.quantile(q))
+        # Convert to numpy array of floats
+        arr = np.array(series, dtype=float)
+        # Handle any NaN or inf values
+        arr = arr[np.isfinite(arr)]
+        if len(arr) == 0:
+            return 0.0
+        # Calculate quantile using numpy
+        return float(np.percentile(arr, q * 100))
     except Exception as e:
-        # If quantile fails, try using numpy
+        # If conversion fails, try a different approach
         try:
-            values = clean_series.values
-            return float(np.percentile(values, q * 100))
+            # Convert to list and process
+            values = []
+            for val in series:
+                try:
+                    if val is not None:
+                        values.append(float(val))
+                except:
+                    pass
+            if len(values) == 0:
+                return 0.0
+            arr = np.array(values)
+            return float(np.percentile(arr, q * 100))
         except:
             return 0.0
+
+
+def safe_mean(series):
+    """Safely calculate mean, handling Decimal objects"""
+    if series is None or len(series) == 0:
+        return 0.0
+    try:
+        # Convert to float and calculate mean
+        values = []
+        for val in series:
+            try:
+                if val is not None:
+                    values.append(float(val))
+            except:
+                pass
+        if len(values) == 0:
+            return 0.0
+        return float(np.mean(values))
+    except:
+        return 0.0
+
+
+def safe_std(series):
+    """Safely calculate standard deviation, handling Decimal objects"""
+    if series is None or len(series) == 0:
+        return 0.0
+    try:
+        values = []
+        for val in series:
+            try:
+                if val is not None:
+                    values.append(float(val))
+            except:
+                pass
+        if len(values) == 0:
+            return 0.0
+        return float(np.std(values))
+    except:
+        return 0.0
 
 
 # ==============================
@@ -184,11 +244,8 @@ class AnomalyDetector:
         if sales_df.empty:
             return self.sales_anomalies
         
-        # Convert amount column to float - CRITICAL FIX
-        sales_df = convert_df_column_to_float(sales_df, amount_col)
-        
-        # Ensure amount column is float type
-        sales_df[amount_col] = ensure_numeric_series(sales_df[amount_col])
+        # Convert amount column to float using safe method
+        sales_df[amount_col] = sales_df[amount_col].apply(lambda x: float(x) if x is not None else 0.0)
         
         cutoff = datetime.now() - timedelta(days=days)
         recent_sales = sales_df[sales_df[date_col] >= cutoff]
@@ -199,11 +256,13 @@ class AnomalyDetector:
         # 1. Daily sales anomaly (Z-score method)
         daily_sales = recent_sales.groupby(recent_sales[date_col].dt.date)[amount_col].sum().reset_index()
         daily_sales.columns = ["date", "sales"]
-        daily_sales["sales"] = ensure_numeric_series(daily_sales["sales"])
+        daily_sales["sales"] = daily_sales["sales"].apply(lambda x: float(x) if x is not None else 0.0)
         
         if len(daily_sales) >= 7:
-            mean_sales = float(daily_sales["sales"].mean())
-            std_sales = float(daily_sales["sales"].std())
+            # Use safe functions
+            sales_values = daily_sales["sales"].tolist()
+            mean_sales = safe_mean(sales_values)
+            std_sales = safe_std(sales_values)
             
             if std_sales > 0:
                 for _, row in daily_sales.iterrows():
@@ -223,12 +282,10 @@ class AnomalyDetector:
         
         # 2. Individual transaction anomalies
         if len(recent_sales) > 10:
-            # Ensure amount column is float
-            recent_sales[amount_col] = ensure_numeric_series(recent_sales[amount_col])
-            amount_values = recent_sales[amount_col]
+            # Get amount values as floats
+            amount_values = [float(x) for x in recent_sales[amount_col].tolist() if x is not None]
             
-            if not amount_values.empty and len(amount_values) > 0:
-                # Use safe_quantile to avoid Decimal issues
+            if len(amount_values) > 0:
                 threshold = safe_quantile(amount_values, 0.95)
                 large_transactions = recent_sales[recent_sales[amount_col] > threshold]
                 
@@ -280,8 +337,7 @@ class AnomalyDetector:
         # Convert numeric columns to float
         for col in ["stock", "price", "cost"]:
             if col in products_df.columns:
-                products_df = convert_df_column_to_float(products_df, col)
-                products_df[col] = ensure_numeric_series(products_df[col])
+                products_df[col] = products_df[col].apply(lambda x: float(x) if x is not None else 0.0)
         
         # 1. Negative stock
         negative_stock = products_df[products_df["stock"] < 0]
@@ -311,8 +367,7 @@ class AnomalyDetector:
                 recent_sales = sales_df[sales_df[date_col_sales] >= cutoff]
                 
                 if not recent_sales.empty and qty_col_sales in recent_sales.columns:
-                    recent_sales = convert_df_column_to_float(recent_sales, qty_col_sales)
-                    recent_sales[qty_col_sales] = ensure_numeric_series(recent_sales[qty_col_sales])
+                    recent_sales[qty_col_sales] = recent_sales[qty_col_sales].apply(lambda x: float(x) if x is not None else 0.0)
                     
                     top_products = recent_sales.groupby(product_col_sales)[qty_col_sales].sum().nlargest(10)
                     
@@ -373,8 +428,7 @@ class AnomalyDetector:
         # Convert price and cost to float
         for col in ["price", "cost"]:
             if col in products_df.columns:
-                products_df = convert_df_column_to_float(products_df, col)
-                products_df[col] = ensure_numeric_series(products_df[col])
+                products_df[col] = products_df[col].apply(lambda x: float(x) if x is not None else 0.0)
         
         # 1. Products where cost > price
         loss_products = products_df[products_df["cost"] > products_df["price"]]
@@ -395,8 +449,8 @@ class AnomalyDetector:
         
         # 2. Products with price > cost * 3
         if "cost" in products_df.columns and "price" in products_df.columns:
-            products_df["cost"] = ensure_numeric_series(products_df["cost"])
-            products_df["price"] = ensure_numeric_series(products_df["price"])
+            products_df["cost"] = products_df["cost"].apply(lambda x: float(x) if x is not None else 0.0)
+            products_df["price"] = products_df["price"].apply(lambda x: float(x) if x is not None else 0.0)
             high_margin = products_df[products_df["price"] > products_df["cost"] * 3]
             if not high_margin.empty:
                 for _, product in high_margin.iterrows():
@@ -417,25 +471,25 @@ class AnomalyDetector:
         # 3. Price changes (if purchase data available)
         if not purchases_df.empty and "product_name" in purchases_df.columns and "cost_price" in purchases_df.columns:
             purchases_df = purchases_df.copy()
-            purchases_df = convert_df_column_to_float(purchases_df, "cost_price")
-            purchases_df["cost_price"] = ensure_numeric_series(purchases_df["cost_price"])
+            purchases_df["cost_price"] = purchases_df["cost_price"].apply(lambda x: float(x) if x is not None else 0.0)
             
             for product_name, group in purchases_df.groupby("product_name"):
                 if len(group) > 1:
-                    costs = ensure_numeric_series(group["cost_price"])
-                    unique_costs = costs.unique()
-                    if len(unique_costs) > 1:
-                        cost_range = float(max(unique_costs) - min(unique_costs))
-                        if cost_range > 5:
-                            self.price_anomalies.append({
-                                "type": "PRICE_VOLATILITY",
-                                "severity": "MEDIUM",
-                                "product": product_name,
-                                "min_cost": float(min(unique_costs)),
-                                "max_cost": float(max(unique_costs)),
-                                "message": f"Price volatility: {product_name} cost varies from ${float(min(unique_costs)):.2f} to ${float(max(unique_costs)):.2f}",
-                                "confidence": 70
-                            })
+                    costs = [float(x) for x in group["cost_price"].tolist() if x is not None]
+                    if len(costs) > 1:
+                        unique_costs = list(set(costs))
+                        if len(unique_costs) > 1:
+                            cost_range = max(unique_costs) - min(unique_costs)
+                            if cost_range > 5:
+                                self.price_anomalies.append({
+                                    "type": "PRICE_VOLATILITY",
+                                    "severity": "MEDIUM",
+                                    "product": product_name,
+                                    "min_cost": min(unique_costs),
+                                    "max_cost": max(unique_costs),
+                                    "message": f"Price volatility: {product_name} cost varies from ${min(unique_costs):.2f} to ${max(unique_costs):.2f}",
+                                    "confidence": 70
+                                })
         
         return self.price_anomalies
     
@@ -447,8 +501,7 @@ class AnomalyDetector:
         # 1. Unusually high expenses
         if not expenses_df.empty and "amount" in expenses_df.columns:
             expenses_df = expenses_df.copy()
-            expenses_df = convert_df_column_to_float(expenses_df, "amount")
-            expenses_df["amount"] = ensure_numeric_series(expenses_df["amount"])
+            expenses_df["amount"] = expenses_df["amount"].apply(lambda x: float(x) if x is not None else 0.0)
             
             date_col = get_date_column(expenses_df)
             if date_col:
@@ -457,8 +510,8 @@ class AnomalyDetector:
                 monthly_expenses = expenses_df[expenses_df[date_col] >= cutoff]
                 
                 if not monthly_expenses.empty:
-                    amount_values = monthly_expenses["amount"]
-                    if not amount_values.empty and len(amount_values) > 0:
+                    amount_values = [float(x) for x in monthly_expenses["amount"].tolist() if x is not None]
+                    if len(amount_values) > 0:
                         threshold = safe_quantile(amount_values, 0.90)
                         high_expenses = monthly_expenses[monthly_expenses["amount"] > threshold]
                         
@@ -478,8 +531,7 @@ class AnomalyDetector:
         # 2. Cash variance
         if not cash_df.empty and "amount" in cash_df.columns:
             cash_df = cash_df.copy()
-            cash_df = convert_df_column_to_float(cash_df, "amount")
-            cash_df["amount"] = ensure_numeric_series(cash_df["amount"])
+            cash_df["amount"] = cash_df["amount"].apply(lambda x: float(x) if x is not None else 0.0)
             
             negative_cash = cash_df[cash_df["amount"] < 0]
             if not negative_cash.empty:
@@ -531,13 +583,11 @@ class AnomalyDetector:
             return self.customer_anomalies
         
         # Convert amount to float
-        sales_df = convert_df_column_to_float(sales_df, amount_col)
-        sales_df[amount_col] = ensure_numeric_series(sales_df[amount_col])
+        sales_df[amount_col] = sales_df[amount_col].apply(lambda x: float(x) if x is not None else 0.0)
         
         # 1. High-value customers with no recent purchases
         if "total_spent" in customers_df.columns:
-            customers_df = convert_df_column_to_float(customers_df, "total_spent")
-            customers_df["total_spent"] = ensure_numeric_series(customers_df["total_spent"])
+            customers_df["total_spent"] = customers_df["total_spent"].apply(lambda x: float(x) if x is not None else 0.0)
             
             high_value = customers_df[customers_df["total_spent"] > 500]
             
@@ -573,12 +623,11 @@ class AnomalyDetector:
             
             if not recent_sales.empty and customer_col and amount_col:
                 customer_spending = recent_sales.groupby(customer_col)[amount_col].sum().reset_index()
-                customer_spending = convert_df_column_to_float(customer_spending, amount_col)
-                customer_spending[amount_col] = ensure_numeric_series(customer_spending[amount_col])
+                customer_spending[amount_col] = customer_spending[amount_col].apply(lambda x: float(x) if x is not None else 0.0)
                 
                 if not customer_spending.empty:
-                    amount_values = customer_spending[amount_col]
-                    if not amount_values.empty and len(amount_values) > 0:
+                    amount_values = [float(x) for x in customer_spending[amount_col].tolist() if x is not None]
+                    if len(amount_values) > 0:
                         threshold = safe_quantile(amount_values, 0.95)
                         
                         high_spenders = customer_spending[customer_spending[amount_col] > threshold]
@@ -933,20 +982,21 @@ def anomaly_detection_dashboard():
                 sales_df = sales_df.copy()
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 sales_df = sales_df.dropna(subset=[date_col])
-                sales_df = convert_df_column_to_float(sales_df, amount_col)
-                sales_df[amount_col] = ensure_numeric_series(sales_df[amount_col])
+                sales_df[amount_col] = sales_df[amount_col].apply(lambda x: float(x) if x is not None else 0.0)
                 
                 daily_sales = sales_df.groupby(sales_df[date_col].dt.date)[amount_col].sum().reset_index()
                 daily_sales.columns = ["date", "sales"]
-                daily_sales["sales"] = ensure_numeric_series(daily_sales["sales"])
+                daily_sales["sales"] = daily_sales["sales"].apply(lambda x: float(x) if x is not None else 0.0)
                 
                 if len(daily_sales) >= 7:
-                    daily_sales["ma_7"] = daily_sales["sales"].rolling(window=7, min_periods=1).mean()
-                    daily_sales["ma_30"] = daily_sales["sales"].rolling(window=30, min_periods=1).mean()
+                    # Use numpy for rolling calculations to avoid Decimal issues
+                    sales_values = daily_sales["sales"].values
+                    daily_sales["ma_7"] = pd.Series(sales_values).rolling(window=7, min_periods=1).mean()
+                    daily_sales["ma_30"] = pd.Series(sales_values).rolling(window=30, min_periods=1).mean()
                     
                     daily_sales["is_anomaly"] = False
-                    mean = float(daily_sales["sales"].mean())
-                    std = float(daily_sales["sales"].std())
+                    mean = safe_mean(sales_values)
+                    std = safe_std(sales_values)
                     
                     if std > 0:
                         daily_sales["z_score"] = (daily_sales["sales"] - mean) / std
@@ -1001,7 +1051,7 @@ def anomaly_detection_dashboard():
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("📊 Avg Daily Sales", f"${daily_sales['sales'].mean():,.2f}")
+                        st.metric("📊 Avg Daily Sales", f"${safe_mean(daily_sales['sales']):,.2f}")
                     with col2:
                         st.metric("📈 Trend", "Increasing" if daily_sales['sales'].iloc[-1] > daily_sales['sales'].iloc[0] else "Decreasing")
                     with col3:
@@ -1014,7 +1064,7 @@ def anomaly_detection_dashboard():
                     daily_sales["day_name"] = daily_sales["day_of_week"].apply(lambda x: day_names[x])
                     
                     weekly_avg = daily_sales.groupby("day_name")["sales"].mean().reset_index()
-                    weekly_avg["sales"] = ensure_numeric_series(weekly_avg["sales"])
+                    weekly_avg["sales"] = weekly_avg["sales"].apply(lambda x: float(x) if x is not None else 0.0)
                     
                     fig = px.bar(
                         weekly_avg,
