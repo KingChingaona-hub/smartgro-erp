@@ -5,13 +5,16 @@ import streamlit as st
 # ==============================
 MODULES = {
     "Accounting Sync": "📊",
+    "Anomaly Detection": "🚨",
     "API Developer": "🔗",
     "Automated Follow-up": "🤖",
+    "Automated Insights": "📧",
     "Barcode Generator": "🏷️",
     "Barcode Scanner": "📷",
     "Branch Management": "🏢",
     "Business Advisor": "🤖",
     "Cash": "💳",
+    "Churn Prediction": "🎯",
     "Competitor Price Monitoring": "🏪",
     "Credit & Debtors": "⏱️",
     "Customer 360 View": "👤",
@@ -22,6 +25,7 @@ MODULES = {
     "Expenses": "💸",
     "Financial Closing": "💰",
     "Income": "📈",
+    "Inventory Optimizer": "📊",
     "Language Management": "🌐",
     "Live Dashboard": "⚡",
     "Mobile": "📱",
@@ -34,6 +38,7 @@ MODULES = {
     "Profit Center Analysis": "📊",
     "Purchases": "📥",
     "PWA Setup": "📱",
+    "Recommendation Engine": "🛍️",
     "Reports": "📁",
     "Returns & Refunds": "🔄",
     "Sales": "💰",
@@ -63,6 +68,20 @@ CUSTOMER_SUB = {
 }
 
 # ==============================
+# ANALYTICS SUB MENU - NEW
+# ==============================
+ANALYTICS_SUB = {
+    "Anomaly Detection": "🚨",
+    "Automated Insights": "📧",
+    "Churn Prediction": "🎯",
+    "Competitor Price Monitoring": "🏪",
+    "Inventory Optimizer": "📊",
+    "Predictive Analytics": "🔮",
+    "Profit Center Analysis": "📊",
+    "Recommendation Engine": "🛍️"
+}
+
+# ==============================
 # MAIN MENU - FLAT ALPHABETICAL (NO CATEGORIES)
 # ==============================
 def main_menu():
@@ -85,42 +104,75 @@ def main_menu():
 # ==============================
 def sub_menu(module):
     
-    if module == "Stock":
+    # ==============================
+    # ANALYTICS - NEW DATA SCIENCE MODULES
+    # ==============================
+    if module == "Analytics":
+        sorted_analytics = sorted(ANALYTICS_SUB.items())
+        analytics_items = [f"{icon} {name}" for name, icon in sorted_analytics]
+        choice = st.sidebar.radio("Analytics Menu", analytics_items)
+        return choice.split(" ", 1)[1]
+    
+    # ==============================
+    # STOCK
+    # ==============================
+    elif module == "Stock":
         options = ["Barcode Generator", "Inventory", "Stock Dashboard"]
         choice = st.sidebar.radio("Stock Menu", options)
         return choice
     
+    # ==============================
+    # SALES
+    # ==============================
     elif module == "Sales":
         options = ["Returns & Refunds", "Sales Dashboard", "Sales History"]
         choice = st.sidebar.radio("Sales Menu", options)
         return choice
     
+    # ==============================
+    # PURCHASES
+    # ==============================
     elif module == "Purchases":
         options = ["Purchases", "Purchases Dashboard", "Supplier Bidding"]
         choice = st.sidebar.radio("Purchases Menu", options)
         return choice
     
+    # ==============================
+    # INCOME
+    # ==============================
     elif module == "Income":
         options = ["Income", "Income Dashboard"]
         choice = st.sidebar.radio("Income Menu", options)
         return choice
     
+    # ==============================
+    # EXPENSES
+    # ==============================
     elif module == "Expenses":
         options = ["Expenses", "Expenses Dashboard"]
         choice = st.sidebar.radio("Expenses Menu", options)
         return choice
     
+    # ==============================
+    # CUSTOMERS
+    # ==============================
     elif module == "Customers":
         sorted_customers = sorted(CUSTOMER_SUB.items())
         customer_items = [f"{icon} {name}" for name, icon in sorted_customers]
         choice = st.sidebar.radio("Customer Menu", customer_items)
         return choice.split(" ", 1)[1]
     
+    # ==============================
+    # CREDIT & DEBTORS
+    # ==============================
     elif module == "Credit & Debtors":
         options = ["Debtors", "Debtors Dashboard"]
         choice = st.sidebar.radio("Debtors Menu", options)
         return choice
     
+    # ==============================
+    # RETURNS & REFUNDS
+    # ==============================
     elif module == "Returns & Refunds":
         options = [
             "📝 Process Return",
@@ -132,6 +184,9 @@ def sub_menu(module):
         choice = st.sidebar.radio("Returns Menu", options)
         return choice
     
+    # ==============================
+    # SINGLE PAGE MODULES (No sub-menu)
+    # ==============================
     elif module == "POS":
         return "POS"
     
@@ -233,5 +288,23 @@ def sub_menu(module):
     
     elif module == "Business Advisor":
         return "Business Advisor"
+    
+    # ==============================
+    # NEW DATA SCIENCE MODULES (Single Page)
+    # ==============================
+    elif module == "Anomaly Detection":
+        return "Anomaly Detection"
+    
+    elif module == "Automated Insights":
+        return "Automated Insights"
+    
+    elif module == "Churn Prediction":
+        return "Churn Prediction"
+    
+    elif module == "Inventory Optimizer":
+        return "Inventory Optimizer"
+    
+    elif module == "Recommendation Engine":
+        return "Recommendation Engine"
     
     return module
