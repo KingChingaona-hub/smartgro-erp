@@ -6,6 +6,19 @@ def get_visible_modules(role):
     
     # All available modules with their required permission
     all_modules = {
+        # Accounting
+        "Accounting Sync": "accounting_sync",
+        
+        # Administration
+        "API Developer": "api_developer",
+        
+        # Analytics - NEW DATA SCIENCE MODULES
+        "Anomaly Detection": "anomaly_detection",
+        "Automated Insights": "automated_insights",
+        "Churn Prediction": "churn_prediction",
+        "Inventory Optimizer": "inventory_optimizer",
+        "Recommendation Engine": "recommendation_engine",
+        
         # Stock Management
         "Stock Dashboard": "inventory_view",
         "Inventory": "inventory_view",
@@ -71,9 +84,6 @@ def get_visible_modules(role):
         # Payment Gateway
         "Payment Gateway": "payment_gateway",
         
-        # Accounting Sync
-        "Accounting Sync": "accounting_sync",
-        
         # E-commerce Sync
         "E-commerce Sync": "ecommerce_sync",
         
@@ -104,9 +114,6 @@ def get_visible_modules(role):
         # Multi-Tenant
         "Multi-Tenant": "multi_tenant",
         
-        # API Developer
-        "API Developer": "api_developer",
-        
         # Administration (Owner only)
         "Branch Management": "branch_management",
         "Branch Performance": "branch_performance",
@@ -134,7 +141,16 @@ def get_navigation_menu(role):
         "📥 Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding"],
         "👥 Customers": ["Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard", "Customer App", "Customer Insights", "Customer 360 View"],
         "🤖 Intelligence": ["Business Advisor", "Debtors", "Debtors Dashboard", "Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
-        "📊 Analytics": ["Profit Center Analysis", "Predictive Analytics", "Competitor Price Monitoring"],
+        "📊 Analytics": [
+            "Profit Center Analysis", 
+            "Predictive Analytics", 
+            "Competitor Price Monitoring",
+            "Churn Prediction",
+            "Recommendation Engine",
+            "Inventory Optimizer",
+            "Anomaly Detection",
+            "Automated Insights"
+        ],
         "📁 Reports": ["Reports Dashboard", "Documents"],
         "🔄 Operations": ["Shift Management"],
         "📱 Mobile": ["Mobile Dashboard"],
@@ -165,7 +181,20 @@ def get_navigation_menu(role):
             # Map menu item to permission key
             perm_key = None
             
-            if item == "Branch Management":
+            # NEW DATA SCIENCE MODULES
+            if item == "Anomaly Detection":
+                perm_key = "anomaly_detection"
+            elif item == "Automated Insights":
+                perm_key = "automated_insights"
+            elif item == "Churn Prediction":
+                perm_key = "churn_prediction"
+            elif item == "Inventory Optimizer":
+                perm_key = "inventory_optimizer"
+            elif item == "Recommendation Engine":
+                perm_key = "recommendation_engine"
+            
+            # Existing mappings
+            elif item == "Branch Management":
                 perm_key = "branch_management"
             elif item == "Branch Performance":
                 perm_key = "branch_performance"
@@ -263,7 +292,16 @@ def get_mobile_menu(role):
         "💰 Finance": ["Cash Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
         "👥 Customers": ["Customer Dashboard", "Customer App", "Customer 360 View"],
         "🤖 Intelligence": ["Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
-        "📊 Analytics": ["Profit Center Analysis", "Predictive Analytics", "Competitor Price Monitoring"],
+        "📊 Analytics": [
+            "Profit Center Analysis", 
+            "Predictive Analytics", 
+            "Competitor Price Monitoring",
+            "Churn Prediction",
+            "Recommendation Engine",
+            "Inventory Optimizer",
+            "Anomaly Detection",
+            "Automated Insights"
+        ],
         "🛍️ E-commerce": ["E-commerce Sync"],
         "📱 Communications": ["SMS Gateway", "Voice Commands"],
         "📷 Scanner": ["Barcode Scanner"],
@@ -289,7 +327,20 @@ def get_mobile_menu(role):
         for item in items:
             perm_key = None
             
-            if item == "Mobile Dashboard":
+            # NEW DATA SCIENCE MODULES
+            if item == "Anomaly Detection":
+                perm_key = "anomaly_detection"
+            elif item == "Automated Insights":
+                perm_key = "automated_insights"
+            elif item == "Churn Prediction":
+                perm_key = "churn_prediction"
+            elif item == "Inventory Optimizer":
+                perm_key = "inventory_optimizer"
+            elif item == "Recommendation Engine":
+                perm_key = "recommendation_engine"
+            
+            # Existing mappings
+            elif item == "Mobile Dashboard":
                 perm_key = "mobile_dashboard"
             elif item == "Branch Management":
                 perm_key = "branch_management"
@@ -392,6 +443,11 @@ def get_mobile_navigation_html(role, current_page):
         {"icon": "📷", "label": "Scan", "page": "Barcode Scanner"},
         {"icon": "📦", "label": "Replenish", "page": "Smart Replenishment"},
         {"icon": "🤖", "label": "Auto", "page": "Automated Follow-up"},
+        {"icon": "🔬", "label": "Anomaly", "page": "Anomaly Detection"},
+        {"icon": "📧", "label": "Insights", "page": "Automated Insights"},
+        {"icon": "🎯", "label": "Churn", "page": "Churn Prediction"},
+        {"icon": "📊", "label": "Optimizer", "page": "Inventory Optimizer"},
+        {"icon": "🛍️", "label": "Recommend", "page": "Recommendation Engine"},
         {"icon": "⚙️", "label": "More", "page": None}
     ]
     
@@ -447,7 +503,6 @@ def get_mobile_navigation_html(role, current_page):
                 display: none;
             }
         }
-        /* Add padding to main content for mobile */
         @media (max-width: 768px) {
             .main .block-container {
                 padding-bottom: 80px !important;
@@ -518,7 +573,6 @@ def get_mobile_navigation_html(role, current_page):
     nav_html += """
     </div>
     <script>
-        // Close menu when clicking outside
         document.addEventListener('click', function(event) {
             if (!event.target.closest('.mobile-nav-item') && !event.target.closest('.mobile-menu-panel')) {
                 document.querySelector('.mobile-menu-panel')?.classList.remove('show');

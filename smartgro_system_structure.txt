@@ -1,0 +1,170 @@
+smartgro_system/
+├── app.py                                          ✅ Main application
+├── aziellogo.png                                   ✅ Company logo
+├── check_db_connection.py                          ✅ DB diagnostics
+├── check_imports.py                                ✅ Import checker
+├── check_users.py                                  ✅ User checker
+├── create_db.py                                    ✅ DB creator
+├── create_users_table.py                           ✅ User table creator
+├── fix_database.py                                 ✅ DB fix tool
+├── fix_passwords_final.py                          ✅ Password fix
+├── link_sales_to_shift.py                          ✅ Shift linking
+├── manifest.json                                   ✅ PWA manifest
+├── packages.txt                                    ✅ System packages
+├── Procfile.txt                                    ✅ Deployment
+├── requirements.txt                                ✅ Python dependencies
+├── run_migration.py                                ✅ Data migration
+├── run_shift_refresh.py                            ✅ Shift refresh
+├── runtime.txt                                     ✅ Python version
+├── service-worker.js                               ✅ PWA service worker
+├── set_plain_passwords.py                          ✅ Password setter
+├── set_plain_passwords_final.py                    ✅ Password setter
+├── test_db.py                                      ✅ DB test
+├── test_load_users.py                              ✅ User test
+├── test_login_debug.py                             ✅ Login debug
+├── test_login_final.py                             ✅ Login test
+├── test_postgres.py                                ✅ PostgreSQL test
+│
+├── backend/
+│   ├── admin/
+│   │   ├── branch_data_manager.py                  ✅ Branch data
+│   │   ├── branch_management.py                    ✅ Branch CRUD
+│   │   ├── branch_performance.py                   ✅ Branch analytics
+│   │   └── security.py                             ✅ Security dashboard
+│   │
+│   ├── analytics/
+│   │   ├── analytics_engine.py                     ✅ Core analytics
+│   │   ├── business_advisor.py                     ✅ AI advisor
+│   │   ├── business_advisor_engine.py              ✅ AI engine
+│   │   ├── competitor_price.py                     ✅ Price monitoring
+│   │   ├── debt_intelligence_dashboard.py          ✅ Debt intelligence
+│   │   ├── debt_notifications.py                   ✅ Debt notifications
+│   │   ├── debtors_engine.py                       ✅ Debt engine
+│   │   ├── demand_forecasting.py                   ✅ Demand forecasting
+│   │   ├── pl_engine.py                            ✅ P&L engine
+│   │   ├── pl_pdf.py                               ✅ P&L PDF
+│   │   ├── predictive.py                           ✅ Predictive analytics
+│   │   ├── profit_center.py                        ✅ Profit analysis
+│   │   ├── reports_dashboard.py                    ✅ Reports
+│   │   └── reports_engine.py                       ✅ Reports engine
+│   │
+│   ├── core/
+│   │   ├── animations.py                           ✅ Animations
+│   │   ├── auth.py                                 ✅ Authentication
+│   │   ├── auto_notifications.py                   ✅ Auto notifications
+│   │   ├── branch_auth.py                          ✅ Branch auth
+│   │   ├── branch_manager.py                       ✅ Branch manager
+│   │   ├── database.py                             ✅ Database
+│   │   ├── db_adapter.py                           ✅ PostgreSQL adapter
+│   │   ├── documents.py                            ✅ Documents
+│   │   ├── global_styles.py                        ✅ Global styles
+│   │   ├── language_manager.py                     ✅ Language manager
+│   │   ├── mobile_quick_actions.py                 ✅ Mobile actions
+│   │   ├── responsive.py                           ✅ Responsive
+│   │   ├── role_based_menu.py                      ✅ Role menu
+│   │   ├── test_load_users.py                      ✅ Test users
+│   │   ├── theme_manager.py                        ✅ Theme manager
+│   │   └── validation.py                           ✅ Validation
+│   │
+│   ├── customers/
+│   │   ├── customer_360_view.py                    ✅ 360 view
+│   │   ├── customer_app.py                         ✅ Customer app
+│   │   ├── customers.py                            ✅ Customers
+│   │   ├── customers_dashboard.py                  ✅ Customer dashboard
+│   │   ├── lifecycle_dashboard.py                  ✅ Lifecycle
+│   │   ├── retention_dashboard.py                  ✅ Retention
+│   │   └── segmentation_dashboard.py               ✅ Segmentation
+│   │
+│   ├── developer/
+│   │   ├── api_developer.py                        ✅ API developer
+│   │   ├── multi_tenant.py                         ✅ Multi-tenant
+│   │   ├── pwa_setup.py                            ✅ PWA setup
+│   │   ├── voice_commands.py                       ✅ Voice commands
+│   │   └── white_label.py                          ✅ White label
+│   │
+│   ├── docs/
+│   │   └── system_manual.py                        ✅ Manual
+│   │
+│   ├── features/
+│   │   ├── automated_followup.py                   ✅ Auto follow-up
+│   │   ├── barcode_generator.py                    ✅ Barcode generator
+│   │   ├── barcode_scanner.py                      ✅ Barcode scanner
+│   │   ├── financial_closing.py                    ✅ Financial closing
+│   │   ├── live_dashboard.py                       ✅ Live dashboard
+│   │   ├── mobile_dashboard.py                     ✅ Mobile dashboard
+│   │   ├── offline_mode.py                         ✅ Offline mode
+│   │   ├── smart_replenishment.py                  ✅ Smart replenishment
+│   │   ├── supplier_bidding.py                     ✅ Supplier bidding
+│   │   └── workflow_approvals.py                   ✅ Workflow approvals
+│   │
+│   ├── integrations/
+│   │   ├── accounting_sync.py                      ✅ Accounting sync
+│   │   ├── ecommerce_sync.py                       ✅ E-commerce sync
+│   │   ├── email_reports.py                        ✅ Email reports
+│   │   ├── payment_gateway.py                      ✅ Payment gateway
+│   │   └── sms_gateway.py                          ✅ SMS gateway
+│   │
+│   ├── modules/
+│   │   ├── cash_dashboard.py                       ✅ Cash dashboard
+│   │   ├── cash_register.py                        ✅ Cash register
+│   │   ├── daily_report.py                         ✅ Daily report
+│   │   ├── debtors.py                              ✅ Debtors
+│   │   ├── debtors_dashboard.py                    ✅ Debtors dashboard
+│   │   ├── expenses.py                             ✅ Expenses
+│   │   ├── expenses_dashboard.py                   ✅ Expenses dashboard
+│   │   ├── expenses_page.py                        ✅ Expenses page
+│   │   ├── income.py                               ✅ Income
+│   │   ├── income_dashboard.py                     ✅ Income dashboard
+│   │   ├── income_page.py                          ✅ Income page
+│   │   ├── inventory.py                            ✅ Inventory
+│   │   ├── loyalty.py                              ✅ Loyalty
+│   │   ├── pl_dashboard.py                         ✅ P&L dashboard
+│   │   ├── pos.py                                  ✅ POS
+│   │   ├── purchases.py                            ✅ Purchases
+│   │   ├── purchases_dashboard.py                  ✅ Purchases dashboard
+│   │   ├── receipt.py                              ✅ Receipt
+│   │   ├── returns_management.py                   ✅ Returns
+│   │   ├── sales_dashboard.py                      ✅ Sales dashboard
+│   │   ├── sales_history.py                        ✅ Sales history
+│   │   ├── settings_page.py                        ✅ Settings
+│   │   ├── shift_management.py                     ✅ Shift management
+│   │   ├── shift_manager.py                        ✅ Shift manager
+│   │   ├── stock_dashboard.py                      ✅ Stock dashboard
+│   │   └── welcome_page.py                         ✅ Welcome page
+│   │
+│   ├── scripts/
+│   │   ├── migrate_to_postgres.py                  ✅ Migration
+│   │   └── add_shift_name.py                       ✅ Shift name
+│   │
+│   └── utils/
+│       ├── deployment_config.py                    ✅ Deployment
+│       ├── navigation.py                           ✅ Navigation
+│       ├── phone_utils.py                          ✅ Phone utils
+│       ├── session_init.py                         ✅ Session init
+│       ├── state.py                                ✅ State
+│       └── utils.py                                ✅ Utilities
+│
+└── data/                                           📁 Data files
+
+
+		
+		
+		
+		
+		
+
+
+
+📊 DATA SOURCES AVAILABLE
+Data Source	Columns	Use Case
+Sales	11 columns	Sales forecasting, revenue analysis
+Products	7 columns	Inventory optimization, pricing
+Customers	7 columns	Churn prediction, segmentation
+Customer Transactions	8 columns	Purchase patterns, recommendations
+Debtors	10 columns	Credit scoring, risk analysis
+Loyalty	9 columns	Loyalty program analytics
+Expenses	9 columns	Expense analysis, budgeting
+Purchases	12 columns	Supplier analytics
+Cash	7 columns	Cash flow analysis
+Shifts	20 columns	Shift performance
+Branches	5 columns	Branch comparison

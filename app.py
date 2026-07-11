@@ -90,6 +90,7 @@ from backend.modules.returns_management import returns_management_dashboard
 from backend.modules.shift_management import shift_management_page
 from backend.modules.settings_page import settings_page
 from backend.modules.welcome_page import welcome_page
+
 # ==============================
 # CUSTOMER IMPORTS
 # ==============================
@@ -109,6 +110,15 @@ from backend.analytics.profit_center import profit_center_analysis
 from backend.analytics.predictive import predictive_analytics_dashboard
 from backend.analytics.demand_forecasting import demand_forecasting_dashboard
 from backend.analytics.competitor_price import competitor_price_monitoring_dashboard
+
+# ==============================
+# NEW DATA SCIENCE MODULES
+# ==============================
+from backend.analytics.churn_prediction import churn_prediction_dashboard
+from backend.analytics.recommendation_engine import recommendation_engine_dashboard
+from backend.analytics.inventory_optimizer import inventory_optimizer_dashboard
+from backend.analytics.automated_insights import automated_insights_dashboard
+from backend.analytics.anomaly_detection import anomaly_detection_dashboard
 
 # ==============================
 # ADMIN IMPORTS
@@ -308,7 +318,6 @@ def branch_login_page():
     
     apply_branch_selection_theme()
     
-    # Use columns to center the form like login page
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
@@ -730,10 +739,9 @@ def main_app():
     # ==============================
     # CHECK IF WELCOME PAGE SHOULD BE SHOWN
     # ==============================
-    # Show welcome page on first login after authentication
     if not st.session_state.get("welcome_seen", False):
         welcome_page()
-        return  # Stop here, don't show sidebar or navigation
+        return
     
     # ==============================
     # APPLY THEME
@@ -754,7 +762,6 @@ def main_app():
     
     # ==============================
     # GLOBAL STYLES - DISABLED
-    # Using theme_manager only for all styling
     # ==============================
     # st.markdown(get_global_styles(), unsafe_allow_html=True)
     
@@ -774,7 +781,6 @@ def main_app():
     
     st.sidebar.markdown("---")
     
-    # Theme Selector
     theme_selector()
     
     st.sidebar.markdown("---")
@@ -786,13 +792,11 @@ def main_app():
     
     selected_page = None
     
-    # Flatten all menu items into a single list alphabetically
     all_items = []
     for category, items in navigation_menu.items():
         for item in items:
             all_items.append(item)
     
-    # Sort alphabetically
     all_items = sorted(all_items)
     
     for item in all_items:
@@ -816,24 +820,17 @@ def main_app():
         st.session_state.branch_selected = False
         st.session_state.branch_authenticated = False
         st.session_state.logged_in = False
-        st.session_state.welcome_seen = False  # Reset welcome flag
+        st.session_state.welcome_seen = False
         st.rerun()
     
-    # ==============================
-    # LANGUAGE SELECTOR - REMOVED FROM SIDEBAR
-    # ==============================
-    # Language management is available via the Language Management page
-    
-    # ==============================
-    # SIDEBAR FOOTER & LOGOUT
-    # ==============================
     st.sidebar.markdown("---")
     st.sidebar.caption("AZIEL INVESTMENTS ERP")
     st.sidebar.caption("2026 All Rights Reserved")
     
     if st.sidebar.button("🚪 Logout", key="logout_sidebar", use_container_width=True):
         for key in list(st.session_state.keys()):
-            if key not in ["branch_selected", "branch_authenticated", "current_branch", "user_branch", "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]:
+            if key not in ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
+                           "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]:
                 del st.session_state[key]
         show_toast("Logged out successfully!", "info")
         st.rerun()
@@ -859,42 +856,67 @@ def main_app():
         page = selected_page
         st.session_state.current_page = selected_page
 
-    # ================= STOCK =================
-    if page == "Stock Dashboard":
-        if can_access_feature(role, "inventory_view"):
-            dashboard_page()
+    # ================= ACCOUNTING =================
+    if page == "Accounting Sync":
+        if can_access_feature(role, "accounting_sync") or role in ["owner", "manager"]:
+            accounting_sync_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Inventory":
-        if can_access_feature(role, "inventory_view"):
-            inventory_page()
+    # ================= ADMIN =================
+    elif page == "API Developer":
+        if can_access_feature(role, "api_developer") or role in ["owner", "manager"]:
+            api_developer_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
+    elif page == "Anomaly Detection":
+        if can_access_feature(role, "security") or role in ["owner", "manager"]:
+            anomaly_detection_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Automated Follow-up":
+        if can_access_feature(role, "automated_followup") or role in ["owner", "manager"]:
+            automated_followup_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Automated Insights":
+        if can_access_feature(role, "reports") or role in ["owner", "manager"]:
+            automated_insights_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    # ================= BARCODE =================
     elif page == "Barcode Generator":
         if can_access_feature(role, "inventory_view"):
             barcode_generator_page()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= SALES =================
-    elif page == "Sales History":
-        if can_access_feature(role, "sales_history"):
-            sales_history_page()
+    elif page == "Barcode Scanner":
+        if can_access_feature(role, "barcode_scanner") or role in ["owner", "manager", "cashier"]:
+            barcode_scanner_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Sales Dashboard":
-        if can_access_feature(role, "sales_dashboard"):
-            sales_dashboard()
+    # ================= BRANCH =================
+    elif page == "Branch Management":
+        if role == "owner":
+            branch_management_page()
+        else:
+            st.error("Only system owner can access branch management")
+
+    elif page == "Branch Performance":
+        if can_access_feature(role, "branch_performance"):
+            branch_performance_page()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= POS =================
-    elif page == "POS":
-        if can_access_feature(role, "pos"):
-            pos_page()
+    elif page == "Business Advisor":
+        if can_access_feature(role, "business_advisor"):
+            business_advisor_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
@@ -905,29 +927,75 @@ def main_app():
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= PURCHASES =================
-    elif page == "Purchases":
-        if can_access_feature(role, "purchases"):
-            purchases_page()
+    elif page == "Churn Prediction":
+        if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
+            churn_prediction_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Purchases Dashboard":
-        if can_access_feature(role, "purchases"):
-            purchases_dashboard()
+    elif page == "Competitor Price Monitoring":
+        if can_access_feature(role, "competitor_price") or role in ["owner", "manager"]:
+            competitor_price_monitoring_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= INCOME =================
-    elif page == "Income":
-        if can_access_feature(role, "income"):
-            income_page()
+    # ================= CUSTOMERS =================
+    elif page == "Customer 360 View":
+        if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
+            customer_360_view()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Income Dashboard":
-        if can_access_feature(role, "income"):
-            income_dashboard()
+    elif page == "Customer App":
+        customer_app()
+
+    elif page == "Customer Dashboard":
+        if can_access_feature(role, "customers"):
+            customers_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Customer Insights":
+        if can_access_feature(role, "customers"):
+            customer_insights_page()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Customer Insights 360":
+        if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
+            customer_insights_360()
+        else:
+            st.error("You don't have permission to access this page")
+
+    # ================= DEBTORS =================
+    elif page == "Debtors":
+        if can_access_feature(role, "debtors"):
+            debtors_page()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Debtors Dashboard":
+        if can_access_feature(role, "debtors_dashboard"):
+            debtors_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Demand Forecasting":
+        if can_access_feature(role, "demand_forecasting") or role in ["owner", "manager"]:
+            demand_forecasting_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Documents":
+        if role in ["owner", "manager"]:
+            documents_page()
+        else:
+            st.error("You don't have permission to access this page")
+
+    # ================= E-COMMERCE =================
+    elif page == "E-commerce Sync":
+        if can_access_feature(role, "ecommerce_sync") or role in ["owner", "manager"]:
+            ecommerce_sync_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
@@ -944,29 +1012,43 @@ def main_app():
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= P&L =================
-    elif page == "P&L":
-        if can_access_feature(role, "pl"):
-            pl_dashboard()
+    # ================= FINANCIAL =================
+    elif page == "Financial Closing":
+        if can_access_feature(role, "financial_closing") or role in ["owner", "manager"]:
+            financial_closing_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= CUSTOMERS =================
-    elif page == "Customer Dashboard":
-        if can_access_feature(role, "customers"):
-            customers_dashboard()
+    # ================= INCOME =================
+    elif page == "Income":
+        if can_access_feature(role, "income"):
+            income_page()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Retention Dashboard":
-        if can_access_feature(role, "customers"):
-            customers_retention_dashboard()
+    elif page == "Income Dashboard":
+        if can_access_feature(role, "income"):
+            income_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Segmentation Dashboard":
-        if can_access_feature(role, "customers"):
-            customers_segmentation_dashboard()
+    # ================= INVENTORY =================
+    elif page == "Inventory":
+        if can_access_feature(role, "inventory_view"):
+            inventory_page()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Inventory Optimizer":
+        if can_access_feature(role, "inventory_view") or role in ["owner", "manager"]:
+            inventory_optimizer_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    # ================= LANGUAGE =================
+    elif page == "Language Management":
+        if can_access_feature(role, "language_management") or role in ["owner", "manager"]:
+            language_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
@@ -976,45 +1058,86 @@ def main_app():
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= CUSTOMER 360 VIEW =================
-    elif page == "Customer 360 View":
-        if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
-            customer_360_view()
-        else:
-            st.error("You don't have permission to access this page")
-    
-    elif page == "Customer Insights 360":
-        if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
-            customer_insights_360()
+    elif page == "Live Dashboard":
+        if can_access_feature(role, "live_dashboard") or role in ["owner", "manager"]:
+            live_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= CUSTOMER APP =================
-    elif page == "Customer App":
-        customer_app()
-    
-    elif page == "Customer Insights":
-        if can_access_feature(role, "customers"):
-            customer_insights_page()
+    # ================= MOBILE =================
+    elif page == "Mobile Dashboard":
+        if can_access_feature(role, "mobile_dashboard") or role in ["owner", "manager", "cashier"]:
+            mobile_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Business Advisor":
-        if can_access_feature(role, "business_advisor"):
-            business_advisor_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-        
-    # ================= DEBTORS =================
-    elif page == "Debtors":
-        if can_access_feature(role, "debtors"):
-            debtors_page()
+    elif page == "Multi-Tenant":
+        if can_access_feature(role, "multi_tenant") or role == "owner":
+            multi_tenant_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    elif page == "Debtors Dashboard":
-        if can_access_feature(role, "debtors_dashboard"):
-            debtors_dashboard()
+    # ================= OFFLINE =================
+    elif page == "Offline Mode":
+        if can_access_feature(role, "offline_mode") or role in ["owner", "manager"]:
+            offline_mode_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    # ================= P&L =================
+    elif page == "P&L":
+        if can_access_feature(role, "pl"):
+            pl_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Payment Gateway":
+        if can_access_feature(role, "payment_gateway") or role in ["owner", "manager"]:
+            payment_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "POS":
+        if can_access_feature(role, "pos"):
+            pos_page()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Predictive Analytics":
+        if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
+            predictive_analytics_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Profit Center Analysis":
+        if can_access_feature(role, "profit_analysis") or role in ["owner", "manager"]:
+            profit_center_analysis()
+        else:
+            st.error("You don't have permission to access this page")
+
+    # ================= PURCHASES =================
+    elif page == "Purchases":
+        if can_access_feature(role, "purchases"):
+            purchases_page()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "Purchases Dashboard":
+        if can_access_feature(role, "purchases"):
+            purchases_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    elif page == "PWA Setup":
+        if can_access_feature(role, "pwa_setup") or role in ["owner", "manager"]:
+            pwa_setup_dashboard()
+        else:
+            st.error("You don't have permission to access this page")
+
+    # ================= RECOMMENDATION =================
+    elif page == "Recommendation Engine":
+        if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
+            recommendation_engine_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
@@ -1025,180 +1148,99 @@ def main_app():
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= SHIFT MANAGEMENT =================
-    elif page == "Shift Management":
-        if can_access_feature(role, "shift_management"):
-            shift_management_page()
+    elif page == "Retention Dashboard":
+        if can_access_feature(role, "customers"):
+            customers_retention_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= BRANCH PERFORMANCE =================
-    elif page == "Branch Performance":
-        if can_access_feature(role, "branch_performance"):
-            branch_performance_page()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= MOBILE DASHBOARD =================
-    elif page == "Mobile Dashboard":
-        if can_access_feature(role, "mobile_dashboard") or role in ["owner", "manager", "cashier"]:
-            mobile_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= DEMAND FORECASTING =================
-    elif page == "Demand Forecasting":
-        if can_access_feature(role, "demand_forecasting") or role in ["owner", "manager"]:
-            demand_forecasting_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= LIVE DASHBOARD =================
-    elif page == "Live Dashboard":
-        if can_access_feature(role, "live_dashboard") or role in ["owner", "manager"]:
-            live_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= SECURITY DASHBOARD =================
-    elif page == "Security Dashboard":
-        if can_access_feature(role, "security") or role in ["owner", "manager"]:
-            security_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= LANGUAGE MANAGEMENT =================
-    elif page == "Language Management":
-        if can_access_feature(role, "language_management") or role in ["owner", "manager"]:
-            language_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= OFFLINE MODE =================
-    elif page == "Offline Mode":
-        if can_access_feature(role, "offline_mode") or role in ["owner", "manager"]:
-            offline_mode_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= FINANCIAL CLOSING =================
-    elif page == "Financial Closing":
-        if can_access_feature(role, "financial_closing") or role in ["owner", "manager"]:
-            financial_closing_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= SUPPLIER BIDDING =================
-    elif page == "Supplier Bidding":
-        if can_access_feature(role, "supplier_bidding") or role in ["owner", "manager"]:
-            supplier_bidding_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-    
-    elif page == "Supplier Bidding Portal":
-        supplier_bidding_portal()
-
-    # ================= RETURNS & REFUNDS =================
     elif page == "Returns & Refunds":
         if can_access_feature(role, "returns_management") or role in ["owner", "manager"]:
             returns_management_dashboard()
         else:
             st.error("You don't have permission to access this page")
-    
+
     elif page == "Returns Management":
         if can_access_feature(role, "returns_management") or role in ["owner", "manager"]:
             returns_management_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= PROFIT CENTER ANALYSIS =================
-    elif page == "Profit Center Analysis":
-        if can_access_feature(role, "profit_analysis") or role in ["owner", "manager"]:
-            profit_center_analysis()
+    # ================= SALES =================
+    elif page == "Sales Dashboard":
+        if can_access_feature(role, "sales_dashboard"):
+            sales_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= PREDICTIVE ANALYTICS =================
-    elif page == "Predictive Analytics":
-        if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
-            predictive_analytics_dashboard()
+    elif page == "Sales History":
+        if can_access_feature(role, "sales_history"):
+            sales_history_page()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= COMPETITOR PRICE MONITORING =================
-    elif page == "Competitor Price Monitoring":
-        if can_access_feature(role, "competitor_price") or role in ["owner", "manager"]:
-            competitor_price_monitoring_dashboard()
+    elif page == "Security Dashboard":
+        if can_access_feature(role, "security") or role in ["owner", "manager"]:
+            security_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= PAYMENT GATEWAY =================
-    elif page == "Payment Gateway":
-        if can_access_feature(role, "payment_gateway") or role in ["owner", "manager"]:
-            payment_dashboard()
+    elif page == "Segmentation Dashboard":
+        if can_access_feature(role, "customers"):
+            customers_segmentation_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= ACCOUNTING SYNC =================
-    elif page == "Accounting Sync":
-        if can_access_feature(role, "accounting_sync") or role in ["owner", "manager"]:
-            accounting_sync_dashboard()
+    elif page == "Settings":
+        if role == "owner":
+            settings_page()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= E-COMMERCE SYNC =================
-    elif page == "E-commerce Sync":
-        if can_access_feature(role, "ecommerce_sync") or role in ["owner", "manager"]:
-            ecommerce_sync_dashboard()
+    elif page == "Shift Management":
+        if can_access_feature(role, "shift_management"):
+            shift_management_page()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= SMS GATEWAY =================
-    elif page == "SMS Gateway":
-        if can_access_feature(role, "sms_gateway") or role in ["owner", "manager"]:
-            sms_gateway_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= SMART REPLENISHMENT =================
     elif page == "Smart Replenishment":
         if can_access_feature(role, "smart_replenishment") or role in ["owner", "manager"]:
             smart_replenishment_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= AUTOMATED FOLLOW-UP =================
-    elif page == "Automated Follow-up":
-        if can_access_feature(role, "automated_followup") or role in ["owner", "manager"]:
-            automated_followup_dashboard()
+    elif page == "SMS Gateway":
+        if can_access_feature(role, "sms_gateway") or role in ["owner", "manager"]:
+            sms_gateway_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= WORKFLOW APPROVALS =================
-    elif page == "Workflow Approvals":
-        if can_access_feature(role, "workflow_approvals") or role in ["owner", "manager"]:
-            workflow_approvals_dashboard()
+    elif page == "Stock Dashboard":
+        if can_access_feature(role, "inventory_view"):
+            dashboard_page()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= PWA SETUP =================
-    elif page == "PWA Setup":
-        if can_access_feature(role, "pwa_setup") or role in ["owner", "manager"]:
-            pwa_setup_dashboard()
+    elif page == "Supplier Bidding":
+        if can_access_feature(role, "supplier_bidding") or role in ["owner", "manager"]:
+            supplier_bidding_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= VOICE COMMANDS =================
+    elif page == "Supplier Bidding Portal":
+        supplier_bidding_portal()
+
+    # ================= USER =================
+    elif page == "User Management":
+        if role == "owner":
+            user_management_page()
+        else:
+            st.error("Only system owner can access user management")
+
+    # ================= VOICE =================
     elif page == "Voice Commands":
         if can_access_feature(role, "voice_commands") or role in ["owner", "manager", "cashier"]:
             voice_commands_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= BARCODE SCANNER =================
-    elif page == "Barcode Scanner":
-        if can_access_feature(role, "barcode_scanner") or role in ["owner", "manager", "cashier"]:
-            barcode_scanner_dashboard()
         else:
             st.error("You don't have permission to access this page")
 
@@ -1209,45 +1251,11 @@ def main_app():
         else:
             st.error("You don't have permission to access this page")
 
-    # ================= MULTI-TENANT =================
-    elif page == "Multi-Tenant":
-        if can_access_feature(role, "multi_tenant") or role == "owner":
-            multi_tenant_dashboard()
+    elif page == "Workflow Approvals":
+        if can_access_feature(role, "workflow_approvals") or role in ["owner", "manager"]:
+            workflow_approvals_dashboard()
         else:
             st.error("You don't have permission to access this page")
-
-    # ================= API DEVELOPER =================
-    elif page == "API Developer":
-        if can_access_feature(role, "api_developer") or role in ["owner", "manager"]:
-            api_developer_dashboard()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= DOCUMENTS =================
-    elif page == "Documents":
-        if role in ["owner", "manager"]:
-            documents_page()
-        else:
-            st.error("You don't have permission to access this page")
-
-    # ================= ADMIN ONLY =================
-    elif page == "Settings":
-        if role == "owner":
-            settings_page()
-        else:
-            st.error("You don't have permission to access this page")
-        
-    elif page == "User Management":
-        if role == "owner":
-            user_management_page()
-        else:
-            st.error("Only system owner can access user management")
-
-    elif page == "Branch Management":
-        if role == "owner":
-            branch_management_page()
-        else:
-            st.error("Only system owner can access branch management")
 
     else:
         st.warning(f"Module not found: {page}")

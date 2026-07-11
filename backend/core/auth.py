@@ -1,4 +1,4 @@
-# backend/core/auth.py - COMPLETE FIXED VERSION WITH BRANCH-LEVEL SHIFT SUPPORT
+# backend/core/auth.py - COMPLETE FIXED VERSION WITH ALL MODULES INTEGRATED
 import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_users, save_users
@@ -73,7 +73,10 @@ ROLES = {
             "payment_gateway", "accounting_sync", "ecommerce_sync", "sms_gateway",
             "smart_replenishment", "automated_followup", "workflow_approvals",
             "pwa_setup", "voice_commands", "barcode_scanner", "white_label",
-            "multi_tenant", "api_developer"
+            "multi_tenant", "api_developer",
+            # NEW DATA SCIENCE MODULES
+            "anomaly_detection", "automated_insights", "churn_prediction",
+            "inventory_optimizer", "recommendation_engine"
         ],
         "description": "Can manage operations but not system settings",
         "mobile_access": True,
@@ -130,58 +133,117 @@ def can_access_feature(role, feature):
         return True
     
     feature_permissions = {
+        # ==============================
+        # POS & SALES
+        # ==============================
         "pos": ["cashier", "manager", "owner"],
-        "inventory_view": ["cashier", "manager", "owner", "mobile_user"],
-        "inventory_edit": ["manager", "owner"],
         "sales_history": ["cashier", "manager", "owner", "mobile_user"],
         "sales_dashboard": ["manager", "owner"],
+        "returns_management": ["manager", "owner"],
+        
+        # ==============================
+        # INVENTORY
+        # ==============================
+        "inventory_view": ["cashier", "manager", "owner", "mobile_user"],
+        "inventory_edit": ["manager", "owner"],
+        "barcode_scanner": ["cashier", "manager", "owner"],
+        "barcode_generator": ["manager", "owner"],
+        
+        # ==============================
+        # PURCHASES & SUPPLIERS
+        # ==============================
         "purchases": ["manager", "owner"],
-        "expenses": ["manager", "owner"],
-        "income": ["manager", "owner"],
-        "pl": ["manager", "owner"],
+        "purchases_dashboard": ["manager", "owner"],
+        "supplier_bidding": ["manager", "owner"],
+        "smart_replenishment": ["manager", "owner"],
+        
+        # ==============================
+        # FINANCE
+        # ==============================
         "cash_dashboard": ["manager", "owner"],
+        "income": ["manager", "owner"],
+        "income_dashboard": ["manager", "owner"],
+        "expenses": ["manager", "owner"],
+        "expenses_dashboard": ["manager", "owner"],
+        "pl": ["manager", "owner"],
+        "financial_closing": ["manager", "owner"],
+        "payment_gateway": ["manager", "owner"],
+        "accounting_sync": ["manager", "owner"],
+        
+        # ==============================
+        # CUSTOMERS
+        # ==============================
         "customers": ["cashier", "manager", "owner"],
-        "debtors": ["manager", "owner"],
-        "debtors_dashboard": ["manager", "owner"],
         "customer_app": ["owner", "manager", "cashier", "viewer", "mobile_user"],
         "customer_insights": ["manager", "owner"],
         "customer_360": ["manager", "owner"],
-        "business_advisor": ["manager", "owner"],
-        "reports": ["manager", "owner"],
-        "demand_forecasting": ["manager", "owner"],
-        "live_dashboard": ["manager", "owner"],
-        "security": ["manager", "owner"],
-        "language_management": ["manager", "owner"],
-        "offline_mode": ["manager", "owner"],
-        "financial_closing": ["manager", "owner"],
-        "supplier_bidding": ["manager", "owner"],
-        "returns_management": ["manager", "owner"],
-        "documents": ["manager", "owner"],
+        "retention_dashboard": ["manager", "owner"],
+        "segmentation_dashboard": ["manager", "owner"],
+        "lifecycle_dashboard": ["manager", "owner"],
+        
+        # ==============================
+        # DEBTORS
+        # ==============================
+        "debtors": ["manager", "owner"],
+        "debtors_dashboard": ["manager", "owner"],
+        
+        # ==============================
+        # ANALYTICS - NEW DATA SCIENCE MODULES
+        # ==============================
+        "anomaly_detection": ["manager", "owner"],
+        "automated_insights": ["manager", "owner"],
+        "churn_prediction": ["manager", "owner"],
+        "inventory_optimizer": ["manager", "owner"],
+        "recommendation_engine": ["manager", "owner"],
         "profit_analysis": ["manager", "owner"],
         "predictive_analytics": ["manager", "owner"],
         "competitor_price": ["manager", "owner"],
-        "payment_gateway": ["manager", "owner"],
-        "accounting_sync": ["manager", "owner"],
-        "ecommerce_sync": ["manager", "owner"],
-        "sms_gateway": ["manager", "owner"],
-        "smart_replenishment": ["manager", "owner"],
-        "automated_followup": ["manager", "owner"],
-        "workflow_approvals": ["manager", "owner"],
-        "pwa_setup": ["manager", "owner"],
-        "voice_commands": ["cashier", "manager", "owner"],
-        "barcode_scanner": ["cashier", "manager", "owner"],
-        "white_label": ["owner"],
-        "multi_tenant": ["owner"],
-        "api_developer": ["manager", "owner"],
-        "settings": ["owner"],
-        "user_management": ["owner"],
-        "branch_management": ["owner"],
+        "business_advisor": ["manager", "owner"],
+        "demand_forecasting": ["manager", "owner"],
+        "reports": ["manager", "owner"],
+        
+        # ==============================
+        # OPERATIONS
+        # ==============================
         "shift_management": ["manager", "owner"],
         "branch_performance": ["manager", "owner"],
+        "documents": ["manager", "owner"],
+        "voice_commands": ["cashier", "manager", "owner"],
+        
+        # ==============================
+        # MOBILE
+        # ==============================
         "mobile_dashboard": ["owner", "manager", "cashier", "mobile_user"],
         "whatsapp_alerts": ["owner", "manager"],
         "receive_notifications": ["owner", "manager", "mobile_user"],
-        "mobile_approvals": ["owner", "manager"]
+        "mobile_approvals": ["owner", "manager"],
+        
+        # ==============================
+        # LIVE & REAL-TIME
+        # ==============================
+        "live_dashboard": ["manager", "owner"],
+        
+        # ==============================
+        # SECURITY & ADMIN
+        # ==============================
+        "security": ["manager", "owner"],
+        "language_management": ["manager", "owner"],
+        "offline_mode": ["manager", "owner"],
+        "white_label": ["owner"],
+        "multi_tenant": ["owner"],
+        "api_developer": ["manager", "owner"],
+        "pwa_setup": ["manager", "owner"],
+        "settings": ["owner"],
+        "user_management": ["owner"],
+        "branch_management": ["owner"],
+        
+        # ==============================
+        # INTEGRATIONS
+        # ==============================
+        "ecommerce_sync": ["manager", "owner"],
+        "sms_gateway": ["manager", "owner"],
+        "automated_followup": ["manager", "owner"],
+        "workflow_approvals": ["manager", "owner"]
     }
     
     allowed_roles = feature_permissions.get(feature, [])
