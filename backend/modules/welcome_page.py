@@ -655,9 +655,9 @@ def get_footer_content(section):
         <h3>🆘 Support Center</h3>
         <p>We're here to help you succeed with SmartGro ERP.</p>
         <br>
-        <p><strong>📧 Email Support:</strong> support@smartgro.com</p>
-        <p><strong>📞 Phone Support:</strong> +27 11 234 5678</p>
-        <p><strong>🕐 Business Hours:</strong> Monday - Friday, 8:00 AM - 6:00 PM (SAST)</p>
+        <p><strong>📧 Email Support:</strong> kingtimothy495@gmail.com</p>
+        <p><strong>📞 Phone Support:</strong> +263 782905853</p>
+        <p><strong>🕐 Business Hours:</strong> Monday - Friday, 7:00 AM - 8:00 PM (SAST)</p>
         <br>
         <p><strong>📚 Resources:</strong></p>
         <ul>
@@ -667,7 +667,7 @@ def get_footer_content(section):
             <li><strong>🐛 Bug Report</strong> - Report issues or suggest improvements</li>
         </ul>
         <br>
-        <p><em>Response time: Within 24 hours for all support requests.</em></p>
+        <p><em>Response time: Within 48 hours for all support requests.</em></p>
         """,
         
         "privacy": """
