@@ -680,7 +680,7 @@ def get_footer_content(section):
         <p><strong>5. Updates:</strong> We may update the service and these terms from time to time.</p>
         <p><strong>6. Termination:</strong> Either party may terminate the service at any time with notice.</p>
         <p><strong>7. Liability:</strong> We are not liable for indirect, incidental, or consequential damages.</p>
-        <p><strong>8. Governing Law:</strong> These terms are governed by the laws of South Africa.</p>
+        <p><strong>8. Governing Law:</strong> These terms are governed by the laws of Zimbabwe.</p>
         <br>
         <p><em>Last updated: {datetime.now().strftime('%B %d, %Y')}</em></p>
         """
