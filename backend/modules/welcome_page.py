@@ -558,7 +558,7 @@ def welcome_page():
         if st.button("🚀 Get Started", type="primary", use_container_width=True):
             st.session_state.welcome_seen = True
             st.session_state.current_page = "Stock Dashboard"
-            st.rerun()
+            #st.rerun()
     
     # Footer with clickable links
     st.markdown('<div class="welcome-footer">', unsafe_allow_html=True)
@@ -589,7 +589,7 @@ def welcome_page():
                     st.session_state.footer_section = None
                 else:
                     st.session_state.footer_section = section["key"]
-                st.rerun()
+                #st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
     
