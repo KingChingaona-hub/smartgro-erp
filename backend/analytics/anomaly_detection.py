@@ -70,6 +70,16 @@ def get_amount_column(df):
     return None
 
 
+def convert_decimal_to_float(value):
+    """Convert Decimal to float for numpy operations"""
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # ==============================
 # ANOMALY DETECTION ENGINE
 # ==============================
@@ -111,6 +121,9 @@ class AnomalyDetector:
         if recent_sales.empty:
             return self.sales_anomalies
         
+        # Convert amount column to float to avoid Decimal issues
+        recent_sales[amount_col] = recent_sales[amount_col].apply(convert_decimal_to_float)
+        
         # 1. Daily sales anomaly (Z-score method)
         daily_sales = recent_sales.groupby(recent_sales[date_col].dt.date)[amount_col].sum().reset_index()
         daily_sales.columns = ["date", "sales"]
@@ -134,10 +147,11 @@ class AnomalyDetector:
                             "confidence": min(100, abs(z_score) * 20)
                         })
         
-        # 2. Individual transaction anomalies
+        # 2. Individual transaction anomalies - FIXED: Convert to float first
         if len(recent_sales) > 10:
-            # Check for unusually large transactions
-            threshold = recent_sales[amount_col].quantile(0.95)
+            # Convert amount column to float for quantile calculation
+            amount_values = recent_sales[amount_col].astype(float)
+            threshold = amount_values.quantile(0.95)
             large_transactions = recent_sales[recent_sales[amount_col] > threshold]
             
             for _, row in large_transactions.iterrows():
@@ -145,10 +159,10 @@ class AnomalyDetector:
                     "type": "LARGE_TRANSACTION",
                     "severity": "MEDIUM",
                     "date": row[date_col],
-                    "value": row[amount_col],
+                    "value": float(row[amount_col]),
                     "receipt_no": row.get("receipt_no", "N/A"),
                     "customer": row.get("customer", "N/A"),
-                    "message": f"Unusually large transaction: ${row[amount_col]:,.2f}",
+                    "message": f"Unusually large transaction: ${float(row[amount_col]):,.2f}",
                     "confidence": 80
                 })
         
@@ -158,7 +172,6 @@ class AnomalyDetector:
         zero_days = [d for d in all_dates if d not in sales_dates]
         
         if len(zero_days) > 3:
-            # Check if it's a weekend pattern
             weekend_zero = sum(1 for d in zero_days if d.weekday() >= 5)
             weekday_zero = len(zero_days) - weekend_zero
             
@@ -182,6 +195,9 @@ class AnomalyDetector:
         
         if products_df.empty:
             return self.inventory_anomalies
+        
+        # Convert stock to float
+        products_df["stock"] = products_df["stock"].apply(convert_decimal_to_float)
         
         # 1. Negative stock (should never happen)
         negative_stock = products_df[products_df["stock"] < 0]
@@ -230,6 +246,7 @@ class AnomalyDetector:
         # 3. Slow movers with high stock
         if not sales_df.empty:
             product_col_sales = get_product_column(sales_df)
+            date_col_sales = get_date_column(sales_df)
             if product_col_sales:
                 cutoff = datetime.now() - timedelta(days=90)
                 sales_df[date_col_sales] = pd.to_datetime(sales_df[date_col_sales], errors="coerce")
@@ -260,6 +277,10 @@ class AnomalyDetector:
         
         if products_df.empty:
             return self.price_anomalies
+        
+        # Convert price and cost to float
+        products_df["price"] = products_df["price"].apply(convert_decimal_to_float)
+        products_df["cost"] = products_df["cost"].apply(convert_decimal_to_float)
         
         # 1. Products where cost > price (selling at loss)
         loss_products = products_df[products_df["cost"] > products_df["price"]]
@@ -294,6 +315,7 @@ class AnomalyDetector:
         
         # 3. Price changes (if purchase data available)
         if not purchases_df.empty and "product_name" in purchases_df.columns and "cost_price" in purchases_df.columns:
+            purchases_df["cost_price"] = purchases_df["cost_price"].apply(convert_decimal_to_float)
             # Group by product and check price variations
             for product_name, group in purchases_df.groupby("product_name"):
                 if len(group) > 1:
@@ -320,6 +342,7 @@ class AnomalyDetector:
         
         # 1. Unusually high expenses
         if not expenses_df.empty and "amount" in expenses_df.columns:
+            expenses_df["amount"] = expenses_df["amount"].apply(convert_decimal_to_float)
             date_col = get_date_column(expenses_df)
             if date_col:
                 expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
@@ -344,7 +367,8 @@ class AnomalyDetector:
                         })
         
         # 2. Cash variance (if cash data available)
-        if not cash_df.empty:
+        if not cash_df.empty and "amount" in cash_df.columns:
+            cash_df["amount"] = cash_df["amount"].apply(convert_decimal_to_float)
             # Check for negative cash (shouldn't happen)
             negative_cash = cash_df[cash_df["amount"] < 0]
             if not negative_cash.empty:
@@ -386,12 +410,17 @@ class AnomalyDetector:
         
         customer_col = get_customer_column(sales_df)
         amount_col = get_amount_column(sales_df)
+        date_col = get_date_column(sales_df)
         
-        if customer_col is None or amount_col is None:
+        if customer_col is None or amount_col is None or date_col is None:
             return self.customer_anomalies
+        
+        # Convert amount to float
+        sales_df[amount_col] = sales_df[amount_col].apply(convert_decimal_to_float)
         
         # 1. High-value customers with no recent purchases
         if "total_spent" in customers_df.columns:
+            customers_df["total_spent"] = customers_df["total_spent"].apply(convert_decimal_to_float)
             high_value = customers_df[customers_df["total_spent"] > 500]
             
             if not high_value.empty:
@@ -418,7 +447,6 @@ class AnomalyDetector:
                         })
         
         # 2. Customers with unusually high recent spending
-        date_col = get_date_column(sales_df)
         if date_col:
             sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
             cutoff = datetime.now() - timedelta(days=30)
@@ -537,6 +565,40 @@ class AnomalyDetector:
                 anomaly_type = anomaly.get("type", "UNKNOWN")
                 type_counts[anomaly_type] = type_counts.get(anomaly_type, 0) + 1
         return type_counts
+
+
+# ==============================
+# HELPER FUNCTIONS (continued)
+# ==============================
+
+def get_product_column(df):
+    """Find product name column"""
+    if df is None or df.empty:
+        return None
+    for col in ["name", "product_name", "Product", "item_name"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_quantity_column(df):
+    """Find quantity column"""
+    if df is None or df.empty:
+        return None
+    for col in ["items", "quantity", "qty", "item_count"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_customer_column(df):
+    """Find customer column"""
+    if df is None or df.empty:
+        return None
+    for col in ["customer", "customer_name", "client", "buyer"]:
+        if col in df.columns:
+            return col
+    return None
 
 
 # ==============================
@@ -713,18 +775,6 @@ def anomaly_detection_dashboard():
             if all_anomalies:
                 df = pd.DataFrame(all_anomalies)
                 
-                # Color code severity
-                def color_severity(severity):
-                    colors = {
-                        "CRITICAL": "#ef4444",
-                        "HIGH": "#f59e0b",
-                        "MEDIUM": "#3b82f6",
-                        "LOW": "#10b981",
-                        "UNKNOWN": "#6B7280"
-                    }
-                    return colors.get(severity, "#6B7280")
-                
-                # Display
                 st.dataframe(
                     df,
                     use_container_width=True,
@@ -768,6 +818,9 @@ def anomaly_detection_dashboard():
             if date_col and amount_col:
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 sales_df = sales_df.dropna(subset=[date_col])
+                
+                # Convert amount to float for plotting
+                sales_df[amount_col] = sales_df[amount_col].apply(convert_decimal_to_float)
                 
                 # Daily sales trend
                 daily_sales = sales_df.groupby(sales_df[date_col].dt.date)[amount_col].sum().reset_index()
