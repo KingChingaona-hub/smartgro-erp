@@ -127,6 +127,8 @@ def get_visible_modules(role):
         if can_access_feature(role, permission):
             visible_modules.append(module)
     
+    # Ensure unique modules
+    visible_modules = list(dict.fromkeys(visible_modules))
     return visible_modules
 
 
@@ -179,91 +181,7 @@ def get_navigation_menu(role):
         visible_items = []
         for item in items:
             # Map menu item to permission key
-            perm_key = None
-            
-            # NEW DATA SCIENCE MODULES
-            if item == "Anomaly Detection":
-                perm_key = "anomaly_detection"
-            elif item == "Automated Insights":
-                perm_key = "automated_insights"
-            elif item == "Churn Prediction":
-                perm_key = "churn_prediction"
-            elif item == "Inventory Optimizer":
-                perm_key = "inventory_optimizer"
-            elif item == "Recommendation Engine":
-                perm_key = "recommendation_engine"
-            
-            # Existing mappings
-            elif item == "Branch Management":
-                perm_key = "branch_management"
-            elif item == "Branch Performance":
-                perm_key = "branch_performance"
-            elif item == "User Management":
-                perm_key = "user_management"
-            elif item == "Shift Management":
-                perm_key = "shift_management"
-            elif item == "Settings":
-                perm_key = "settings"
-            elif item == "Mobile Dashboard":
-                perm_key = "mobile_dashboard"
-            elif item == "Demand Forecasting":
-                perm_key = "demand_forecasting"
-            elif item == "Live Dashboard":
-                perm_key = "live_dashboard"
-            elif item == "Barcode Generator":
-                perm_key = "inventory_view"
-            elif item == "Customer App":
-                perm_key = "customer_app"
-            elif item == "Customer Insights":
-                perm_key = "customer_insights"
-            elif item == "Security Dashboard":
-                perm_key = "security"
-            elif item == "Language Management":
-                perm_key = "language_management"
-            elif item == "Offline Mode":
-                perm_key = "offline_mode"
-            elif item == "Financial Closing":
-                perm_key = "financial_closing"
-            elif item == "Supplier Bidding":
-                perm_key = "supplier_bidding"
-            elif item == "Customer 360 View":
-                perm_key = "customer_360"
-            elif item == "Returns & Refunds":
-                perm_key = "returns_management"
-            elif item == "Documents":
-                perm_key = "documents"
-            elif item == "Profit Center Analysis":
-                perm_key = "profit_analysis"
-            elif item == "Predictive Analytics":
-                perm_key = "predictive_analytics"
-            elif item == "Competitor Price Monitoring":
-                perm_key = "competitor_price"
-            elif item == "Payment Gateway":
-                perm_key = "payment_gateway"
-            elif item == "Accounting Sync":
-                perm_key = "accounting_sync"
-            elif item == "E-commerce Sync":
-                perm_key = "ecommerce_sync"
-            elif item == "SMS Gateway":
-                perm_key = "sms_gateway"
-            elif item == "Smart Replenishment":
-                perm_key = "smart_replenishment"
-            elif item == "Automated Follow-up":
-                perm_key = "automated_followup"
-            elif item == "Workflow Approvals":
-                perm_key = "workflow_approvals"
-            elif item == "PWA Setup":
-                perm_key = "pwa_setup"
-            elif item == "Voice Commands":
-                perm_key = "voice_commands"
-            elif item == "Barcode Scanner":
-                perm_key = "barcode_scanner"
-            elif item == "White Label":
-                perm_key = "white_label"
-            elif item == "Multi-Tenant":
-                perm_key = "multi_tenant"
-            elif item == "API Developer":
-                perm_key = "api_developer"
+            perm_key = self._get_permission_key(item)
             
             # Check if user has permission
             if perm_key:
@@ -279,6 +197,97 @@ def get_navigation_menu(role):
             filtered_menu[category] = visible_items
     
     return filtered_menu
+
+
+def _get_permission_key(item):
+    """Helper function to map menu items to permission keys"""
+    
+    # NEW DATA SCIENCE MODULES
+    if item == "Anomaly Detection":
+        return "anomaly_detection"
+    elif item == "Automated Insights":
+        return "automated_insights"
+    elif item == "Churn Prediction":
+        return "churn_prediction"
+    elif item == "Inventory Optimizer":
+        return "inventory_optimizer"
+    elif item == "Recommendation Engine":
+        return "recommendation_engine"
+    
+    # Existing mappings
+    elif item == "Branch Management":
+        return "branch_management"
+    elif item == "Branch Performance":
+        return "branch_performance"
+    elif item == "User Management":
+        return "user_management"
+    elif item == "Shift Management":
+        return "shift_management"
+    elif item == "Settings":
+        return "settings"
+    elif item == "Mobile Dashboard":
+        return "mobile_dashboard"
+    elif item == "Demand Forecasting":
+        return "demand_forecasting"
+    elif item == "Live Dashboard":
+        return "live_dashboard"
+    elif item == "Barcode Generator":
+        return "inventory_view"
+    elif item == "Customer App":
+        return "customer_app"
+    elif item == "Customer Insights":
+        return "customer_insights"
+    elif item == "Security Dashboard":
+        return "security"
+    elif item == "Language Management":
+        return "language_management"
+    elif item == "Offline Mode":
+        return "offline_mode"
+    elif item == "Financial Closing":
+        return "financial_closing"
+    elif item == "Supplier Bidding":
+        return "supplier_bidding"
+    elif item == "Customer 360 View":
+        return "customer_360"
+    elif item == "Returns & Refunds":
+        return "returns_management"
+    elif item == "Documents":
+        return "documents"
+    elif item == "Profit Center Analysis":
+        return "profit_analysis"
+    elif item == "Predictive Analytics":
+        return "predictive_analytics"
+    elif item == "Competitor Price Monitoring":
+        return "competitor_price"
+    elif item == "Payment Gateway":
+        return "payment_gateway"
+    elif item == "Accounting Sync":
+        return "accounting_sync"
+    elif item == "E-commerce Sync":
+        return "ecommerce_sync"
+    elif item == "SMS Gateway":
+        return "sms_gateway"
+    elif item == "Smart Replenishment":
+        return "smart_replenishment"
+    elif item == "Automated Follow-up":
+        return "automated_followup"
+    elif item == "Workflow Approvals":
+        return "workflow_approvals"
+    elif item == "PWA Setup":
+        return "pwa_setup"
+    elif item == "Voice Commands":
+        return "voice_commands"
+    elif item == "Barcode Scanner":
+        return "barcode_scanner"
+    elif item == "White Label":
+        return "white_label"
+    elif item == "Multi-Tenant":
+        return "multi_tenant"
+    elif item == "API Developer":
+        return "api_developer"
+    
+    # Return None if no mapping found
+    return None
 
 
 def get_mobile_menu(role):
@@ -325,87 +334,7 @@ def get_mobile_menu(role):
     for category, items in mobile_menu.items():
         visible_items = []
         for item in items:
-            perm_key = None
-            
-            # NEW DATA SCIENCE MODULES
-            if item == "Anomaly Detection":
-                perm_key = "anomaly_detection"
-            elif item == "Automated Insights":
-                perm_key = "automated_insights"
-            elif item == "Churn Prediction":
-                perm_key = "churn_prediction"
-            elif item == "Inventory Optimizer":
-                perm_key = "inventory_optimizer"
-            elif item == "Recommendation Engine":
-                perm_key = "recommendation_engine"
-            
-            # Existing mappings
-            elif item == "Mobile Dashboard":
-                perm_key = "mobile_dashboard"
-            elif item == "Branch Management":
-                perm_key = "branch_management"
-            elif item == "Settings":
-                perm_key = "settings"
-            elif item == "User Management":
-                perm_key = "user_management"
-            elif item == "Demand Forecasting":
-                perm_key = "demand_forecasting"
-            elif item == "Live Dashboard":
-                perm_key = "live_dashboard"
-            elif item == "Barcode Generator":
-                perm_key = "inventory_view"
-            elif item == "Customer App":
-                perm_key = "customer_app"
-            elif item == "Customer Insights":
-                perm_key = "customer_insights"
-            elif item == "Security Dashboard":
-                perm_key = "security"
-            elif item == "Language Management":
-                perm_key = "language_management"
-            elif item == "Offline Mode":
-                perm_key = "offline_mode"
-            elif item == "Financial Closing":
-                perm_key = "financial_closing"
-            elif item == "Supplier Bidding":
-                perm_key = "supplier_bidding"
-            elif item == "Customer 360 View":
-                perm_key = "customer_360"
-            elif item == "Returns & Refunds":
-                perm_key = "returns_management"
-            elif item == "Documents":
-                perm_key = "documents"
-            elif item == "Profit Center Analysis":
-                perm_key = "profit_analysis"
-            elif item == "Predictive Analytics":
-                perm_key = "predictive_analytics"
-            elif item == "Competitor Price Monitoring":
-                perm_key = "competitor_price"
-            elif item == "Payment Gateway":
-                perm_key = "payment_gateway"
-            elif item == "Accounting Sync":
-                perm_key = "accounting_sync"
-            elif item == "E-commerce Sync":
-                perm_key = "ecommerce_sync"
-            elif item == "SMS Gateway":
-                perm_key = "sms_gateway"
-            elif item == "Smart Replenishment":
-                perm_key = "smart_replenishment"
-            elif item == "Automated Follow-up":
-                perm_key = "automated_followup"
-            elif item == "Workflow Approvals":
-                perm_key = "workflow_approvals"
-            elif item == "PWA Setup":
-                perm_key = "pwa_setup"
-            elif item == "Voice Commands":
-                perm_key = "voice_commands"
-            elif item == "Barcode Scanner":
-                perm_key = "barcode_scanner"
-            elif item == "White Label":
-                perm_key = "white_label"
-            elif item == "Multi-Tenant":
-                perm_key = "multi_tenant"
-            elif item == "API Developer":
-                perm_key = "api_developer"
+            perm_key = _get_permission_key(item)
             
             if perm_key and can_access_feature(role, perm_key):
                 visible_items.append(item)
