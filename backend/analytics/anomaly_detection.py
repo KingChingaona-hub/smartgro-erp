@@ -77,10 +77,14 @@ def convert_df_column_to_float(df, column_name):
     if column_name not in df.columns:
         return df
     try:
+        # Force conversion to float using pandas to_numeric with errors='coerce'
         df[column_name] = pd.to_numeric(df[column_name], errors='coerce').astype(float)
-    except Exception:
+        # Fill any NaN values with 0
+        df[column_name] = df[column_name].fillna(0.0)
+    except Exception as e:
         try:
-            df[column_name] = df[column_name].apply(lambda x: float(x) if x is not None else 0.0)
+            # Fallback: manual conversion
+            df[column_name] = df[column_name].apply(lambda x: float(x) if x is not None and x != '' else 0.0)
         except Exception:
             pass
     return df
@@ -94,6 +98,18 @@ def convert_dataframe_to_float(df, columns):
         if col in df.columns:
             df = convert_df_column_to_float(df, col)
     return df
+
+
+def ensure_numeric_series(series):
+    """Ensure a pandas Series is numeric (float) type"""
+    if series is None:
+        return pd.Series([])
+    try:
+        # Convert to float, coercing errors
+        return pd.to_numeric(series, errors='coerce').fillna(0).astype(float)
+    except:
+        # If all else fails
+        return series.apply(lambda x: float(x) if x is not None else 0.0)
 
 
 # ==============================
@@ -140,6 +156,9 @@ class AnomalyDetector:
         # Convert amount column to float - CRITICAL FIX
         sales_df = convert_df_column_to_float(sales_df, amount_col)
         
+        # Ensure amount column is float type
+        sales_df[amount_col] = ensure_numeric_series(sales_df[amount_col])
+        
         cutoff = datetime.now() - timedelta(days=days)
         recent_sales = sales_df[sales_df[date_col] >= cutoff]
         
@@ -149,46 +168,48 @@ class AnomalyDetector:
         # 1. Daily sales anomaly (Z-score method)
         daily_sales = recent_sales.groupby(recent_sales[date_col].dt.date)[amount_col].sum().reset_index()
         daily_sales.columns = ["date", "sales"]
-        daily_sales["sales"] = daily_sales["sales"].astype(float)
+        daily_sales["sales"] = ensure_numeric_series(daily_sales["sales"])
         
         if len(daily_sales) >= 7:
-            mean_sales = daily_sales["sales"].mean()
-            std_sales = daily_sales["sales"].std()
+            mean_sales = float(daily_sales["sales"].mean())
+            std_sales = float(daily_sales["sales"].std())
             
             if std_sales > 0:
                 for _, row in daily_sales.iterrows():
-                    z_score = (row["sales"] - mean_sales) / std_sales
+                    sales_value = float(row["sales"])
+                    z_score = (sales_value - mean_sales) / std_sales
                     if abs(z_score) > 2.5:
                         self.sales_anomalies.append({
                             "type": "SALES_SPIKE" if z_score > 0 else "SALES_DROP",
                             "severity": "HIGH" if abs(z_score) > 3.5 else "MEDIUM",
                             "date": row["date"],
-                            "value": row["sales"],
+                            "value": sales_value,
                             "expected": mean_sales,
                             "z_score": z_score,
-                            "message": f"{'Spike' if z_score > 0 else 'Drop'} detected on {row['date']}: ${row['sales']:,.2f} vs expected ${mean_sales:,.2f}",
+                            "message": f"{'Spike' if z_score > 0 else 'Drop'} detected on {row['date']}: ${sales_value:,.2f} vs expected ${mean_sales:,.2f}",
                             "confidence": min(100, abs(z_score) * 20)
                         })
         
         # 2. Individual transaction anomalies
         if len(recent_sales) > 10:
-            # Ensure amount column is float for quantile
-            recent_sales = convert_df_column_to_float(recent_sales, amount_col)
-            amount_values = recent_sales[amount_col].astype(float)
+            # Ensure amount column is float
+            recent_sales[amount_col] = ensure_numeric_series(recent_sales[amount_col])
+            amount_values = recent_sales[amount_col]
             
-            if not amount_values.empty:
-                threshold = amount_values.quantile(0.95)
+            if not amount_values.empty and len(amount_values) > 0:
+                threshold = float(amount_values.quantile(0.95))
                 large_transactions = recent_sales[recent_sales[amount_col] > threshold]
                 
                 for _, row in large_transactions.iterrows():
+                    amount_value = float(row[amount_col])
                     self.sales_anomalies.append({
                         "type": "LARGE_TRANSACTION",
                         "severity": "MEDIUM",
                         "date": row[date_col],
-                        "value": float(row[amount_col]),
+                        "value": amount_value,
                         "receipt_no": row.get("receipt_no", "N/A"),
                         "customer": row.get("customer", "N/A"),
-                        "message": f"Unusually large transaction: ${float(row[amount_col]):,.2f}",
+                        "message": f"Unusually large transaction: ${amount_value:,.2f}",
                         "confidence": 80
                     })
         
@@ -226,19 +247,22 @@ class AnomalyDetector:
         
         # Convert numeric columns to float
         for col in ["stock", "price", "cost"]:
-            products_df = convert_df_column_to_float(products_df, col)
+            if col in products_df.columns:
+                products_df = convert_df_column_to_float(products_df, col)
+                products_df[col] = ensure_numeric_series(products_df[col])
         
         # 1. Negative stock
         negative_stock = products_df[products_df["stock"] < 0]
         if not negative_stock.empty:
             for _, product in negative_stock.iterrows():
+                stock_value = float(product.get("stock", 0))
                 self.inventory_anomalies.append({
                     "type": "NEGATIVE_STOCK",
                     "severity": "CRITICAL",
                     "product": product.get("name", "Unknown"),
                     "barcode": product.get("barcode", ""),
-                    "stock": product["stock"],
-                    "message": f"Negative stock detected: {product.get('name', 'Unknown')} has {product['stock']} units",
+                    "stock": stock_value,
+                    "message": f"Negative stock detected: {product.get('name', 'Unknown')} has {stock_value} units",
                     "confidence": 100
                 })
         
@@ -256,20 +280,23 @@ class AnomalyDetector:
                 
                 if not recent_sales.empty and qty_col_sales in recent_sales.columns:
                     recent_sales = convert_df_column_to_float(recent_sales, qty_col_sales)
+                    recent_sales[qty_col_sales] = ensure_numeric_series(recent_sales[qty_col_sales])
+                    
                     top_products = recent_sales.groupby(product_col_sales)[qty_col_sales].sum().nlargest(10)
                     
                     for product_name, qty_sold in top_products.items():
                         product = products_df[products_df["name"] == product_name]
                         if not product.empty:
                             current_stock = safe_int(product.iloc[0].get("stock", 0))
-                            if current_stock < qty_sold * 0.5:
+                            qty_sold_float = float(qty_sold)
+                            if current_stock < qty_sold_float * 0.5:
                                 self.inventory_anomalies.append({
                                     "type": "RAPID_STOCK_DEPLETION",
                                     "severity": "HIGH",
                                     "product": product_name,
                                     "stock": current_stock,
-                                    "sold_last_7_days": qty_sold,
-                                    "message": f"Rapid stock depletion: {product_name} sold {qty_sold} units in 7 days, only {current_stock} left",
+                                    "sold_last_7_days": qty_sold_float,
+                                    "message": f"Rapid stock depletion: {product_name} sold {qty_sold_float:.0f} units in 7 days, only {current_stock} left",
                                     "confidence": 70
                                 })
         
@@ -312,58 +339,69 @@ class AnomalyDetector:
         products_df = products_df.copy()
         
         # Convert price and cost to float
-        products_df = convert_df_column_to_float(products_df, "price")
-        products_df = convert_df_column_to_float(products_df, "cost")
+        for col in ["price", "cost"]:
+            if col in products_df.columns:
+                products_df = convert_df_column_to_float(products_df, col)
+                products_df[col] = ensure_numeric_series(products_df[col])
         
         # 1. Products where cost > price
         loss_products = products_df[products_df["cost"] > products_df["price"]]
         if not loss_products.empty:
             for _, product in loss_products.iterrows():
+                cost_val = float(product.get("cost", 0))
+                price_val = float(product.get("price", 0))
                 self.price_anomalies.append({
                     "type": "NEGATIVE_MARGIN",
                     "severity": "HIGH",
                     "product": product.get("name", "Unknown"),
-                    "cost": product["cost"],
-                    "price": product["price"],
-                    "loss_per_unit": product["cost"] - product["price"],
-                    "message": f"Selling at loss: {product.get('name', 'Unknown')} (Cost: ${product['cost']:.2f}, Price: ${product['price']:.2f})",
+                    "cost": cost_val,
+                    "price": price_val,
+                    "loss_per_unit": cost_val - price_val,
+                    "message": f"Selling at loss: {product.get('name', 'Unknown')} (Cost: ${cost_val:.2f}, Price: ${price_val:.2f})",
                     "confidence": 100
                 })
         
         # 2. Products with price > cost * 3
-        high_margin = products_df[products_df["price"] > products_df["cost"] * 3]
-        if not high_margin.empty:
-            for _, product in high_margin.iterrows():
-                margin_pct = ((product["price"] - product["cost"]) / product["cost"] * 100) if product["cost"] > 0 else 0
-                self.price_anomalies.append({
-                    "type": "HIGH_MARGIN",
-                    "severity": "LOW",
-                    "product": product.get("name", "Unknown"),
-                    "cost": product["cost"],
-                    "price": product["price"],
-                    "margin": margin_pct,
-                    "message": f"Very high margin: {product.get('name', 'Unknown')} ({margin_pct:.0f}% markup)",
-                    "confidence": 60
-                })
+        if "cost" in products_df.columns and "price" in products_df.columns:
+            products_df["cost"] = ensure_numeric_series(products_df["cost"])
+            products_df["price"] = ensure_numeric_series(products_df["price"])
+            high_margin = products_df[products_df["price"] > products_df["cost"] * 3]
+            if not high_margin.empty:
+                for _, product in high_margin.iterrows():
+                    cost_val = float(product.get("cost", 0))
+                    price_val = float(product.get("price", 0))
+                    margin_pct = ((price_val - cost_val) / cost_val * 100) if cost_val > 0 else 0
+                    self.price_anomalies.append({
+                        "type": "HIGH_MARGIN",
+                        "severity": "LOW",
+                        "product": product.get("name", "Unknown"),
+                        "cost": cost_val,
+                        "price": price_val,
+                        "margin": margin_pct,
+                        "message": f"Very high margin: {product.get('name', 'Unknown')} ({margin_pct:.0f}% markup)",
+                        "confidence": 60
+                    })
         
         # 3. Price changes (if purchase data available)
         if not purchases_df.empty and "product_name" in purchases_df.columns and "cost_price" in purchases_df.columns:
             purchases_df = purchases_df.copy()
             purchases_df = convert_df_column_to_float(purchases_df, "cost_price")
+            purchases_df["cost_price"] = ensure_numeric_series(purchases_df["cost_price"])
             
             for product_name, group in purchases_df.groupby("product_name"):
                 if len(group) > 1:
-                    costs = group["cost_price"].unique()
-                    if len(costs) > 1:
-                        cost_range = max(costs) - min(costs)
+                    costs = ensure_numeric_series(group["cost_price"])
+                    unique_costs = costs.unique()
+                    if len(unique_costs) > 1:
+                        cost_range = float(max(unique_costs) - min(unique_costs))
                         if cost_range > 5:
                             self.price_anomalies.append({
                                 "type": "PRICE_VOLATILITY",
                                 "severity": "MEDIUM",
                                 "product": product_name,
-                                "min_cost": min(costs),
-                                "max_cost": max(costs),
-                                "message": f"Price volatility: {product_name} cost varies from ${min(costs):.2f} to ${max(costs):.2f}",
+                                "min_cost": float(min(unique_costs)),
+                                "max_cost": float(max(unique_costs)),
+                                "message": f"Price volatility: {product_name} cost varies from ${float(min(unique_costs)):.2f} to ${float(max(unique_costs)):.2f}",
                                 "confidence": 70
                             })
         
@@ -378,6 +416,8 @@ class AnomalyDetector:
         if not expenses_df.empty and "amount" in expenses_df.columns:
             expenses_df = expenses_df.copy()
             expenses_df = convert_df_column_to_float(expenses_df, "amount")
+            expenses_df["amount"] = ensure_numeric_series(expenses_df["amount"])
+            
             date_col = get_date_column(expenses_df)
             if date_col:
                 expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
@@ -385,35 +425,40 @@ class AnomalyDetector:
                 monthly_expenses = expenses_df[expenses_df[date_col] >= cutoff]
                 
                 if not monthly_expenses.empty:
-                    amount_values = monthly_expenses["amount"].astype(float)
-                    threshold = amount_values.quantile(0.90)
-                    high_expenses = monthly_expenses[monthly_expenses["amount"] > threshold]
-                    
-                    for _, row in high_expenses.iterrows():
-                        self.financial_anomalies.append({
-                            "type": "HIGH_EXPENSE",
-                            "severity": "MEDIUM",
-                            "date": row[date_col],
-                            "amount": row["amount"],
-                            "category": row.get("category", "Unknown"),
-                            "description": row.get("description", "N/A"),
-                            "message": f"Unusually high expense: ${row['amount']:,.2f} ({row.get('category', 'Unknown')})",
-                            "confidence": 75
-                        })
+                    amount_values = monthly_expenses["amount"]
+                    if not amount_values.empty and len(amount_values) > 0:
+                        threshold = float(amount_values.quantile(0.90))
+                        high_expenses = monthly_expenses[monthly_expenses["amount"] > threshold]
+                        
+                        for _, row in high_expenses.iterrows():
+                            amount_val = float(row.get("amount", 0))
+                            self.financial_anomalies.append({
+                                "type": "HIGH_EXPENSE",
+                                "severity": "MEDIUM",
+                                "date": row[date_col],
+                                "amount": amount_val,
+                                "category": row.get("category", "Unknown"),
+                                "description": row.get("description", "N/A"),
+                                "message": f"Unusually high expense: ${amount_val:,.2f} ({row.get('category', 'Unknown')})",
+                                "confidence": 75
+                            })
         
         # 2. Cash variance
         if not cash_df.empty and "amount" in cash_df.columns:
             cash_df = cash_df.copy()
             cash_df = convert_df_column_to_float(cash_df, "amount")
+            cash_df["amount"] = ensure_numeric_series(cash_df["amount"])
+            
             negative_cash = cash_df[cash_df["amount"] < 0]
             if not negative_cash.empty:
                 for _, row in negative_cash.head(5).iterrows():
+                    amount_val = float(row.get("amount", 0))
                     self.financial_anomalies.append({
                         "type": "NEGATIVE_CASH",
                         "severity": "CRITICAL",
                         "date": row.get("date", "Unknown"),
-                        "amount": row["amount"],
-                        "message": f"Negative cash transaction: ${row['amount']:,.2f}",
+                        "amount": amount_val,
+                        "message": f"Negative cash transaction: ${amount_val:,.2f}",
                         "confidence": 100
                     })
         
@@ -455,10 +500,13 @@ class AnomalyDetector:
         
         # Convert amount to float
         sales_df = convert_df_column_to_float(sales_df, amount_col)
+        sales_df[amount_col] = ensure_numeric_series(sales_df[amount_col])
         
         # 1. High-value customers with no recent purchases
         if "total_spent" in customers_df.columns:
             customers_df = convert_df_column_to_float(customers_df, "total_spent")
+            customers_df["total_spent"] = ensure_numeric_series(customers_df["total_spent"])
+            
             high_value = customers_df[customers_df["total_spent"] > 500]
             
             if not high_value.empty:
@@ -475,12 +523,13 @@ class AnomalyDetector:
                 for name in at_risk:
                     customer_data = high_value[high_value["customer_name"] == name]
                     if not customer_data.empty:
+                        total_spent = float(customer_data.iloc[0].get("total_spent", 0))
                         self.customer_anomalies.append({
                             "type": "HIGH_VALUE_AT_RISK",
                             "severity": "HIGH",
                             "customer": name,
-                            "total_spent": customer_data.iloc[0]["total_spent"],
-                            "message": f"High-value customer at risk: {name} (${customer_data.iloc[0]['total_spent']:,.2f} spent, no purchase in 60 days)",
+                            "total_spent": total_spent,
+                            "message": f"High-value customer at risk: {name} (${total_spent:,.2f} spent, no purchase in 60 days)",
                             "confidence": 85
                         })
         
@@ -493,22 +542,25 @@ class AnomalyDetector:
             if not recent_sales.empty and customer_col and amount_col:
                 customer_spending = recent_sales.groupby(customer_col)[amount_col].sum().reset_index()
                 customer_spending = convert_df_column_to_float(customer_spending, amount_col)
+                customer_spending[amount_col] = ensure_numeric_series(customer_spending[amount_col])
                 
                 if not customer_spending.empty:
-                    amount_values = customer_spending[amount_col].astype(float)
-                    threshold = amount_values.quantile(0.95)
-                    
-                    high_spenders = customer_spending[customer_spending[amount_col] > threshold]
-                    
-                    for _, row in high_spenders.iterrows():
-                        self.customer_anomalies.append({
-                            "type": "HIGH_RECENT_SPENDING",
-                            "severity": "LOW",
-                            "customer": row[customer_col],
-                            "amount": row[amount_col],
-                            "message": f"Unusually high spending: {row[customer_col]} spent ${row[amount_col]:,.2f} in 30 days",
-                            "confidence": 60
-                        })
+                    amount_values = customer_spending[amount_col]
+                    if not amount_values.empty and len(amount_values) > 0:
+                        threshold = float(amount_values.quantile(0.95))
+                        
+                        high_spenders = customer_spending[customer_spending[amount_col] > threshold]
+                        
+                        for _, row in high_spenders.iterrows():
+                            amount_val = float(row.get(amount_col, 0))
+                            self.customer_anomalies.append({
+                                "type": "HIGH_RECENT_SPENDING",
+                                "severity": "LOW",
+                                "customer": row[customer_col],
+                                "amount": amount_val,
+                                "message": f"Unusually high spending: {row[customer_col]} spent ${amount_val:,.2f} in 30 days",
+                                "confidence": 60
+                            })
         
         return self.customer_anomalies
     
@@ -850,18 +902,19 @@ def anomaly_detection_dashboard():
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 sales_df = sales_df.dropna(subset=[date_col])
                 sales_df = convert_df_column_to_float(sales_df, amount_col)
+                sales_df[amount_col] = ensure_numeric_series(sales_df[amount_col])
                 
                 daily_sales = sales_df.groupby(sales_df[date_col].dt.date)[amount_col].sum().reset_index()
                 daily_sales.columns = ["date", "sales"]
-                daily_sales["sales"] = daily_sales["sales"].astype(float)
+                daily_sales["sales"] = ensure_numeric_series(daily_sales["sales"])
                 
                 if len(daily_sales) >= 7:
                     daily_sales["ma_7"] = daily_sales["sales"].rolling(window=7, min_periods=1).mean()
                     daily_sales["ma_30"] = daily_sales["sales"].rolling(window=30, min_periods=1).mean()
                     
                     daily_sales["is_anomaly"] = False
-                    mean = daily_sales["sales"].mean()
-                    std = daily_sales["sales"].std()
+                    mean = float(daily_sales["sales"].mean())
+                    std = float(daily_sales["sales"].std())
                     
                     if std > 0:
                         daily_sales["z_score"] = (daily_sales["sales"] - mean) / std
@@ -929,6 +982,7 @@ def anomaly_detection_dashboard():
                     daily_sales["day_name"] = daily_sales["day_of_week"].apply(lambda x: day_names[x])
                     
                     weekly_avg = daily_sales.groupby("day_name")["sales"].mean().reset_index()
+                    weekly_avg["sales"] = ensure_numeric_series(weekly_avg["sales"])
                     
                     fig = px.bar(
                         weekly_avg,
