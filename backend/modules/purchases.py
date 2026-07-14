@@ -66,6 +66,9 @@ def create_purchase_order(supplier, items, expected_date):
 # ==============================
 # RECEIVE PURCHASE ORDER - FIXED STOCK UPDATE
 # ==============================
+# backend/purchases/purchases.py
+# Replace the receive_purchase_order function with this fixed version
+
 def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
     
@@ -84,25 +87,64 @@ def receive_purchase_order(po_number, received_items, invoice_no):
     updated_products = []
     new_products = []
     
+    # Get all rows for this PO
+    po_mask = purchases_df["po_number"] == po_number
+    po_items_indices = purchases_df[po_mask].index.tolist()
+    
+    # Create a mapping of barcode/name to index for this PO
+    po_items_mapping = {}
+    for idx in po_items_indices:
+        row = purchases_df.loc[idx]
+        barcode = str(row.get("barcode", "")).strip()
+        product_name = str(row.get("product_name", "")).strip()
+        
+        # Use barcode as primary key, fallback to product name
+        key = barcode if barcode else product_name
+        if key:
+            po_items_mapping[key] = idx
+    
+    # Process each received item
     for item in received_items:
         # Skip items with 0 received quantity
         if item["received_qty"] <= 0:
             continue
-            
-        mask = (purchases_df["po_number"] == po_number) & (purchases_df["barcode"] == str(item["barcode"]))
-        idx = purchases_df[mask].index
         
+        barcode = str(item.get("barcode", "")).strip()
+        product_name = str(item.get("name", "")).strip()
         received_qty = int(item["received_qty"])
         cost_price = float(item["cost"])
-        barcode = str(item["barcode"])
-        product_name = item["name"]
         
-        if len(idx) > 0:
+        # Find the matching PO item
+        matching_idx = None
+        
+        # First try to match by barcode
+        if barcode:
+            for key, idx in po_items_mapping.items():
+                if key == barcode:
+                    matching_idx = idx
+                    break
+        
+        # If not found by barcode, try by product name
+        if matching_idx is None and product_name:
+            for key, idx in po_items_mapping.items():
+                if key.lower() == product_name.lower():
+                    matching_idx = idx
+                    break
+        
+        # If still not found, try a more flexible match
+        if matching_idx is None:
+            for key, idx in po_items_mapping.items():
+                # Check if key contains product name or vice versa
+                if product_name and key and (product_name.lower() in key.lower() or key.lower() in product_name.lower()):
+                    matching_idx = idx
+                    break
+        
+        if matching_idx is not None:
             # Update purchase record
-            purchases_df.loc[idx, "quantity_received"] = received_qty
-            purchases_df.loc[idx, "date_received"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            purchases_df.loc[idx, "status"] = "RECEIVED"
-            purchases_df.loc[idx, "invoice_no"] = invoice_no
+            purchases_df.loc[matching_idx, "quantity_received"] = received_qty
+            purchases_df.loc[matching_idx, "date_received"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            purchases_df.loc[matching_idx, "status"] = "RECEIVED"
+            purchases_df.loc[matching_idx, "invoice_no"] = invoice_no
             
             # Update product stock in inventory
             product_idx = products_df[products_df["barcode"] == barcode].index
@@ -139,13 +181,56 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "stock": received_qty,
                     "cost": cost_price
                 })
+        else:
+            # Item not found in PO - add as new item to the PO
+            st.warning(f"Item '{product_name}' not found in purchase order. Adding as new item.")
+            
+            # Add new row to purchases_df
+            new_row = {
+                "po_number": po_number,
+                "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "supplier": purchases_df[purchases_df["po_number"] == po_number].iloc[0].get("supplier", "Unknown"),
+                "product_name": product_name,
+                "barcode": barcode,
+                "quantity_ordered": received_qty,
+                "cost_price": cost_price,
+                "total_cost": received_qty * cost_price,
+                "expected_date": datetime.now().strftime("%Y-%m-%d"),
+                "date_received": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "quantity_received": received_qty,
+                "status": "RECEIVED",
+                "payment_status": "UNPAID",
+                "invoice_no": invoice_no
+            }
+            
+            # Ensure all columns exist
+            for col in purchases_df.columns:
+                if col not in new_row:
+                    new_row[col] = ""
+            
+            purchases_df = pd.concat([purchases_df, pd.DataFrame([new_row])], ignore_index=True)
+    
+    # Check if all items in PO have been received
+    po_items = purchases_df[purchases_df["po_number"] == po_number]
+    all_received = True
+    for idx in po_items.index:
+        qty_ordered = int(po_items.loc[idx].get("quantity_ordered", 0))
+        qty_received = int(po_items.loc[idx].get("quantity_received", 0))
+        if qty_received < qty_ordered:
+            all_received = False
+            break
+    
+    # Update PO status
+    if all_received:
+        purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "COMPLETED"
+    else:
+        purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "PARTIALLY_RECEIVED"
     
     # Save all changes
     save_products(products_df)
     save_purchases(purchases_df)
     
     return True, updated_products, new_products
-
 
 # ==============================
 # SUPPLIER PERFORMANCE
