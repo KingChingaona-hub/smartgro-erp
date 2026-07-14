@@ -502,13 +502,14 @@ def purchases_page():
                             "cost": float(manual_item_cost),
                             "total": float(manual_item_cost) * int(manual_item_qty)
                         })
-                    
-                    st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
+                        st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
+                    else:
+                        st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                 else:
                     st.error("Please enter an item name")
                 
                 st.session_state.button_clicked = False
-                st.rerun()
+                st.rerun()  # <-- THIS WAS COMMENTED OUT, NOW FIXED
         
         # Display PO Cart
         if st.session_state.po_cart:
