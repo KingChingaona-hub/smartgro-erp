@@ -463,53 +463,54 @@ def purchases_page():
                     st.session_state.button_clicked = False
                     st.rerun()
         
-        # Manual item entry
+        # Manual item entry - FIXED VERSION
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
-        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+        # Use a form for manual entry to prevent premature reruns
+        with st.form(key="manual_item_form"):
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            
+            with col1:
+                manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
+            
+            with col2:
+                manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
+            
+            with col3:
+                manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
+            
+            with col4:
+                add_manual_button = st.form_submit_button("Add Manual Item", use_container_width=True)
         
-        with col1:
-            manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
-        
-        with col2:
-            manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
-        
-        with col3:
-            manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
-        
-        with col4:
-            add_manual_button = st.button("Add Manual Item", key="add_manual", use_container_width=True)
-            if add_manual_button and not st.session_state.button_clicked:
-                st.session_state.button_clicked = True
+        # Process manual item outside the form
+        if add_manual_button:
+            if manual_item_name and manual_item_name.strip():
+                # Check if item already exists in cart
+                existing = False
+                for item in st.session_state.po_cart:
+                    if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
+                        item["quantity"] += int(manual_item_qty)
+                        item["total"] = item["quantity"] * item["cost"]
+                        existing = True
+                        break
                 
-                if manual_item_name and manual_item_name.strip():
-                    # Check if item already exists in cart
-                    existing = False
-                    for item in st.session_state.po_cart:
-                        if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                            item["quantity"] += int(manual_item_qty)
-                            item["total"] = item["quantity"] * item["cost"]
-                            existing = True
-                            break
-                    
-                    if not existing:
-                        unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-                        st.session_state.po_cart.append({
-                            "barcode": unique_barcode,
-                            "name": str(manual_item_name).strip(),
-                            "quantity": int(manual_item_qty),
-                            "cost": float(manual_item_cost),
-                            "total": float(manual_item_cost) * int(manual_item_qty)
-                        })
-                        st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
-                    else:
-                        st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
+                if not existing:
+                    unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+                    st.session_state.po_cart.append({
+                        "barcode": unique_barcode,
+                        "name": str(manual_item_name).strip(),
+                        "quantity": int(manual_item_qty),
+                        "cost": float(manual_item_cost),
+                        "total": float(manual_item_cost) * int(manual_item_qty)
+                    })
+                    st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
                 else:
-                    st.error("Please enter an item name")
+                    st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                 
-                st.session_state.button_clicked = False
-                st.rerun()  # <-- THIS WAS COMMENTED OUT, NOW FIXED
+                st.rerun()
+            else:
+                st.error("Please enter an item name")
         
         # Display PO Cart
         if st.session_state.po_cart:
