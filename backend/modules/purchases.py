@@ -338,6 +338,13 @@ def purchases_page():
         st.session_state.last_received_po = None
     if "button_clicked" not in st.session_state:
         st.session_state.button_clicked = False
+    if "cart_updated" not in st.session_state:
+        st.session_state.cart_updated = False
+    
+    # Handle cart update flag
+    if st.session_state.cart_updated:
+        st.session_state.cart_updated = False
+        st.rerun()
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -454,7 +461,7 @@ def purchases_page():
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
                         st.session_state.button_clicked = False
-                        st.rerun()  # FIXED: Uncommented to refresh cart
+                        st.session_state.cart_updated = True
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
@@ -462,7 +469,7 @@ def purchases_page():
                     st.session_state.button_clicked = True
                     st.session_state.po_cart = []
                     st.session_state.button_clicked = False
-                    st.rerun()
+                    st.session_state.cart_updated = True
         
         # Manual item entry
         st.markdown("### Manual Item Entry")
@@ -509,7 +516,7 @@ def purchases_page():
                 else:
                     st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                 
-                st.rerun()  # FIXED: Uncommented to refresh cart
+                st.session_state.cart_updated = True
             else:
                 st.error("Please enter an item name")
         
@@ -541,7 +548,7 @@ def purchases_page():
                     st.session_state.button_clicked = True
                     st.session_state.po_cart = []
                     st.session_state.button_clicked = False
-                    st.rerun()
+                    st.session_state.cart_updated = True
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", use_container_width=True)
@@ -629,7 +636,7 @@ Contact: +263 78 290 5853
                                 use_container_width=True
                             )
                             
-                            st.rerun()
+                            st.session_state.cart_updated = True
                     
                     st.session_state.button_clicked = False
         else:
@@ -752,14 +759,14 @@ Contact: +263 78 290 5853
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
                                         
-                                        st.rerun()
+                                        st.session_state.cart_updated = True
                                 
                                 st.session_state.button_clicked = False
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
                             if refresh_button and not st.session_state.button_clicked:
-                                st.rerun()
+                                st.session_state.cart_updated = True
     
     # ==============================
     # TAB 3: SUPPLIER PERFORMANCE
