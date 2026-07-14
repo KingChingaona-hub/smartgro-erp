@@ -454,7 +454,7 @@ def purchases_page():
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
                         st.session_state.button_clicked = False
-                        st.rerun()
+                        #st.rerun()
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
@@ -509,7 +509,7 @@ def purchases_page():
                 else:
                     st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                 
-                st.rerun()
+                #st.rerun()
             else:
                 st.error("Please enter an item name")
         
@@ -616,7 +616,7 @@ Terms: Payment due upon receipt
 Order Status: PENDING - Awaiting delivery
 
 {'='*50}
-Aziel Investments - Retail Park, Harare
+Aziel Investments - Retreat Park, Harare
 Contact: +263 78 290 5853
 {'='*50}
 """
