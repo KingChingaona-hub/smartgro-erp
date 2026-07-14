@@ -325,7 +325,7 @@ def purchases_page():
     
     products_df = load_products()
     
-    # Initialize session state
+    # Initialize session state - LIKE POS
     if "po_cart" not in st.session_state:
         st.session_state.po_cart = []
     if "po_created" not in st.session_state:
@@ -336,8 +336,6 @@ def purchases_page():
         st.session_state.stock_updated = False
     if "last_received_po" not in st.session_state:
         st.session_state.last_received_po = None
-    if "action_processed" not in st.session_state:
-        st.session_state.action_processed = False
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -429,9 +427,7 @@ def purchases_page():
             with col3:
                 if selected_product is not None:
                     add_button = st.button("Add to Order", key="add_to_po", use_container_width=True)
-                    if add_button and not st.session_state.action_processed:
-                        st.session_state.action_processed = True
-                        
+                    if add_button:
                         existing = False
                         barcode_str = str(selected_product["barcode"])
                         for item in st.session_state.po_cart:
@@ -453,66 +449,59 @@ def purchases_page():
                             })
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
-                        st.rerun()
+                        # NO rerun() - let Streamlit handle it naturally
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
-                if clear_button and not st.session_state.action_processed:
-                    st.session_state.action_processed = True
+                if clear_button:
                     st.session_state.po_cart = []
-                    st.rerun()
+                    st.success("Cart cleared!")
+                    # NO rerun() - let Streamlit handle it naturally
         
         # Manual item entry
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
-        with st.form(key="manual_item_form"):
-            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-            
-            with col1:
-                manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
-            
-            with col2:
-                manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
-            
-            with col3:
-                manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
-            
-            with col4:
-                add_manual_button = st.form_submit_button("Add Manual Item", use_container_width=True)
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
-        # Process manual item outside the form
-        if add_manual_button and not st.session_state.action_processed:
-            st.session_state.action_processed = True
-            
-            if manual_item_name and manual_item_name.strip():
-                # Check if item already exists in cart - match by name AND cost
-                existing = False
-                for item in st.session_state.po_cart:
-                    if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                        # Update quantity - ADD to existing
-                        item["quantity"] = item["quantity"] + int(manual_item_qty)
-                        item["total"] = item["quantity"] * item["cost"]
-                        existing = True
-                        break
-                
-                if not existing:
-                    unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-                    st.session_state.po_cart.append({
-                        "barcode": unique_barcode,
-                        "name": str(manual_item_name).strip(),
-                        "quantity": int(manual_item_qty),
-                        "cost": float(manual_item_cost),
-                        "total": float(manual_item_cost) * int(manual_item_qty)
-                    })
-                    st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
+        with col1:
+            manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
+        
+        with col2:
+            manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
+        
+        with col3:
+            manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
+        
+        with col4:
+            add_manual_button = st.button("Add Manual Item", key="add_manual", use_container_width=True)
+            if add_manual_button:
+                if manual_item_name and manual_item_name.strip():
+                    # Check if item already exists in cart - match by name AND cost
+                    existing = False
+                    for item in st.session_state.po_cart:
+                        if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
+                            # Update quantity - ADD to existing
+                            item["quantity"] = item["quantity"] + int(manual_item_qty)
+                            item["total"] = item["quantity"] * item["cost"]
+                            existing = True
+                            break
+                    
+                    if not existing:
+                        unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+                        st.session_state.po_cart.append({
+                            "barcode": unique_barcode,
+                            "name": str(manual_item_name).strip(),
+                            "quantity": int(manual_item_qty),
+                            "cost": float(manual_item_cost),
+                            "total": float(manual_item_cost) * int(manual_item_qty)
+                        })
+                        st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
+                    else:
+                        st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
+                    # NO rerun() - let Streamlit handle it naturally
                 else:
-                    st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
-                
-                st.rerun()
-            else:
-                st.error("Please enter an item name")
-                st.session_state.action_processed = False
+                    st.error("Please enter an item name")
         
         # Display PO Cart
         st.markdown("---")
@@ -538,22 +527,18 @@ def purchases_page():
             
             with col1:
                 clear_all_button = st.button("Clear All Items", key="clear_all_items_btn", use_container_width=True)
-                if clear_all_button and not st.session_state.action_processed:
-                    st.session_state.action_processed = True
+                if clear_all_button:
                     st.session_state.po_cart = []
-                    st.rerun()
+                    st.success("Cart cleared!")
+                    # NO rerun() - let Streamlit handle it naturally
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
-                if create_po_button and not st.session_state.action_processed:
-                    st.session_state.action_processed = True
-                    
+                if create_po_button:
                     if not supplier_name or not supplier_name.strip():
                         st.error("Please enter a supplier name")
-                        st.session_state.action_processed = False
                     elif not st.session_state.po_cart:
                         st.error("Cart is empty. Add products to create a purchase order.")
-                        st.session_state.action_processed = False
                     else:
                         # Get current cart items before clearing
                         cart_items = st.session_state.po_cart.copy()
@@ -568,7 +553,6 @@ def purchases_page():
                         
                         if error:
                             st.error(error)
-                            st.session_state.action_processed = False
                         else:
                             existing_df = load_purchases()
                             
@@ -637,13 +621,9 @@ Contact: +263 78 290 5853
                                 use_container_width=True
                             )
                             
-                            st.rerun()
+                            # DO NOT call st.rerun() - let Streamlit handle it
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
-        
-        # Reset action_processed after successful rerun
-        if st.session_state.action_processed:
-            st.session_state.action_processed = False
     
     # ==============================
     # TAB 2: RECEIVE STOCK
@@ -736,12 +716,9 @@ Contact: +263 78 290 5853
                         
                         with col1:
                             confirm_button = st.button("Confirm Receipt and Update Stock", type="primary", use_container_width=True)
-                            if confirm_button and not st.session_state.action_processed:
-                                st.session_state.action_processed = True
-                                
+                            if confirm_button:
                                 if not invoice_no:
                                     st.error("Please enter supplier invoice number")
-                                    st.session_state.action_processed = False
                                 else:
                                     success, updated_products, new_products = receive_purchase_order(
                                         selected_po, received_items, invoice_no
@@ -762,13 +739,10 @@ Contact: +263 78 290 5853
                                             st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
-                                        
-                                        st.rerun()
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
-                            if refresh_button and not st.session_state.action_processed:
-                                st.session_state.action_processed = True
+                            if refresh_button:
                                 st.rerun()
     
     # ==============================
