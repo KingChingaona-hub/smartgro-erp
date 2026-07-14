@@ -173,7 +173,7 @@ def apply_branch_selection_theme():
 
 def theme_selector():
     """Theme selector - DISABLED, show message only"""
-    st.sidebar.markdown("### 🎨 Theme Settings")
+    st.sidebar.markdown("### Theme Settings")
     st.sidebar.info("Themes are temporarily disabled. Using default Streamlit styling.")
     
     # Still keep the theme preference for future use

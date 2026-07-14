@@ -93,21 +93,21 @@ def load_expenses_direct():
     """Load expenses directly from CSV file - bypasses the module"""
     try:
         if not EXPENSES_FILE.exists():
-            print(f"⚠️ Expenses file not found: {EXPENSES_FILE}")
+            print(f"Expenses file not found: {EXPENSES_FILE}")
             return pd.DataFrame()
         
         df = pd.read_csv(EXPENSES_FILE)
-        print(f"✅ Loaded {len(df)} expenses from CSV")
+        print(f"Loaded {len(df)} expenses from CSV")
         
         if df.empty:
-            print("⚠️ Expenses file is empty")
+            print("Expenses file is empty")
             return df
         
         # Ensure required columns
         required_cols = ["date", "category", "amount", "description"]
         for col in required_cols:
             if col not in df.columns:
-                print(f"⚠️ Missing column: {col}")
+                print(f"Missing column: {col}")
                 df[col] = ""
         
         # Convert date to datetime
@@ -118,12 +118,12 @@ def load_expenses_direct():
         if "amount" in df.columns:
             df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
         
-        print(f"📊 Expenses columns: {df.columns.tolist()}")
-        print(f"📊 Expenses sample: {df.head(3)}")
+        print(f"Expenses columns: {df.columns.tolist()}")
+        print(f"Expenses sample: {df.head(3)}")
         
         return df
     except Exception as e:
-        print(f"❌ Error loading expenses: {e}")
+        print(f"Error loading expenses: {e}")
         return pd.DataFrame()
 
 
@@ -146,9 +146,9 @@ def get_period_data(period_type, year, month=None, quarter=None):
     # ============================================================
     # DEBUG: Print column names to see what we're working with
     # ============================================================
-    print(f"📊 Sales columns: {sales_df.columns.tolist() if not sales_df.empty else 'EMPTY'}")
-    print(f"📊 Expenses rows: {len(expenses_df) if not expenses_df.empty else 0}")
-    print(f"📊 Expenses columns: {expenses_df.columns.tolist() if not expenses_df.empty else 'EMPTY'}")
+    print(f"Sales columns: {sales_df.columns.tolist() if not sales_df.empty else 'EMPTY'}")
+    print(f"Expenses rows: {len(expenses_df) if not expenses_df.empty else 0}")
+    print(f"Expenses columns: {expenses_df.columns.tolist() if not expenses_df.empty else 'EMPTY'}")
     
     # ============================================================
     # SALES DATA
@@ -189,7 +189,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
     expense_categories = {}
     
     if not expenses_df.empty:
-        print(f"📊 Processing {len(expenses_df)} expense records")
+        print(f"Processing {len(expenses_df)} expense records")
         
         # Find the date column
         date_col = None
@@ -212,9 +212,9 @@ def get_period_data(period_type, year, month=None, quarter=None):
                 category_col = col
                 break
         
-        print(f"📊 Expense date column: {date_col}")
-        print(f"📊 Expense amount column: {amount_col}")
-        print(f"📊 Expense category column: {category_col}")
+        print(f"Expense date column: {date_col}")
+        print(f"Expense amount column: {amount_col}")
+        print(f"Expense category column: {category_col}")
         
         if date_col and amount_col:
             # Ensure date is datetime
@@ -224,27 +224,27 @@ def get_period_data(period_type, year, month=None, quarter=None):
             # Filter by date range
             period_expenses = expenses_df[(expenses_df[date_col] >= start_date) & (expenses_df[date_col] <= end_date)]
             
-            print(f"📊 Period expenses: {len(period_expenses)} rows after date filter")
-            print(f"📊 Date range: {start_date} to {end_date}")
+            print(f"Period expenses: {len(period_expenses)} rows after date filter")
+            print(f"Date range: {start_date} to {end_date}")
             
             if not period_expenses.empty:
                 total_expenses = to_float(period_expenses[amount_col].sum())
-                print(f"📊 Total expenses: ${total_expenses:,.2f}")
+                print(f"Total expenses: ${total_expenses:,.2f}")
                 
                 # Get expenses by category if category column exists
                 if category_col:
                     category_summary = period_expenses.groupby(category_col)[amount_col].sum().to_dict()
                     expense_categories = {str(k): to_float(v) for k, v in category_summary.items()}
-                    print(f"📊 Expense categories: {expense_categories}")
+                    print(f"Expense categories: {expense_categories}")
             else:
-                print(f"⚠️ No expenses found in date range")
+                print(f"No expenses found in date range")
                 # Show available dates
                 if not expenses_df.empty and date_col:
-                    print(f"📊 Available expense dates: {expenses_df[date_col].min()} to {expenses_df[date_col].max()}")
+                    print(f"Available expense dates: {expenses_df[date_col].min()} to {expenses_df[date_col].max()}")
         else:
-            print(f"⚠️ Missing date or amount column in expenses")
+            print(f"Missing date or amount column in expenses")
     else:
-        print(f"⚠️ No expense records found")
+        print(f"No expense records found")
     
     # ============================================================
     # PURCHASES DATA
@@ -516,52 +516,52 @@ For official ZIMRA filing, please consult with your accountant.
 def financial_closing_dashboard():
     """Financial Closing Management Dashboard with REAL data"""
     
-    st.title("💰 Automated Financial Closing")
+    st.title("Automated Financial Closing")
     st.caption("End-of-day, month-end, and year-end closing with real data")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can perform financial closing.")
+        st.error("Access Denied. Only owners and managers can perform financial closing.")
         return
     
     init_closing_files()
     
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📅 Daily Closing",
-        "📆 Month-End Closing",
-        "📊 Tax Reports",
-        "📁 Closing History"
+        "Daily Closing",
+        "Month-End Closing",
+        "Tax Reports",
+        "Closing History"
     ])
     
     # ==============================
     # TAB 1: DAILY CLOSING
     # ==============================
     with tab1:
-        st.markdown("## 📅 End-of-Day Closing")
+        st.markdown("## End-of-Day Closing")
         st.caption("Close the day's transactions and generate report")
         
         # Show debug info
         with st.expander("🔧 Debug - Check Expenses Data"):
             expenses_df = load_expenses_direct()
             if not expenses_df.empty:
-                st.success(f"✅ Expenses data loaded: {len(expenses_df)} records")
-                st.write(f"📊 Columns: {expenses_df.columns.tolist()}")
+                st.success(f"Expenses data loaded: {len(expenses_df)} records")
+                st.write(f"Columns: {expenses_df.columns.tolist()}")
                 st.write("**Sample data:**")
                 st.dataframe(expenses_df.head(5))
                 
                 # Show date range
                 if "date" in expenses_df.columns:
                     expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
-                    st.write(f"📅 Date range: {expenses_df['date'].min()} to {expenses_df['date'].max()}")
+                    st.write(f"Date range: {expenses_df['date'].min()} to {expenses_df['date'].max()}")
                     
                     # Show total expenses
                     if "amount" in expenses_df.columns:
                         total_exp = expenses_df["amount"].sum()
-                        st.write(f"💰 Total expenses (all time): ${total_exp:,.2f}")
+                        st.write(f"Total expenses (all time): ${total_exp:,.2f}")
             else:
-                st.warning("⚠️ No expenses data found!")
-                st.info("💡 Please record some expenses first in the Expenses module.")
+                st.warning("No expenses data found!")
+                st.info("Please record some expenses first in the Expenses module.")
                 
                 # Check if file exists
                 if EXPENSES_FILE.exists():
@@ -576,9 +576,9 @@ def financial_closing_dashboard():
                             if len(lines) > 1:
                                 st.write(f"📁 First data row: {lines[1]}")
                     except Exception as e:
-                        st.write(f"❌ Error reading file: {e}")
+                        st.write(f"Error reading file: {e}")
                 else:
-                    st.write(f"❌ File does not exist at: {EXPENSES_FILE.absolute()}")
+                    st.write(f"File does not exist at: {EXPENSES_FILE.absolute()}")
         
         today_data = get_period_data("daily", datetime.now().year, datetime.now().month)
         today_data["period_type"] = "daily"
@@ -595,40 +595,40 @@ def financial_closing_dashboard():
             st.metric("Items Sold", today_data['items_sold'])
         
         st.markdown("---")
-        st.warning("⚠️ Performing daily closing will create a backup and generate a closing report.")
+        st.warning("Performing daily closing will create a backup and generate a closing report.")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📅 Perform Daily Closing", type="primary", use_container_width=True):
+            if st.button("Perform Daily Closing", type="primary", use_container_width=True):
                 with st.spinner("Performing daily closing..."):
                     success, report_path, backup_path = perform_daily_close()
                     if success:
-                        st.success("✅ Daily closing completed successfully!")
-                        st.info(f"📄 Report saved: {report_path}")
-                        st.info(f"💾 Backup created: {backup_path}")
+                        st.success("Daily closing completed successfully!")
+                        st.info(f"Report saved: {report_path}")
+                        st.info(f"Backup created: {backup_path}")
                         
                         with open(report_path, "rb") as f:
                             st.download_button(
-                                label="📥 Download Closing Report (PDF)",
+                                label="Download Closing Report (PDF)",
                                 data=f,
                                 file_name=f"daily_close_{datetime.now().strftime('%Y%m%d')}.pdf",
                                 mime="application/pdf"
                             )
                     else:
-                        st.error("❌ Daily closing failed")
+                        st.error("Daily closing failed")
         
         with col2:
             closing_files = list(CLOSING_DIR.glob("daily_close_*.pdf"))
             if closing_files:
                 latest = max(closing_files, key=lambda x: x.stat().st_mtime)
-                st.info(f"📁 Last closing: {latest.name}")
+                st.info(f"Last closing: {latest.name}")
     
     # ==============================
     # TAB 2: MONTH-END CLOSING
     # ==============================
     with tab2:
-        st.markdown("## 📆 Month-End Closing")
+        st.markdown("## Month-End Closing")
         st.caption("Close the month's transactions and generate financial report")
         
         col1, col2 = st.columns(2)
@@ -642,7 +642,7 @@ def financial_closing_dashboard():
         month_data = get_period_data("monthly", close_year, close_month)
         month_data["period_type"] = "monthly"
         
-        st.markdown("### 📊 Month Summary")
+        st.markdown("### Month Summary")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -657,31 +657,31 @@ def financial_closing_dashboard():
             st.metric("Transactions", month_data['transaction_count'])
         
         st.markdown("---")
-        st.warning("⚠️ Month-end closing will create a backup and generate a comprehensive monthly report.")
+        st.warning("Month-end closing will create a backup and generate a comprehensive monthly report.")
         
-        if st.button("📆 Perform Month-End Closing", type="primary", use_container_width=True):
+        if st.button("Perform Month-End Closing", type="primary", use_container_width=True):
             with st.spinner("Performing month-end closing..."):
                 success, report_path, backup_path = perform_monthly_close(close_year, close_month)
                 if success:
-                    st.success(f"✅ Month-end closing completed for {close_year}-{close_month:02d}!")
-                    st.info(f"📄 Report saved: {report_path}")
-                    st.info(f"💾 Backup created: {backup_path}")
+                    st.success(f"Month-end closing completed for {close_year}-{close_month:02d}!")
+                    st.info(f"Report saved: {report_path}")
+                    st.info(f"Backup created: {backup_path}")
                     
                     with open(report_path, "rb") as f:
                         st.download_button(
-                            label="📥 Download Monthly Report (PDF)",
+                            label="Download Monthly Report (PDF)",
                             data=f,
                             file_name=f"monthly_close_{close_year}_{close_month:02d}.pdf",
                             mime="application/pdf"
                         )
                 else:
-                    st.error("❌ Month-end closing failed")
+                    st.error("Month-end closing failed")
     
     # ==============================
     # TAB 3: TAX REPORTS
     # ==============================
     with tab3:
-        st.markdown("## 📊 Tax Reports (ZIMRA Format)")
+        st.markdown("## Tax Reports (ZIMRA Format)")
         st.caption("Generate tax reports for ZIMRA filing")
         
         col1, col2 = st.columns(2)
@@ -692,14 +692,14 @@ def financial_closing_dashboard():
         with col2:
             tax_period = st.selectbox("Tax Period", ["Annual", "Quarterly"], key="tax_period")
         
-        if st.button("📊 Generate Tax Report", type="primary", use_container_width=True):
+        if st.button("Generate Tax Report", type="primary", use_container_width=True):
             with st.spinner("Generating tax report..."):
                 tax_report = generate_tax_report(tax_year, tax_period.lower())
                 
                 st.text_area("Tax Report Preview", tax_report, height=400)
                 
                 st.download_button(
-                    label="📥 Download Tax Report (TXT)",
+                    label="Download Tax Report (TXT)",
                     data=tax_report,
                     file_name=f"zimra_tax_report_{tax_year}_{tax_period.lower()}.txt",
                     mime="text/plain"
@@ -719,7 +719,7 @@ def financial_closing_dashboard():
     # TAB 4: CLOSING HISTORY
     # ==============================
     with tab4:
-        st.markdown("## 📁 Closing History")
+        st.markdown("## Closing History")
         st.caption("View all previous closing reports and backups")
         
         closing_reports = list(CLOSING_DIR.glob("*.pdf"))
@@ -741,7 +741,7 @@ def financial_closing_dashboard():
                 report_path = CLOSING_DIR / selected_report
                 with open(report_path, "rb") as f:
                     st.download_button(
-                        label="📥 Download Selected Report",
+                        label="Download Selected Report",
                         data=f,
                         file_name=selected_report,
                         mime="application/pdf"
@@ -749,7 +749,7 @@ def financial_closing_dashboard():
         else:
             st.info("No closing reports found. Perform a closing to generate reports.")
         
-        st.markdown("### 💾 Backup History")
+        st.markdown("### Backup History")
         
         backups = list(BACKUP_DIR.iterdir())
         if backups:

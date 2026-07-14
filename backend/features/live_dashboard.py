@@ -443,7 +443,7 @@ def live_dashboard():
     
     # Show countdown
     remaining = max(0, 10 - int(time_since))
-    refresh_placeholder.info(f"🔄 Auto-refreshing in {remaining} seconds...")
+    refresh_placeholder.info(f"Auto-refreshing in {remaining} seconds...")
     
     # Get live metrics
     metrics = get_live_metrics()
@@ -451,13 +451,13 @@ def live_dashboard():
     # ==============================
     # TOP METRICS ROW
     # ==============================
-    st.markdown("## 📊 Live Metrics")
+    st.markdown("## Live Metrics")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
-            "💰 Today's Sales",
+            "Today's Sales",
             f"${metrics['total_today']:,.2f}",
             delta=f"+${metrics['last_hour_amount']:.0f} last hour",
             delta_color="normal"
@@ -472,14 +472,14 @@ def live_dashboard():
     
     with col3:
         st.metric(
-            "📦 Items Sold",
+            "Items Sold",
             f"{metrics['items_today']}",
             help="Total items sold today"
         )
     
     with col4:
         st.metric(
-            "⏰ Last Updated",
+            "Last Updated",
             metrics['current_time'],
             help=f"Date: {metrics['current_date']}"
         )
@@ -489,21 +489,21 @@ def live_dashboard():
     
     with col1:
         st.metric(
-            "📊 All-Time Sales",
+            "All-Time Sales",
             f"${metrics.get('total_all_time', 0):,.2f}",
             help="Total sales all time"
         )
     
     with col2:
         st.metric(
-            "📦 Total Products",
+            "Total Products",
             f"{metrics.get('total_products', 0)}",
             help="Total products in inventory"
         )
     
     with col3:
         st.metric(
-            "🚫 Out of Stock",
+            "Out of Stock",
             f"{metrics['out_of_stock']}",
             delta="⚠️" if metrics['out_of_stock'] > 0 else "✅",
             help="Products with zero stock"
@@ -511,7 +511,7 @@ def live_dashboard():
     
     with col4:
         st.metric(
-            "⚠️ Low Stock",
+            "Low Stock",
             f"{metrics['low_stock']}",
             delta="⚠️" if metrics['low_stock'] > 0 else "✅",
             help="Products below reorder level"
@@ -526,21 +526,21 @@ def live_dashboard():
     
     with col1:
         if metrics['out_of_stock'] > 0:
-            st.error(f"🚨 {metrics['out_of_stock']} products OUT OF STOCK!")
+            st.error(f"{metrics['out_of_stock']} products OUT OF STOCK!")
         else:
-            st.success("✅ No out of stock items")
+            st.success("No out of stock items")
     
     with col2:
         if metrics['low_stock'] > 0:
-            st.warning(f"⚠️ {metrics['low_stock']} products low on stock")
+            st.warning(f"{metrics['low_stock']} products low on stock")
         else:
-            st.success("✅ Stock levels healthy")
+            st.success("Stock levels healthy")
     
     with col3:
         if metrics['pending_purchases'] > 0:
-            st.info(f"📋 {metrics['pending_purchases']} pending purchase orders")
+            st.info(f"{metrics['pending_purchases']} pending purchase orders")
         else:
-            st.success("✅ No pending orders")
+            st.success("No pending orders")
     
     st.markdown("---")
     
@@ -550,7 +550,7 @@ def live_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("## 🏆 Top Products Today")
+        st.markdown("## Top Products Today")
         
         top_products = get_top_products_live()
         
@@ -572,7 +572,7 @@ def live_dashboard():
             st.info("No sales recorded today")
     
     with col2:
-        st.markdown("## 📈 Hourly Sales")
+        st.markdown("## Hourly Sales")
         
         hourly_sales = get_hourly_sales()
         
@@ -600,7 +600,7 @@ def live_dashboard():
     # ==============================
     # RECENT TRANSACTIONS
     # ==============================
-    st.markdown("## 📜 Recent Transactions")
+    st.markdown("## Recent Transactions")
     
     recent = get_recent_transactions()
     
@@ -618,7 +618,7 @@ def live_dashboard():
     # ==============================
     # QUICK ACTION BUTTONS
     # ==============================
-    st.markdown("## ⚡ Quick Actions")
+    st.markdown("## Quick Actions")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -628,17 +628,17 @@ def live_dashboard():
             st.rerun()
     
     with col2:
-        if st.button("📦 Check Stock", use_container_width=True):
+        if st.button("Check Stock", use_container_width=True):
             st.session_state.current_page = "Stock Dashboard"
             st.rerun()
     
     with col3:
-        if st.button("📋 View Purchases", use_container_width=True):
+        if st.button("View Purchases", use_container_width=True):
             st.session_state.current_page = "Purchases"
             st.rerun()
     
     with col4:
-        if st.button("🔄 Refresh Now", use_container_width=True):
+        if st.button("Refresh Now", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
     
@@ -646,7 +646,7 @@ def live_dashboard():
     # LIVE TICKER (Sales ticker) - FIXED (no marquee)
     # ==============================
     st.markdown("---")
-    st.markdown("## 📢 Live Sales Ticker")
+    st.markdown("## Live Sales Ticker")
     
     ticker_items = get_sales_ticker()
     
@@ -673,7 +673,7 @@ def live_dashboard():
     # SALES GAUGE (Daily Target)
     # ==============================
     st.markdown("---")
-    st.markdown("## 🎯 Daily Sales Target")
+    st.markdown("## Daily Sales Target")
     
     # Set daily target (can be configured)
     daily_target = 5000

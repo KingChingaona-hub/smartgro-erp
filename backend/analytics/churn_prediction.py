@@ -438,7 +438,7 @@ class ChurnPredictor:
             # Need both classes for training
             return False, "Need both churned and active customers for training. Try adding more data."
         
-        print(f"📊 Training data: {len(y)} customers ({n_churned} churned, {n_active} active)")
+        print(f"Training data: {len(y)} customers ({n_churned} churned, {n_active} active)")
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
@@ -554,13 +554,13 @@ class ChurnPredictor:
     def get_recommendation(self, probability):
         """Get recommendation based on probability"""
         if probability >= 0.7:
-            return "🚨 IMMEDIATE ACTION: Call customer and offer retention discount"
+            return "IMMEDIATE ACTION: Call customer and offer retention discount"
         elif probability >= 0.4:
-            return "📞 Send re-engagement offer and follow up"
+            return "Send re-engagement offer and follow up"
         elif probability >= 0.2:
-            return "📧 Send personalized recommendation email"
+            return "Send personalized recommendation email"
         else:
-            return "✅ Maintain regular communication"
+            return "Maintain regular communication"
 
 
 # ==============================
@@ -570,13 +570,13 @@ class ChurnPredictor:
 def churn_prediction_dashboard():
     """Customer Churn Prediction Dashboard"""
     
-    st.title("🎯 Customer Churn Prediction")
+    st.title("Customer Churn Prediction")
     st.caption("AI-powered churn prediction to help you retain customers")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access churn prediction.")
+        st.error("Access Denied. Only owners and managers can access churn prediction.")
         return
     
     # Load data
@@ -603,17 +603,17 @@ def churn_prediction_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Overview",
-        "🤖 Train Model",
-        "👥 At-Risk Customers",
-        "🔍 Customer Lookup"
+        "Overview",
+        "Train Model",
+        "At-Risk Customers",
+        "Customer Lookup"
     ])
     
     # ==============================
     # TAB 1: OVERVIEW
     # ==============================
     with tab1:
-        st.markdown("## 📊 Churn Prediction Overview")
+        st.markdown("## Churn Prediction Overview")
         
         # Calculate basic stats
         customer_col = get_customer_column(customers_df)
@@ -669,38 +669,38 @@ def churn_prediction_dashboard():
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("👥 Total Customers", total_customers)
+            st.metric("Total Customers", total_customers)
         with col2:
-            st.metric("🟢 Active Customers", active_customers)
+            st.metric("Active Customers", active_customers)
         with col3:
-            st.metric("🔴 Churned Customers", churned_customers)
+            st.metric("Churned Customers", churned_customers)
         with col4:
             churn_rate = (churned_customers / total_customers * 100) if total_customers > 0 else 0
-            st.metric("📉 Churn Rate", f"{churn_rate:.1f}%")
+            st.metric("Churn Rate", f"{churn_rate:.1f}%")
         
         # Model status
         st.markdown("---")
-        st.markdown("### 🤖 Model Status")
+        st.markdown("### Model Status")
         
         if st.session_state.churn_model_trained:
-            st.success("✅ Model is trained and ready")
+            st.success("Model is trained and ready")
             
             # Show model performance
             metrics = st.session_state.churn_model.performance_metrics
             if metrics:
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("🎯 Accuracy", f"{metrics.get('accuracy', 0)*100:.1f}%")
+                    st.metric("Accuracy", f"{metrics.get('accuracy', 0)*100:.1f}%")
                 with col2:
-                    st.metric("🎯 Precision", f"{metrics.get('precision', 0)*100:.1f}%")
+                    st.metric("Precision", f"{metrics.get('precision', 0)*100:.1f}%")
                 with col3:
-                    st.metric("🎯 Recall", f"{metrics.get('recall', 0)*100:.1f}%")
+                    st.metric("Recall", f"{metrics.get('recall', 0)*100:.1f}%")
                 with col4:
-                    st.metric("🎯 F1 Score", f"{metrics.get('f1', 0)*100:.1f}%")
+                    st.metric("F1 Score", f"{metrics.get('f1', 0)*100:.1f}%")
                 
                 # Feature importance
                 if hasattr(st.session_state.churn_model, "feature_importance"):
-                    st.markdown("### 📊 Feature Importance")
+                    st.markdown("### Feature Importance")
                     importance = st.session_state.churn_model.feature_importance
                     imp_df = pd.DataFrame({
                         "Feature": list(importance.keys()),
@@ -719,9 +719,9 @@ def churn_prediction_dashboard():
                     fig.update_layout(height=350)
                     st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("⚠️ Model not trained yet. Go to 'Train Model' tab to train.")
+            st.warning("Model not trained yet. Go to 'Train Model' tab to train.")
             
-            if st.button("🚀 Quick Train Model", use_container_width=True):
+            if st.button("Quick Train Model", use_container_width=True):
                 with st.spinner("Training model..."):
                     # Prepare data
                     rfm_df = calculate_rfm_metrics(
@@ -737,18 +737,18 @@ def churn_prediction_dashboard():
                         success, message = st.session_state.churn_model.train(features_df)
                         if success:
                             st.session_state.churn_model_trained = True
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                             st.rerun()
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
                     else:
-                        st.error("❌ Could not prepare features")
+                        st.error("Could not prepare features")
     
     # ==============================
     # TAB 2: TRAIN MODEL
     # ==============================
     with tab2:
-        st.markdown("## 🤖 Train Churn Prediction Model")
+        st.markdown("## Train Churn Prediction Model")
         
         st.info("""
         Train a machine learning model to predict which customers are likely to churn.
@@ -778,14 +778,14 @@ def churn_prediction_dashboard():
             customer_count = len(customers_df)
             sales_count = len(sales_df)
             
-            st.write(f"📊 **Customers:** {customer_count}")
-            st.write(f"📊 **Sales Records:** {sales_count}")
+            st.write(f"**Customers:** {customer_count}")
+            st.write(f"**Sales Records:** {sales_count}")
             
             # Show customer distribution
             if customer_col:
-                st.write(f"📊 **Customer Column:** {customer_col}")
+                st.write(f"**Customer Column:** {customer_col}")
         
-        if st.button("🚀 Train Model", type="primary", use_container_width=True):
+        if st.button("Train Model", type="primary", use_container_width=True):
             with st.spinner("Training model... This may take a few seconds."):
                 # Prepare features
                 rfm_df = calculate_rfm_metrics(
@@ -795,14 +795,14 @@ def churn_prediction_dashboard():
                 )
                 
                 if rfm_df.empty:
-                    st.error("❌ Could not calculate RFM metrics. Please ensure you have sales data.")
+                    st.error("Could not calculate RFM metrics. Please ensure you have sales data.")
                 else:
                     features_df = calculate_customer_features(
                         customers_df, rfm_df, loyalty_df, sales_df
                     )
                     
                     if features_df.empty:
-                        st.error("❌ Could not prepare features. Please check your data.")
+                        st.error("Could not prepare features. Please check your data.")
                     else:
                         st.session_state.churn_model = ChurnPredictor()
                         success, message = st.session_state.churn_model.train(
@@ -811,25 +811,25 @@ def churn_prediction_dashboard():
                         
                         if success:
                             st.session_state.churn_model_trained = True
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                             st.balloons()
                             
                             # Show metrics
                             metrics = st.session_state.churn_model.performance_metrics
                             col1, col2, col3, col4 = st.columns(4)
                             with col1:
-                                st.metric("✅ Accuracy", f"{metrics.get('accuracy', 0)*100:.1f}%")
+                                st.metric("Accuracy", f"{metrics.get('accuracy', 0)*100:.1f}%")
                             with col2:
-                                st.metric("✅ Precision", f"{metrics.get('precision', 0)*100:.1f}%")
+                                st.metric("Precision", f"{metrics.get('precision', 0)*100:.1f}%")
                             with col3:
-                                st.metric("✅ Recall", f"{metrics.get('recall', 0)*100:.1f}%")
+                                st.metric("Recall", f"{metrics.get('recall', 0)*100:.1f}%")
                             with col4:
-                                st.metric("✅ F1 Score", f"{metrics.get('f1', 0)*100:.1f}%")
+                                st.metric("F1 Score", f"{metrics.get('f1', 0)*100:.1f}%")
                             
                             # Confusion Matrix
                             cm = metrics.get("confusion_matrix", [[0, 0], [0, 0]])
                             if cm:
-                                st.markdown("### 📊 Confusion Matrix")
+                                st.markdown("### Confusion Matrix")
                                 cm_df = pd.DataFrame(
                                     cm,
                                     index=["Actual Active", "Actual Churned"],
@@ -838,19 +838,19 @@ def churn_prediction_dashboard():
                                 st.dataframe(cm_df, use_container_width=True)
                                 st.caption(f"ROC AUC: {metrics.get('roc_auc', 0):.3f}")
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
     
     # ==============================
     # TAB 3: AT-RISK CUSTOMERS
     # ==============================
     with tab3:
-        st.markdown("## 👥 At-Risk Customers")
+        st.markdown("## At-Risk Customers")
         
         if not st.session_state.churn_model_trained:
-            st.warning("⚠️ Model not trained yet. Please train the model first.")
+            st.warning("Model not trained yet. Please train the model first.")
         else:
             # Get predictions for all customers
-            if st.button("🔍 Identify At-Risk Customers", type="primary", use_container_width=True):
+            if st.button("Identify At-Risk Customers", type="primary", use_container_width=True):
                 with st.spinner("Analyzing customers..."):
                     rfm_df = calculate_rfm_metrics(
                         load_customer_transactions() if not load_customer_transactions().empty else pd.DataFrame(),
@@ -870,9 +870,9 @@ def churn_prediction_dashboard():
                                 st.session_state.churn_results = results.sort_values(
                                     "churn_probability", ascending=False
                                 )
-                                st.success(f"✅ {message}")
+                                st.success(f"{message}")
                             else:
-                                st.error(f"❌ {message}")
+                                st.error(f"{message}")
             
             # Display results
             if st.session_state.churn_results is not None:
@@ -899,11 +899,11 @@ def churn_prediction_dashboard():
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.error(f"🚨 High Risk: {high_risk}")
+                    st.error(f"High Risk: {high_risk}")
                 with col2:
-                    st.warning(f"⚠️ Medium Risk: {medium_risk}")
+                    st.warning(f"Medium Risk: {medium_risk}")
                 with col3:
-                    st.info(f"ℹ️ Low Risk: {low_risk}")
+                    st.info(f"Low Risk: {low_risk}")
                 
                 st.markdown("---")
                 
@@ -932,7 +932,7 @@ def churn_prediction_dashboard():
                 # Export
                 csv = filtered_df[available_cols].to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download At-Risk Customers (CSV)",
+                    label="Download At-Risk Customers (CSV)",
                     data=csv,
                     file_name=f"at_risk_customers_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
@@ -942,10 +942,10 @@ def churn_prediction_dashboard():
     # TAB 4: CUSTOMER LOOKUP
     # ==============================
     with tab4:
-        st.markdown("## 🔍 Customer Lookup")
+        st.markdown("## Customer Lookup")
         
         if not st.session_state.churn_model_trained:
-            st.warning("⚠️ Model not trained yet. Please train the model first.")
+            st.warning("Model not trained yet. Please train the model first.")
         else:
             customer_col = get_customer_column(customers_df)
             
@@ -984,7 +984,7 @@ def churn_prediction_dashboard():
                                 prediction = st.session_state.churn_model.predict(row)
                                 
                                 if prediction:
-                                    st.markdown("### 📊 Customer Risk Assessment")
+                                    st.markdown("### Customer Risk Assessment")
                                     
                                     col1, col2, col3 = st.columns(3)
                                     with col1:
@@ -1000,7 +1000,7 @@ def churn_prediction_dashboard():
                                         }.get(prediction["risk_level"], "❓")
                                         st.metric("Risk Level", f"{risk_color} {prediction['risk_level']}")
                                     
-                                    st.markdown("### 📈 Churn Probability")
+                                    st.markdown("### Churn Probability")
                                     
                                     fig_gauge = go.Figure(go.Indicator(
                                         mode="gauge+number",
@@ -1020,11 +1020,11 @@ def churn_prediction_dashboard():
                                     fig_gauge.update_layout(height=250)
                                     st.plotly_chart(fig_gauge, use_container_width=True)
                                     
-                                    st.markdown("### 💡 Recommendation")
+                                    st.markdown("### Recommendation")
                                     st.info(prediction["recommendation"])
                                     
                                     # Show customer details
-                                    with st.expander("📋 Customer Details"):
+                                    with st.expander("Customer Details"):
                                         details_cols = ["recency_days", "frequency", "monetary", "avg_order_value"]
                                         details = {col: row.get(col, 0) for col in details_cols}
                                         

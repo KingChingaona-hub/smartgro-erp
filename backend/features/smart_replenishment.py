@@ -216,13 +216,13 @@ def generate_auto_po(product, recommended_qty, supplier, settings):
 def smart_replenishment_dashboard():
     """Smart Replenishment Dashboard"""
     
-    st.title("📦 Smart Replenishment")
+    st.title("Smart Replenishment")
     st.caption("AI-powered automatic purchase order generation and inventory optimization")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access smart replenishment.")
+        st.error("Access Denied. Only owners and managers can access smart replenishment.")
         return
     
     init_replenishment_files()
@@ -242,18 +242,18 @@ def smart_replenishment_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Dashboard",
-        "🔄 Replenishment Recommendations",
-        "📋 Auto Purchase Orders",
-        "⚙️ Settings",
-        "📜 Replenishment Logs"
+        "Dashboard",
+        "Replenishment Recommendations",
+        "Auto Purchase Orders",
+        "Settings",
+        "Replenishment Logs"
     ])
     
     # ==============================
     # TAB 1: DASHBOARD
     # ==============================
     with tab1:
-        st.markdown("## 📊 Replenishment Dashboard")
+        st.markdown("## Replenishment Dashboard")
         
         # Find date column in sales data
         date_col = find_date_column(sales_df)
@@ -303,18 +303,18 @@ def smart_replenishment_dashboard():
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("🔄 Needs Replenishment", len(needs_df))
+            st.metric("Needs Replenishment", len(needs_df))
         with col2:
-            st.metric("📦 Total Products", len(products_df))
+            st.metric("Total Products", len(products_df))
         with col3:
             total_stock = products_df["stock"].sum()
-            st.metric("📊 Total Stock Units", f"{total_stock:,.0f}")
+            st.metric("Total Stock Units", f"{total_stock:,.0f}")
         with col4:
             low_stock = len(products_df[products_df["stock"] <= products_df["reorder_level"]])
-            st.metric("⚠️ Low Stock Items", low_stock)
+            st.metric("Low Stock Items", low_stock)
         
         if not needs_df.empty:
-            st.markdown("### 🚨 Products Needing Replenishment")
+            st.markdown("### Products Needing Replenishment")
             
             st.dataframe(
                 needs_df,
@@ -336,13 +336,13 @@ def smart_replenishment_dashboard():
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.success("✅ All products have sufficient stock")
+            st.success("All products have sufficient stock")
     
     # ==============================
     # TAB 2: REPLENISHMENT RECOMMENDATIONS
     # ==============================
     with tab2:
-        st.markdown("## 🔄 Replenishment Recommendations")
+        st.markdown("## Replenishment Recommendations")
         
         # Find columns
         date_col = find_date_column(sales_df)
@@ -393,7 +393,7 @@ def smart_replenishment_dashboard():
         recommendations_df = pd.DataFrame(recommendations)
         
         if not recommendations_df.empty:
-            st.info(f"📋 Found {len(recommendations_df)} products needing replenishment")
+            st.info(f"Found {len(recommendations_df)} products needing replenishment")
             
             st.dataframe(
                 recommendations_df,
@@ -404,7 +404,7 @@ def smart_replenishment_dashboard():
                 }
             )
             
-            if st.button("📝 Generate Purchase Orders for All", type="primary", use_container_width=True):
+            if st.button("Generate Purchase Orders for All", type="primary", use_container_width=True):
                 po_count = 0
                 for _, rec in recommendations_df.iterrows():
                     product = products_df[products_df["barcode"] == rec["Barcode"]].iloc[0]
@@ -417,7 +417,7 @@ def smart_replenishment_dashboard():
                         save_auto_po(df)
                         po_count += 1
                 
-                st.success(f"✅ Generated {po_count} purchase orders!")
+                st.success(f"Generated {po_count} purchase orders!")
                 
                 logs_df = load_replenishment_logs()
                 for _, rec in recommendations_df.iterrows():
@@ -438,13 +438,13 @@ def smart_replenishment_dashboard():
                 
                 st.rerun()
         else:
-            st.success("✅ No replenishment recommendations at this time")
+            st.success("No replenishment recommendations at this time")
     
     # ==============================
     # TAB 3: AUTO PURCHASE ORDERS
     # ==============================
     with tab3:
-        st.markdown("## 📋 Auto Purchase Orders")
+        st.markdown("## Auto Purchase Orders")
         
         po_df = load_auto_po()
         
@@ -466,7 +466,7 @@ def smart_replenishment_dashboard():
             
             pending_po = po_df[po_df["status"] == "PENDING_APPROVAL"]
             if not pending_po.empty:
-                st.markdown("### 🔄 Pending Approvals")
+                st.markdown("### Pending Approvals")
                 
                 selected_po = st.selectbox("Select PO to Review", pending_po["po_number"].tolist())
                 po_data = pending_po[pending_po["po_number"] == selected_po].iloc[0]
@@ -481,21 +481,21 @@ def smart_replenishment_dashboard():
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("✅ Approve", use_container_width=True):
+                    if st.button("Approve", use_container_width=True):
                         idx = po_df[po_df["po_number"] == selected_po].index[0]
                         po_df.loc[idx, "status"] = "APPROVED"
                         po_df.loc[idx, "approved_date"] = datetime.now().isoformat()
                         po_df.loc[idx, "approved_by"] = st.session_state.get("username", "system")
                         save_auto_po(po_df)
-                        st.success("✅ PO Approved!")
+                        st.success("PO Approved!")
                         st.rerun()
                 
                 with col2:
-                    if st.button("❌ Reject", use_container_width=True):
+                    if st.button("Reject", use_container_width=True):
                         idx = po_df[po_df["po_number"] == selected_po].index[0]
                         po_df.loc[idx, "status"] = "REJECTED"
                         save_auto_po(po_df)
-                        st.warning("❌ PO Rejected")
+                        st.warning("PO Rejected")
                         st.rerun()
         else:
             st.info("No auto purchase orders found")
@@ -504,7 +504,7 @@ def smart_replenishment_dashboard():
     # TAB 4: SETTINGS
     # ==============================
     with tab4:
-        st.markdown("## ⚙️ Replenishment Settings")
+        st.markdown("## Replenishment Settings")
         
         settings = load_replenishment_settings()
         
@@ -558,7 +558,7 @@ def smart_replenishment_dashboard():
             index=["best_price", "best_rating", "fastest_delivery"].index(settings.get("supplier_preference", "best_price"))
         )
         
-        if st.button("💾 Save Settings", type="primary", use_container_width=True):
+        if st.button("Save Settings", type="primary", use_container_width=True):
             settings.update({
                 "auto_replenish": auto_replenish,
                 "reorder_point_multiplier": reorder_point,
@@ -570,14 +570,14 @@ def smart_replenishment_dashboard():
                 "supplier_preference": supplier_pref
             })
             save_replenishment_settings(settings)
-            st.success("✅ Settings saved successfully!")
+            st.success("Settings saved successfully!")
             st.rerun()
     
     # ==============================
     # TAB 5: REPLENISHMENT LOGS
     # ==============================
     with tab5:
-        st.markdown("## 📜 Replenishment Logs")
+        st.markdown("## Replenishment Logs")
         
         logs_df = load_replenishment_logs()
         

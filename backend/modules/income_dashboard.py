@@ -11,7 +11,7 @@ from backend.modules.income import load_income, get_monthly_income, get_income_b
 def income_dashboard():
     """Income Analytics Dashboard"""
     
-    st.title("📊 Income Dashboard")
+    st.title("Income Dashboard")
     st.caption("Analytics and insights for business income")
     
     df = load_income()
@@ -35,23 +35,23 @@ def income_dashboard():
     # ==============================
     # METRICS
     # ==============================
-    st.markdown("## 💰 Monthly Income Overview")
+    st.markdown("## Monthly Income Overview")
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("💰 Total Income", f"${total_income:.2f}")
+        st.metric("Total Income", f"${total_income:.2f}")
     with col2:
-        st.metric("📊 Records", len(month_df))
+        st.metric("Records", len(month_df))
     with col3:
         if not source_df.empty:
             top_source = source_df.iloc[0]["income_source"]
-            st.metric("🏆 Top Source", top_source)
+            st.metric("Top Source", top_source)
         else:
-            st.metric("🏆 Top Source", "N/A")
+            st.metric("Top Source", "N/A")
     with col4:
         avg_income = total_income / len(month_df) if len(month_df) > 0 else 0
-        st.metric("📈 Avg Per Record", f"${avg_income:.2f}")
+        st.metric("Avg Per Record", f"${avg_income:.2f}")
 
     st.markdown("---")
 
@@ -61,7 +61,7 @@ def income_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("📂 Income by Source")
+        st.subheader("Income by Source")
         
         if not source_df.empty:
             fig = px.pie(
@@ -78,7 +78,7 @@ def income_dashboard():
             st.info("No data available")
     
     with col2:
-        st.subheader("📊 Income by Source (Bar)")
+        st.subheader("Income by Source (Bar)")
         
         if not source_df.empty:
             fig_bar = px.bar(
@@ -101,7 +101,7 @@ def income_dashboard():
     # ==============================
     # MONTHLY TREND
     # ==============================
-    st.subheader("📈 Monthly Income Trend")
+    st.subheader("Monthly Income Trend")
     
     if not trend_df.empty:
         fig_trend = px.line(
@@ -124,13 +124,13 @@ def income_dashboard():
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("📈 Growth Rate", f"{growth:.1f}%", 
+                st.metric("Growth Rate", f"{growth:.1f}%", 
                          delta=f"{growth:.1f}%" if growth != 0 else None,
                          delta_color="normal" if growth >= 0 else "inverse")
             with col2:
-                st.metric("📊 First Month", f"${first_month:.2f}")
+                st.metric("First Month", f"${first_month:.2f}")
             with col3:
-                st.metric("📊 Last Month", f"${last_month:.2f}")
+                st.metric("Last Month", f"${last_month:.2f}")
     else:
         st.info("Not enough data for trend analysis")
 
@@ -139,7 +139,7 @@ def income_dashboard():
     # ==============================
     # TABLE
     # ==============================
-    st.subheader("📜 Income Records")
+    st.subheader("Income Records")
     
     display_df = month_df.sort_values("date", ascending=False).copy()
     display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d %H:%M")
@@ -157,14 +157,14 @@ def income_dashboard():
     # EXPORT
     # ==============================
     st.markdown("---")
-    st.subheader("📥 Export Data")
+    st.subheader("Export Data")
     
     col1, col2 = st.columns(2)
     
     with col1:
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Full Income Data (CSV)",
+            label="Download Income Data (CSV)",
             data=csv,
             file_name=f"income_data_full_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
@@ -175,7 +175,7 @@ def income_dashboard():
         if not source_df.empty:
             csv_source = source_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Download Income by Source (CSV)",
+                label="Download Income by Source (CSV)",
                 data=csv_source,
                 file_name=f"income_by_source_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",

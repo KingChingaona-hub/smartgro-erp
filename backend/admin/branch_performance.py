@@ -236,7 +236,7 @@ def get_all_branches_summary(period="monthly", selected_date=None):
 def branch_performance_page():
     """Branch Performance Dashboard"""
     
-    st.title("📊 Branch Performance Dashboard")
+    st.title("Branch Performance Dashboard")
     st.caption("Compare performance across all branches with detailed analytics")
     
     # ==============================
@@ -297,7 +297,7 @@ def branch_performance_page():
     # DISPLAY SUMMARY TABLE
     # ==============================
     if view_type == "Summary Table":
-        st.markdown(f"## 📊 {period.capitalize()} Performance Summary")
+        st.markdown(f"## {period.capitalize()} Performance Summary")
         
         # Get period from the first row or use default
         period_display = summary_df.iloc[0]["period"] if not summary_df.empty and "period" in summary_df.columns else selected_date.strftime("%Y-%m-%d")
@@ -327,7 +327,7 @@ def branch_performance_page():
         
         # Overall totals
         st.markdown("---")
-        st.markdown("### 📈 Overall Totals")
+        st.markdown("### Overall Totals")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -343,7 +343,7 @@ def branch_performance_page():
     # DISPLAY COMPARISON CHART
     # ==============================
     elif view_type == "Comparison Chart":
-        st.markdown(f"## 📊 {period.capitalize()} Performance Comparison")
+        st.markdown(f"## {period.capitalize()} Performance Comparison")
         
         col1, col2 = st.columns(2)
         
@@ -409,7 +409,7 @@ def branch_performance_page():
     # DISPLAY DETAILED ANALYTICS
     # ==============================
     else:
-        st.markdown(f"## 📈 Detailed {period.capitalize()} Analytics")
+        st.markdown(f"## Detailed {period.capitalize()} Analytics")
         
         # Select branch for detailed view
         selected_branch = st.selectbox(
@@ -428,7 +428,7 @@ def branch_performance_page():
             
             if not daily_df.empty:
                 # Sales trend
-                st.markdown(f"### 📈 {selected_branch} - {period.capitalize()} Sales Trend")
+                st.markdown(f"### {selected_branch} - {period.capitalize()} Sales Trend")
                 
                 # Group by date for trend
                 if "date" in daily_df.columns:
@@ -447,7 +447,7 @@ def branch_performance_page():
                     st.plotly_chart(fig_trend, use_container_width=True)
                 
                 # Top products for this branch in this period
-                st.markdown(f"### 🏆 Top Products - {selected_branch}")
+                st.markdown(f"### Top Products - {selected_branch}")
                 
                 if "name" in daily_df.columns and "items" in daily_df.columns:
                     top_products = daily_df.groupby("name")["items"].sum().nlargest(10).reset_index()
@@ -471,7 +471,7 @@ def branch_performance_page():
                 
                 # Payment methods
                 if "payment_method" in daily_df.columns:
-                    st.markdown(f"### 💳 Payment Methods - {selected_branch}")
+                    st.markdown(f"### Payment Methods - {selected_branch}")
                     payment_dist = daily_df["payment_method"].value_counts().reset_index()
                     payment_dist.columns = ["Method", "Count"]
                     
@@ -490,21 +490,21 @@ def branch_performance_page():
     # EXPORT OPTIONS
     # ==============================
     st.markdown("---")
-    st.subheader("📥 Export Data")
+    st.subheader("Export Data")
     
     col1, col2 = st.columns(2)
     
     with col1:
         csv = summary_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Performance Report (CSV)",
+            label="Download Performance Report (CSV)",
             data=csv,
             file_name=f"branch_performance_{period}_{selected_datetime.strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
     
     with col2:
-        if st.button("📄 Generate Detailed Report", use_container_width=True):
+        if st.button("Generate Detailed Report", use_container_width=True):
             period_display = summary_df.iloc[0]["period"] if not summary_df.empty and "period" in summary_df.columns else selected_datetime.strftime("%Y-%m-%d")
             
             report_text = f"""
@@ -545,7 +545,7 @@ def branch_performance_page():
             """
             
             st.download_button(
-                label="📥 Download Report (TXT)",
+                label="Download Report (TXT)",
                 data=report_text,
                 file_name=f"branch_report_{period}_{selected_datetime.strftime('%Y%m%d')}.txt",
                 mime="text/plain"

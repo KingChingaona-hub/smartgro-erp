@@ -179,7 +179,7 @@ def get_sales_data():
 def profit_center_analysis():
     """Main profit center analysis dashboard - FIXED"""
     
-    st.title("💰 Profit Center Analysis")
+    st.title("Profit Center Analysis")
     st.caption("Analyze profitability by product, category, payment method, and time")
     
     # Load data
@@ -198,7 +198,7 @@ def profit_center_analysis():
     # ==============================
     # SIDEBAR FILTERS
     # ==============================
-    st.sidebar.header("🔍 Filters")
+    st.sidebar.header("Filters")
     
     # Date filter
     min_date = sales_df["date"].min().date()
@@ -252,7 +252,7 @@ def profit_center_analysis():
     # ==============================
     # KEY METRICS
     # ==============================
-    st.markdown("## 📊 Key Profit Metrics")
+    st.markdown("## Key Profit Metrics")
     
     total_revenue = safe_float(filtered_df["total"].sum())
     total_profit = safe_float(filtered_df["profit"].sum())
@@ -268,23 +268,23 @@ def profit_center_analysis():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("💰 Total Revenue", f"${total_revenue:,.2f}")
+        st.metric("Total Revenue", f"${total_revenue:,.2f}")
     
     with col2:
-        st.metric("📈 Total Profit", f"${total_profit:,.2f}")
+        st.metric("Total Profit", f"${total_profit:,.2f}")
     
     with col3:
-        st.metric("📊 Profit Margin", f"{profit_margin:.1f}%")
+        st.metric("Profit Margin", f"{profit_margin:.1f}%")
     
     with col4:
-        st.metric("💳 Avg Transaction", f"${avg_transaction:.2f}")
+        st.metric("Avg Transaction", f"${avg_transaction:.2f}")
     
     st.markdown("---")
     
     # ==============================
     # PROFIT BY CATEGORY / PRODUCT
     # ==============================
-    st.markdown("## 📈 Profit by Product")
+    st.markdown("## Profit by Product")
     
     col1, col2 = st.columns(2)
     
@@ -351,7 +351,7 @@ def profit_center_analysis():
     # PROFIT BY PAYMENT METHOD
     # ==============================
     if "payment_method" in filtered_df.columns:
-        st.markdown("## 💳 Profit by Payment Method")
+        st.markdown("## Profit by Payment Method")
         
         payment_profit = filtered_df.groupby("payment_method").agg({
             "profit": "sum",
@@ -409,7 +409,7 @@ def profit_center_analysis():
     # ==============================
     # PROFIT TREND OVER TIME
     # ==============================
-    st.markdown("## 📈 Profit Trend Over Time")
+    st.markdown("## Profit Trend Over Time")
     
     # Group by date
     daily_profit = filtered_df.groupby(filtered_df["date"].dt.date).agg({
@@ -491,7 +491,7 @@ def profit_center_analysis():
     # ==============================
     # PROFIT MARGIN HEATMAP
     # ==============================
-    st.markdown("## 🗺️ Profit Margin Heatmap")
+    st.markdown("## Profit Margin Heatmap")
     
     if len(daily_profit) >= 7:
         try:
@@ -547,7 +547,7 @@ def profit_center_analysis():
     # ==============================
     # LOSS LEADER IDENTIFICATION
     # ==============================
-    st.markdown("## ⚠️ Loss Leaders (Negative Margin Products)")
+    st.markdown("## Loss Leaders (Negative Margin Products)")
     
     product_margin_all = filtered_df.groupby("name").agg({
         "profit": "sum",
@@ -567,7 +567,7 @@ def profit_center_analysis():
     loss_leaders = product_margin_all[product_margin_all["profit"] < 0].sort_values("profit")
     
     if not loss_leaders.empty:
-        st.warning(f"⚠️ Found {len(loss_leaders)} products with negative profit margins")
+        st.warning(f"Found {len(loss_leaders)} products with negative profit margins")
         
         try:
             fig = px.bar(
@@ -599,16 +599,16 @@ def profit_center_analysis():
             }
         )
         
-        st.info("💡 Consider reviewing pricing or discontinuing these products")
+        st.info("Consider reviewing pricing or discontinuing these products")
     else:
-        st.success("✅ No loss leaders found - all products have positive profit margins")
+        st.success("No loss leaders found - all products have positive profit margins")
     
     st.markdown("---")
     
     # ==============================
     # PROFIT OPTIMIZATION RECOMMENDATIONS
     # ==============================
-    st.markdown("## 💡 Profit Optimization Recommendations")
+    st.markdown("## Profit Optimization Recommendations")
     
     try:
         # Calculate key metrics for recommendations
@@ -621,13 +621,13 @@ def profit_center_analysis():
             names = high_margin_products["name"].head(3).tolist()
             avg_high_margin = safe_float(high_margin_products["margin"].head(3).mean())
             recommendations.append(
-                f"📈 **High Margin Products**: Consider promoting {', '.join(names)} "
+                f"**High Margin Products**: Consider promoting {', '.join(names)} "
                 f"with average margin of {avg_high_margin:.1f}%"
             )
         
         if not loss_leaders.empty:
             recommendations.append(
-                f"⚠️ **Loss Leaders**: {len(loss_leaders)} products have negative margins. "
+                f"**Loss Leaders**: {len(loss_leaders)} products have negative margins. "
                 f"Consider price adjustments or discontinuing them."
             )
         
@@ -639,7 +639,7 @@ def profit_center_analysis():
                 best_payment = payment_profit_filtered.idxmax()
                 if best_payment:
                     recommendations.append(
-                        f"💳 **Best Payment Method**: {best_payment} generates the highest profit. "
+                        f"**Best Payment Method**: {best_payment} generates the highest profit. "
                         f"Consider encouraging customers to use this method."
                     )
         
@@ -655,7 +655,7 @@ def profit_center_analysis():
                 if not high_revenue_low_margin.empty:
                     names = high_revenue_low_margin["name"].tolist()
                     recommendations.append(
-                        f"📊 **Optimization Opportunity**: {', '.join(names)} "
+                        f"**Optimization Opportunity**: {', '.join(names)} "
                         f"have high revenue but low margins. Consider cost reduction or price increase."
                     )
             except Exception:
@@ -665,7 +665,7 @@ def profit_center_analysis():
             for rec in recommendations:
                 st.info(rec)
         else:
-            st.success("✅ No specific profit optimization recommendations at this time")
+            st.success("No specific profit optimization recommendations at this time")
     except Exception as e:
         st.info("Could not generate recommendations at this time")
     
@@ -673,7 +673,7 @@ def profit_center_analysis():
     # EXPORT DATA
     # ==============================
     st.markdown("---")
-    st.markdown("## 📥 Export Data")
+    st.markdown("## Export Data")
     
     col1, col2 = st.columns(2)
     
@@ -693,7 +693,7 @@ def profit_center_analysis():
         
         csv_summary = summary_df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Download Summary (CSV)",
+            label="Download Summary (CSV)",
             data=csv_summary,
             file_name=f"profit_summary_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
@@ -708,7 +708,7 @@ def profit_center_analysis():
         
         csv_detail = detail_data.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Download Detailed Data (CSV)",
+            label="Download Detailed Data (CSV)",
             data=csv_detail,
             file_name=f"profit_details_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"

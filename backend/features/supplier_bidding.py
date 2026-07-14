@@ -441,18 +441,18 @@ def get_bidding_summary():
 
 
 # ==============================
-# SUPPLIER MANAGEMENT PAGE - FIXED WITH WORKING DELETE
+# SUPPLIER MANAGEMENT PAGE 
 # ==============================
 def supplier_management_page():
     """Supplier Management Page - Add, manage and delete suppliers"""
     
-    st.markdown("## 🏪 Supplier Management")
+    st.markdown("## Supplier Management")
     st.caption("Manage suppliers for bidding system")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can manage suppliers.")
+        st.error("Access Denied. Only owners and managers can manage suppliers.")
         return
     
     init_bidding_files()
@@ -467,7 +467,7 @@ def supplier_management_page():
     if "supplier_to_delete" not in st.session_state:
         st.session_state.supplier_to_delete = None
     
-    tab1, tab2 = st.tabs(["➕ Add Supplier", "📋 Supplier List"])
+    tab1, tab2 = st.tabs(["Add Supplier", "Supplier List"])
     
     with tab1:
         st.markdown("### Add New Supplier")
@@ -486,7 +486,7 @@ def supplier_management_page():
         
         address = st.text_area("Address", key="sup_address", placeholder="Physical address")
         
-        if st.button("➕ Add Supplier", type="primary", key="add_supplier_btn", use_container_width=True):
+        if st.button("Add Supplier", type="primary", key="add_supplier_btn", use_container_width=True):
             if not st.session_state.supplier_button_clicked:
                 st.session_state.supplier_button_clicked = True
                 
@@ -502,9 +502,9 @@ def supplier_management_page():
                     )
                     
                     if error:
-                        st.error(f"❌ {error}")
+                        st.error(f"{error}")
                     else:
-                        st.success(f"✅ Supplier {supplier_name} added! ID: {supplier_id}")
+                        st.success(f"Supplier {supplier_name} added! ID: {supplier_id}")
                         st.session_state.supplier_added = True
                         st.rerun()
                 else:
@@ -528,12 +528,12 @@ def supplier_management_page():
                     st.caption(f"ID: {supplier['supplier_id']}")
                 
                 with col2:
-                    st.write(f"📞 {supplier['contact_person']}")
-                    st.caption(f"📧 {supplier['email']}")
+                    st.write(f"{supplier['contact_person']}")
+                    st.caption(f"{supplier['email']}")
                 
                 with col3:
-                    st.write(f"💰 {supplier['payment_terms']}")
-                    st.caption(f"📦 {supplier['lead_time_days']} days")
+                    st.write(f"{supplier['payment_terms']}")
+                    st.caption(f"{supplier['lead_time_days']} days")
                 
                 with col4:
                     rating = supplier.get('rating', 0)
@@ -560,7 +560,7 @@ def supplier_management_page():
                         if not st.session_state.supplier_button_clicked:
                             st.session_state.supplier_button_clicked = True
                             st.session_state.supplier_to_delete = supplier['supplier_id']
-                            st.rerun()
+                            #st.rerun()
                 
                 st.divider()
             
@@ -570,28 +570,28 @@ def supplier_management_page():
                 supplier_name = suppliers_df[suppliers_df["supplier_id"] == supplier_id]["supplier_name"].iloc[0]
                 
                 st.markdown("---")
-                st.warning(f"⚠️ Are you sure you want to delete supplier **'{supplier_name}'**?")
+                st.warning(f"Are you sure you want to delete supplier **'{supplier_name}'**?")
                 st.caption("This will also remove all their bids (except accepted ones).")
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    if st.button("✅ Yes, Delete Permanently", key="confirm_delete", use_container_width=True):
+                    if st.button("Yes, Delete Permanently", key="confirm_delete", use_container_width=True):
                         success, message = delete_supplier(supplier_id)
                         if success:
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                             st.session_state.supplier_deleted = True
                             st.session_state.supplier_to_delete = None
                             st.session_state.supplier_button_clicked = False
                             st.rerun()
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
                             st.session_state.supplier_to_delete = None
                             st.session_state.supplier_button_clicked = False
                             st.rerun()
                 
                 with col2:
-                    if st.button("❌ Cancel", key="cancel_delete", use_container_width=True):
+                    if st.button("Cancel", key="cancel_delete", use_container_width=True):
                         st.session_state.supplier_to_delete = None
                         st.session_state.supplier_button_clicked = False
                         st.rerun()
@@ -600,7 +600,7 @@ def supplier_management_page():
             st.markdown("---")
             csv = suppliers_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Download Suppliers (CSV)",
+                label="Download Suppliers (CSV)",
                 data=csv,
                 file_name=f"suppliers_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
@@ -616,14 +616,14 @@ def supplier_management_page():
 def supplier_bidding_dashboard():
     """Supplier Bidding System Dashboard - FIXED: No continuous running"""
     
-    st.title("🏪 Supplier Bidding System")
+    st.title("Supplier Bidding System")
     st.caption("Competitive bidding for purchase orders - get the best prices")
     
     role = st.session_state.get("role", "cashier")
     
     # Only owner and managers can access bidding system
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can manage supplier bidding.")
+        st.error("Access Denied. Only owners and managers can manage supplier bidding.")
         return
     
     init_bidding_files()
@@ -640,18 +640,18 @@ def supplier_bidding_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Bidding Overview",
-        "📝 Create Bid Opportunity",
-        "💵 Evaluate Bids",
-        "🏪 Supplier Management",
-        "⚙️ Bidding Settings"
+        "Bidding Overview",
+        "Create Bid Opportunity",
+        "Evaluate Bids",
+        "Supplier Management",
+        "Bidding Settings"
     ])
     
     # ==============================
     # TAB 1: BIDDING OVERVIEW
     # ==============================
     with tab1:
-        st.markdown("## 📊 Bidding Overview")
+        st.markdown("## Bidding Overview")
         
         summary = get_bidding_summary()
         
@@ -669,7 +669,7 @@ def supplier_bidding_dashboard():
         st.markdown("---")
         
         # Recent bids
-        st.markdown("### 📋 Recent Bids")
+        st.markdown("### Recent Bids")
         
         bids_df = load_bids()
         if not bids_df.empty:
@@ -687,7 +687,7 @@ def supplier_bidding_dashboard():
         
         # Savings chart
         if summary["total_savings"] > 0:
-            st.markdown("### 💰 Savings Impact")
+            st.markdown("### Savings Impact")
             
             accepted_bids = bids_df[bids_df["status"] == "ACCEPTED"]
             if not accepted_bids.empty:
@@ -708,7 +708,7 @@ def supplier_bidding_dashboard():
     # TAB 2: CREATE BID OPPORTUNITY - FIXED
     # ==============================
     with tab2:
-        st.markdown("## 📝 Create Bid Opportunity")
+        st.markdown("## Create Bid Opportunity")
         st.caption("Create a competitive bidding opportunity for suppliers")
         
         # Load pending purchase orders
@@ -770,16 +770,16 @@ def supplier_bidding_dashboard():
                                 format_func=lambda x: suppliers_df[suppliers_df["supplier_id"] == x]["supplier_name"].iloc[0]
                             )
                         
-                        if st.button("📢 Create Bidding Opportunity", type="primary", key="create_bid_btn", use_container_width=True):
+                        if st.button("Create Bidding Opportunity", type="primary", key="create_bid_btn", use_container_width=True):
                             if not st.session_state.bidding_button_clicked:
                                 st.session_state.bidding_button_clicked = True
                                 
                                 if selected_suppliers:
                                     count, error = create_bidding_opportunity(selected_po, po_total, selected_suppliers)
                                     if error:
-                                        st.warning(f"⚠️ {error}")
+                                        st.warning(f"{error}")
                                     else:
-                                        st.success(f"✅ Bidding opportunity created! {count} suppliers invited.")
+                                        st.success(f"Bidding opportunity created! {count} suppliers invited.")
                                         st.info("Suppliers can now submit their bids.")
                                         st.session_state.bid_created = True
                                         st.rerun()
@@ -792,7 +792,7 @@ def supplier_bidding_dashboard():
     # TAB 3: EVALUATE BIDS - FIXED
     # ==============================
     with tab3:
-        st.markdown("## 💵 Evaluate Bids")
+        st.markdown("## Evaluate Bids")
         st.caption("Review and accept the best bids from suppliers")
         
         bids_df = load_bids()
@@ -807,7 +807,7 @@ def supplier_bidding_dashboard():
             for po_number in pos_with_bids:
                 po_bids = pending_bids[pending_bids["po_number"] == po_number]
                 
-                with st.expander(f"📦 PO: {po_number} - {len(po_bids)} bids received"):
+                with st.expander(f"PO: {po_number} - {len(po_bids)} bids received"):
                     # Display bids
                     bid_data = []
                     for _, bid in po_bids.iterrows():
@@ -828,12 +828,12 @@ def supplier_bidding_dashboard():
                     st.dataframe(bid_df.drop(columns=["bid_id"]), use_container_width=True, hide_index=True)
                     
                     # Evaluate button
-                    if st.button(f"🤖 Evaluate Best Bid for {po_number}", key=f"eval_{po_number}"):
+                    if st.button(f"Evaluate Best Bid for {po_number}", key=f"eval_{po_number}"):
                         if not st.session_state.bidding_button_clicked:
                             st.session_state.bidding_button_clicked = True
                             best_bid, message = evaluate_bids(po_number)
                             if best_bid:
-                                st.success(f"✅ {message}")
+                                st.success(f"{message}")
                                 st.rerun()
                             else:
                                 st.warning(message)
@@ -848,7 +848,7 @@ def supplier_bidding_dashboard():
                         format_func=lambda x: bid_df[bid_df["bid_id"] == x]["Supplier"].iloc[0]
                     )
                     
-                    if st.button(f"✅ Accept Selected Bid", key=f"accept_btn_{po_number}"):
+                    if st.button(f"Accept Selected Bid", key=f"accept_btn_{po_number}"):
                         if not st.session_state.bidding_button_clicked:
                             st.session_state.bidding_button_clicked = True
                             if accept_bid(selected_bid):
@@ -866,7 +866,7 @@ def supplier_bidding_dashboard():
     # TAB 5: BIDDING SETTINGS
     # ==============================
     with tab5:
-        st.markdown("## ⚙️ Bidding Settings")
+        st.markdown("## Bidding Settings")
         st.caption("Configure automated bidding rules")
         
         settings = load_bidding_settings()
@@ -883,7 +883,7 @@ def supplier_bidding_dashboard():
             min_reduction = st.number_input("Minimum reduction % for auto-accept", min_value=0, max_value=50, value=settings.get("minimum_bid_reduction", 5), key="min_reduction")
             preferred_bonus = st.number_input("Preferred supplier bonus (%)", min_value=0, max_value=20, value=settings.get("preferred_supplier_bonus", 5), key="preferred_bonus")
         
-        if st.button("💾 Save Settings", type="primary", key="save_settings_btn", use_container_width=True):
+        if st.button("Save Settings", type="primary", key="save_settings_btn", use_container_width=True):
             if not st.session_state.bidding_button_clicked:
                 st.session_state.bidding_button_clicked = True
                 
@@ -895,12 +895,12 @@ def supplier_bidding_dashboard():
                 settings["preferred_supplier_bonus"] = preferred_bonus
                 settings["last_updated"] = datetime.now().isoformat()
                 save_bidding_settings(settings)
-                st.success("✅ Settings saved successfully!")
+                st.success("Settings saved successfully!")
                 
                 st.session_state.bidding_button_clicked = False
         
         st.markdown("---")
-        st.markdown("### 📖 How Bidding Works")
+        st.markdown("### How Bidding Works")
         
         st.info("""
         **Bidding Process:**
@@ -925,7 +925,7 @@ def supplier_bidding_dashboard():
 def supplier_bidding_portal():
     """Portal for suppliers to view and submit bids"""
     
-    st.title("🏪 Supplier Bidding Portal")
+    st.title("Supplier Bidding Portal")
     st.caption("View bidding opportunities and submit your best offers")
     
     # This would be accessed by suppliers through their login
@@ -957,7 +957,7 @@ def supplier_bidding_portal():
     open_pos = purchases_df[(purchases_df["status"] == "PENDING") & (~purchases_df["po_number"].isin(bid_pos))]
     
     if not open_pos.empty:
-        st.markdown("### 📋 Open Bidding Opportunities")
+        st.markdown("### Open Bidding Opportunities")
         
         selected_po = st.selectbox("Select PO to bid on", open_pos["po_number"].tolist(), key="supplier_po_select")
         
@@ -978,7 +978,7 @@ def supplier_bidding_portal():
             
             notes = st.text_area("Additional Notes", key="supplier_notes", placeholder="Any special conditions or offers...")
             
-            if st.button("💰 Submit Bid", type="primary", key="submit_supplier_bid", use_container_width=True):
+            if st.button("Submit Bid", type="primary", key="submit_supplier_bid", use_container_width=True):
                 if not st.session_state.supplier_bid_button_clicked:
                     st.session_state.supplier_bid_button_clicked = True
                     
@@ -994,17 +994,17 @@ def supplier_bidding_portal():
                     )
                     
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                         st.session_state.supplier_bid_submitted = True
                         st.rerun()
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
                     
                     st.session_state.supplier_bid_button_clicked = False
     
     # Show existing bids
     if not supplier_bids.empty:
-        st.markdown("### 📜 Your Submitted Bids")
+        st.markdown("### Your Submitted Bids")
         st.dataframe(
             supplier_bids[["po_number", "bid_amount", "delivery_days", "status", "bid_date"]],
             use_container_width=True,

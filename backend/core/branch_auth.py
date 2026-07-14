@@ -114,7 +114,7 @@ def clear_branch_session():
 def branch_selection_page():
     """Page for selecting and authenticating branch"""
     
-    st.title("🏢 Branch Selection")
+    st.title("Branch Selection")
     st.markdown("---")
     
     col1, col2 = st.columns(2)
@@ -138,22 +138,22 @@ def branch_selection_page():
         branch_code = st.text_input("Branch Code", placeholder="Enter branch code (HO, NAT, PRO, DIS, VIL)", key="branch_code_input")
         branch_password = st.text_input("Branch Password", type="password", placeholder="Enter branch password", key="branch_password_input")
         
-        if st.button("🔐 Access Branch", type="primary", use_container_width=True):
+        if st.button("🔐 Branch Login", type="primary", use_container_width=True):
             if branch_code and branch_password:
                 if validate_branch_code(branch_code.upper()):
                     if verify_branch_password(branch_code.upper(), branch_password):
                         set_current_branch(branch_code.upper())
                         st.session_state.branch_authenticated = True
-                        st.success(f"✅ Access granted to {get_branch_display_name(branch_code.upper())}")
+                        st.success(f"Access granted to {get_branch_display_name(branch_code.upper())}")
                         st.rerun()
                     else:
-                        st.error("❌ Invalid branch password")
+                        st.error("Invalid branch password")
                 else:
-                    st.error(f"❌ Invalid branch code. Valid codes: {', '.join(BRANCHES.keys())}")
+                    st.error(f"Invalid branch code. Valid codes: {', '.join(BRANCHES.keys())}")
             else:
                 st.error("Please enter branch code and password")
         
         st.markdown("---")
-        st.caption("Demo Branch Credentials:")
-        for code, info in BRANCHES.items():
-            st.caption(f"{info['name']} ({code}): {info['password']}")
+        #st.caption("Demo Branch Credentials:")
+        #for code, info in BRANCHES.items():
+        #    st.caption(f"{info['name']} ({code}): {info['password']}")

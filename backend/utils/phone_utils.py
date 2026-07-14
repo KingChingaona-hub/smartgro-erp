@@ -51,7 +51,7 @@ def validate_zimbabwe_phone(phone):
             return False, "", f"Invalid phone: {phone}"
     
     else:
-        return False, "", f"Phone number must be 10 digits (e.g., 0777123456)"
+        return False, "", f"Phone number must be 10 digits (e.g., 0782905853)"
     
     # Final validation: should start with 07
     if not standardized.startswith('07'):

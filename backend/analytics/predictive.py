@@ -423,17 +423,17 @@ def predictive_analytics_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📈 Sales Forecast",
-        "📊 Product Insights",
-        "📉 Trend Analysis",
-        "💡 Predictions & Recommendations"
+        "Sales Forecast",
+        "Product Insights",
+        "Trend Analysis",
+        "Predictions & Recommendations"
     ])
     
     # ==============================
     # TAB 1: SALES FORECAST
     # ==============================
     with tab1:
-        st.markdown("## 📈 Sales Forecast")
+        st.markdown("## Sales Forecast")
         
         col1, col2 = st.columns(2)
         
@@ -461,13 +461,13 @@ def predictive_analytics_dashboard():
                         # Display metrics
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
-                            st.metric("📊 Total Forecast", f"${forecast_result['total_forecast']:,.2f}")
+                            st.metric("Total Forecast", f"${forecast_result['total_forecast']:,.2f}")
                         with col2:
-                            st.metric("📈 Avg Daily", f"${forecast_result['avg_daily']:.2f}")
+                            st.metric("Avg Daily", f"${forecast_result['avg_daily']:.2f}")
                         with col3:
-                            st.metric("🎯 Trend", forecast_result['trend'].capitalize())
+                            st.metric("Trend", forecast_result['trend'].capitalize())
                         with col4:
-                            st.metric("📐 Confidence", f"±${forecast_result['confidence_interval']:.2f}")
+                            st.metric("Confidence", f"±${forecast_result['confidence_interval']:.2f}")
                         
                         st.markdown("---")
                         
@@ -529,7 +529,7 @@ def predictive_analytics_dashboard():
                         st.plotly_chart(fig, use_container_width=True)
                         
                         # Model metrics
-                        with st.expander("📊 Model Performance Metrics"):
+                        with st.expander("Model Performance Metrics"):
                             col1, col2, col3 = st.columns(3)
                             with col1:
                                 st.metric("Mean Absolute Error (MAE)", f"${forecast_result['mae']:.2f}")
@@ -541,7 +541,7 @@ def predictive_analytics_dashboard():
                         # Download forecast
                         csv = forecast_df.to_csv(index=False).encode('utf-8')
                         st.download_button(
-                            label="📥 Download Forecast (CSV)",
+                            label="Download Forecast (CSV)",
                             data=csv,
                             file_name=f"forecast_{datetime.now().strftime('%Y%m%d')}.csv",
                             mime="text/csv"
@@ -553,7 +553,7 @@ def predictive_analytics_dashboard():
     # TAB 2: PRODUCT INSIGHTS
     # ==============================
     with tab2:
-        st.markdown("## 📊 Product Insights")
+        st.markdown("## Product Insights")
         
         col1, col2 = st.columns(2)
         
@@ -579,7 +579,7 @@ def predictive_analytics_dashboard():
                 st.info("No product data available")
         
         with col2:
-            st.markdown("### 📈 Product Performance")
+            st.markdown("### Product Performance")
             
             if not products_df.empty:
                 # Show product performance table
@@ -623,7 +623,7 @@ def predictive_analytics_dashboard():
         st.markdown("---")
         
         # Product search
-        st.markdown("### 🔍 Product Lookup")
+        st.markdown("### Product Lookup")
         search_product = st.selectbox(
             "Search for a product",
             options=sorted(filtered_df["name"].unique().tolist())
@@ -672,7 +672,7 @@ def predictive_analytics_dashboard():
     # TAB 3: TREND ANALYSIS
     # ==============================
     with tab3:
-        st.markdown("## 📉 Trend Analysis")
+        st.markdown("## Trend Analysis")
         
         # Overall sales trend
         daily_total = filtered_df.groupby(filtered_df["date"].dt.date)["total"].sum().reset_index()
@@ -738,25 +738,25 @@ def predictive_analytics_dashboard():
                 
                 with col1:
                     st.metric(
-                        "📊 Growth Rate",
+                        "Growth Rate",
                         f"{growth:.1f}%",
                         delta=f"{growth:.1f}%" if growth != 0 else None
                     )
                 
                 with col2:
                     st.metric(
-                        "📈 Avg Daily Sales",
+                        "Avg Daily Sales",
                         f"${daily_total['sales'].mean():.2f}"
                     )
                 
                 with col3:
                     st.metric(
-                        "📉 Avg 7-Day",
+                        "Avg 7-Day",
                         f"${daily_total['sales'].tail(7).mean():.2f}"
                     )
             
             # Weekly pattern
-            st.markdown("### 📅 Weekly Pattern")
+            st.markdown("### Weekly Pattern")
             
             daily_total["day_of_week"] = daily_total["date"].dt.dayofweek
             day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -780,7 +780,7 @@ def predictive_analytics_dashboard():
     # TAB 4: PREDICTIONS & RECOMMENDATIONS
     # ==============================
     with tab4:
-        st.markdown("## 💡 AI Predictions & Recommendations")
+        st.markdown("## AI Predictions & Recommendations")
         
         # Calculate various predictions
         total_sales = float(filtered_df["total"].sum())
@@ -806,7 +806,7 @@ def predictive_analytics_dashboard():
         
         with col1:
             st.metric(
-                "📈 Monthly Growth",
+                "Monthly Growth",
                 f"{month_growth:.1f}%",
                 delta=f"{month_growth:.1f}%" if month_growth != 0 else None,
                 delta_color="normal" if month_growth >= 0 else "inverse"
@@ -820,34 +820,34 @@ def predictive_analytics_dashboard():
                     forecast = forecast_sales(daily, 30, "Linear Regression")
                     if forecast:
                         st.metric(
-                            "📊 Next Month Forecast",
+                            "Next Month Forecast",
                             f"${forecast['total_forecast']:,.2f}",
                             delta=f"±${forecast['confidence_interval']:.2f}"
                         )
                     else:
-                        st.metric("📊 Next Month Forecast", "Insufficient data")
+                        st.metric("Next Month Forecast", "Insufficient data")
                 else:
-                    st.metric("📊 Next Month Forecast", "Insufficient data")
+                    st.metric("Next Month Forecast", "Insufficient data")
             else:
-                st.metric("📊 Next Month Forecast", "Need 30+ days of data")
+                st.metric("Next Month Forecast", "Need 30+ days of data")
         
         with col3:
             # Profitability prediction
             if total_sales > 0:
                 profit_margin = (total_profit / total_sales * 100)
                 st.metric(
-                    "💰 Profit Margin",
+                    "Profit Margin",
                     f"{profit_margin:.1f}%",
                     delta="Good" if profit_margin > 20 else ("Fair" if profit_margin > 10 else "Low"),
                     delta_color="normal" if profit_margin > 15 else "inverse"
                 )
             else:
-                st.metric("💰 Profit Margin", "N/A")
+                st.metric("Profit Margin", "N/A")
         
         st.markdown("---")
         
         # Recommendations
-        st.markdown("### 🎯 AI Recommendations")
+        st.markdown("### AI Recommendations")
         
         recommendations = []
         
@@ -856,7 +856,7 @@ def predictive_analytics_dashboard():
         if not top_products.empty:
             top_names = top_products["name"].head(3).tolist()
             recommendations.append(
-                f"📈 **Focus on Top Products**: {', '.join(top_names)} are your best sellers. "
+                f"**Focus on Top Products**: {', '.join(top_names)} are your best sellers. "
                 f"Consider increasing stock and marketing these products."
             )
         
@@ -867,7 +867,7 @@ def predictive_analytics_dashboard():
             slow_movers = product_counts[product_counts < product_counts.quantile(0.25)].index.tolist()[:3]
             if slow_movers:
                 recommendations.append(
-                    f"⚠️ **Slow Movers**: {', '.join(slow_movers)} have low sales. "
+                    f"**Slow Movers**: {', '.join(slow_movers)} have low sales. "
                     f"Consider discounting or running promotions to clear stock."
                 )
         
@@ -881,7 +881,7 @@ def predictive_analytics_dashboard():
                 
                 if weekend_avg > weekday_avg * 1.2:
                     recommendations.append(
-                        f"📅 **Weekend Effect**: Sales are {weekend_avg/weekday_avg:.1f}x higher on weekends. "
+                        f"**Weekend Effect**: Sales are {weekend_avg/weekday_avg:.1f}x higher on weekends. "
                         f"Consider weekend promotions and staffing accordingly."
                     )
         
@@ -892,7 +892,7 @@ def predictive_analytics_dashboard():
         low_margin = product_margin[product_margin["margin"] < 10]["name"].tolist()[:3]
         if low_margin:
             recommendations.append(
-                f"💰 **Margin Improvement**: {', '.join(low_margin)} have low profit margins. "
+                f"**Margin Improvement**: {', '.join(low_margin)} have low profit margins. "
                 f"Review pricing or find cheaper suppliers."
             )
         
@@ -900,12 +900,12 @@ def predictive_analytics_dashboard():
             for rec in recommendations:
                 st.info(rec)
         else:
-            st.success("✅ All metrics look good! Continue current strategies.")
+            st.success("All metrics look good! Continue current strategies.")
         
         st.markdown("---")
         
         # Export predictions
-        st.markdown("### 📥 Export Predictions")
+        st.markdown("### Export Predictions")
         
         if st.button("Generate AI Report", type="primary"):
             report_data = {
@@ -926,7 +926,7 @@ def predictive_analytics_dashboard():
             
             csv_report = report_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download AI Report (CSV)",
+                label="Download AI Report (CSV)",
                 data=csv_report,
                 file_name=f"ai_report_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"

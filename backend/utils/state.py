@@ -30,4 +30,4 @@ def set_last_receipt(text):
 
 
 def get_last_receipt():
-    return st.session_state.get("last_receipt", "")
+    return st.session_state.get("last_receipt", "")s

@@ -33,7 +33,7 @@ def migrate_all_data():
                     df = pd.read_csv(products_file)
                     if not df.empty:
                         save_products(df, branch_id)
-                        st.success(f"✅ Migrated {len(df)} products")
+                        st.success(f"Migrated {len(df)} products")
                 
                 # Migrate sales
                 sales_file = branch_folder / "sales.csv"
@@ -41,7 +41,7 @@ def migrate_all_data():
                     df = pd.read_csv(sales_file)
                     if not df.empty:
                         save_sales(df, branch_id)
-                        st.success(f"✅ Migrated {len(df)} sales")
+                        st.success(f"Migrated {len(df)} sales")
                 
                 # Migrate customers
                 customers_file = branch_folder / "customers.csv"
@@ -49,7 +49,7 @@ def migrate_all_data():
                     df = pd.read_csv(customers_file)
                     if not df.empty:
                         save_customers(df, branch_id)
-                        st.success(f"✅ Migrated {len(df)} customers")
+                        st.success(f"Migrated {len(df)} customers")
                 
                 # Migrate debtors
                 debtors_file = branch_folder / "debtors.csv"
@@ -57,7 +57,7 @@ def migrate_all_data():
                     df = pd.read_csv(debtors_file)
                     if not df.empty:
                         save_debtors(df, branch_id)
-                        st.success(f"✅ Migrated {len(df)} debtors")
+                        st.success(f"Migrated {len(df)} debtors")
                 
                 # Migrate expenses
                 expenses_file = branch_folder / "expenses.csv"
@@ -65,7 +65,7 @@ def migrate_all_data():
                     df = pd.read_csv(expenses_file)
                     if not df.empty:
                         save_expenses(df, branch_id)
-                        st.success(f"✅ Migrated {len(df)} expenses")
+                        st.success(f"Migrated {len(df)} expenses")
                 
                 # Migrate purchases
                 purchases_file = branch_folder / "purchases.csv"
@@ -73,7 +73,7 @@ def migrate_all_data():
                     df = pd.read_csv(purchases_file)
                     if not df.empty:
                         save_purchases(df, branch_id)
-                        st.success(f"✅ Migrated {len(df)} purchases")
+                        st.success(f"Migrated {len(df)} purchases")
                 
                 # Migrate cash register
                 cash_file = branch_folder / "cash_register.csv"
@@ -81,34 +81,34 @@ def migrate_all_data():
                     df = pd.read_csv(cash_file)
                     if not df.empty:
                         save_cash(df, branch_id)
-                        st.success(f"✅ Migrated {len(df)} cash entries")
+                        st.success(f"Migrated {len(df)} cash entries")
     
     st.success("🎉 All data migrated successfully!")
     return True
 
 def migration_page():
     """Streamlit page for migration"""
-    st.title("🔄 Database Migration Tool")
+    st.title("Database Migration Tool")
     st.caption("Migrate CSV data to PostgreSQL")
     
-    st.warning("⚠️ Ensure PostgreSQL is set up before running migration")
+    st.warning("Ensure PostgreSQL is set up before running migration")
     
     # Test connection
     from backend.core.db_adapter import test_connection, init_database
     success, message = test_connection()
     
     if not success:
-        st.error(f"❌ {message}")
+        st.error(f"{message}")
         return
     
-    st.success("✅ Database connection successful")
+    st.success("Database connection successful")
     
     # Initialize schema if needed
     if init_database():
-        st.success("✅ Database schema ready")
+        st.success("Database schema ready")
     else:
-        st.error("❌ Schema initialization failed")
+        st.error("Schema initialization failed")
         return
     
-    if st.button("🚀 Start Migration", type="primary", use_container_width=True):
+    if st.button("Start Migration", type="primary", use_container_width=True):
         migrate_all_data()

@@ -24,7 +24,7 @@ def init_branding_files():
     if not BRANDING_FILE.exists():
         settings = {
             "business_name": "Aziel Investments",
-            "business_tagline": "Smart Retail ERP System",
+            "business_tagline": "Smartgro ERP System",
             "primary_color": "#6366F1",
             "secondary_color": "#8B5CF6",
             "accent_color": "#FF6584",
@@ -32,7 +32,7 @@ def init_branding_files():
             "favicon_url": "",
             "footer_text": "© 2026 Aziel Investments. All rights reserved.",
             "receipt_footer": "Thank you for shopping with us!",
-            "email_footer": "Aziel Investments - Smart Retail ERP System",
+            "email_footer": "Aziel Investments - Smartgro ERP System",
             "custom_css": "",
             "enable_branding": True,
             "branded_reports": True,
@@ -59,13 +59,13 @@ def save_branding_settings(settings):
 def show_toast(message, type="info"):
     """Show a toast notification using Streamlit"""
     if type == "success":
-        st.success(f"✅ {message}")
+        st.success(f"{message}")
     elif type == "error":
-        st.error(f"❌ {message}")
+        st.error(f"{message}")
     elif type == "warning":
-        st.warning(f"⚠️ {message}")
+        st.warning(f"{message}")
     else:
-        st.info(f"ℹ️ {message}")
+        st.info(f"{message}")
 
 
 def apply_branding():
@@ -191,7 +191,7 @@ def get_branded_receipt_footer():
 def get_branded_email_footer():
     """Get branded email footer"""
     settings = load_branding_settings()
-    return settings.get("email_footer", "Aziel Investments - Smart Retail ERP System")
+    return settings.get("email_footer", "Aziel Investments - Smartgro ERP System")
 
 
 def get_business_name():
@@ -245,13 +245,13 @@ def get_logo_html():
 def white_label_dashboard():
     """White Label / Branding Dashboard"""
     
-    st.title("🏷️ White Label / Branding")
+    st.title("White Label / Branding")
     st.caption("Customize your ERP system with your brand identity")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner"]:
-        st.error("❌ Access Denied. Only owners can access branding settings.")
+        st.error("Access Denied. Only owners can access branding settings.")
         return
     
     init_branding_files()
@@ -261,17 +261,17 @@ def white_label_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🎨 Branding",
-        "🖼️ Logo",
-        "📝 Custom CSS",
-        "📋 Preview"
+        "Branding",
+        "Logo",
+        "Custom CSS",
+        "Preview"
     ])
     
     # ==============================
     # TAB 1: BRANDING
     # ==============================
     with tab1:
-        st.markdown("## 🎨 Branding Settings")
+        st.markdown("## Branding Settings")
         st.caption("Customize your brand identity")
         
         col1, col2 = st.columns(2)
@@ -279,18 +279,18 @@ def white_label_dashboard():
         with col1:
             enable_branding = st.checkbox("Enable Branding", value=settings.get("enable_branding", True))
             business_name = st.text_input("Business Name", value=settings.get("business_name", "Aziel Investments"))
-            business_tagline = st.text_input("Tagline", value=settings.get("business_tagline", "Smart Retail ERP System"))
+            business_tagline = st.text_input("Tagline", value=settings.get("business_tagline", "Smartgro ERP System"))
             
             primary_color = st.color_picker("Primary Color", value=settings.get("primary_color", "#6366F1"))
             secondary_color = st.color_picker("Secondary Color", value=settings.get("secondary_color", "#8B5CF6"))
             accent_color = st.color_picker("Accent Color", value=settings.get("accent_color", "#FF6584"))
         
         with col2:
-            footer_text = st.text_area("Footer Text", value=settings.get("footer_text", "© 2024 Aziel Investments. All rights reserved."))
+            footer_text = st.text_area("Footer Text", value=settings.get("footer_text", "© 2026 Aziel Investments. All rights reserved."))
             receipt_footer = st.text_area("Receipt Footer", value=settings.get("receipt_footer", "Thank you for shopping with us!"))
-            email_footer = st.text_area("Email Footer", value=settings.get("email_footer", "Aziel Investments - Smart Retail ERP System"))
+            email_footer = st.text_area("Email Footer", value=settings.get("email_footer", "Aziel Investments - Smartgro ERP System"))
         
-        st.markdown("### 📄 Branding Options")
+        st.markdown("### Branding Options")
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -300,7 +300,7 @@ def white_label_dashboard():
         with col3:
             branded_emails = st.checkbox("Branded Emails", value=settings.get("branded_emails", True))
         
-        if st.button("💾 Save Branding Settings", type="primary", use_container_width=True):
+        if st.button("Save Branding Settings", type="primary", use_container_width=True):
             settings.update({
                 "enable_branding": enable_branding,
                 "business_name": business_name,
@@ -323,7 +323,7 @@ def white_label_dashboard():
     # TAB 2: LOGO
     # ==============================
     with tab2:
-        st.markdown("## 🖼️ Logo Management")
+        st.markdown("## Logo Management")
         st.caption("Upload your business logo")
         
         # Current logo
@@ -342,7 +342,7 @@ def white_label_dashboard():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("📤 Upload Logo", type="primary", use_container_width=True):
+            if st.button("Upload Logo", type="primary", use_container_width=True):
                 if logo_file:
                     if upload_logo(logo_file):
                         show_toast("Logo updated!", "success")
@@ -353,7 +353,7 @@ def white_label_dashboard():
                     show_toast("Please select a logo image", "warning")
         
         with col2:
-            if st.button("🗑️ Remove Logo", use_container_width=True):
+            if st.button("Remove Logo", use_container_width=True):
                 settings = load_branding_settings()
                 settings["logo_url"] = ""
                 save_branding_settings(settings)
@@ -364,10 +364,10 @@ def white_label_dashboard():
     # TAB 3: CUSTOM CSS
     # ==============================
     with tab3:
-        st.markdown("## 📝 Custom CSS")
+        st.markdown("## Custom CSS")
         st.caption("Add custom CSS for advanced branding customization")
         
-        st.info("💡 Use custom CSS to fine-tune your brand appearance")
+        st.info("Use custom CSS to fine-tune your brand appearance")
         
         custom_css = st.text_area(
             "Custom CSS",
@@ -385,14 +385,14 @@ def white_label_dashboard():
             """
         )
         
-        if st.button("💾 Save Custom CSS", type="primary", use_container_width=True):
+        if st.button("Save Custom CSS", type="primary", use_container_width=True):
             settings = load_branding_settings()
             settings["custom_css"] = custom_css
             save_branding_settings(settings)
             show_toast("Custom CSS updated!", "success")
             #st.rerun()
         
-        st.markdown("### 🎨 CSS Examples")
+        st.markdown("### CSS Examples")
         with st.expander("Show CSS Examples"):
             st.code("""
 /* Change sidebar background */
@@ -435,23 +435,23 @@ h1, h2, h3 {
     # TAB 4: PREVIEW
     # ==============================
     with tab4:
-        st.markdown("## 📋 Branding Preview")
+        st.markdown("## Branding Preview")
         st.caption("Preview your branding settings")
         
         # Apply branding preview
         apply_branding()
         
         # Preview sections
-        st.markdown("### 🏢 Business Identity")
+        st.markdown("### Business Identity")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"**Business Name:** {settings.get('business_name', 'Aziel Investments')}")
         with col2:
-            st.markdown(f"**Tagline:** {settings.get('business_tagline', 'Smart Retail ERP System')}")
+            st.markdown(f"**Tagline:** {settings.get('business_tagline', 'Smartgro ERP System')}")
         with col3:
-            st.markdown(f"**Branding:** {'✅ Enabled' if settings.get('enable_branding', True) else '❌ Disabled'}")
+            st.markdown(f"**Branding:** {'Enabled' if settings.get('enable_branding', True) else 'Disabled'}")
         
-        st.markdown("### 🎨 Color Palette")
+        st.markdown("### Color Palette")
         colors = get_branding_colors()
         
         col1, col2, col3 = st.columns(3)
@@ -479,7 +479,7 @@ h1, h2, h3 {
             </div>
             """, unsafe_allow_html=True)
         
-        st.markdown("### 📄 Document Previews")
+        st.markdown("### Document Previews")
         
         col1, col2 = st.columns(2)
         
@@ -489,21 +489,21 @@ h1, h2, h3 {
         
         with col2:
             st.markdown("#### Email Footer")
-            st.info(settings.get("email_footer", "Aziel Investments - Smart Retail ERP System"))
+            st.info(settings.get("email_footer", "Aziel Investments - Smartgro ERP System"))
         
         # Export branding settings
-        st.markdown("### 📥 Export Branding Settings")
+        st.markdown("### Export Branding Settings")
         
-        if st.button("📥 Export Branding Settings (JSON)", use_container_width=True):
+        if st.button("Export Branding Settings (JSON)", use_container_width=True):
             json_data = json.dumps(settings, indent=2)
             st.download_button(
-                label="💾 Download Settings",
+                label="Download Settings",
                 data=json_data,
                 file_name="branding_settings.json",
                 mime="application/json"
             )
         
-        st.info("💡 Changes made in branding settings will take effect immediately after saving.")
+        st.info("Changes made in branding settings will take effect immediately after saving.")
 
 
 if __name__ == "__main__":

@@ -12,46 +12,46 @@ def test_load_users():
     print("=" * 60)
     
     # Test connection first
-    print("\n📡 Testing database connection...")
+    print("\nTesting database connection...")
     success, message = test_connection()
     print(f"   {message}")
     
     if not success:
-        print("❌ Cannot proceed - connection failed")
+        print("Cannot proceed - connection failed")
         return False
     
     # Load users
-    print("\n📋 Loading users from database...")
+    print("\nLoading users from database...")
     try:
         df = load_users()
         
         if df is None:
-            print("❌ load_users() returned None!")
+            print("load_users() returned None!")
             return False
         
         if df.empty:
-            print("❌ No users loaded - DataFrame is empty!")
+            print("No users loaded - DataFrame is empty!")
             print(f"   DataFrame shape: {df.shape}")
             print(f"   Columns: {df.columns.tolist()}")
             return False
         
-        print(f"✅ Successfully loaded {len(df)} users:")
+        print(f"Successfully loaded {len(df)} users:")
         print("-" * 40)
         for idx, (_, user) in enumerate(df.iterrows(), 1):
             username = user.get('username', 'N/A')
             role = user.get('role', 'N/A')
             full_name = user.get('full_name', 'N/A')
             active = user.get('active', False)
-            status = "✅ Active" if active else "❌ Inactive"
+            status = "Active" if active else "Inactive"
             print(f"   {idx}. {username} - {role} ({full_name}) - {status}")
         
         print("\n" + "=" * 60)
-        print("  ✅ TEST PASSED - Users loaded successfully!")
+        print("  TEST PASSED - Users loaded successfully!")
         print("=" * 60)
         return True
         
     except Exception as e:
-        print(f"❌ Error loading users: {e}")
+        print(f"Error loading users: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -72,7 +72,7 @@ def test_save_users():
         "role": "cashier",
         "branch_id": "HO",
         "full_name": "Test User",
-        "phone": "0772123456",
+        "phone": "0782905853",
         "active": True,
         "mobile_enabled": True,
         "whatsapp": "",
@@ -84,30 +84,30 @@ def test_save_users():
         "session_token": ""
     }])
     
-    print("\n📋 Attempting to save test user...")
+    print("\nAttempting to save test user...")
     try:
         success = save_users(test_user)
         if success:
-            print("✅ Test user saved successfully!")
+            print("Test user saved successfully!")
             
             # Verify it was saved
             df = load_users()
             test_user_found = df[df["username"] == "testuser"]
             if not test_user_found.empty:
-                print("✅ Test user verified in database!")
+                print("Test user verified in database!")
                 user = test_user_found.iloc[0]
                 print(f"   Username: {user['username']}")
                 print(f"   Role: {user['role']}")
                 print(f"   Full Name: {user['full_name']}")
                 return True
             else:
-                print("❌ Test user not found after save!")
+                print("Test user not found after save!")
                 return False
         else:
-            print("❌ Failed to save test user!")
+            print("Failed to save test user!")
             return False
     except Exception as e:
-        print(f"❌ Error saving test user: {e}")
+        print(f"Error saving test user: {e}")
         return False
 
 def test_delete_test_user():
@@ -128,12 +128,12 @@ def test_delete_test_user():
         if "testuser" in df["username"].values:
             df = df[df["username"] != "testuser"]
             save_users(df)
-            print("✅ Test user deleted successfully!")
+            print("Test user deleted successfully!")
         else:
-            print("ℹ️ Test user not found - nothing to delete")
+            print("Test user not found - nothing to delete")
         return True
     except Exception as e:
-        print(f"❌ Error deleting test user: {e}")
+        print(f"Error deleting test user: {e}")
         return False
 
 if __name__ == "__main__":
@@ -146,14 +146,14 @@ if __name__ == "__main__":
     
     if load_success:
         print("\n" + "=" * 60)
-        print("  ✅ ALL TESTS COMPLETED SUCCESSFULLY!")
+        print("  ALL TESTS COMPLETED SUCCESSFULLY!")
         print("=" * 60)
-        print("\n📋 Users found in database can now be used for login.")
+        print("\nUsers found in database can now be used for login.")
         print("   Try logging in with:")
         print("   - admin / admin123")
         print("   - manager / manager123")
         print("   - cashier / cash123")
     else:
         print("\n" + "=" * 60)
-        print("  ❌ TESTS FAILED - Please check database connection")
+        print("  TESTS FAILED - Please check database connection")
         print("=" * 60)

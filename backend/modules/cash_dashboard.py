@@ -35,7 +35,7 @@ from backend.modules.shift_manager import (
 def cash_dashboard():
     """Enhanced Cash Register Dashboard with comprehensive features"""
     
-    st.title("💰 Cash Register Management System")
+    st.title("Cash Register Management System")
     st.caption("Track shifts, manage cash flow, and control expenses")
     
     # Get current user and branch info
@@ -51,18 +51,18 @@ def cash_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🔄 Shift Management",
-        "📊 Today's Report",
-        "💵 Cash Flow",
-        "📝 Petty Cash",
-        "🏦 Bank Deposits"
+        "Shift Management",
+        "Today's Report",
+        "Cash Flow",
+        "Petty Cash",
+        "Bank Deposits"
     ])
     
     # ==============================
     # TAB 1: SHIFT MANAGEMENT - BRANCH LEVEL (FIXED - No infinite loop)
     # ==============================
     with tab1:
-        st.markdown("## 🔄 Shift Management")
+        st.markdown("## Shift Management")
         
         # Get the active shift for this branch
         active_shift = get_active_shift_for_branch(user_branch)
@@ -71,7 +71,7 @@ def cash_dashboard():
         shift_name = active_shift.get("shift_name", "N/A") if is_shift_active else "N/A"
         
         # Display branch info
-        st.info(f"📍 **Branch:** {user_branch} | **Role:** {user_role.upper()}")
+        st.info(f"**Branch:** {user_branch} | **Role:** {user_role.upper()}")
         
         col1, col2 = st.columns(2)
         
@@ -90,7 +90,7 @@ def cash_dashboard():
                         key="opening_cash_input"
                     )
                     
-                    if st.button("🚀 Start Shift", type="primary", use_container_width=True):
+                    if st.button("Start Shift", type="primary", use_container_width=True):
                         with st.spinner("Starting shift..."):
                             success, result, message = start_shift(
                                 cashier_username=username,
@@ -108,14 +108,14 @@ def cash_dashboard():
                                 st.session_state.active_shift_branch = user_branch
                                 st.session_state.branch_shift_active = True
                                 
-                                st.success(f"✅ Shift started successfully! Shift ID: {result}")
-                                st.info(f"📌 Opening Cash: ${opening:.2f}")
+                                st.success(f"Shift started successfully! Shift ID: {result}")
+                                st.info(f"Opening Cash: ${opening:.2f}")
                                 st.rerun()
                             else:
-                                st.error(f"❌ Failed to start shift: {message}")
+                                st.error(f"Failed to start shift: {message}")
                 else:
-                    st.warning("⛔ No active shift in your branch. Please ask your manager to start a shift.")
-                    st.info("💡 Only managers and owners can start shifts.")
+                    st.warning("No active shift in your branch. Please ask your manager to start a shift.")
+                    st.info("Only managers and owners can start shifts.")
             else:
                 # Active shift exists - show shift details
                 st.markdown("### 🟢 Active Shift")
@@ -186,13 +186,13 @@ def cash_dashboard():
                             if success:
                                 record_closing_cash(actual_cash, shift_id)
                                 
-                                st.success(f"✅ Shift closed!")
-                                st.info(f"💰 Expected Cash: ${expected_cash:.2f}")
+                                st.success(f"Shift closed!")
+                                st.info(f"Expected Cash: ${expected_cash:.2f}")
                                 
                                 if variance >= 0:
-                                    st.success(f"✅ Cash Surplus: ${variance:.2f}")
+                                    st.success(f"Cash Surplus: ${variance:.2f}")
                                 else:
-                                    st.error(f"⚠️ Cash Shortage: ${abs(variance):.2f}")
+                                    st.error(f"Cash Shortage: ${abs(variance):.2f}")
                                 
                                 # Clear session state
                                 st.session_state.shift_id = None
@@ -202,14 +202,14 @@ def cash_dashboard():
                                 # Only rerun after all processing is complete
                                 st.rerun()
                             else:
-                                st.error(f"❌ Failed to close shift: {result}")
+                                st.error(f"Failed to close shift: {result}")
                 else:
-                    st.info("💡 Only managers and owners can close shifts.")
+                    st.info("Only managers and owners can close shifts.")
                     st.caption("Please ask your manager to close the shift.")
         
         # Shift history - show all shifts for this branch
         st.markdown("---")
-        st.markdown("### 📋 Shift History (This Branch)")
+        st.markdown("### Shift History (This Branch)")
         
         shifts_df = load_shifts()
         if not shifts_df.empty:
@@ -251,7 +251,7 @@ def cash_dashboard():
         # Show all active shifts across branches (for managers/owners)
         if can_manage_shifts:
             st.markdown("---")
-            st.markdown("### 🌐 All Active Shifts (All Branches)")
+            st.markdown("### All Active Shifts (All Branches)")
             
             all_active = get_all_active_shifts()
             if not all_active.empty:
@@ -264,7 +264,7 @@ def cash_dashboard():
     # TAB 2: TODAY'S REPORT
     # ==============================
     with tab2:
-        st.markdown("## 📊 Today's Cash Report")
+        st.markdown("## Today's Cash Report")
         
         today_report = get_daily_report()
         
@@ -273,13 +273,13 @@ def cash_dashboard():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("💰 Cash Sales", f"${today_report['cash_sales']:.2f}")
+                st.metric("Cash Sales", f"${today_report['cash_sales']:.2f}")
             with col2:
-                st.metric("📝 Credit Sales", f"${today_report['credit_sales']:.2f}")
+                st.metric("Credit Sales", f"${today_report['credit_sales']:.2f}")
             with col3:
-                st.metric("💳 Debt Payments", f"${today_report['debt_payments']:.2f}")
+                st.metric("Debt Payments", f"${today_report['debt_payments']:.2f}")
             with col4:
-                st.metric("💸 Petty Cash", f"${today_report['petty_cash']:.2f}")
+                st.metric("Petty Cash", f"${today_report['petty_cash']:.2f}")
             
             st.markdown("---")
             
@@ -292,32 +292,32 @@ def cash_dashboard():
             
             # Variance
             if abs(today_report['variance']) > 5:
-                st.error(f"⚠️ Cash Variance: ${today_report['variance']:.2f} - Investigate!")
+                st.error(f"Cash Variance: ${today_report['variance']:.2f} - Investigate!")
             else:
-                st.success(f"✅ Cash Variance: ${today_report['variance']:.2f}")
+                st.success(f"Cash Variance: ${today_report['variance']:.2f}")
             
             # Transaction details
             st.markdown("---")
             
             if today_report.get('cash_sales_list'):
-                st.subheader("💰 Cash Sales Today")
+                st.subheader("Cash Sales Today")
                 cash_df = pd.DataFrame(today_report['cash_sales_list'])
                 st.dataframe(cash_df, use_container_width=True, hide_index=True)
             
             if today_report.get('credit_sales_list'):
-                st.subheader("📝 Credit Sales Today")
+                st.subheader("Credit Sales Today")
                 credit_df = pd.DataFrame(today_report['credit_sales_list'])
                 st.dataframe(credit_df, use_container_width=True, hide_index=True)
                 st.info(f"Total Credit Sales: ${today_report['credit_sales']:.2f}")
             
             if today_report.get('debt_payments_list'):
-                st.subheader("💳 Debt Payments Received")
+                st.subheader("Debt Payments Received")
                 debt_df = pd.DataFrame(today_report['debt_payments_list'])
                 st.dataframe(debt_df, use_container_width=True, hide_index=True)
                 st.success(f"Total Debt Collections: ${today_report['debt_payments']:.2f}")
             
             if today_report.get('petty_cash_list'):
-                st.subheader("💸 Petty Cash Expenses")
+                st.subheader("Petty Cash Expenses")
                 petty_df = pd.DataFrame(today_report['petty_cash_list'])
                 st.dataframe(petty_df, use_container_width=True, hide_index=True)
         else:
@@ -327,10 +327,10 @@ def cash_dashboard():
     # TAB 3: CASH FLOW
     # ==============================
     with tab3:
-        st.markdown("## 💵 Cash Flow Analysis")
+        st.markdown("## Cash Flow Analysis")
         
         # Cash flow chart
-        st.markdown("### 📈 Cash Flow Trend (Last 30 Days)")
+        st.markdown("### Cash Flow Trend (Last 30 Days)")
         
         cash_flow_df = get_cash_flow(30)
         
@@ -349,7 +349,7 @@ def cash_dashboard():
             st.plotly_chart(fig, use_container_width=True)
         
         # Cashier performance
-        st.markdown("### 👥 Cashier Performance")
+        st.markdown("### Cashier Performance")
         
         cashier_perf = get_cashier_performance()
         if not cashier_perf.empty:
@@ -357,7 +357,7 @@ def cash_dashboard():
         
         # Summary metrics
         st.markdown("---")
-        st.markdown("### 📊 Summary Statistics")
+        st.markdown("### Summary Statistics")
         
         all_time = get_cash_summary()
         
@@ -373,10 +373,10 @@ def cash_dashboard():
     # TAB 4: PETTY CASH
     # ==============================
     with tab4:
-        st.markdown("## 📝 Petty Cash Management")
+        st.markdown("## Petty Cash Management")
         
         # Record petty cash expense
-        st.markdown("### 💸 Record Petty Cash Expense")
+        st.markdown("### Record Petty Cash Expense")
         
         col1, col2 = st.columns(2)
         
@@ -391,7 +391,7 @@ def cash_dashboard():
         # Use branch shift ID if available
         shift_to_use = st.session_state.get("shift_id") or st.session_state.get("active_shift_id") or ""
         
-        if st.button("💰 Record Petty Cash", key="record_petty"):
+        if st.button("Record Petty Cash", key="record_petty"):
             if petty_desc and petty_amount > 0:
                 record_petty_cash(
                     description=petty_desc,
@@ -401,14 +401,14 @@ def cash_dashboard():
                     approved_by=st.session_state.get("username", "system"),
                     notes=petty_notes
                 )
-                st.success(f"✅ Petty cash expense recorded: ${petty_amount:.2f}")
+                st.success(f"Petty cash expense recorded: ${petty_amount:.2f}")
                 st.rerun()
             else:
                 st.error("Please enter description and amount")
         
         # Petty cash history
         st.markdown("---")
-        st.markdown("### 📋 Petty Cash History")
+        st.markdown("### Petty Cash History")
         
         petty_df = load_petty_cash()
         if not petty_df.empty:
@@ -422,10 +422,10 @@ def cash_dashboard():
     # TAB 5: BANK DEPOSITS
     # ==============================
     with tab5:
-        st.markdown("## 🏦 Bank Deposits")
+        st.markdown("## Bank Deposits")
         
         # Record bank deposit
-        st.markdown("### 💵 Record Bank Deposit")
+        st.markdown("### Record Bank Deposit")
         
         col1, col2 = st.columns(2)
         
@@ -440,7 +440,7 @@ def cash_dashboard():
         # Use branch shift ID if available
         shift_to_use = st.session_state.get("shift_id") or st.session_state.get("active_shift_id") or ""
         
-        if st.button("💰 Record Bank Deposit", key="record_deposit"):
+        if st.button("Record Bank Deposit", key="record_deposit"):
             if deposit_amount > 0:
                 record_bank_deposit(
                     amount=deposit_amount,
@@ -449,14 +449,14 @@ def cash_dashboard():
                     reference_no=deposit_ref,
                     notes=deposit_notes
                 )
-                st.success(f"✅ Bank deposit recorded: ${deposit_amount:.2f} to {deposit_bank}")
+                st.success(f"Bank deposit recorded: ${deposit_amount:.2f} to {deposit_bank}")
                 st.rerun()
             else:
                 st.error("Please enter deposit amount")
         
         # Deposit history
         st.markdown("---")
-        st.markdown("### 📋 Bank Deposit History")
+        st.markdown("### Bank Deposit History")
         
         deposits_df = load_bank_deposits()
         if not deposits_df.empty:
@@ -469,9 +469,9 @@ def cash_dashboard():
     # EXPORT REPORT
     # ==============================
     st.markdown("---")
-    st.subheader("📥 Export Daily Report")
+    st.subheader("Export Daily Report")
     
-    if st.button("📄 Generate Daily Report", use_container_width=True):
+    if st.button("Generate Daily Report", use_container_width=True):
         report = get_daily_report()
         
         if report:

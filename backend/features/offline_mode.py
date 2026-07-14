@@ -324,14 +324,14 @@ def sync_all_data():
 def offline_mode_dashboard():
     """Offline Mode Management Dashboard"""
     
-    st.title("📡 Offline Mode Management")
+    st.title("Offline Mode Management")
     st.caption("Work offline and sync when connection returns")
     
     role = st.session_state.get("role", "cashier")
     
     # Only owner and managers can access offline settings
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can manage offline mode.")
+        st.error("Access Denied. Only owners and managers can manage offline mode.")
         return
     
     # Get status
@@ -350,13 +350,13 @@ def offline_mode_dashboard():
             st.error("🔴 OFFLINE")
     
     with col2:
-        st.metric("📦 Pending Sync", sync_status["pending"])
+        st.metric("Pending Sync", sync_status["pending"])
     
     with col3:
-        st.metric("✅ Synced Items", sync_status["synced"])
+        st.metric("Synced Items", sync_status["synced"])
     
     with col4:
-        st.metric("❌ Failed Items", sync_status["failed"])
+        st.metric("Failed Items", sync_status["failed"])
     
     st.markdown("---")
     
@@ -364,26 +364,26 @@ def offline_mode_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📡 Sync Status",
-        "📦 Pending Queue",
-        "⚙️ Offline Settings",
-        "🔄 Manual Sync"
+        "Sync Status",
+        "Pending Queue",
+        "Offline Settings",
+        "Manual Sync"
     ])
     
     # ==============================
     # TAB 1: SYNC STATUS
     # ==============================
     with tab1:
-        st.markdown("## 📡 Synchronization Status")
+        st.markdown("## Synchronization Status")
         
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("### Connection Status")
             if status["online"]:
-                st.success("✅ Internet connection detected")
+                st.success("Internet connection detected")
             else:
-                st.warning("⚠️ No internet connection - working in offline mode")
+                st.warning("No internet connection - working in offline mode")
             
             st.markdown("### Last Sync")
             if status["last_sync"]:
@@ -393,16 +393,16 @@ def offline_mode_dashboard():
         
         with col2:
             st.markdown("### Offline Mode Status")
-            st.write(f"Offline Mode: {'✅ Enabled' if status['offline_enabled'] else '❌ Disabled'}")
+            st.write(f"Offline Mode: {'Enabled' if status['offline_enabled'] else 'Disabled'}")
             st.write(f"Cache Version: {status['cache_version']}")
             
             if sync_status["pending"] > 0:
-                st.warning(f"⚠️ {sync_status['pending']} items waiting to sync")
+                st.warning(f"{sync_status['pending']} items waiting to sync")
             else:
-                st.success("✅ All data synchronized")
+                st.success("All data synchronized")
         
         # Sync history chart
-        st.markdown("### 📊 Sync Activity")
+        st.markdown("### Sync Activity")
         
         with open(OFFLINE_QUEUE_FILE, "r") as f:
             queue_data = json.load(f)
@@ -425,7 +425,7 @@ def offline_mode_dashboard():
     # TAB 2: PENDING QUEUE
     # ==============================
     with tab2:
-        st.markdown("## 📦 Pending Sync Queue")
+        st.markdown("## Pending Sync Queue")
         
         if sync_status["pending"] > 0:
             st.warning(f"{sync_status['pending']} items pending synchronization")
@@ -438,10 +438,10 @@ def offline_mode_dashboard():
                     hide_index=True
                 )
         else:
-            st.success("✅ No pending items in sync queue")
+            st.success("No pending items in sync queue")
         
         st.markdown("---")
-        st.markdown("### ❌ Failed Items")
+        st.markdown("### Failed Items")
         
         if sync_status["failed"] > 0:
             st.error(f"{sync_status['failed']} items failed to sync")
@@ -454,13 +454,13 @@ def offline_mode_dashboard():
                     hide_index=True
                 )
         else:
-            st.success("✅ No failed items")
+            st.success("No failed items")
     
     # ==============================
     # TAB 3: OFFLINE SETTINGS
     # ==============================
     with tab3:
-        st.markdown("## ⚙️ Offline Mode Settings")
+        st.markdown("## Offline Mode Settings")
         
         with open(OFFLINE_MANIFEST_FILE, "r") as f:
             manifest = json.load(f)
@@ -501,10 +501,10 @@ def offline_mode_dashboard():
         
         # Clear cache
         st.markdown("---")
-        st.markdown("### 🗑️ Clear Offline Cache")
+        st.markdown("### Clear Offline Cache")
         
-        if st.button("🗑️ Clear All Offline Cache", use_container_width=True):
-            confirm = st.checkbox("⚠️ I understand this will clear all offline data")
+        if st.button("Clear All Offline Cache", use_container_width=True):
+            confirm = st.checkbox("I understand this will clear all offline data")
             if confirm:
                 offline_data = {
                     "products": [],
@@ -524,7 +524,7 @@ def offline_mode_dashboard():
     # TAB 4: MANUAL SYNC
     # ==============================
     with tab4:
-        st.markdown("## 🔄 Manual Synchronization")
+        st.markdown("## Manual Synchronization")
         
         col1, col2 = st.columns(2)
         
@@ -533,24 +533,24 @@ def offline_mode_dashboard():
                 with st.spinner("Synchronizing..."):
                     count, message = process_sync_queue()
                     if count > 0:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
                         st.info(message)
                 st.rerun()
         
         with col2:
-            if st.button("💾 Sync All Data for Offline", use_container_width=True):
+            if st.button("Sync All Data for Offline", use_container_width=True):
                 with st.spinner("Syncing all data for offline use..."):
                     success, message = sync_all_data()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         st.markdown("---")
         
         # Offline data size
-        st.markdown("### 📦 Offline Data Size")
+        st.markdown("### Offline Data Size")
         
         if OFFLINE_DATA_FILE.exists():
             size_bytes = OFFLINE_DATA_FILE.stat().st_size
@@ -569,7 +569,7 @@ def offline_mode_dashboard():
             st.metric("Sync Queue Size", f"{queue_size} B")
         
         st.markdown("---")
-        st.markdown("### 📋 How Offline Mode Works")
+        st.markdown("### How Offline Mode Works")
         
         st.info("""
         **Offline Mode Features:**

@@ -24,7 +24,7 @@ from backend.modules.expenses import (
 def expenses_dashboard():
     """Enhanced Expenses Dashboard with Budgeting and Analytics - FIXED: No infinite loops"""
     
-    st.title("📊 Expenses Management Dashboard")
+    st.title("Expenses Management Dashboard")
     st.caption("Track spending, manage budgets, and control costs")
     
     # ==============================
@@ -45,13 +45,13 @@ def expenses_dashboard():
     # DISPLAY MESSAGES FROM SESSION STATE
     # ==============================
     if st.session_state.dashboard_expense_success and st.session_state.dashboard_expense_message:
-        st.success(f"✅ {st.session_state.dashboard_expense_message}")
+        st.success(f"{st.session_state.dashboard_expense_message}")
         st.balloons()
         st.session_state.dashboard_expense_success = False
         st.session_state.dashboard_expense_message = ""
     
     if st.session_state.dashboard_category_added and st.session_state.dashboard_category_message:
-        st.success(f"✅ {st.session_state.dashboard_category_message}")
+        st.success(f"{st.session_state.dashboard_category_message}")
         st.session_state.dashboard_category_added = False
         st.session_state.dashboard_category_message = ""
 
@@ -62,18 +62,18 @@ def expenses_dashboard():
     # EXPENSE TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📝 Record Expense",
-        "📊 Budget vs Actual",
-        "📈 Expense Analytics",
-        "🔄 Recurring Expenses",
-        "📋 All Expenses"
+        "Record Expense",
+        "Budget vs Actual",
+        "Expense Analytics",
+        "Recurring Expenses",
+        "All Expenses"
     ])
     
     # ==============================
     # TAB 1: RECORD EXPENSE - FIXED
     # ==============================
     with tab1:
-        st.markdown("## 📝 Record New Expense")
+        st.markdown("## Record New Expense")
         
         with st.form(key="dashboard_expense_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -90,7 +90,7 @@ def expenses_dashboard():
             
             notes = st.text_area("Notes", key="dash_exp_notes", placeholder="Additional details...")
             
-            submitted = st.form_submit_button("💰 Record Expense", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Record Expense", type="primary", use_container_width=True)
             
             if submitted:
                 if description and amount > 0:
@@ -107,17 +107,17 @@ def expenses_dashboard():
                     if success:
                         st.session_state.dashboard_expense_success = True
                         st.session_state.dashboard_expense_message = message
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                         st.balloons()
                     else:
-                        st.error(f"❌ Failed to record expense: {message}")
+                        st.error(f"Failed to record expense: {message}")
                 else:
                     st.error("Please enter description and amount")
         
         # ==============================
         # ADD NEW CATEGORY - FIXED (No infinite loop)
         # ==============================
-        with st.expander("➕ Add New Category"):
+        with st.expander("Add New Category"):
             with st.form(key="dashboard_add_category_form", clear_on_submit=True):
                 new_category = st.text_input(
                     "New Category Name", 
@@ -126,7 +126,7 @@ def expenses_dashboard():
                 )
                 
                 add_category_submitted = st.form_submit_button(
-                    "➕ Add Category", 
+                    "Add Category", 
                     type="primary",
                     use_container_width=True
                 )
@@ -138,20 +138,20 @@ def expenses_dashboard():
                             if success:
                                 st.session_state.dashboard_category_added = True
                                 st.session_state.dashboard_category_message = f"Category '{new_category.strip()}' added successfully!"
-                                st.success(f"✅ Category '{new_category.strip()}' added!")
+                                st.success(f"Category '{new_category.strip()}' added!")
                                 st.rerun()
                             else:
-                                st.error("❌ Failed to add category. Please try again.")
+                                st.error("Failed to add category. Please try again.")
                         else:
-                            st.warning(f"⚠️ Category '{new_category.strip()}' already exists!")
+                            st.warning(f"Category '{new_category.strip()}' already exists!")
                     else:
-                        st.error("❌ Please enter a category name")
+                        st.error("Please enter a category name")
     
     # ==============================
     # TAB 2: BUDGET VS ACTUAL
     # ==============================
     with tab2:
-        st.markdown("## 📊 Budget vs Actual Analysis")
+        st.markdown("## Budget vs Actual Analysis")
         
         # Year/Month selection
         col1, col2 = st.columns(2)
@@ -161,7 +161,7 @@ def expenses_dashboard():
             budget_month = st.selectbox("Month", range(1, 13), index=datetime.now().month - 1, key="budget_month")
         
         # Budget input section
-        st.markdown("### 🎯 Set Budget")
+        st.markdown("### Set Budget")
         
         with st.form(key="set_budget_form", clear_on_submit=True):
             selected_cat = st.selectbox("Select Category", categories, key="budget_cat")
@@ -172,14 +172,14 @@ def expenses_dashboard():
             if set_budget_submitted:
                 if budget_amount > 0:
                     set_budget(budget_year, budget_month, selected_cat, budget_amount)
-                    st.success(f"✅ Budget set for {selected_cat}: ${budget_amount:.2f}")
+                    st.success(f"Budget set for {selected_cat}: ${budget_amount:.2f}")
                 else:
                     st.error("Please enter a budget amount greater than 0")
         
         st.markdown("---")
         
         # Budget vs Actual Display
-        st.markdown("### 📈 Budget Performance")
+        st.markdown("### Budget Performance")
         
         budget_df = get_budget_vs_actual(budget_year, budget_month)
         
@@ -232,7 +232,7 @@ def expenses_dashboard():
                 st.plotly_chart(fig, use_container_width=True)
             
             # Detailed table
-            st.markdown("### 📋 Detailed Budget vs Actual")
+            st.markdown("### Detailed Budget vs Actual")
             
             display_df = budget_df[["category", "budget_amount", "actual_amount", "variance", "variance_percent", "status"]]
             display_df = display_df[display_df["budget_amount"] > 0]
@@ -243,7 +243,7 @@ def expenses_dashboard():
             # Warnings for over-budget
             over_budget = budget_df[budget_df["variance"] < 0]
             if not over_budget.empty:
-                st.warning(f"⚠️ {len(over_budget)} categories are over budget!")
+                st.warning(f"{len(over_budget)} categories are over budget!")
                 for _, row in over_budget.iterrows():
                     st.write(f"• {row['category']}: ${abs(row['variance']):.2f} over budget")
         else:
@@ -253,7 +253,7 @@ def expenses_dashboard():
     # TAB 3: EXPENSE ANALYTICS
     # ==============================
     with tab3:
-        st.markdown("## 📈 Expense Analytics")
+        st.markdown("## Expense Analytics")
         
         # Date range filter
         col1, col2 = st.columns(2)
@@ -265,7 +265,7 @@ def expenses_dashboard():
         month_filter = None if filter_month == "All" else filter_month
         
         # Category breakdown
-        st.markdown("### 📊 Expenses by Category")
+        st.markdown("### Expenses by Category")
         
         category_summary = get_expense_summary_by_category(filter_year, month_filter)
         
@@ -297,7 +297,7 @@ def expenses_dashboard():
             st.plotly_chart(fig_bar, use_container_width=True)
         
         # Monthly trend
-        st.markdown("### 📅 Expense Trend")
+        st.markdown("### Expense Trend")
         
         trend_df = get_expense_trend(12)
         
@@ -314,7 +314,7 @@ def expenses_dashboard():
             st.plotly_chart(fig_trend, use_container_width=True)
         
         # Top expenses
-        st.markdown("### 🔝 Largest Expenses")
+        st.markdown("### Largest Expenses")
         
         top_expenses = get_top_expenses(10, filter_year, month_filter)
         
@@ -329,11 +329,11 @@ def expenses_dashboard():
     # TAB 4: RECURRING EXPENSES
     # ==============================
     with tab4:
-        st.markdown("## 🔄 Recurring Expenses")
+        st.markdown("## Recurring Expenses")
         st.caption("Set up automatic recurring expenses (rent, subscriptions, salaries)")
         
         # Create recurring expense
-        with st.expander("➕ Add Recurring Expense", expanded=True):
+        with st.expander("Add Recurring Expense", expanded=True):
             with st.form(key="add_recurring_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 
@@ -348,7 +348,7 @@ def expenses_dashboard():
                     rec_vendor = st.text_input("Vendor", key="rec_vendor")
                     rec_notes = st.text_area("Notes", key="rec_notes")
                 
-                submitted_recurring = st.form_submit_button("💾 Save Recurring Expense", type="primary", use_container_width=True)
+                submitted_recurring = st.form_submit_button("Save Recurring Expense", type="primary", use_container_width=True)
                 
                 if submitted_recurring:
                     if rec_description and rec_amount > 0:
@@ -361,7 +361,7 @@ def expenses_dashboard():
                             vendor=rec_vendor,
                             notes=rec_notes
                         )
-                        st.success(f"✅ Recurring expense '{rec_description}' added!")
+                        st.success(f"Recurring expense '{rec_description}' added!")
                         st.rerun()
                     else:
                         st.error("Please enter description and amount")
@@ -369,10 +369,10 @@ def expenses_dashboard():
         # Process recurring expenses button
         st.markdown("---")
         
-        if st.button("🔄 Process Due Recurring Expenses", key="process_recurring_btn"):
+        if st.button("Process Due Recurring Expenses", key="process_recurring_btn"):
             processed = process_recurring_expenses()
             if processed:
-                st.success(f"✅ Processed {len(processed)} recurring expenses: {', '.join(processed)}")
+                st.success(f"Processed {len(processed)} recurring expenses: {', '.join(processed)}")
             else:
                 st.info("No recurring expenses due today")
         
@@ -380,7 +380,7 @@ def expenses_dashboard():
         recurring_df = load_recurring_expenses()
         
         if not recurring_df.empty:
-            st.markdown("### 📋 Active Recurring Expenses")
+            st.markdown("### Active Recurring Expenses")
             st.dataframe(
                 recurring_df[["description", "category", "amount", "frequency", "day_of_month", "vendor", "active"]],
                 use_container_width=True,
@@ -393,7 +393,7 @@ def expenses_dashboard():
     # TAB 5: ALL EXPENSES
     # ==============================
     with tab5:
-        st.markdown("## 📋 All Expense Records")
+        st.markdown("## All Expense Records")
         
         expenses_df = load_expenses()
         
@@ -441,7 +441,7 @@ def expenses_dashboard():
             # Export
             csv = filtered_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Download Expenses (CSV)",
+                label="Download Expenses (CSV)",
                 data=csv,
                 file_name=f"expenses_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",

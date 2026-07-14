@@ -176,35 +176,35 @@ class InsightsGenerator:
                 if growth > 20:
                     insights.append({
                         "type": "sales",
-                        "message": f"📈 Sales up {growth:.0f}% compared to yesterday!",
+                        "message": f"Sales up {growth:.0f}% compared to yesterday!",
                         "priority": "high",
                         "detail": f"Today: ${today_revenue:,.2f} vs Yesterday: ${yesterday_revenue:,.2f}"
                     })
                 elif growth < -20:
                     insights.append({
                         "type": "sales",
-                        "message": f"📉 Sales down {abs(growth):.0f}% compared to yesterday",
+                        "message": f"Sales down {abs(growth):.0f}% compared to yesterday",
                         "priority": "medium",
                         "detail": f"Today: ${today_revenue:,.2f} vs Yesterday: ${yesterday_revenue:,.2f}"
                     })
                 else:
                     insights.append({
                         "type": "sales",
-                        "message": f"📊 Sales stable at ${today_revenue:,.2f} today",
+                        "message": f"Sales stable at ${today_revenue:,.2f} today",
                         "priority": "info",
                         "detail": f"{today_transactions} transactions today"
                     })
             else:
                 insights.append({
                     "type": "sales",
-                    "message": f"📊 Today's sales: ${today_revenue:,.2f}",
+                    "message": f"Today's sales: ${today_revenue:,.2f}",
                     "priority": "info",
                     "detail": f"{today_transactions} transactions today"
                 })
         else:
             insights.append({
                 "type": "sales",
-                "message": "⚠️ No sales recorded today",
+                "message": "No sales recorded today",
                 "priority": "warning",
                 "detail": "Check if store is open and POS is working"
             })
@@ -213,7 +213,7 @@ class InsightsGenerator:
         if week_revenue > 0:
             insights.append({
                 "type": "sales",
-                "message": f"📅 Weekly sales: ${week_revenue:,.2f}",
+                "message": f"Weekly sales: ${week_revenue:,.2f}",
                 "priority": "info",
                 "detail": f"Last 7 days performance"
             })
@@ -242,7 +242,7 @@ class InsightsGenerator:
             names = ", ".join(out_of_stock_products)
             insights.append({
                 "type": "products",
-                "message": f"🚨 {out_of_stock} products OUT OF STOCK",
+                "message": f"{out_of_stock} products OUT OF STOCK",
                 "priority": "critical",
                 "detail": f"Affected: {names}" + ("..." if len(out_of_stock_products) > 3 else "")
             })
@@ -250,7 +250,7 @@ class InsightsGenerator:
         if low_stock > 0:
             insights.append({
                 "type": "products",
-                "message": f"⚠️ {low_stock} products low on stock",
+                "message": f"{low_stock} products low on stock",
                 "priority": "high",
                 "detail": "Place orders soon to avoid stockouts"
             })
@@ -258,7 +258,7 @@ class InsightsGenerator:
         if out_of_stock == 0 and low_stock == 0:
             insights.append({
                 "type": "products",
-                "message": "✅ All products in stock",
+                "message": "All products in stock",
                 "priority": "success",
                 "detail": f"{total_products} products available"
             })
@@ -270,7 +270,7 @@ class InsightsGenerator:
                 top_names = top_products.index.tolist()
                 insights.append({
                     "type": "products",
-                    "message": f"🏆 Top selling products: {', '.join(top_names)}",
+                    "message": f"Top selling products: {', '.join(top_names)}",
                     "priority": "info",
                     "detail": "Focus on these best-sellers"
                 })
@@ -297,7 +297,7 @@ class InsightsGenerator:
             if new_customers > 0:
                 insights.append({
                     "type": "customers",
-                    "message": f"👥 {new_customers} new customers this month",
+                    "message": f"{new_customers} new customers this month",
                     "priority": "info",
                     "detail": f"Total: {total_customers} customers"
                 })
@@ -312,14 +312,14 @@ class InsightsGenerator:
                 if retention_rate < 20:
                     insights.append({
                         "type": "customers",
-                        "message": f"⚠️ Low retention rate: {retention_rate:.1f}%",
+                        "message": f"Low retention rate: {retention_rate:.1f}%",
                         "priority": "medium",
                         "detail": "Consider loyalty programs to improve retention"
                     })
                 else:
                     insights.append({
                         "type": "customers",
-                        "message": f"✅ Customer retention: {retention_rate:.1f}%",
+                        "message": f"Customer retention: {retention_rate:.1f}%",
                         "priority": "success",
                         "detail": f"{repeat_customers} repeat customers"
                     })
@@ -346,7 +346,7 @@ class InsightsGenerator:
                 if monthly_expenses > 0:
                     insights.append({
                         "type": "financial",
-                        "message": f"💸 Monthly expenses: ${monthly_expenses:,.2f}",
+                        "message": f"Monthly expenses: ${monthly_expenses:,.2f}",
                         "priority": "info",
                         "detail": f"Total expenses: ${total_expenses:,.2f}"
                     })
@@ -369,14 +369,14 @@ class InsightsGenerator:
                     if margin < 10:
                         insights.append({
                             "type": "financial",
-                            "message": f"⚠️ Low profit margin: {margin:.1f}%",
+                            "message": f"Low profit margin: {margin:.1f}%",
                             "priority": "medium",
                             "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
                         })
                     else:
                         insights.append({
                             "type": "financial",
-                            "message": f"💰 Profit margin: {margin:.1f}%",
+                            "message": f"Profit margin: {margin:.1f}%",
                             "priority": "success",
                             "detail": f"Profit: ${profit:,.2f}"
                         })
@@ -392,7 +392,7 @@ class InsightsGenerator:
             if total_debt > 0:
                 insights.append({
                     "type": "financial",
-                    "message": f"💰 Outstanding debt: ${total_debt:,.2f}",
+                    "message": f"Outstanding debt: ${total_debt:,.2f}",
                     "priority": "medium" if total_debt > 1000 else "info",
                     "detail": f"{overdue} customers with outstanding balance"
                 })
@@ -409,7 +409,7 @@ class InsightsGenerator:
             if out_of_stock > 0:
                 alerts.append({
                     "type": "stock",
-                    "message": f"🚨 {out_of_stock} products out of stock",
+                    "message": f"{out_of_stock} products out of stock",
                     "severity": "critical"
                 })
         
@@ -419,7 +419,7 @@ class InsightsGenerator:
             if not high_debt.empty:
                 alerts.append({
                     "type": "debt",
-                    "message": f"💰 {len(high_debt)} customers with high debt (>$1000)",
+                    "message": f"{len(high_debt)} customers with high debt (>$1000)",
                     "severity": "warning"
                 })
         
@@ -434,7 +434,7 @@ class InsightsGenerator:
                 if today_sales.empty:
                     alerts.append({
                         "type": "sales",
-                        "message": "⚠️ No sales recorded today",
+                        "message": "No sales recorded today",
                         "severity": "warning"
                     })
         
@@ -460,20 +460,20 @@ class InsightsGenerator:
         medium_count = sum(1 for i in self.insights if i.get("priority") == "medium")
         
         if high_count > 0:
-            summary.append(f"⚠️ {high_count} high-priority insights require attention")
+            summary.append(f"{high_count} high-priority insights require attention")
         if medium_count > 0:
-            summary.append(f"📊 {medium_count} medium-priority insights to review")
+            summary.append(f"{medium_count} medium-priority insights to review")
         
         # Key metrics
         if self.metrics:
             revenue = self.metrics.get("today_revenue", 0)
             if revenue > 0:
-                summary.append(f"💰 Today's revenue: ${revenue:,.2f}")
+                summary.append(f"Today's revenue: ${revenue:,.2f}")
             else:
-                summary.append("📊 No sales recorded today")
+                summary.append("No sales recorded today")
         
         if not summary:
-            summary.append("✅ All metrics look good")
+            summary.append("All metrics look good")
         
         return " | ".join(summary)
 
@@ -659,7 +659,7 @@ def generate_insights_email_html(insights_data):
     <body>
         <div class="container">
             <div class="header">
-                <h1>🏢 SmartGro ERP Insights</h1>
+                <h1>SmartGro ERP Insights</h1>
                 <p>Business Intelligence Report</p>
                 <p style="font-size: 12px; color: #999;">Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
             </div>
@@ -669,7 +669,7 @@ def generate_insights_email_html(insights_data):
     if insights_data.get("summary"):
         html += f"""
             <div class="summary">
-                <strong>📊 Executive Summary</strong><br>
+                <strong>Executive Summary</strong><br>
                 {insights_data.get("summary")}
             </div>
         """
@@ -677,7 +677,7 @@ def generate_insights_email_html(insights_data):
     # Alerts
     if alerts:
         html += """
-            <h3 style="color: #991b1b;">🚨 Alerts</h3>
+            <h3 style="color: #991b1b;">Alerts</h3>
         """
         for alert in alerts:
             html += f"""
@@ -689,19 +689,19 @@ def generate_insights_email_html(insights_data):
     # Metrics
     if metrics:
         html += """
-            <h3>📊 Key Metrics</h3>
+            <h3>Key Metrics</h3>
             <div class="metric-grid">
         """
         
         metric_display = [
-            ("💰 Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}"),
-            ("🛒 Transactions", f"{metrics.get('today_transactions', 0)}"),
-            ("📦 Products", f"{metrics.get('total_products', 0)}"),
-            ("👥 Customers", f"{metrics.get('total_customers', 0)}"),
-            ("⚠️ Low Stock", f"{metrics.get('low_stock', 0)}"),
-            ("💸 Expenses", f"${metrics.get('total_expenses', 0):,.2f}"),
-            ("📈 Profit", f"${metrics.get('profit', 0):,.2f}"),
-            ("💰 Debt", f"${metrics.get('total_debt', 0):,.2f}")
+            ("Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}"),
+            ("Transactions", f"{metrics.get('today_transactions', 0)}"),
+            ("Products", f"{metrics.get('total_products', 0)}"),
+            ("Customers", f"{metrics.get('total_customers', 0)}"),
+            ("Low Stock", f"{metrics.get('low_stock', 0)}"),
+            ("Expenses", f"${metrics.get('total_expenses', 0):,.2f}"),
+            ("Profit", f"${metrics.get('profit', 0):,.2f}"),
+            ("Debt", f"${metrics.get('total_debt', 0):,.2f}")
         ]
         
         for label, value in metric_display:
@@ -719,7 +719,7 @@ def generate_insights_email_html(insights_data):
     # Insights
     if insights:
         html += """
-            <h3>💡 Insights</h3>
+            <h3>Insights</h3>
         """
         
         for insight in insights:
@@ -776,7 +776,7 @@ def send_insights_email(insights_data, recipient=None):
         return False, "No recipients configured"
     
     # Generate email
-    subject = f"📊 SmartGro Insights - {datetime.now().strftime('%Y-%m-%d')}"
+    subject = f"SmartGro Insights - {datetime.now().strftime('%Y-%m-%d')}"
     body = generate_insights_email_html(insights_data)
     
     # Send to each recipient
@@ -829,13 +829,13 @@ def send_test_insights_email(email):
 def automated_insights_dashboard():
     """Automated Insights Digest Dashboard"""
     
-    st.title("📧 Automated Insights Digest")
+    st.title("Automated Insights Digest")
     st.caption("Daily/weekly AI-generated business summaries sent via email")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access insights digest.")
+        st.error("Access Denied. Only owners and managers can access insights digest.")
         return
     
     # Load settings
@@ -845,24 +845,24 @@ def automated_insights_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3 = st.tabs([
-        "📊 Generate Insights",
-        "⚙️ Settings",
-        "📜 History"
+        "Generate Insights",
+        "Settings",
+        "History"
     ])
     
     # ==============================
     # TAB 1: GENERATE INSIGHTS
     # ==============================
     with tab1:
-        st.markdown("## 📊 Generate Business Insights")
+        st.markdown("## Generate Business Insights")
         
-        if st.button("🔮 Generate Today's Insights", type="primary", use_container_width=True):
+        if st.button("Generate Today's Insights", type="primary", use_container_width=True):
             with st.spinner("Generating insights..."):
                 generator = InsightsGenerator()
                 insights_data = generator.generate_daily_insights()
                 
                 st.session_state.current_insights = insights_data
-                st.success("✅ Insights generated!")
+                st.success("Insights generated!")
                 st.balloons()
         
         # Display current insights
@@ -871,44 +871,44 @@ def automated_insights_dashboard():
             
             # Summary
             if insights_data.get("summary"):
-                st.info(f"📊 {insights_data.get('summary')}")
+                st.info(f"{insights_data.get('summary')}")
             
             # Alerts
             alerts = insights_data.get("alerts", [])
             if alerts:
-                st.markdown("### 🚨 Alerts")
+                st.markdown("### Alerts")
                 for alert in alerts:
                     st.error(f"**{alert.get('message', 'Alert')}**")
             
             # Metrics
             metrics = insights_data.get("metrics", {})
             if metrics:
-                st.markdown("### 📊 Key Metrics")
+                st.markdown("### Key Metrics")
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("💰 Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}")
+                    st.metric("Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}")
                 with col2:
-                    st.metric("🛒 Transactions", metrics.get('today_transactions', 0))
+                    st.metric("Transactions", metrics.get('today_transactions', 0))
                 with col3:
-                    st.metric("📦 Products", metrics.get('total_products', 0))
+                    st.metric("Products", metrics.get('total_products', 0))
                 with col4:
-                    st.metric("👥 Customers", metrics.get('total_customers', 0))
+                    st.metric("Customers", metrics.get('total_customers', 0))
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("⚠️ Low Stock", metrics.get('low_stock', 0))
+                    st.metric("Low Stock", metrics.get('low_stock', 0))
                 with col2:
-                    st.metric("💸 Expenses", f"${metrics.get('total_expenses', 0):,.2f}")
+                    st.metric("Expenses", f"${metrics.get('total_expenses', 0):,.2f}")
                 with col3:
-                    st.metric("📈 Profit", f"${metrics.get('profit', 0):,.2f}")
+                    st.metric("Profit", f"${metrics.get('profit', 0):,.2f}")
                 with col4:
-                    st.metric("💰 Debt", f"${metrics.get('total_debt', 0):,.2f}")
+                    st.metric("Debt", f"${metrics.get('total_debt', 0):,.2f}")
             
             # Insights
             insights = insights_data.get("insights", [])
             if insights:
-                st.markdown("### 💡 Insights")
+                st.markdown("### Insights")
                 for insight in insights:
                     priority = insight.get("priority", "info")
                     icon = {
@@ -934,33 +934,33 @@ def automated_insights_dashboard():
             
             # Send email button
             st.markdown("---")
-            st.markdown("### 📧 Send Report")
+            st.markdown("### Send Report")
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("📧 Send to Configured Recipients", type="primary", use_container_width=True):
+                if st.button("Send to Configured Recipients", type="primary", use_container_width=True):
                     with st.spinner("Sending..."):
                         success, message = send_insights_email(insights_data)
                         if success:
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
             
             with col2:
                 recipient = st.text_input("Send to specific email", placeholder="email@example.com")
-                if recipient and st.button("📧 Send Test Email", use_container_width=True):
+                if recipient and st.button("Send Test Email", use_container_width=True):
                     with st.spinner("Sending..."):
                         success, message = send_test_insights_email(recipient)
                         if success:
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
     
     # ==============================
     # TAB 2: SETTINGS
     # ==============================
     with tab2:
-        st.markdown("## ⚙️ Insights Settings")
+        st.markdown("## Insights Settings")
         
         col1, col2 = st.columns(2)
         
@@ -981,7 +981,7 @@ def automated_insights_dashboard():
             send_alerts = st.checkbox("Send Critical Alerts", value=settings.get("send_alerts", True))
         
         st.markdown("---")
-        st.markdown("### 📧 Recipients")
+        st.markdown("### Recipients")
         
         recipients_text = st.text_area(
             "Recipient Emails (one per line)",
@@ -990,7 +990,7 @@ def automated_insights_dashboard():
             placeholder="manager@example.com\nowner@example.com"
         )
         
-        if st.button("💾 Save Settings", type="primary", use_container_width=True):
+        if st.button("Save Settings", type="primary", use_container_width=True):
             recipients = [r.strip() for r in recipients_text.split("\n") if r.strip()]
             
             settings.update({
@@ -1006,26 +1006,26 @@ def automated_insights_dashboard():
             })
             
             save_insights_settings(settings)
-            st.success("✅ Settings saved successfully!")
+            st.success("Settings saved successfully!")
             st.rerun()
         
         # Test button
         st.markdown("---")
-        if st.button("📧 Send Test Insights Email", use_container_width=True):
+        if st.button("Send Test Insights Email", use_container_width=True):
             with st.spinner("Generating and sending..."):
                 generator = InsightsGenerator()
                 insights_data = generator.generate_daily_insights()
                 success, message = send_insights_email(insights_data)
                 if success:
-                    st.success(f"✅ {message}")
+                    st.success(f"{message}")
                 else:
-                    st.error(f"❌ {message}")
+                    st.error(f"{message}")
     
     # ==============================
     # TAB 3: HISTORY
     # ==============================
     with tab3:
-        st.markdown("## 📜 Insights History")
+        st.markdown("## Insights History")
         
         if INSIGHTS_HISTORY_FILE.exists():
             history_df = pd.read_csv(INSIGHTS_HISTORY_FILE)
@@ -1067,7 +1067,7 @@ def automated_insights_dashboard():
                 # Export
                 csv = history_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download History (CSV)",
+                    label="Download History (CSV)",
                     data=csv,
                     file_name=f"insights_history_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"

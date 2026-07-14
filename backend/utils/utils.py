@@ -97,11 +97,11 @@ def generate_whatsapp_receipt(cart, subtotal, receipt_no, payment_method,
                                tax_amount=0, cash_received=0, change=0):
     """Generate WhatsApp-friendly receipt text"""
     
-    receipt = f"🏪 *AZIEL INVESTMENTS*\n"
-    receipt += f"📋 *Receipt:* {receipt_no}\n"
-    receipt += f"📅 *Date:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    receipt += f"👤 *Customer:* {customer_name}\n"
-    receipt += f"💳 *Payment:* {payment_method}\n"
+    receipt = f"*AZIEL INVESTMENTS*\n"
+    receipt += f"*Receipt:* {receipt_no}\n"
+    receipt += f"*Date:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    receipt += f"*Customer:* {customer_name}\n"
+    receipt += f"*Payment:* {payment_method}\n"
     receipt += "─" * 25 + "\n"
     receipt += "*ITEMS:*\n"
     
@@ -109,17 +109,17 @@ def generate_whatsapp_receipt(cart, subtotal, receipt_no, payment_method,
         receipt += f"• {item['name'][:20]} x{item['qty']} = ${item['total']:.2f}\n"
     
     receipt += "─" * 25 + "\n"
-    receipt += f"💰 *TOTAL:* ${final_total:.2f}\n"
+    receipt += f"*TOTAL:* ${final_total:.2f}\n"
     
     if discount_amount > 0:
-        receipt += f"🎁 *Discount:* -${discount_amount:.2f}\n"
+        receipt += f"*Discount:* -${discount_amount:.2f}\n"
     
     if cash_received > 0:
-        receipt += f"💵 *Cash Tendered:* ${cash_received:.2f}\n"
-        receipt += f"🔄 *Change:* ${change:.2f}\n"
+        receipt += f"*Cash Tendered:* ${cash_received:.2f}\n"
+        receipt += f"*Change:* ${change:.2f}\n"
     
-    receipt += "\n✅ *Thank you for shopping with us!*\n"
-    receipt += f"📞 *Contact:* +263 78 290 5853\n"
+    receipt += "\n*Thank you for shopping with us!*\n"
+    receipt += f"*Contact:* +263 78 290 5853\n"
     receipt += "─" * 25 + "\n"
     receipt += "*SmartGro ERP - Zimbabwe*"
     
@@ -135,13 +135,13 @@ def generate_whatsapp_payment_reminder(customer_name, amount, due_date, days_ove
         reminder += f"Your payment of *${amount:.2f}* is due on *{due_date}*.\n\n"
         reminder += f"Please make your payment on time to avoid service interruption.\n\n"
         reminder += f"Thank you for your cooperation!\n\n"
-        reminder += f"📞 Contact: +263 78 290 5853"
+        reminder += f"Contact: +263 78 290 5853"
     else:
-        reminder = f"⚠️ *OVERDUE PAYMENT NOTICE* ⚠️\n\n"
+        reminder = f"*OVERDUE PAYMENT NOTICE* ⚠️\n\n"
         reminder += f"Dear {customer_name},\n\n"
         reminder += f"Your payment of *${amount:.2f}* is now *{days_overdue} days overdue*.\n\n"
         reminder += f"Please make immediate payment to avoid service interruption.\n\n"
-        reminder += f"📞 Contact: +263 78 290 5853"
+        reminder += f"Contact: +263 78 290 5853"
     
     return reminder
 
@@ -153,10 +153,10 @@ def generate_whatsapp_promotion(message, discount_code=None):
     promo += f"{message}\n\n"
     
     if discount_code:
-        promo += f"🔑 *Discount Code:* {discount_code}\n"
+        promo += f"*Discount Code:* {discount_code}\n"
     
-    promo += f"\n✅ *Valid at all branches*\n"
-    promo += f"📞 *Contact:* +263 78 290 5853"
+    promo += f"\n*Valid at all branches*\n"
+    promo += f"*Contact:* +263 78 290 5853"
     
     return promo
 

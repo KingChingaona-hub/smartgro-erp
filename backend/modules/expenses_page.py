@@ -16,7 +16,7 @@ from backend.modules.expenses import (
 def expenses_page():
     """Expenses Management Page - FIXED: No infinite loops, proper category management"""
     
-    st.title("💸 Business Expenses")
+    st.title("Business Expenses")
     st.caption("Record and track all business expenses")
 
     # ==============================
@@ -37,13 +37,13 @@ def expenses_page():
     # DISPLAY MESSAGES FROM SESSION STATE
     # ==============================
     if st.session_state.expense_success and st.session_state.expense_message:
-        st.success(f"✅ {st.session_state.expense_message}")
+        st.success(f"{st.session_state.expense_message}")
         st.balloons()
         st.session_state.expense_success = False
         st.session_state.expense_message = ""
     
     if st.session_state.category_added and st.session_state.category_message:
-        st.success(f"✅ {st.session_state.category_message}")
+        st.success(f"{st.session_state.category_message}")
         st.session_state.category_added = False
         st.session_state.category_message = ""
 
@@ -55,7 +55,7 @@ def expenses_page():
     # ==============================
     # INPUT FORM
     # ==============================
-    st.subheader("➕ Record Expense")
+    st.subheader("Record Expense")
     
     with st.form(key="expense_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -106,7 +106,7 @@ def expenses_page():
             key="exp_notes"
         )
         
-        submitted = st.form_submit_button("💰 Record Expense", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Record Expense", type="primary", use_container_width=True)
 
         if submitted:
             if description and amount_input > 0:
@@ -123,17 +123,17 @@ def expenses_page():
                 if success:
                     st.session_state.expense_success = True
                     st.session_state.expense_message = message
-                    st.success(f"✅ {message}")
+                    st.success(f"{message}")
                     st.balloons()
                 else:
-                    st.error(f"❌ Failed to record expense: {message}")
+                    st.error(f"Failed to record expense: {message}")
             else:
                 st.error("Please enter description and amount")
 
     # ==============================
-    # ADD NEW CATEGORY - FIXED (No infinite loop)
+    # ADD NEW CATEGORY
     # ==============================
-    with st.expander("➕ Add New Category"):
+    with st.expander("Add New Category"):
         with st.form(key="add_category_form", clear_on_submit=True):
             new_category = st.text_input(
                 "New Category Name", 
@@ -142,7 +142,7 @@ def expenses_page():
             )
             
             add_category_submitted = st.form_submit_button(
-                "➕ Add Category", 
+                "Add Category", 
                 type="primary",
                 use_container_width=True
             )
@@ -154,14 +154,14 @@ def expenses_page():
                         if success:
                             st.session_state.category_added = True
                             st.session_state.category_message = f"Category '{new_category.strip()}' added successfully!"
-                            st.success(f"✅ Category '{new_category.strip()}' added!")
+                            st.success(f"Category '{new_category.strip()}' added!")
                             st.rerun()
                         else:
-                            st.error("❌ Failed to add category. Please try again.")
+                            st.error("Failed to add category. Please try again.")
                     else:
-                        st.warning(f"⚠️ Category '{new_category.strip()}' already exists!")
+                        st.warning(f"Category '{new_category.strip()}' already exists!")
                 else:
-                    st.error("❌ Please enter a category name")
+                    st.error("Please enter a category name")
 
     # ==============================
     # SUMMARY
@@ -173,19 +173,19 @@ def expenses_page():
     monthly_total = get_monthly_expenses()
     
     with col1:
-        st.metric("💰 This Month Expenses", f"${monthly_total:.2f}")
+        st.metric("This Month Expenses", f"${monthly_total:.2f}")
     
     df = load_expenses()
     if not df.empty:
         total_all = df["amount"].sum()
         with col2:
-            st.metric("📊 Total All Time", f"${total_all:,.2f}")
+            st.metric("Total All Time", f"${total_all:,.2f}")
     
     # ==============================
     # TABLE & DELETE
     # ==============================
     st.markdown("---")
-    st.subheader("📋 Expenses Records")
+    st.subheader("Expenses Records")
     
     if not df.empty:
         # Create display version
@@ -206,8 +206,8 @@ def expenses_page():
         # ==============================
         # DELETE RECORD - FIXED with unique keys
         # ==============================
-        with st.expander("🗑️ Delete Expense Record"):
-            st.warning("⚠️ This action cannot be undone")
+        with st.expander("Delete Expense Record"):
+            st.warning("This action cannot be undone")
             
             if not df.empty:
                 # Method 1: Delete by selection
@@ -243,7 +243,7 @@ def expenses_page():
                     record_to_delete = record_data[selected_idx]
                     
                     st.info(f"""
-                    ⚠️ **You are about to delete:**
+                    **You are about to delete:**
                     - Date: {pd.to_datetime(record_to_delete['date']).strftime('%Y-%m-%d %H:%M')}
                     - Category: {record_to_delete['category']}
                     - Amount: ${record_to_delete['amount']:.2f}
@@ -252,7 +252,7 @@ def expenses_page():
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("🗑️ Confirm Delete", type="secondary", use_container_width=True, key="confirm_delete_expense"):
+                        if st.button("Confirm Delete", type="secondary", use_container_width=True, key="confirm_delete_expense"):
                             success = delete_expense_by_id(
                                 date_str=record_to_delete["date"],
                                 category=record_to_delete["category"],
@@ -263,20 +263,20 @@ def expenses_page():
                             )
                             
                             if success:
-                                st.success("✅ Expense record deleted successfully!")
+                                st.success("Expense record deleted successfully!")
                                 st.rerun()
                             else:
-                                st.error("❌ Failed to delete record. Please try the alternative method below.")
+                                st.error("Failed to delete record. Please try the alternative method below.")
                     
                     with col2:
-                        if st.button("❌ Cancel", use_container_width=True, key="cancel_delete_expense"):
+                        if st.button("Cancel", use_container_width=True, key="cancel_delete_expense"):
                             st.info("Deletion cancelled")
                 
                 # ==============================
                 # ALTERNATIVE: Delete by Index
                 # ==============================
                 st.markdown("---")
-                st.markdown("### 🔧 Alternative: Delete by Row Number")
+                st.markdown("### Alternative: Delete by Row Number")
                 st.caption("If the above doesn't work, use this method:")
                 
                 # Show index options
@@ -296,27 +296,27 @@ def expenses_page():
                         # Extract the index from the selection
                         actual_idx = int(selected_index_record.split(" - ")[0].replace("Row ", ""))
                         
-                        st.info(f"⚠️ You are about to delete: {selected_index_record}")
+                        st.info(f"You are about to delete: {selected_index_record}")
                         
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.button("🗑️ Delete by Index", type="secondary", use_container_width=True, key="confirm_delete_index_expense"):
+                            if st.button("Delete by Index", type="secondary", use_container_width=True, key="confirm_delete_index_expense"):
                                 success = delete_expense(actual_idx)
                                 if success:
-                                    st.success("✅ Expense record deleted successfully!")
+                                    st.success("Expense record deleted successfully!")
                                     st.rerun()
                                 else:
-                                    st.error("❌ Failed to delete record")
+                                    st.error("Failed to delete record")
                         
                         with col2:
-                            if st.button("❌ Cancel", use_container_width=True, key="cancel_delete_index_expense"):
+                            if st.button("Cancel", use_container_width=True, key="cancel_delete_index_expense"):
                                 st.info("Deletion cancelled")
         
         # Export
         st.markdown("---")
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Expenses CSV",
+            label="Download Expenses CSV",
             data=csv,
             file_name=f"expenses_data_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",

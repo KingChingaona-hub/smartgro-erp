@@ -11,7 +11,7 @@ from backend.core.db_adapter import load_sales, load_products, load_customers, l
 # CONSTANTS
 # ==============================
 COMPANY_NAME = "Aziel Investments"
-COMPANY_ADDRESS = "Retail Park, Harare"
+COMPANY_ADDRESS = "Retreat Park, Harare"
 COMPANY_PHONE = "+263 78 290 5853"
 
 
@@ -701,7 +701,7 @@ def get_report_header(title, start_date=None, end_date=None):
     """Generate standard report header with company name"""
     header = f"""
     <div style="text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px;">
-        <h1 style="color: #1a237e; margin: 0; font-size: 28px;">🏢 {COMPANY_NAME}</h1>
+        <h1 style="color: #1a237e; margin: 0; font-size: 28px;">{COMPANY_NAME}</h1>
         <p style="margin: 5px 0; color: #555; font-size: 14px;">{COMPANY_ADDRESS}</p>
         <p style="margin: 5px 0; color: #555; font-size: 14px;">📞 {COMPANY_PHONE}</p>
         <h2 style="color: #2c3e50; margin-top: 10px; font-size: 22px;">{title}</h2>
@@ -757,8 +757,8 @@ def generate_sales_report_pdf(start_date, end_date):
     elements = []
     
     # Company Header
-    elements.append(Paragraph("🏢 AZIEL INVESTMENTS", company_title_style))
-    elements.append(Paragraph("Retail Park, Harare", company_sub_style))
+    elements.append(Paragraph("AZIEL INVESTMENTS", company_title_style))
+    elements.append(Paragraph("Retreat Park, Harare", company_sub_style))
     elements.append(Paragraph("📞 +263 78 290 5853", company_sub_style))
     elements.append(Spacer(1, 10))
     elements.append(Paragraph("SALES REPORT", title_style))
@@ -863,10 +863,10 @@ def generate_sales_report_html(start_date, end_date):
     <body>
         <div class="report-container">
             <div class="company-header">
-                <h1>🏢 {COMPANY_NAME}</h1>
+                <h1>{COMPANY_NAME}</h1>
                 <p>{COMPANY_ADDRESS}</p>
                 <p>📞 {COMPANY_PHONE}</p>
-                <h2 class="report-title">📊 Sales Report</h2>
+                <h2 class="report-title">Sales Report</h2>
                 <p>Period: {start_date} to {end_date}</p>
                 <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
             </div>
@@ -882,7 +882,7 @@ def generate_sales_report_html(start_date, end_date):
     if not report_data['product_sales'].empty:
         html += f"""
             <div class="section">
-                <h2 class="section-title">🏆 Top Products</h2>
+                <h2 class="section-title">Top Products</h2>
                 <table>
                     <tr><th>Product</th><th>Revenue</th><th>Profit</th><th>Units</th><th>Margin</th></tr>
         """
@@ -931,10 +931,10 @@ def generate_expenses_report_pdf(start_date, end_date):
     </head>
     <body>
         <div class="company-header">
-            <h1>🏢 {COMPANY_NAME}</h1>
+            <h1>{COMPANY_NAME}</h1>
             <p>{COMPANY_ADDRESS}</p>
             <p>📞 {COMPANY_PHONE}</p>
-            <h2>💸 Expenses Report</h2>
+            <h2>Expenses Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
@@ -948,7 +948,7 @@ def generate_expenses_report_pdf(start_date, end_date):
     if not report_data['by_category'].empty:
         html += f"""
         <div class="section">
-            <h2 class="section-title">📂 Expenses by Category</h2>
+            <h2 class="section-title">Expenses by Category</h2>
             <table><tr><th>Category</th><th>Amount</th><th>Percentage</th></tr>
         """
         total = report_data['total_expenses']
@@ -997,10 +997,10 @@ def generate_purchases_report_pdf(start_date, end_date):
     </head>
     <body>
         <div class="company-header">
-            <h1>🏢 {COMPANY_NAME}</h1>
+            <h1>{COMPANY_NAME}</h1>
             <p>{COMPANY_ADDRESS}</p>
             <p>📞 {COMPANY_PHONE}</p>
-            <h2>📦 Purchases Report</h2>
+            <h2>Purchases Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
@@ -1014,7 +1014,7 @@ def generate_purchases_report_pdf(start_date, end_date):
     if not report_data['by_supplier'].empty:
         html += f"""
         <div class="section">
-            <h2 class="section-title">🏢 Top Suppliers</h2>
+            <h2 class="section-title">Top Suppliers</h2>
             <table><tr><th>Supplier</th><th>Amount</th></tr>
         """
         for _, row in report_data['by_supplier'].head(10).iterrows():
@@ -1024,7 +1024,7 @@ def generate_purchases_report_pdf(start_date, end_date):
     if not report_data['by_status'].empty:
         html += f"""
         <div class="section">
-            <h2 class="section-title">📊 Purchase Status</h2>
+            <h2 class="section-title">Purchase Status</h2>
             <table><tr><th>Status</th><th>Count</th></tr>
         """
         for _, row in report_data['by_status'].iterrows():
@@ -1071,7 +1071,7 @@ def generate_customers_report_pdf(start_date, end_date):
     </head>
     <body>
         <div class="company-header">
-            <h1>🏢 {COMPANY_NAME}</h1>
+            <h1>{COMPANY_NAME}</h1>
             <p>{COMPANY_ADDRESS}</p>
             <p>📞 {COMPANY_PHONE}</p>
             <h2>👥 Customers Report</h2>
@@ -1089,7 +1089,7 @@ def generate_customers_report_pdf(start_date, end_date):
     if not report_data['top_customers'].empty:
         html += f"""
         <div class="section">
-            <h2 class="section-title">🏆 Top Customers</h2>
+            <h2 class="section-title">Top Customers</h2>
             <table><tr><th>Customer</th><th>Total Spent</th><th>Profit</th><th>Transactions</th></tr>
         """
         for _, row in report_data['top_customers'].iterrows():
@@ -1138,10 +1138,10 @@ def generate_debtors_report_pdf():
     </head>
     <body>
         <div class="company-header">
-            <h1>🏢 {COMPANY_NAME}</h1>
+            <h1>{COMPANY_NAME}</h1>
             <p>{COMPANY_ADDRESS}</p>
             <p>📞 {COMPANY_PHONE}</p>
-            <h2>💰 Debtors Report</h2>
+            <h2>Debtors Report</h2>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
         <div class="metrics">
@@ -1155,7 +1155,7 @@ def generate_debtors_report_pdf():
     if not report_data['top_debtors'].empty:
         html += """
         <div class="section">
-            <h2 class="section-title">🔴 Top Debtors</h2>
+            <h2 class="section-title">Top Debtors</h2>
             <table><tr><th>Customer</th><th>Phone</th><th>Total Amount</th><th>Balance</th><th>Status</th></tr>
         """
         for _, row in report_data['top_debtors'].iterrows():
@@ -1201,10 +1201,10 @@ def generate_inventory_report_pdf():
         </head>
         <body>
             <div class="company-header">
-                <h1>🏢 {COMPANY_NAME}</h1>
+                <h1>{COMPANY_NAME}</h1>
                 <p>{COMPANY_ADDRESS}</p>
                 <p>📞 {COMPANY_PHONE}</p>
-                <h2>📦 Inventory Report</h2>
+                <h2>Inventory Report</h2>
                 <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
             </div>
             <p>No inventory data available</p>
@@ -1237,10 +1237,10 @@ def generate_inventory_report_pdf():
     </head>
     <body>
         <div class="company-header">
-            <h1>🏢 {COMPANY_NAME}</h1>
+            <h1>{COMPANY_NAME}</h1>
             <p>{COMPANY_ADDRESS}</p>
             <p>📞 {COMPANY_PHONE}</p>
-            <h2>📦 Inventory Report</h2>
+            <h2>Inventory Report</h2>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
         <div class="metrics">
@@ -1250,7 +1250,7 @@ def generate_inventory_report_pdf():
             <div class="metric-card"><div class="metric-value">${inventory_data['potential_profit'].sum():,.2f}</div><div class="metric-label">Potential Profit</div></div>
         </div>
         <div class="section">
-            <h2 class="section-title">📋 Inventory Details</h2>
+            <h2 class="section-title">Inventory Details</h2>
             <table><tr><th>Product</th><th>Category</th><th>Stock</th><th>Price</th><th>Cost</th><th>Stock Value</th></tr>
     """
     
@@ -1314,15 +1314,15 @@ def generate_combined_report_pdf(start_date, end_date):
     </head>
     <body>
         <div class="company-header">
-            <h1>🏢 {COMPANY_NAME}</h1>
+            <h1>{COMPANY_NAME}</h1>
             <p>{COMPANY_ADDRESS}</p>
             <p>📞 {COMPANY_PHONE}</p>
-            <h2>📊 Combined Business Report</h2>
+            <h2>Combined Business Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
         
-        <h2>💰 Executive Summary</h2>
+        <h2>Executive Summary</h2>
         <div class="metrics">
             <div class="metric-card"><div class="metric-value">${sales_report['total_sales']:,.2f}</div><div class="metric-label">Total Revenue</div></div>
             <div class="metric-card"><div class="metric-value">${expense_report['total_expenses']:,.2f}</div><div class="metric-label">Total Expenses</div></div>
@@ -1330,7 +1330,7 @@ def generate_combined_report_pdf(start_date, end_date):
             <div class="metric-card"><div class="metric-value">{net_margin:.1f}%</div><div class="metric-label">Net Margin</div></div>
         </div>
         
-        <h2>📈 Sales Summary</h2>
+        <h2>Sales Summary</h2>
         <table>
             <tr><th>Metric</th><th>Value</th></tr>
             <tr><td>Total Sales</td><td>${sales_report['total_sales']:,.2f}</td></tr>
@@ -1340,7 +1340,7 @@ def generate_combined_report_pdf(start_date, end_date):
             <tr><td>Average Transaction</td><td>${sales_report['average_transaction']:.2f}</td></tr>
         </table>
         
-        <h2>💸 Expenses Summary</h2>
+        <h2>Expenses Summary</h2>
         <table>
             <tr><th>Metric</th><th>Value</th></tr>
             <tr><td>Total Expenses</td><td>${expense_report['total_expenses']:,.2f}</td></tr>
@@ -1358,7 +1358,7 @@ def generate_combined_report_pdf(start_date, end_date):
         html += "</table>"
     
     html += f"""
-        <h2>📦 Purchases Summary</h2>
+        <h2>Purchases Summary</h2>
         <table>
             <tr><th>Metric</th><th>Value</th></tr>
             <tr><td>Total Purchases</td><td>${purchase_report['total_purchases']:,.2f}</td></tr>
@@ -1374,7 +1374,7 @@ def generate_combined_report_pdf(start_date, end_date):
             <tr><td>Retention Rate</td><td>{customer_report['customer_retention']:.1f}%</td></tr>
         </table>
         
-        <h2>💰 Debtors Summary</h2>
+        <h2>Debtors Summary</h2>
         <table>
             <tr><th>Metric</th><th>Value</th></tr>
             <tr><td>Total Debt</td><td>${debtors_report['total_debt']:,.2f}</td></tr>

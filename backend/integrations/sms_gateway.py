@@ -229,7 +229,7 @@ def send_sms_africastalking(recipient, message, settings):
         if not api_key:
             return {
                 "success": False, 
-                "message": "❌ API Key not configured. Please add your API Key in Settings tab."
+                "message": "API Key not configured. Please add your API Key in Settings tab."
             }
         
         # Format phone number
@@ -240,7 +240,7 @@ def send_sms_africastalking(recipient, message, settings):
         if settings.get("test_mode", True):
             return {
                 "success": True,
-                "message": f"🧪 TEST MODE: SMS would be sent to {recipient}\n\nDisable Test Mode in Settings to send real SMS.",
+                "message": f"TEST MODE: SMS would be sent to {recipient}\n\nDisable Test Mode in Settings to send real SMS.",
                 "sms_id": f"TEST_{secrets.randbelow(10000):04d}",
                 "cost": 0.00
             }
@@ -273,34 +273,34 @@ def send_sms_africastalking(recipient, message, settings):
                         if status.lower() == "success":
                             return {
                                 "success": True,
-                                "message": "✅ SMS sent successfully!",
+                                "message": "SMS sent successfully!",
                                 "sms_id": recipients_data[0].get("messageId"),
                                 "cost": 0.05
                             }
                         else:
                             return {
                                 "success": False,
-                                "message": f"❌ Error: {status}"
+                                "message": f"Error: {status}"
                             }
                 error_msg = result.get("error", "Unknown error")
-                return {"success": False, "message": f"❌ {error_msg}"}
+                return {"success": False, "message": f"{error_msg}"}
             except:
-                return {"success": False, "message": f"❌ Invalid response: {response.text[:200]}"}
+                return {"success": False, "message": f"Invalid response: {response.text[:200]}"}
         else:
             if response.status_code == 401:
                 return {
                     "success": False,
-                    "message": "❌ Authentication failed (401).\n\nPlease check:\n1. Your API Key is correct\n2. Your username is 'sandbox'\n3. You have credit in your account"
+                    "message": "Authentication failed (401).\n\nPlease check:\n1. Your API Key is correct\n2. Your username is 'sandbox'\n3. You have credit in your account"
                 }
             return {
                 "success": False,
-                "message": f"❌ HTTP Error {response.status_code}: {response.text[:200]}"
+                "message": f"HTTP Error {response.status_code}: {response.text[:200]}"
             }
             
     except requests.exceptions.RequestException as e:
-        return {"success": False, "message": f"❌ Network error: {str(e)}"}
+        return {"success": False, "message": f"Network error: {str(e)}"}
     except Exception as e:
-        return {"success": False, "message": f"❌ Error: {str(e)}"}
+        return {"success": False, "message": f"Error: {str(e)}"}
 
 
 # ==============================
@@ -322,7 +322,7 @@ def send_sms_twilio(recipient, message, settings):
         if settings.get("test_mode", True):
             return {
                 "success": True,
-                "message": f"🧪 TEST MODE: SMS would be sent to {recipient}",
+                "message": f"TEST MODE: SMS would be sent to {recipient}",
                 "sms_id": f"TEST_{secrets.randbelow(10000):04d}",
                 "cost": 0.00
             }
@@ -347,14 +347,14 @@ def send_sms_twilio(recipient, message, settings):
             result = response.json()
             return {
                 "success": True,
-                "message": "✅ SMS sent successfully!",
+                "message": "SMS sent successfully!",
                 "sms_id": result.get("sid"),
                 "cost": 0.05
             }
         
         return {
             "success": False,
-            "message": f"❌ Failed: {response.text[:200]}"
+            "message": f"Failed: {response.text[:200]}"
         }
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -378,7 +378,7 @@ def send_sms_semaphore(recipient, message, settings):
         if settings.get("test_mode", True):
             return {
                 "success": True,
-                "message": f"🧪 TEST MODE: SMS would be sent to {recipient}",
+                "message": f"TEST MODE: SMS would be sent to {recipient}",
                 "sms_id": f"TEST_{secrets.randbelow(10000):04d}",
                 "cost": 0.00
             }
@@ -400,14 +400,14 @@ def send_sms_semaphore(recipient, message, settings):
                 if status == "queued" or status == "sent":
                     return {
                         "success": True,
-                        "message": "✅ SMS sent successfully!",
+                        "message": "SMS sent successfully!",
                         "sms_id": result[0].get("message_id"),
                         "cost": 0.05
                     }
         
         return {
             "success": False,
-            "message": f"❌ Failed: {response.text[:200]}"
+            "message": f"Failed: {response.text[:200]}"
         }
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -422,11 +422,11 @@ def send_sms(recipient, message, sms_type="GENERAL", sent_by="system"):
     settings = load_sms_settings()
     
     if not settings.get("enabled", True):
-        return {"success": False, "message": "❌ SMS service is disabled"}
+        return {"success": False, "message": "SMS service is disabled"}
     
     valid, standardized, msg = validate_zimbabwe_phone(recipient)
     if not valid:
-        return {"success": False, "message": f"❌ Invalid phone number: {msg}"}
+        return {"success": False, "message": f"Invalid phone number: {msg}"}
     
     provider = settings.get("provider", "africastalking")
     
@@ -437,7 +437,7 @@ def send_sms(recipient, message, sms_type="GENERAL", sent_by="system"):
     elif provider == "semaphore":
         result = send_sms_semaphore(standardized, message, settings)
     else:
-        return {"success": False, "message": f"❌ Unknown provider: {provider}"}
+        return {"success": False, "message": f"Unknown provider: {provider}"}
     
     log_sms(
         recipient=standardized,
@@ -532,7 +532,7 @@ def sms_gateway_dashboard():
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access SMS gateway.")
+        st.error("Access Denied. Only owners and managers can access SMS gateway.")
         return
     
     init_sms_files()
@@ -541,31 +541,31 @@ def sms_gateway_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📤 Send SMS",
-        "📋 Templates",
-        "📊 SMS Analytics",
-        "📜 SMS History",
-        "⚙️ Settings"
+        "Send SMS",
+        "Templates",
+        "SMS Analytics",
+        "SMS History",
+        "Settings"
     ])
     
     # ==============================
     # TAB 1: SEND SMS
     # ==============================
     with tab1:
-        st.markdown("## 📤 Send SMS")
+        st.markdown("## Send SMS")
         
         settings = load_sms_settings()
         
         if settings.get("test_mode", True):
-            st.info("🧪 **Test Mode is ENABLED** - SMS will be simulated. Disable in Settings to send real SMS.")
+            st.info("**Test Mode is ENABLED** - SMS will be simulated. Disable in Settings to send real SMS.")
         else:
             if settings.get("africastalking_api_key", ""):
-                st.success("✅ **Live Mode** - SMS will be sent to real numbers.")
-                st.warning("💰 Ensure you have credit in your Africa's Talking account.")
+                st.success("**Live Mode** - SMS will be sent to real numbers.")
+                st.warning("Ensure you have credit in your Africa's Talking account.")
             else:
-                st.warning("⚠️ **API Key not configured** - Go to Settings to add your API Key.")
+                st.warning("**API Key not configured** - Go to Settings to add your API Key.")
         
-        from backend.core.database import load_customers
+        from backend.core.db_adapter import load_customers
         customers_df = load_customers()
         
         send_type = st.selectbox(
@@ -595,9 +595,9 @@ def sms_gateway_dashboard():
             char_count = len(message)
             sms_count = (char_count // 160) + 1 if char_count > 0 else 0
             
-            st.info(f"📊 {char_count} characters | {sms_count} SMS segment(s)")
+            st.info(f"{char_count} characters | {sms_count} SMS segment(s)")
             
-            if st.button("📤 Send SMS", type="primary", use_container_width=True):
+            if st.button("Send SMS", type="primary", use_container_width=True):
                 if recipient and message:
                     with st.spinner("Sending SMS..."):
                         result = send_sms(recipient, message, "SINGLE", st.session_state.get("username", "system"))
@@ -631,7 +631,7 @@ def sms_gateway_dashboard():
                         format_func=lambda x: f"{x} - {customers_df[customers_df['customer_name'] == x]['phone'].iloc[0]}"
                     )
                     recipients = customers_df[customers_df["customer_name"].isin(selected_customers)]["phone"].tolist()
-                    st.info(f"📊 {len(recipients)} customers selected")
+                    st.info(f"{len(recipients)} customers selected")
                 else:
                     st.warning("No customers found")
             
@@ -641,7 +641,7 @@ def sms_gateway_dashboard():
                     placeholder="0777123456\n0777234567\n0777345678"
                 )
                 recipients = [num.strip() for num in manual_numbers.split("\n") if num.strip()]
-                st.info(f"📊 {len(recipients)} numbers entered")
+                st.info(f"{len(recipients)} numbers entered")
             
             else:
                 uploaded_file = st.file_uploader("Upload CSV with phone numbers", type=["csv"])
@@ -649,25 +649,25 @@ def sms_gateway_dashboard():
                     df = pd.read_csv(uploaded_file)
                     if "phone" in df.columns:
                         recipients = df["phone"].tolist()
-                        st.info(f"📊 {len(recipients)} numbers loaded")
+                        st.info(f"{len(recipients)} numbers loaded")
                     else:
                         st.error("CSV must have a 'phone' column")
             
             message = st.text_area("Message", height=150, placeholder="Type your bulk message here...")
             
             if recipients and message:
-                st.warning(f"⚠️ This will send {len(recipients)} SMS messages")
+                st.warning(f"This will send {len(recipients)} SMS messages")
                 
-                if st.button("📤 Send Bulk SMS", type="primary", use_container_width=True):
+                if st.button("Send Bulk SMS", type="primary", use_container_width=True):
                     with st.spinner("Sending bulk SMS..."):
                         result = send_bulk_sms(recipients, message, "BULK", st.session_state.get("username", "system"))
-                        st.success(f"✅ Sent {result['success_count']}/{result['total']} messages")
+                        st.success(f"Sent {result['success_count']}/{result['total']} messages")
                         if result["failed_count"] > 0:
-                            st.warning(f"⚠️ {result['failed_count']} messages failed")
+                            st.warning(f"{result['failed_count']} messages failed")
                         st.balloons()
         
         elif send_type == "Promotional Campaign":
-            st.markdown("### 📢 Promotional Campaign")
+            st.markdown("### Promotional Campaign")
             
             offer = st.text_input("Offer Description", placeholder="20% off all products")
             expiry = st.date_input("Offer Expiry", value=datetime.now() + timedelta(days=7))
@@ -680,8 +680,8 @@ def sms_gateway_dashboard():
                 recipient_phones = customers_df[customers_df["customer_name"].isin(target_customers)]["phone"].tolist()
                 
                 if target_customers:
-                    st.info(f"📊 Sending to {len(target_customers)} customers")
-                    if st.button("📤 Send Campaign", type="primary", use_container_width=True):
+                    st.info(f"Sending to {len(target_customers)} customers")
+                    if st.button("Send Campaign", type="primary", use_container_width=True):
                         with st.spinner("Sending campaign..."):
                             result = send_promotional_sms(
                                 recipient_phones,
@@ -689,13 +689,13 @@ def sms_gateway_dashboard():
                                 expiry.strftime("%Y-%m-%d"),
                                 st.session_state.get("username", "system")
                             )
-                            st.success(f"✅ Campaign sent to {result['success_count']} customers")
+                            st.success(f"Campaign sent to {result['success_count']} customers")
                             st.balloons()
             else:
                 st.warning("No customers found")
         
         elif send_type == "Order Confirmation":
-            st.markdown("### 📦 Order Confirmation")
+            st.markdown("### Order Confirmation")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -707,7 +707,7 @@ def sms_gateway_dashboard():
                 customer = st.selectbox("Select Customer", customers_df["customer_name"].tolist())
                 customer_phone = customers_df[customers_df["customer_name"] == customer]["phone"].iloc[0]
                 
-                if st.button("📤 Send Confirmation", type="primary", use_container_width=True):
+                if st.button("Send Confirmation", type="primary", use_container_width=True):
                     with st.spinner("Sending confirmation..."):
                         result = send_order_confirmation(
                             customer_phone,
@@ -716,13 +716,13 @@ def sms_gateway_dashboard():
                             st.session_state.get("username", "system")
                         )
                         if result["success"]:
-                            st.success("✅ Order confirmation sent!")
+                            st.success("Order confirmation sent!")
                             st.balloons()
                         else:
-                            st.error(f"❌ {result['message']}")
+                            st.error(f"{result['message']}")
         
         elif send_type == "Delivery Notification":
-            st.markdown("### 🚚 Delivery Notification")
+            st.markdown("### Delivery Notification")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -734,7 +734,7 @@ def sms_gateway_dashboard():
                 customer = st.selectbox("Select Customer", customers_df["customer_name"].tolist(), key="delivery_customer")
                 customer_phone = customers_df[customers_df["customer_name"] == customer]["phone"].iloc[0]
                 
-                if st.button("📤 Send Delivery Notification", type="primary", use_container_width=True):
+                if st.button("Send Delivery Notification", type="primary", use_container_width=True):
                     with st.spinner("Sending notification..."):
                         result = send_delivery_notification(
                             customer_phone,
@@ -742,13 +742,13 @@ def sms_gateway_dashboard():
                             st.session_state.get("username", "system")
                         )
                         if result["success"]:
-                            st.success("✅ Delivery notification sent!")
+                            st.success("Delivery notification sent!")
                             st.balloons()
                         else:
-                            st.error(f"❌ {result['message']}")
+                            st.error(f"{result['message']}")
         
         elif send_type == "Payment Reminder":
-            st.markdown("### 💰 Payment Reminder")
+            st.markdown("### Payment Reminder")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -758,7 +758,7 @@ def sms_gateway_dashboard():
                 due_date = st.date_input("Due Date", value=datetime.now() + timedelta(days=7))
                 customer_phone = st.text_input("Customer Phone", placeholder="0777123456")
             
-            if st.button("📤 Send Reminder", type="primary", use_container_width=True):
+            if st.button("Send Reminder", type="primary", use_container_width=True):
                 if customer_name and customer_phone and amount > 0:
                     with st.spinner("Sending reminder..."):
                         result = send_payment_reminder(
@@ -769,22 +769,22 @@ def sms_gateway_dashboard():
                             st.session_state.get("username", "system")
                         )
                         if result["success"]:
-                            st.success("✅ Payment reminder sent!")
+                            st.success("Payment reminder sent!")
                             st.balloons()
                         else:
-                            st.error(f"❌ {result['message']}")
+                            st.error(f"{result['message']}")
                 else:
                     st.error("Please fill all required fields")
         
         elif send_type == "Birthday Wishes":
-            st.markdown("### 🎂 Birthday Wishes")
+            st.markdown("### Birthday Wishes")
             
             if not customers_df.empty:
                 customer = st.selectbox("Select Customer", customers_df["customer_name"].tolist(), key="birthday_customer")
                 customer_phone = customers_df[customers_df["customer_name"] == customer]["phone"].iloc[0]
                 discount = st.number_input("Discount (%)", min_value=0, max_value=100, value=10)
                 
-                if st.button("📤 Send Birthday Wish", type="primary", use_container_width=True):
+                if st.button("Send Birthday Wish", type="primary", use_container_width=True):
                     with st.spinner("Sending birthday wish..."):
                         result = send_birthday_wish(
                             customer_phone,
@@ -793,20 +793,20 @@ def sms_gateway_dashboard():
                             st.session_state.get("username", "system")
                         )
                         if result["success"]:
-                            st.success("✅ Birthday wish sent!")
+                            st.success("Birthday wish sent!")
                             st.balloons()
                         else:
-                            st.error(f"❌ {result['message']}")
+                            st.error(f"{result['message']}")
     
     # ==============================
     # TAB 2: TEMPLATES
     # ==============================
     with tab2:
-        st.markdown("## 📋 SMS Templates")
+        st.markdown("## SMS Templates")
         
         templates = load_sms_templates()
         
-        with st.expander("➕ Add New Template"):
+        with st.expander("Add New Template"):
             template_name = st.text_input("Template Name")
             template_category = st.selectbox(
                 "Category",
@@ -814,7 +814,7 @@ def sms_gateway_dashboard():
             )
             template_content = st.text_area("Template Content", height=100, placeholder="Use {variables} for dynamic content")
             
-            if st.button("💾 Save Template", type="primary"):
+            if st.button("Save Template", type="primary"):
                 if template_name and template_content:
                     templates[template_name.lower().replace(" ", "_")] = {
                         "name": template_name,
@@ -822,26 +822,26 @@ def sms_gateway_dashboard():
                         "category": template_category
                     }
                     save_sms_templates(templates)
-                    st.success(f"✅ Template '{template_name}' saved!")
+                    st.success(f"Template '{template_name}' saved!")
                     show_toast(f"Template '{template_name}' saved!", "success")
                     st.rerun()
                 else:
                     st.error("Please enter template name and content")
         
-        st.markdown("### 📋 Available Templates")
+        st.markdown("### Available Templates")
         
         if templates:
             for key, template in templates.items():
-                with st.expander(f"📝 {template.get('name', key)} - {template.get('category', 'Uncategorized')}"):
+                with st.expander(f"{template.get('name', key)} - {template.get('category', 'Uncategorized')}"):
                     st.code(template.get('template', ''), language='text')
                     st.caption(f"Template ID: {key}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button(f"✏️ Edit", key=f"edit_{key}"):
+                        if st.button(f"Edit", key=f"edit_{key}"):
                             st.session_state.edit_template = key
                     with col2:
-                        if st.button(f"🗑️ Delete", key=f"delete_{key}"):
+                        if st.button(f"Delete", key=f"delete_{key}"):
                             del templates[key]
                             save_sms_templates(templates)
                             show_toast("Template deleted!", "info")
@@ -853,7 +853,7 @@ def sms_gateway_dashboard():
     # TAB 3: SMS ANALYTICS
     # ==============================
     with tab3:
-        st.markdown("## 📊 SMS Analytics")
+        st.markdown("## SMS Analytics")
         
         logs_df = load_sms_logs()
         
@@ -867,20 +867,20 @@ def sms_gateway_dashboard():
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("📤 Total Sent", total_sent)
+                st.metric("Total Sent", total_sent)
             with col2:
-                st.metric("✅ Successful", total_success, delta=f"{total_success/total_sent*100:.1f}%" if total_sent > 0 else "0%")
+                st.metric("Successful", total_success, delta=f"{total_success/total_sent*100:.1f}%" if total_sent > 0 else "0%")
             with col3:
-                st.metric("❌ Failed", total_failed)
+                st.metric("Failed", total_failed)
             with col4:
-                st.metric("💰 Total Cost", f"${total_cost:.2f}")
+                st.metric("Total Cost", f"${total_cost:.2f}")
             
-            st.markdown("### 📈 SMS Activity")
+            st.markdown("### SMS Activity")
             daily_sms = logs_df.groupby(logs_df["sent_date"].dt.date).size().reset_index()
             daily_sms.columns = ["Date", "Count"]
             st.bar_chart(daily_sms.set_index("Date"))
             
-            st.markdown("### 📊 SMS by Type")
+            st.markdown("### SMS by Type")
             sms_by_type = logs_df["type"].value_counts().reset_index()
             sms_by_type.columns = ["Type", "Count"]
             st.dataframe(sms_by_type, use_container_width=True, hide_index=True)
@@ -891,7 +891,7 @@ def sms_gateway_dashboard():
     # TAB 4: SMS HISTORY
     # ==============================
     with tab4:
-        st.markdown("## 📜 SMS History")
+        st.markdown("## SMS History")
         
         logs_df = load_sms_logs()
         
@@ -931,7 +931,7 @@ def sms_gateway_dashboard():
             
             csv = filtered_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Export SMS Logs (CSV)",
+                label="Export SMS Logs (CSV)",
                 data=csv,
                 file_name=f"sms_logs_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
@@ -943,11 +943,11 @@ def sms_gateway_dashboard():
     # TAB 5: SETTINGS
     # ==============================
     with tab5:
-        st.markdown("## ⚙️ SMS Gateway Settings")
+        st.markdown("## SMS Gateway Settings")
         
         settings = load_sms_settings()
         
-        st.markdown("### 📌 Africa's Talking Setup")
+        st.markdown("### Africa's Talking Setup")
         st.info("""
         1. Go to https://account.africastalking.com/
         2. **Settings** → **API Key**
@@ -959,13 +959,13 @@ def sms_gateway_dashboard():
         
         with col1:
             enabled = st.checkbox("Enable SMS Service", value=settings.get("enabled", True))
-            test_mode = st.checkbox("🧪 Test Mode (no actual SMS sent)", value=settings.get("test_mode", True))
+            test_mode = st.checkbox("Test Mode (no actual SMS sent)", value=settings.get("test_mode", True))
             
             if test_mode:
-                st.info("🔹 Test Mode: SMS are simulated")
+                st.info("Test Mode: SMS are simulated")
             else:
-                st.warning("🔸 Live Mode: SMS will be sent to real numbers")
-                st.warning("💰 Ensure you have credit in your Africa's Talking account.")
+                st.warning("Live Mode: SMS will be sent to real numbers")
+                st.warning("Ensure you have credit in your Africa's Talking account.")
         
         with col2:
             sender_id = st.text_input("Sender ID", value=settings.get("sender_id", "AzielInvest"), 
@@ -973,13 +973,13 @@ def sms_gateway_dashboard():
             default_country = st.text_input("Default Country Code", value=settings.get("default_country_code", "263"))
         
         st.markdown("---")
-        st.markdown("### 🔑 Africa's Talking Credentials")
+        st.markdown("### Africa's Talking Credentials")
         
         current_api_key = settings.get("africastalking_api_key", "")
         if current_api_key:
-            st.success(f"✅ API Key is configured (length: {len(current_api_key)} characters)")
+            st.success(f"API Key is configured (length: {len(current_api_key)} characters)")
         else:
-            st.warning("⚠️ API Key not configured")
+            st.warning("API Key not configured")
         
         api_key = st.text_input("API Key", type="password", value=current_api_key)
         username = st.text_input("Username", value=settings.get("africastalking_username", "sandbox"))
@@ -987,7 +987,7 @@ def sms_gateway_dashboard():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("💾 Save Settings", type="primary", use_container_width=True):
+            if st.button("Save Settings", type="primary", use_container_width=True):
                 settings.update({
                     "enabled": enabled,
                     "test_mode": test_mode,
@@ -997,41 +997,41 @@ def sms_gateway_dashboard():
                     "africastalking_username": username
                 })
                 save_sms_settings(settings)
-                st.success("✅ Settings saved successfully!")
+                st.success("Settings saved successfully!")
                 show_toast("SMS settings updated!", "success")
                 #st.rerun()
         
         with col2:
             if st.button("🔌 Test Connection", use_container_width=True):
                 if api_key:
-                    st.success(f"✅ API Key validated! (Length: {len(api_key)} characters)")
-                    st.info("💡 To test actual SMS:\n1. Disable Test Mode\n2. Send a message")
+                    st.success(f"API Key validated! (Length: {len(api_key)} characters)")
+                    st.info("To test actual SMS:\n1. Disable Test Mode\n2. Send a message")
                 else:
-                    st.error("❌ Please enter your API Key")
+                    st.error("Please enter your API Key")
         
         with col3:
-            if st.button("🔍 Diagnostic Test", use_container_width=True):
+            if st.button("Diagnostic Test", use_container_width=True):
                 if api_key:
                     with st.spinner("Testing API connection..."):
                         result = test_africastalking_connection(api_key, username)
                         if result.get("status_code") == 200:
-                            st.success("✅ API Key is valid and working!")
+                            st.success("API Key is valid and working!")
                         elif result.get("status_code") == 401:
-                            st.error("❌ Authentication failed - Invalid API Key or username\n\nPlease check:\n1. Your API Key is correct\n2. Your username is 'sandbox'")
+                            st.error("Authentication failed - Invalid API Key or username\n\nPlease check:\n1. Your API Key is correct\n2. Your username is 'sandbox'")
                         else:
                             st.warning(f"Response: {result}")
                 else:
-                    st.error("❌ Please enter your API Key")
+                    st.error("Please enter your API Key")
         
         st.markdown("---")
-        st.markdown("### 📋 Current Configuration")
+        st.markdown("### Current Configuration")
         
         config_data = {
             "Provider": settings.get("provider", "africastalking"),
             "Sender ID": settings.get("sender_id", "Not set"),
-            "Test Mode": "✅ Enabled" if settings.get("test_mode", True) else "❌ Disabled",
-            "Service Status": "✅ Enabled" if settings.get("enabled", True) else "❌ Disabled",
-            "API Key": "✅ Configured" if settings.get("africastalking_api_key", "") else "❌ Not Configured",
+            "Test Mode": "Enabled" if settings.get("test_mode", True) else "Disabled",
+            "Service Status": "Enabled" if settings.get("enabled", True) else "Disabled",
+            "API Key": "Configured" if settings.get("africastalking_api_key", "") else "Not Configured",
             "Username": settings.get("africastalking_username", "Not set")
         }
         

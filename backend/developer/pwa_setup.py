@@ -84,13 +84,13 @@ def save_pwa_config(config: Dict[str, Any]) -> None:
 
 def show_toast(message: str, type: str = "info") -> None:
     if type == "success":
-        st.success(f"✅ {message}")
+        st.success(f"{message}")
     elif type == "error":
-        st.error(f"❌ {message}")
+        st.error(f"{message}")
     elif type == "warning":
-        st.warning(f"⚠️ {message}")
+        st.warning(f"{message}")
     else:
-        st.info(f"ℹ️ {message}")
+        st.info(f"{message}")
 
 
 def update_pwa_version() -> str:
@@ -447,31 +447,31 @@ def check_https() -> str:
 
 def pwa_test_tools() -> None:
     """PWA testing and validation tools - simplified without debug"""
-    st.markdown("### 🧪 PWA Testing Tools")
+    st.markdown("### PWA Testing Tools")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🔍 Test Manifest", use_container_width=True):
+        if st.button("Test Manifest", use_container_width=True):
             try:
                 import requests
                 response = requests.get("/static/manifest.json", timeout=5)
                 if response.status_code == 200:
-                    show_toast("✅ Manifest is accessible", "success")
+                    show_toast("Manifest is accessible", "success")
                 else:
-                    show_toast(f"❌ Manifest returned status {response.status_code}", "error")
+                    show_toast(f"Manifest returned status {response.status_code}", "error")
             except Exception as e:
-                show_toast(f"❌ Cannot access manifest: {str(e)}", "error")
+                show_toast(f"Cannot access manifest: {str(e)}", "error")
         
-        if st.button("🔍 Test Service Worker", use_container_width=True):
-            st.info("🔄 Check browser console for service worker status")
+        if st.button("Test Service Worker", use_container_width=True):
+            st.info("Check browser console for service worker status")
     
     with col2:
-        if st.button("📊 Get Analytics", use_container_width=True):
+        if st.button("Get Analytics", use_container_width=True):
             analytics = get_pwa_analytics()
             st.json(analytics)
         
-        if st.button("🧹 Clear Cache", use_container_width=True):
+        if st.button("Clear Cache", use_container_width=True):
             success, message = clear_pwa_cache()
             if success:
                 show_toast(message, "success")
@@ -482,13 +482,13 @@ def pwa_test_tools() -> None:
 def pwa_setup_dashboard():
     """PWA Setup Dashboard - CLEAN VERSION"""
     
-    st.title("📱 PWA Setup")
+    st.title("PWA Setup")
     st.caption("Configure Progressive Web App settings")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager", "developer"]:
-        st.error("❌ Access Denied. PWA setup is for owners, managers, and developers only.")
+        st.error("Access Denied. PWA setup is for owners, managers, and developers only.")
         return
     
     init_pwa_files()
@@ -498,19 +498,19 @@ def pwa_setup_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "⚙️ Settings",
-        "📱 App Info",
-        "🖼️ Icons",
-        "📋 Preview",
-        "🧪 Testing",
-        "💾 Backup"
+        "Settings",
+        "App Info",
+        "Icons",
+        "Preview",
+        "Testing",
+        "Backup"
     ])
     
     # ==============================
     # TAB 1: SETTINGS
     # ==============================
     with tab1:
-        st.markdown("## ⚙️ PWA Settings")
+        st.markdown("## PWA Settings")
         st.caption("Configure your Progressive Web App")
         
         col1, col2 = st.columns(2)
@@ -537,7 +537,7 @@ def pwa_setup_dashboard():
             start_url = st.text_input("Start URL", value=config.get("start_url", "/"))
             scope = st.text_input("Scope", value=config.get("scope", "/"))
         
-        st.markdown("### 🔧 Advanced Settings")
+        st.markdown("### Advanced Settings")
         
         col1, col2, col3 = st.columns(3)
         
@@ -566,7 +566,7 @@ def pwa_setup_dashboard():
             ios_enabled = st.checkbox("iOS Support", value=config.get("ios_enabled", True))
             splash_color = st.color_picker("Splash Screen Color", value=config.get("splash_screen_color", "#6366F1"))
         
-        if st.button("💾 Save PWA Settings", type="primary", use_container_width=True):
+        if st.button("Save PWA Settings", type="primary", use_container_width=True):
             try:
                 config.update({
                     "enabled": enabled,
@@ -605,7 +605,7 @@ def pwa_setup_dashboard():
     # TAB 2: APP INFO
     # ==============================
     with tab2:
-        st.markdown("## 📱 App Information")
+        st.markdown("## App Information")
         st.caption("View and manage PWA app information")
         
         analytics = get_pwa_analytics()
@@ -613,7 +613,7 @@ def pwa_setup_dashboard():
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 📋 App Details")
+            st.markdown("### App Details")
             st.markdown(f"**App Name:** {config.get('app_name', 'SmartGro Retail')}")
             st.markdown(f"**Short Name:** {config.get('app_short_name', 'SmartGro')}")
             st.markdown(f"**Description:** {config.get('app_description', 'Smart Retail ERP System')}")
@@ -625,8 +625,8 @@ def pwa_setup_dashboard():
             st.markdown(f"**Build:** {analytics.get('build', 'unknown')}")
         
         with col2:
-            st.markdown("### 📊 Status")
-            status = "✅ Enabled" if config.get("enabled", True) else "❌ Disabled"
+            st.markdown("### Status")
+            status = "Enabled" if config.get("enabled", True) else "❌ Disabled"
             st.markdown(f"**PWA Status:** {status}")
             st.markdown(f"**Manifest:** {'✅' if analytics.get('manifest', False) else '❌'}")
             st.markdown(f"**Service Worker:** {'✅' if analytics.get('service_worker', False) else '❌'}")
@@ -638,7 +638,7 @@ def pwa_setup_dashboard():
             st.markdown(f"**iOS Support:** {'✅' if config.get('ios_enabled', True) else '❌'}")
             st.markdown(f"**Splash Screen:** {'✅' if config.get('splash_screen', True) else '❌'}")
             
-            st.markdown("### 🔗 URLs")
+            st.markdown("### URLs")
             st.markdown("**Manifest:**")
             st.code("/static/manifest.json", language="text")
             st.markdown("**Service Worker:**")
@@ -646,7 +646,7 @@ def pwa_setup_dashboard():
             st.markdown("**Version:**")
             st.code("/static/version.json", language="text")
         
-        st.markdown("### 📱 Installation Instructions")
+        st.markdown("### Installation Instructions")
         st.markdown("""
         #### Android (Chrome)
         1. Open the app in Chrome
@@ -667,33 +667,33 @@ def pwa_setup_dashboard():
         """)
         
         version_info = get_pwa_version()
-        st.markdown("### 📦 Version History")
+        st.markdown("### Version History")
         st.json(version_info)
     
     # ==============================
     # TAB 3: ICONS
     # ==============================
     with tab3:
-        st.markdown("## 🖼️ PWA Icons")
+        st.markdown("## PWA Icons")
         st.caption("Manage PWA icons")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 📐 Icon Sizes")
+            st.markdown("### Icon Sizes")
             sizes = config.get("icon_sizes", [72, 96, 128, 144, 152, 192, 384, 512])
             st.json(sizes)
         
         with col2:
-            st.markdown("### 🍎 iOS Icon Sizes")
+            st.markdown("### iOS Icon Sizes")
             ios_sizes = config.get("ios_icon_sizes", [180, 192, 512])
             st.json(ios_sizes)
         
-        st.markdown("### 🖼️ Generate Icons")
+        st.markdown("### Generate Icons")
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Generate All Icons", type="primary", use_container_width=True):
+            if st.button("Generate All Icons", type="primary", use_container_width=True):
                 try:
                     count = generate_all_icons()
                     if count > 0:
@@ -705,7 +705,7 @@ def pwa_setup_dashboard():
                     show_toast(f"Error generating icons: {str(e)}", "error")
         
         with col2:
-            if st.button("🧹 Clear All Icons", use_container_width=True):
+            if st.button("Clear All Icons", use_container_width=True):
                 try:
                     if PWA_ICONS_DIR.exists():
                         for icon in PWA_ICONS_DIR.glob("*.png"):
@@ -715,7 +715,7 @@ def pwa_setup_dashboard():
                 except Exception as e:
                     show_toast(f"Error clearing icons: {str(e)}", "error")
         
-        st.markdown("### 📁 Icon Files")
+        st.markdown("### Icon Files")
         
         if PWA_ICONS_DIR.exists():
             icons = list(PWA_ICONS_DIR.glob("*.png"))
@@ -731,7 +731,7 @@ def pwa_setup_dashboard():
         else:
             st.info("Icons directory not found. Click 'Generate All Icons' to create it.")
         
-        st.markdown("### 📤 Upload Custom Icons")
+        st.markdown("### Upload Custom Icons")
         
         uploaded_file = st.file_uploader("Upload icon (PNG only)", type=["png"])
         
@@ -747,7 +747,7 @@ def pwa_setup_dashboard():
                     format_func=lambda x: "icon-{size}x{size}.png" if x == "Standard Icon" else "apple-icon-{size}x{size}.png"
                 )
             
-            if st.button("📤 Upload Icon", use_container_width=True):
+            if st.button("Upload Icon", use_container_width=True):
                 try:
                     if icon_name == "Standard Icon":
                         icon_path = PWA_ICONS_DIR / f"icon-{size}x{size}.png"
@@ -764,10 +764,10 @@ def pwa_setup_dashboard():
     # TAB 4: PREVIEW
     # ==============================
     with tab4:
-        st.markdown("## 📋 PWA Preview")
+        st.markdown("## PWA Preview")
         st.caption("Preview your PWA settings")
         
-        st.markdown("### 📱 App Preview")
+        st.markdown("### App Preview")
         
         col1, col2 = st.columns([1, 2])
         
@@ -808,14 +808,14 @@ def pwa_setup_dashboard():
                 </div>
                 """, unsafe_allow_html=True)
         
-        st.markdown("### 📄 Manifest JSON")
+        st.markdown("### Manifest JSON")
         if PWA_MANIFEST_FILE.exists():
             manifest_data = json.loads(PWA_MANIFEST_FILE.read_text())
             st.json(manifest_data)
         else:
             st.info("Manifest not found")
         
-        st.markdown("### 🔧 Service Worker")
+        st.markdown("### Service Worker")
         if PWA_SW_FILE.exists():
             sw_content = PWA_SW_FILE.read_text()
             with st.expander("View Service Worker Code"):
@@ -823,31 +823,31 @@ def pwa_setup_dashboard():
         else:
             st.info("Service Worker not found")
         
-        st.markdown("### 🏷️ Meta Tags")
+        st.markdown("### Meta Tags")
         st.code(generate_meta_tags(), language="html")
         
-        st.markdown("### 📱 PWA Status")
+        st.markdown("### PWA Status")
         analytics = get_pwa_analytics()
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Status", "✅ Active" if analytics.get('enabled', False) else "❌ Disabled")
+            st.metric("Status", "Active" if analytics.get('enabled', False) else "Disabled")
         with col2:
             st.metric("Version", analytics.get('version', 'unknown'))
         with col3:
             st.metric("Icons", analytics.get('icons', 0))
         
-        st.info("💡 To test the PWA, deploy the app and access it via HTTPS.")
+        st.info("To test the PWA, deploy the app and access it via HTTPS.")
     
     # ==============================
     # TAB 5: TESTING
     # ==============================
     with tab5:
-        st.markdown("## 🧪 PWA Testing Tools")
+        st.markdown("## PWA Testing Tools")
         st.caption("Test and validate your PWA configuration")
         
         pwa_test_tools()
         
-        st.markdown("### 📊 PWA Analytics")
+        st.markdown("### PWA Analytics")
         analytics = get_pwa_analytics()
         
         col1, col2, col3, col4 = st.columns(4)
@@ -864,18 +864,18 @@ def pwa_setup_dashboard():
     # TAB 6: BACKUP
     # ==============================
     with tab6:
-        st.markdown("## 💾 Backup & Restore")
+        st.markdown("## Backup & Restore")
         st.caption("Manage PWA configuration backups")
         
-        st.markdown("### 📤 Create Backup")
-        if st.button("📤 Create Backup", type="primary", use_container_width=True):
+        st.markdown("### Create Backup")
+        if st.button("Create Backup", type="primary", use_container_width=True):
             success, message = backup_pwa_config()
             if success:
                 show_toast(message, "success")
             else:
                 show_toast(message, "error")
         
-        st.markdown("### 📥 Restore Backup")
+        st.markdown("### Restore Backup")
         
         backups = sorted(PWA_BACKUP_DIR.glob("pwa_config_*.json"), reverse=True)
         
@@ -883,7 +883,7 @@ def pwa_setup_dashboard():
             backup_options = [f"{b.name} ({datetime.fromtimestamp(b.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')})" for b in backups]
             selected_backup = st.selectbox("Select Backup to Restore", backup_options)
             
-            if st.button("📥 Restore Selected Backup", use_container_width=True):
+            if st.button("Restore Selected Backup", use_container_width=True):
                 try:
                     backup_index = backup_options.index(selected_backup)
                     backup_file = backups[backup_index]
@@ -897,11 +897,11 @@ def pwa_setup_dashboard():
         else:
             st.info("No backups found")
         
-        st.markdown("### 🧹 Maintenance")
+        st.markdown("### Maintenance")
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🧹 Clear PWA Cache", use_container_width=True):
+            if st.button("Clear PWA Cache", use_container_width=True):
                 success, message = clear_pwa_cache()
                 if success:
                     show_toast(message, "success")
@@ -909,7 +909,7 @@ def pwa_setup_dashboard():
                     show_toast(message, "error")
         
         with col2:
-            if st.button("🔄 Reset to Default", use_container_width=True):
+            if st.button("Reset to Default", use_container_width=True):
                 try:
                     backup_pwa_config()
                     default_config = get_default_config()
@@ -923,7 +923,7 @@ def pwa_setup_dashboard():
                 except Exception as e:
                     show_toast(f"Error resetting: {str(e)}", "error")
         
-        st.markdown("### 📋 Backup History")
+        st.markdown("### Backup History")
         if backups:
             backup_data = []
             for backup in backups:

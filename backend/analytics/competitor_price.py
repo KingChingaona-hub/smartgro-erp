@@ -306,13 +306,13 @@ def suggest_price_adjustments():
 def competitor_price_monitoring_dashboard():
     """Competitor Price Monitoring Dashboard - FIXED: No blank page"""
     
-    st.title("🏪 Competitor Price Monitoring")
+    st.title("Competitor Price Monitoring")
     st.caption("Track competitor prices, analyze market trends, and optimize pricing strategy")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access price monitoring.")
+        st.error("Access Denied. Only owners and managers can access price monitoring.")
         return
     
     init_price_monitoring_files()
@@ -328,39 +328,39 @@ def competitor_price_monitoring_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Price Dashboard",
-        "➕ Record Price Comparison",
-        "🏢 Manage Competitors",
-        "📈 Price Trends",
-        "💡 Price Recommendations"
+        "Price Dashboard",
+        "Record Price Comparison",
+        "Manage Competitors",
+        "Price Trends",
+        "Price Recommendations"
     ])
     
     # ==============================
     # TAB 1: PRICE DASHBOARD
     # ==============================
     with tab1:
-        st.markdown("## 📊 Price Monitoring Dashboard")
+        st.markdown("## Price Monitoring Dashboard")
         
         analysis = get_price_analysis()
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("📊 Total Comparisons", analysis["total_comparisons"])
+            st.metric("Total Comparisons", analysis["total_comparisons"])
         with col2:
             avg_diff = analysis["avg_price_difference"]
-            st.metric("💰 Avg Price Difference", f"${avg_diff:.2f}", 
+            st.metric("Avg Price Difference", f"${avg_diff:.2f}", 
                      delta="Higher" if avg_diff > 0 else "Lower")
         with col3:
-            st.metric("🟢 Products We're Cheaper", analysis["products_cheaper"])
+            st.metric("Products We're Cheaper", analysis["products_cheaper"])
         with col4:
-            st.metric("🔴 Products Competitor Cheaper", analysis["products_expensive"])
+            st.metric("Products Competitor Cheaper", analysis["products_expensive"])
         
         st.markdown("---")
         
         # Best opportunities
         if not analysis["best_opportunities"].empty:
-            st.markdown("### 🎯 Best Pricing Opportunities")
+            st.markdown("### Best Pricing Opportunities")
             st.dataframe(
                 analysis["best_opportunities"],
                 use_container_width=True,
@@ -373,11 +373,11 @@ def competitor_price_monitoring_dashboard():
             st.info("No price comparison data available")
         
         # Price alerts
-        st.markdown("### ⚠️ Price Alerts")
+        st.markdown("### Price Alerts")
         alerts = get_price_alert_products(15)
         
         if not alerts.empty:
-            st.warning(f"⚠️ {len(alerts)} products where competitors are significantly cheaper!")
+            st.warning(f"{len(alerts)} products where competitors are significantly cheaper!")
             st.dataframe(
                 alerts[["product_name", "competitor_name", "our_price", "competitor_price", "difference_percent"]],
                 use_container_width=True,
@@ -387,14 +387,14 @@ def competitor_price_monitoring_dashboard():
                 }
             )
         else:
-            st.success("✅ No critical price alerts")
+            st.success("No critical price alerts")
         
         st.markdown("---")
         
         # ==============================
         # PRICE COMPARISON LIST WITH EDIT/DELETE
         # ==============================
-        st.markdown("## 📋 All Price Comparisons")
+        st.markdown("## All Price Comparisons")
         
         price_df = load_price_monitoring()
         
@@ -421,7 +421,7 @@ def competitor_price_monitoring_dashboard():
             
             # Edit/Delete section
             st.markdown("---")
-            st.markdown("### ✏️ Edit or Delete Price Comparison")
+            st.markdown("### Edit or Delete Price Comparison")
             
             col1, col2, col3 = st.columns([2, 1, 1])
             
@@ -434,20 +434,20 @@ def competitor_price_monitoring_dashboard():
                 )
             
             with col2:
-                if st.button("✏️ Edit Selected", use_container_width=True, key="edit_selected_btn"):
+                if st.button("Edit Selected", use_container_width=True, key="edit_selected_btn"):
                     st.session_state.editing_record = selected_record_id
                     #st.rerun()
             
             with col3:
-                if st.button("🗑️ Delete Selected", use_container_width=True, key="delete_selected_btn"):
+                if st.button("Delete Selected", use_container_width=True, key="delete_selected_btn"):
                     if selected_record_id:
                         success, message = delete_price_comparison(selected_record_id)
                         if success:
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                             show_toast("Price comparison deleted!", "success")
                             #st.rerun()
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
             
             # ==============================
             # EDIT FORM - Shows when editing
@@ -457,7 +457,7 @@ def competitor_price_monitoring_dashboard():
                 record = price_df[price_df["id"] == record_id].iloc[0]
                 
                 st.markdown("---")
-                st.markdown(f"### ✏️ Edit Price Comparison: {record_id}")
+                st.markdown(f"### Edit Price Comparison: {record_id}")
                 
                 from backend.core.db_adapter import load_products
                 products_df = load_products()
@@ -508,7 +508,7 @@ def competitor_price_monitoring_dashboard():
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    if st.button("💾 Save Changes", type="primary", use_container_width=True, key="save_edit_btn"):
+                    if st.button("Save Changes", type="primary", use_container_width=True, key="save_edit_btn"):
                         success, message = update_price_comparison(
                             record_id=record_id,
                             product_name=edit_product,
@@ -521,28 +521,28 @@ def competitor_price_monitoring_dashboard():
                             recorded_by=st.session_state.get("username", "system")
                         )
                         if success:
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                             show_toast("Price comparison updated!", "success")
                             st.session_state.editing_record = None
                             #st.rerun()
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
                 
                 with col2:
-                    if st.button("❌ Cancel Edit", use_container_width=True, key="cancel_edit_btn"):
+                    if st.button("Cancel Edit", use_container_width=True, key="cancel_edit_btn"):
                         st.session_state.editing_record = None
                         #st.rerun()
                 
                 with col3:
-                    if st.button("🗑️ Delete This Record", use_container_width=True, key="delete_this_btn"):
+                    if st.button("Delete This Record", use_container_width=True, key="delete_this_btn"):
                         success, message = delete_price_comparison(record_id)
                         if success:
-                            st.success(f"✅ {message}")
+                            st.success(f"{message}")
                             show_toast("Price comparison deleted!", "success")
                             st.session_state.editing_record = None
                             #st.rerun()
                         else:
-                            st.error(f"❌ {message}")
+                            st.error(f"{message}")
             
         else:
             st.info("No price comparisons recorded yet")
@@ -551,7 +551,7 @@ def competitor_price_monitoring_dashboard():
     # TAB 2: RECORD PRICE COMPARISON
     # ==============================
     with tab2:
-        st.markdown("## ➕ Record Price Comparison")
+        st.markdown("## Record Price Comparison")
         
         from backend.core.db_adapter import load_products
         
@@ -571,7 +571,7 @@ def competitor_price_monitoring_dashboard():
                     product_barcode = product_data.get("barcode", "")
                     our_price = float(product_data.get("price", 0))
                     
-                    st.info(f"💰 Our Current Price: **${our_price:.2f}**")
+                    st.info(f"Our Current Price: **${our_price:.2f}**")
                 else:
                     product_barcode = ""
                     our_price = 0
@@ -601,7 +601,7 @@ def competitor_price_monitoring_dashboard():
             competitor_price = st.number_input("Competitor Price ($)", min_value=0.0, step=0.5, value=0.0, key="competitor_price_input")
             notes = st.text_area("Notes", placeholder="Additional information about this price comparison", key="price_notes")
             
-            if st.button("💾 Save Price Comparison", type="primary", use_container_width=True):
+            if st.button("Save Price Comparison", type="primary", use_container_width=True):
                 if competitor_price > 0:
                     record_id = record_price_comparison(
                         product_name=selected_product,
@@ -613,7 +613,7 @@ def competitor_price_monitoring_dashboard():
                         notes=notes,
                         recorded_by=st.session_state.get("username", "system")
                     )
-                    st.success(f"✅ Price comparison saved! ID: {record_id}")
+                    st.success(f"Price comparison saved! ID: {record_id}")
                     show_confetti()
                     #st.rerun()
                 else:
@@ -623,10 +623,10 @@ def competitor_price_monitoring_dashboard():
     # TAB 3: MANAGE COMPETITORS - FIXED
     # ==============================
     with tab3:
-        st.markdown("## 🏢 Manage Competitors")
+        st.markdown("## Manage Competitors")
         
         # Add new competitor
-        with st.expander("➕ Add New Competitor", expanded=False):
+        with st.expander("Add New Competitor", expanded=False):
             col1, col2 = st.columns(2)
             
             with col1:
@@ -638,7 +638,7 @@ def competitor_price_monitoring_dashboard():
                 comp_rating = st.slider("Rating (1-5)", 1.0, 5.0, 3.0, 0.5, key="comp_rating")
                 comp_notes = st.text_area("Notes", placeholder="Additional information", key="comp_notes")
             
-            if st.button("➕ Add Competitor", use_container_width=True, key="add_competitor_btn"):
+            if st.button("Add Competitor", use_container_width=True, key="add_competitor_btn"):
                 if comp_name.strip():
                     comp_id = add_competitor(
                         name=comp_name.strip(),
@@ -648,7 +648,7 @@ def competitor_price_monitoring_dashboard():
                         notes=comp_notes,
                         added_by=st.session_state.get("username", "system")
                     )
-                    st.success(f"✅ Competitor added! ID: {comp_id}")
+                    st.success(f"Competitor added! ID: {comp_id}")
                     show_toast("Competitor added successfully!", "success")
                     st.session_state.competitor_added = True
                     #st.rerun()
@@ -656,7 +656,7 @@ def competitor_price_monitoring_dashboard():
                     st.error("Please enter competitor name")
         
         # List competitors - Always refreshed
-        st.markdown("### 📋 Competitors List")
+        st.markdown("### Competitors List")
         
         competitors_df = load_competitors()
         
@@ -669,7 +669,7 @@ def competitor_price_monitoring_dashboard():
             
             # Delete competitor
             st.markdown("---")
-            st.markdown("### 🗑️ Delete Competitor")
+            st.markdown("### Delete Competitor")
             
             col1, col2 = st.columns([2, 1])
             with col1:
@@ -680,7 +680,7 @@ def competitor_price_monitoring_dashboard():
                 )
             
             with col2:
-                if st.button("🗑️ Delete", use_container_width=True, key="delete_competitor_btn"):
+                if st.button("Delete", use_container_width=True, key="delete_competitor_btn"):
                     if comp_to_delete:
                         # Remove from competitors
                         competitors_df = competitors_df[competitors_df["name"] != comp_to_delete]
@@ -692,7 +692,7 @@ def competitor_price_monitoring_dashboard():
                             price_df = price_df[price_df["competitor_name"] != comp_to_delete]
                             save_price_monitoring(price_df)
                         
-                        st.success(f"✅ Competitor '{comp_to_delete}' deleted!")
+                        st.success(f"Competitor '{comp_to_delete}' deleted!")
                         #st.rerun()
         else:
             st.info("No competitors added yet")
@@ -701,7 +701,7 @@ def competitor_price_monitoring_dashboard():
     # TAB 4: PRICE TRENDS
     # ==============================
     with tab4:
-        st.markdown("## 📈 Price Trends Analysis")
+        st.markdown("## Price Trends Analysis")
         
         from backend.core.db_adapter import load_products
         
@@ -776,13 +776,13 @@ def competitor_price_monitoring_dashboard():
     # TAB 5: PRICE RECOMMENDATIONS
     # ==============================
     with tab5:
-        st.markdown("## 💡 AI-Powered Price Recommendations")
+        st.markdown("## AI-Powered Price Recommendations")
         st.caption("Smart pricing suggestions based on competitor analysis and market trends")
         
         suggestions = suggest_price_adjustments()
         
         if not suggestions.empty:
-            st.markdown("### 📊 Recommended Price Adjustments")
+            st.markdown("### Recommended Price Adjustments")
             
             for _, suggestion in suggestions.iterrows():
                 with st.container():
@@ -800,7 +800,7 @@ def competitor_price_monitoring_dashboard():
             
             csv = suggestions.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download Price Recommendations (CSV)",
+                label="Download Price Recommendations (CSV)",
                 data=csv,
                 file_name=f"price_recommendations_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"

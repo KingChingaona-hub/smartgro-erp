@@ -91,33 +91,33 @@ def predict_churn_risk(customer_data):
     days_since = customer_data.get("days_since_last_purchase", 999)
     if days_since > 90:
         risk_score += 40
-        risk_factors.append(f"⚠️ No purchase in {days_since} days")
+        risk_factors.append(f"No purchase in {days_since} days")
     elif days_since > 60:
         risk_score += 25
-        risk_factors.append(f"⚠️ No purchase in {days_since} days")
+        risk_factors.append(f"No purchase in {days_since} days")
     elif days_since > 30:
         risk_score += 10
-        risk_factors.append(f"⚠️ No purchase in {days_since} days")
+        risk_factors.append(f"No purchase in {days_since} days")
     
     # Factor 2: Transaction frequency
     transactions = customer_data.get("total_transactions", 0)
     if transactions <= 1:
         risk_score += 25
-        risk_factors.append("⚠️ Only 1 transaction - low engagement")
+        risk_factors.append("Only 1 transaction - low engagement")
     elif transactions <= 3:
         risk_score += 10
-        risk_factors.append("⚠️ Low transaction frequency")
+        risk_factors.append("Low transaction frequency")
     
     # Factor 3: Average transaction value trend
     avg_value = customer_data.get("avg_transaction_value", 0)
     if avg_value < 10:
         risk_score += 15
-        risk_factors.append("⚠️ Low average transaction value")
+        risk_factors.append("Low average transaction value")
     
     # Factor 4: Debt status
     if customer_data.get("has_debt", False):
         risk_score += 20
-        risk_factors.append("⚠️ Has outstanding debt")
+        risk_factors.append("Has outstanding debt")
     
     # Determine risk level
     if risk_score >= 70:
@@ -259,7 +259,7 @@ def calculate_customer_lifetime_value(customer_data):
         "avg_order_value": avg_order,
         "purchase_frequency": purchase_frequency,
         "estimated_lifespan_years": customer_lifespan,
-        "tier": customer_data.get("tier", "🥉 BRONZE")
+        "tier": customer_data.get("tier", "BRONZE")
     }
 
 
@@ -275,29 +275,29 @@ def get_customer_segment(customer_data):
     
     # High Value Loyal
     if total_spent >= 500 and total_orders >= 5:
-        return "👑 VIP - High Value Loyal"
+        return "VIP - High Value Loyal"
     
     # High Value
     if total_spent >= 500:
-        return "💰 High Value"
+        return "High Value"
     
     # Frequent Buyer
     if total_orders >= 5:
-        return "🔄 Frequent Buyer"
+        return "Frequent Buyer"
     
     # Regular
     if total_spent >= 150:
-        return "⭐ Regular"
+        return "Regular"
     
     # At Risk
     if days_since > 60:
-        return "⚠️ At Risk"
+        return "At Risk"
     
     # New
     if total_orders <= 2:
-        return "🆕 New Customer"
+        return "New Customer"
     
-    return "📊 Standard"
+    return "Standard"
 
 
 # ==============================
@@ -306,7 +306,7 @@ def get_customer_segment(customer_data):
 def customer_360_view():
     """Customer 360° View Dashboard"""
     
-    st.title("👤 Customer 360° View")
+    st.title("Customer 360° View")
     st.caption("Complete customer intelligence with AI-powered insights")
     
     customers_df = load_customers()
@@ -318,7 +318,7 @@ def customer_360_view():
     # ==============================
     # CUSTOMER SEARCH
     # ==============================
-    st.markdown("## 🔍 Find Customer")
+    st.markdown("## Find Customer")
     
     col1, col2 = st.columns([2, 1])
     
@@ -326,7 +326,7 @@ def customer_360_view():
         search_term = st.text_input("Search by Name or Phone", placeholder="Enter customer name or phone number...")
     
     with col2:
-        if st.button("🔍 Search", type="primary", use_container_width=True):
+        if st.button("Search", type="primary", use_container_width=True):
             st.session_state.search_customer = search_term
     
     # Filter customers
@@ -372,38 +372,38 @@ def customer_360_view():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("👤 Customer", profile.get("customer_name", "N/A"))
+                st.metric("Customer", profile.get("customer_name", "N/A"))
             with col2:
-                st.metric("📞 Phone", profile.get("phone", "N/A"))
+                st.metric("Phone", profile.get("phone", "N/A"))
             with col3:
-                st.metric("🏆 Tier", profile.get("tier", "🥉 BRONZE"))
+                st.metric("Tier", profile.get("tier", "BRONZE"))
             with col4:
                 segment = get_customer_segment(profile)
-                st.metric("📊 Segment", segment.split(" - ")[0] if " - " in segment else segment)
+                st.metric("Segment", segment.split(" - ")[0] if " - " in segment else segment)
             
             st.markdown("---")
             
             # ==============================
             # KEY METRICS
             # ==============================
-            st.markdown("## 📊 Key Metrics")
+            st.markdown("## Key Metrics")
             
             col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
-                st.metric("💰 Total Spent", f"${float(profile.get('total_spent', 0) or 0):,.2f}")
+                st.metric("Total Spent", f"${float(profile.get('total_spent', 0) or 0):,.2f}")
             with col2:
-                st.metric("🛒 Orders", profile.get('total_orders', 0))
+                st.metric("Orders", profile.get('total_orders', 0))
             with col3:
-                st.metric("⭐ Points", f"{profile.get('points', 0):,}")
+                st.metric("Points", f"{profile.get('points', 0):,}")
             with col4:
                 days_since = profile.get('days_since_last_purchase', 'N/A')
                 if days_since != 'N/A' and days_since is not None:
-                    st.metric("📅 Days Since Last", f"{int(days_since)} days")
+                    st.metric("Days Since Last", f"{int(days_since)} days")
                 else:
-                    st.metric("📅 Last Purchase", "Never")
+                    st.metric("Last Purchase", "Never")
             with col5:
-                st.metric("💳 Avg Order", f"${float(profile.get('avg_transaction_value', 0) or 0):.2f}")
+                st.metric("Avg Order", f"${float(profile.get('avg_transaction_value', 0) or 0):.2f}")
             
             st.markdown("---")
             
@@ -413,7 +413,7 @@ def customer_360_view():
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("## 🚨 Churn Risk Analysis")
+                st.markdown("## Churn Risk Analysis")
                 
                 churn = predict_churn_risk(profile)
                 
@@ -438,18 +438,18 @@ def customer_360_view():
                 for factor in churn["risk_factors"]:
                     st.warning(factor)
                 
-                st.info(f"💡 **Recommendation:** {churn['recommendation']}")
+                st.info(f"**Recommendation:** {churn['recommendation']}")
             
             with col2:
-                st.markdown("## 🔮 Next Purchase Prediction")
+                st.markdown("## Next Purchase Prediction")
                 
                 prediction = predict_next_purchase(profile)
                 
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    st.metric("📅 Predicted Date", prediction["predicted_date"].strftime("%Y-%m-%d"))
+                    st.metric("Predicted Date", prediction["predicted_date"].strftime("%Y-%m-%d"))
                 with col_b:
-                    st.metric("⏰ Days from Now", f"{prediction['days_from_now']} days")
+                    st.metric("Days from Now", f"{prediction['days_from_now']} days")
                 
                 st.progress(min(1.0, prediction["days_from_now"] / 90))
                 st.caption(f"Confidence: {prediction['confidence']}")
@@ -460,27 +460,27 @@ def customer_360_view():
             # ==============================
             # CUSTOMER LIFETIME VALUE
             # ==============================
-            st.markdown("## 💰 Customer Lifetime Value (CLV)")
+            st.markdown("## Customer Lifetime Value (CLV)")
             
             clv_data = calculate_customer_lifetime_value(profile)
             
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("💰 CLV", f"${clv_data['clv']:,.2f}")
+                st.metric("CLV", f"${clv_data['clv']:,.2f}")
             with col2:
-                st.metric("💵 Avg Order", f"${clv_data['avg_order_value']:.2f}")
+                st.metric("Avg Order", f"${clv_data['avg_order_value']:.2f}")
             with col3:
-                st.metric("🔄 Frequency", f"{clv_data['purchase_frequency']:.1f}/year")
+                st.metric("Frequency", f"{clv_data['purchase_frequency']:.1f}/year")
             with col4:
-                st.metric("📅 Lifespan", f"{clv_data['estimated_lifespan_years']} years")
+                st.metric("Lifespan", f"{clv_data['estimated_lifespan_years']} years")
             
             st.markdown("---")
             
             # ==============================
             # FAVORITE PRODUCTS
             # ==============================
-            st.markdown("## ❤️ Favorite Products")
+            st.markdown("## Favorite Products")
             
             favorite_products = profile.get("favorite_products", {})
             
@@ -510,7 +510,7 @@ def customer_360_view():
             # ==============================
             # PERSONALIZED RECOMMENDATIONS
             # ==============================
-            st.markdown("## 🎯 Personalized Recommendations")
+            st.markdown("## Personalized Recommendations")
             
             recommendations = get_personalized_recommendations(profile)
             
@@ -520,7 +520,7 @@ def customer_360_view():
                     with cols[idx]:
                         st.markdown(f"""
                         <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; margin: 5px; text-align: center;">
-                            <h4>📦 {rec['product_name'][:25]}</h4>
+                            <h4>{rec['product_name'][:25]}</h4>
                             <p style="font-size: 20px; color: green;">${rec['price']:.2f}</p>
                             <p style="font-size: 12px; color: gray;">{rec['reason']}</p>
                         </div>
@@ -533,7 +533,7 @@ def customer_360_view():
             # ==============================
             # PURCHASE HISTORY
             # ==============================
-            st.markdown("## 📜 Purchase History")
+            st.markdown("## Purchase History")
             
             purchase_history = profile.get("purchase_history", [])
             
@@ -558,13 +558,13 @@ def customer_360_view():
             # ==============================
             if profile.get("has_debt", False):
                 st.markdown("---")
-                st.markdown("## ⚠️ Debt Information")
+                st.markdown("## Debt Information")
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.error(f"💰 Outstanding Debt: ${float(profile.get('total_debt', 0) or 0):,.2f}")
+                    st.error(f"Outstanding Debt: ${float(profile.get('total_debt', 0) or 0):,.2f}")
                 with col2:
-                    if st.button("📋 View Debt Details", use_container_width=True):
+                    if st.button("View Debt Details", use_container_width=True):
                         debt_details = profile.get("debt_details", [])
                         if debt_details:
                             st.dataframe(pd.DataFrame(debt_details), use_container_width=True)
@@ -578,7 +578,7 @@ def customer_360_view():
 def customer_insights_360():
     """Admin dashboard for customer insights"""
     
-    st.title("📊 Customer Intelligence Dashboard")
+    st.title("Customer Intelligence Dashboard")
     st.caption("AI-powered insights across all customers")
     
     customers_df = load_customers()
@@ -591,7 +591,7 @@ def customer_insights_360():
     # ==============================
     # OVERALL METRICS
     # ==============================
-    st.markdown("## 📈 Overall Customer Metrics")
+    st.markdown("## Overall Customer Metrics")
     
     total_customers = len(customers_df)
     total_revenue = customers_df["total_spent"].sum() if "total_spent" in customers_df.columns else 0
@@ -600,21 +600,21 @@ def customer_insights_360():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("👥 Total Customers", total_customers)
+        st.metric("Total Customers", total_customers)
     with col2:
-        st.metric("💰 Total Revenue", f"${float(total_revenue or 0):,.2f}")
+        st.metric("Total Revenue", f"${float(total_revenue or 0):,.2f}")
     with col3:
-        st.metric("📊 Avg Customer Spend", f"${float(avg_spent or 0):.2f}")
+        st.metric("Avg Customer Spend", f"${float(avg_spent or 0):.2f}")
     with col4:
         active_customers = len(customers_df[customers_df["total_orders"] > 0]) if "total_orders" in customers_df.columns else 0
-        st.metric("🟢 Active Customers", active_customers)
+        st.metric("Active Customers", active_customers)
     
     st.markdown("---")
     
     # ==============================
     # CUSTOMER SEGMENTATION
     # ==============================
-    st.markdown("## 🎯 Customer Segmentation")
+    st.markdown("## Customer Segmentation")
     
     # Calculate segments for all customers
     segments = []
@@ -643,7 +643,7 @@ def customer_insights_360():
     # ==============================
     # AT-RISK CUSTOMERS
     # ==============================
-    st.markdown("## ⚠️ At-Risk Customers")
+    st.markdown("## At-Risk Customers")
     
     at_risk_customers = []
     for _, customer in customers_df.iterrows():
@@ -675,13 +675,13 @@ def customer_insights_360():
         # Export button
         csv = at_risk_df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Download At-Risk Customers List",
+            label="Download At-Risk Customers List",
             data=csv,
             file_name=f"at_risk_customers_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
     else:
-        st.success("✅ No at-risk customers detected!")
+        st.success("No at-risk customers detected!")
 
 
 # ==============================

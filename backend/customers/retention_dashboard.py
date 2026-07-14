@@ -83,7 +83,7 @@ def get_repeat_customer_rate_data():
 def customers_retention_dashboard():
     """Customer Retention Dashboard"""
     
-    st.title("📊 Customer Retention & Churn Analytics")
+    st.title("Customer Retention & Churn Analytics")
     
     retention_df = get_customer_retention_data()
     retention_rate = get_retention_rate_data()
@@ -98,7 +98,7 @@ def customers_retention_dashboard():
     else:
         retention_df["total_spent"] = 0
     
-    st.markdown("## 📌 Retention KPIs")
+    st.markdown("## Retention KPIs")
     
     col1, col2, col3 = st.columns(3)
     
@@ -119,7 +119,7 @@ def customers_retention_dashboard():
     
     st.markdown("---")
     
-    st.markdown("## 🔄 Active vs Churned Customers")
+    st.markdown("## Active vs Churned Customers")
     
     if "status" in retention_df.columns:
         status_counts = retention_df["status"].value_counts().reset_index()
@@ -156,7 +156,7 @@ def customers_retention_dashboard():
         else:
             st.success("No churned customers detected 🎉")
     
-    st.markdown("## 🟢 Active Customers")
+    st.markdown("## Active Customers")
     
     if "status" in retention_df.columns:
         active = retention_df[retention_df["status"] == "Active"]
@@ -165,28 +165,28 @@ def customers_retention_dashboard():
             st.dataframe(active.sort_values("total_spent", ascending=False).head(20))
     
     st.markdown("---")
-    st.markdown("## 🧠 Retention Insights")
+    st.markdown("## Retention Insights")
     
     churn_rate = 100 - float(retention_rate)
     
     st.metric("Churn Rate", f"{churn_rate:.2f}%")
     
     if churn_rate > 50:
-        st.error("⚠ High churn rate — customers are not returning")
-        st.info("💡 Recommendation: Implement a customer re-engagement campaign")
+        st.error("High churn rate — customers are not returning")
+        st.info("Recommendation: Implement a customer re-engagement campaign")
     elif churn_rate > 25:
-        st.warning("⚠ Moderate churn — improve engagement")
-        st.info("💡 Recommendation: Send personalized offers to at-risk customers")
+        st.warning("Moderate churn — improve engagement")
+        st.info("Recommendation: Send personalized offers to at-risk customers")
     else:
-        st.success("✔ Strong customer retention")
-        st.info("💡 Recommendation: Maintain current strategy and reward loyal customers")
+        st.success("Strong customer retention")
+        st.info("Recommendation: Maintain current strategy and reward loyal customers")
     
     st.markdown("---")
-    st.subheader("📥 Export Retention Data")
+    st.subheader("Export Retention Data")
     
     csv = retention_df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 Download Retention Report (CSV)",
+        label="Download Retention Report (CSV)",
         data=csv,
         file_name=f"retention_report_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",

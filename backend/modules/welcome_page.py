@@ -454,9 +454,9 @@ def welcome_page():
         <div class="subtitle">Enterprise Resource Planning</div>
         <div class="greeting">{greeting}, {username}! 👋</div>
         <div class="user-info">
-            <span class="badge">🏢 <strong>{branch_name}</strong></span>
-            <span class="badge">🔑 <strong>{role.upper()}</strong></span>
-            <span class="badge">📅 <strong>{datetime.now().strftime('%B %d, %Y')}</strong></span>
+            <span class="badge"><strong>{branch_name}</strong></span>
+            <span class="badge"><strong>{role.upper()}</strong></span>
+            <span class="badge"><strong>{datetime.now().strftime('%B %d, %Y')}</strong></span>
         </div>
         <div class="quote">" {quote} "</div>
     </div>
@@ -555,7 +555,7 @@ def welcome_page():
     # Get Started Button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🚀 Get Started", type="primary", use_container_width=True):
+        if st.button("Get Started 🚀", type="primary", use_container_width=True):
             st.session_state.welcome_seen = True
             st.session_state.current_page = "Stock Dashboard"
             #st.rerun()

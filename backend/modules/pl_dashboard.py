@@ -20,7 +20,7 @@ from backend.analytics.pl_pdf import generate_pl_pdf
 def pl_dashboard():
     """Enhanced Business Intelligence Dashboard"""
     
-    st.title("📊 Business Intelligence & Financial Dashboard")
+    st.title("Business Intelligence & Financial Dashboard")
     st.caption("Complete financial analysis, ratios, and forecasting")
     
     # ==============================
@@ -59,24 +59,24 @@ def pl_dashboard():
     # ==============================
     # EXECUTIVE SUMMARY CARDS
     # ==============================
-    st.markdown("## 📌 Executive Summary")
+    st.markdown("## Executive Summary")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         delta_color = "normal" if pl["net_sales"] > 0 else "inverse"
-        st.metric("💰 Total Sales", f"${pl['net_sales']:,.2f}", delta_color=delta_color)
+        st.metric("Total Sales", f"${pl['net_sales']:,.2f}", delta_color=delta_color)
     
     with col2:
-        st.metric("📈 Gross Profit", f"${pl['gross_profit']:,.2f}", 
+        st.metric("Gross Profit", f"${pl['gross_profit']:,.2f}", 
                  delta=f"{pl['gross_margin']:.1f}% margin")
     
     with col3:
-        st.metric("💸 Total Expenses", f"${pl['total_expenses']:,.2f}")
+        st.metric("Total Expenses", f"${pl['total_expenses']:,.2f}")
     
     with col4:
         profit_color = "normal" if pl["net_profit"] > 0 else "inverse"
-        st.metric("🎯 Net Profit", f"${pl['net_profit']:,.2f}", 
+        st.metric("Net Profit", f"${pl['net_profit']:,.2f}", 
                  delta=f"{pl['net_margin']:.1f}% margin",
                  delta_color=profit_color)
     
@@ -85,7 +85,7 @@ def pl_dashboard():
     # ==============================
     # FINANCIAL RATIOS
     # ==============================
-    st.markdown("## 📊 Key Financial Ratios")
+    st.markdown("## Key Financial Ratios")
     
     ratios = get_financial_ratios(year, month, quarter)
     
@@ -111,7 +111,7 @@ def pl_dashboard():
     # ==============================
     # BREAK-EVEN ANALYSIS
     # ==============================
-    st.markdown("## 🎯 Break-even Analysis")
+    st.markdown("## Break-even Analysis")
     
     be = break_even_analysis(year, month)
     
@@ -149,14 +149,14 @@ def pl_dashboard():
     # TRADING & P&L ACCOUNT
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📘 Trading Account",
-        "📗 Profit & Loss",
-        "💵 Cash Flow",
-        "📊 Balance Sheet"
+        "Trading Account",
+        "Profit & Loss",
+        "Cash Flow",
+        "Balance Sheet"
     ])
     
     with tab1:
-        st.markdown("## 📘 Trading Account")
+        st.markdown("## Trading Account")
         
         trading_data = {
             "Description": [
@@ -190,10 +190,10 @@ def pl_dashboard():
         }
         
         st.dataframe(pd.DataFrame(trading_data), use_container_width=True, hide_index=True)
-        st.info(f"📈 Gross Profit Margin: **{pl['gross_margin']:.1f}%**")
+        st.info(f"Gross Profit Margin: **{pl['gross_margin']:.1f}%**")
     
     with tab2:
-        st.markdown("## 📗 Profit & Loss Account")
+        st.markdown("## Profit & Loss Account")
         
         pl_data = {
             "Description": [
@@ -223,10 +223,10 @@ def pl_dashboard():
         }
         
         st.dataframe(pd.DataFrame(pl_data), use_container_width=True, hide_index=True)
-        st.info(f"📈 Net Profit Margin: **{pl['net_margin']:.1f}%**")
+        st.info(f"Net Profit Margin: **{pl['net_margin']:.1f}%**")
     
     with tab3:
-        st.markdown("## 💵 Cash Flow Statement")
+        st.markdown("## Cash Flow Statement")
         
         cf = cash_flow_statement(year, month)
         
@@ -250,7 +250,7 @@ def pl_dashboard():
             st.write(f"Ending Cash: ${cf['ending_cash']:,.2f}")
     
     with tab4:
-        st.markdown("## 📊 Balance Sheet")
+        st.markdown("## Balance Sheet")
         
         bs = balance_sheet()
         
@@ -296,7 +296,7 @@ def pl_dashboard():
     # ==============================
     # FINANCIAL FORECAST - FIXED
     # ==============================
-    st.markdown("## 🔮 Financial Forecast")
+    st.markdown("## Financial Forecast")
     
     forecast_months = st.slider("Forecast Months", 3, 12, 6, key="forecast_months")
     
@@ -365,7 +365,7 @@ def pl_dashboard():
     # ==============================
     # MONTHLY TRENDS
     # ==============================
-    st.markdown("## 📈 Monthly Performance Trends")
+    st.markdown("## Monthly Performance Trends")
     
     chart_df = monthly_comparison(year)
     
@@ -409,7 +409,7 @@ def pl_dashboard():
     # ==============================
     # YEARLY COMPARISON
     # ==============================
-    st.markdown("## 📅 Year-over-Year Comparison")
+    st.markdown("## Year-over-Year Comparison")
     
     col1, col2 = st.columns(2)
     
@@ -462,12 +462,12 @@ def pl_dashboard():
     # ==============================
     # PDF EXPORT
     # ==============================
-    st.subheader("📥 Export Financial Report")
+    st.subheader("Export Financial Report")
     
-    if st.button("📄 Download P&L Report (PDF)", use_container_width=True):
+    if st.button("Download P&L Report (PDF)", use_container_width=True):
         pdf = generate_pl_pdf(pl, year, month if period_type == "Monthly" else None)
         st.download_button(
-            label="📥 Download PDF",
+            label="Download PDF",
             data=pdf,
             file_name=f"pl_report_{period_name}.pdf",
             mime="application/pdf"
@@ -475,23 +475,23 @@ def pl_dashboard():
     
     # Business Health Summary
     st.markdown("---")
-    st.markdown("## 🧠 Business Health Summary")
+    st.markdown("## Business Health Summary")
     
     if pl["net_profit"] > 0:
-        st.success(f"✅ Business is profitable with ${pl['net_profit']:,.2f} net profit")
+        st.success(f"Business is profitable with ${pl['net_profit']:,.2f} net profit")
     else:
-        st.error(f"❌ Business is operating at a loss of ${abs(pl['net_profit']):,.2f}")
+        st.error(f"Business is operating at a loss of ${abs(pl['net_profit']):,.2f}")
     
     if ratios["gross_margin"] > 40:
-        st.success(f"✅ Excellent gross margin of {ratios['gross_margin']:.1f}%")
+        st.success(f"Excellent gross margin of {ratios['gross_margin']:.1f}%")
     elif ratios["gross_margin"] > 25:
-        st.info(f"📊 Healthy gross margin of {ratios['gross_margin']:.1f}%")
+        st.info(f"Healthy gross margin of {ratios['gross_margin']:.1f}%")
     else:
-        st.warning(f"⚠️ Low gross margin of {ratios['gross_margin']:.1f}% - Consider reviewing pricing")
+        st.warning(f"Low gross margin of {ratios['gross_margin']:.1f}% - Consider reviewing pricing")
     
     if be["margin_of_safety_ratio"] > 30:
-        st.success(f"✅ Strong margin of safety at {be['margin_of_safety_ratio']:.1f}%")
+        st.success(f"Strong margin of safety at {be['margin_of_safety_ratio']:.1f}%")
     elif be["margin_of_safety_ratio"] > 10:
-        st.info(f"📊 Adequate margin of safety at {be['margin_of_safety_ratio']:.1f}%")
+        st.info(f"Adequate margin of safety at {be['margin_of_safety_ratio']:.1f}%")
     else:
-        st.warning(f"⚠️ Thin margin of safety at {be['margin_of_safety_ratio']:.1f}% - Risk of losses")
+        st.warning(f"Thin margin of safety at {be['margin_of_safety_ratio']:.1f}% - Risk of losses")

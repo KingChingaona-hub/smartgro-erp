@@ -101,13 +101,13 @@ def get_current_tenant():
 def show_toast(message, type="info"):
     """Show a toast notification using Streamlit"""
     if type == "success":
-        st.success(f"✅ {message}")
+        st.success(f"{message}")
     elif type == "error":
-        st.error(f"❌ {message}")
+        st.error(f"{message}")
     elif type == "warning":
-        st.warning(f"⚠️ {message}")
+        st.warning(f"{message}")
     else:
-        st.info(f"ℹ️ {message}")
+        st.info(f"{message}")
 
 
 def log_tenant_action(tenant_id, action, user, details, status="SUCCESS"):
@@ -315,13 +315,13 @@ def get_tenant_stats():
 def multi_tenant_dashboard():
     """Multi-Tenant Management Dashboard"""
     
-    st.title("🏢 Multi-Tenant Management")
+    st.title("Multi-Tenant Management")
     st.caption("Manage multiple tenants from a single installation")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Multi-tenant management is for owners and managers only.")
+        st.error("Access Denied. Multi-tenant management is for owners and managers only.")
         return
     
     init_tenant_files()
@@ -334,18 +334,18 @@ def multi_tenant_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Dashboard",
-        "👥 Tenants",
-        "➕ Create Tenant",
-        "🔑 API Keys",
-        "📜 Logs"
+        "Dashboard",
+        "Tenants",
+        "Create Tenant",
+        "API Keys",
+        "Logs"
     ])
     
     # ==============================
     # TAB 1: DASHBOARD
     # ==============================
     with tab1:
-        st.markdown("## 📊 Tenant Dashboard")
+        st.markdown("## Tenant Dashboard")
         
         stats = get_tenant_stats()
         
@@ -361,7 +361,7 @@ def multi_tenant_dashboard():
             st.metric("Suspended", stats["suspended"])
         
         # Current tenant info
-        st.markdown("### 🏢 Current Tenant")
+        st.markdown("### Current Tenant")
         if current_tenant:
             col1, col2 = st.columns(2)
             with col1:
@@ -374,7 +374,7 @@ def multi_tenant_dashboard():
                 st.markdown(f"**Subscription Plan:** {current_tenant.get('subscription_plan', 'N/A')}")
         
         # Plan distribution
-        st.markdown("### 📊 Subscription Plans")
+        st.markdown("### Subscription Plans")
         if stats["plans"]:
             plan_data = pd.DataFrame({
                 "Plan": list(stats["plans"].keys()),
@@ -388,7 +388,7 @@ def multi_tenant_dashboard():
     # TAB 2: TENANTS
     # ==============================
     with tab2:
-        st.markdown("## 👥 Tenant Management")
+        st.markdown("## Tenant Management")
         st.caption("View and manage all tenants")
         
         tenants = load_tenants()
@@ -426,7 +426,7 @@ def multi_tenant_dashboard():
             st.info("No tenants found")
         
         # Tenant actions
-        st.markdown("### 🔧 Tenant Actions")
+        st.markdown("### Tenant Actions")
         
         col1, col2, col3 = st.columns(3)
         
@@ -435,7 +435,7 @@ def multi_tenant_dashboard():
             tenant_ids = [t_id for t_id in tenants["tenants"].keys()]
             switch_to = st.selectbox("Switch to Tenant", tenant_ids)
             
-            if st.button("🔄 Switch Tenant", use_container_width=True):
+            if st.button("Switch Tenant", use_container_width=True):
                 success, msg = switch_tenant(switch_to)
                 if success:
                     show_toast(msg, "success")
@@ -448,7 +448,7 @@ def multi_tenant_dashboard():
             tenant_to_update = st.selectbox("Select Tenant to Update", tenant_ids)
             new_status = st.selectbox("New Status", ["active", "inactive", "suspended"])
             
-            if st.button("📝 Update Status", use_container_width=True):
+            if st.button("Update Status", use_container_width=True):
                 success, msg = update_tenant(tenant_to_update, {"status": new_status})
                 if success:
                     show_toast(msg, "success")
@@ -461,7 +461,7 @@ def multi_tenant_dashboard():
             tenant_to_delete = st.selectbox("Select Tenant to Delete", 
                                            [t for t in tenant_ids if t != "default"])
             
-            if st.button("🗑️ Delete Tenant", use_container_width=True):
+            if st.button("Delete Tenant", use_container_width=True):
                 if tenant_to_delete:
                     if st.session_state.get("confirm_delete") == tenant_to_delete:
                         success, msg = delete_tenant(tenant_to_delete)
@@ -479,7 +479,7 @@ def multi_tenant_dashboard():
     # TAB 3: CREATE TENANT
     # ==============================
     with tab3:
-        st.markdown("## ➕ Create New Tenant")
+        st.markdown("## Create New Tenant")
         st.caption("Add a new tenant to the system")
         
         with st.form("create_tenant_form"):
@@ -499,7 +499,7 @@ def multi_tenant_dashboard():
                     format_func=lambda x: x.title()
                 )
                 
-                st.markdown("### 🚀 Features")
+                st.markdown("### Features")
                 features = {
                     "pos": st.checkbox("POS", value=True),
                     "inventory": st.checkbox("Inventory", value=True),
@@ -509,7 +509,7 @@ def multi_tenant_dashboard():
                     "white_label": st.checkbox("White Label", value=True)
                 }
             
-            submitted = st.form_submit_button("🚀 Create Tenant", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("Create Tenant", use_container_width=True, type="primary")
             
             if submitted:
                 if not all([tenant_name, business_name, domain, owner_email]):
@@ -534,18 +534,18 @@ def multi_tenant_dashboard():
     # TAB 4: API KEYS
     # ==============================
     with tab4:
-        st.markdown("## 🔑 API Key Management")
+        st.markdown("## API Key Management")
         st.caption("Manage API keys for tenant access")
         
         if current_tenant:
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("### Primary API Key")
+                st.markdown("Primary API Key")
                 api_key_primary = current_tenant.get("api_keys", {}).get("primary", "N/A")
                 st.code(api_key_primary)
                 
-                if st.button("🔄 Regenerate Primary Key", use_container_width=True):
+                if st.button("Regenerate Primary Key", use_container_width=True):
                     new_key = generate_api_key()
                     success, msg = update_tenant(
                         current_tenant_id,
@@ -560,7 +560,7 @@ def multi_tenant_dashboard():
                 api_key_secondary = current_tenant.get("api_keys", {}).get("secondary", "N/A")
                 st.code(api_key_secondary)
                 
-                if st.button("🔄 Regenerate Secondary Key", use_container_width=True):
+                if st.button("Regenerate Secondary Key", use_container_width=True):
                     new_key = generate_api_key()
                     success, msg = update_tenant(
                         current_tenant_id,
@@ -570,13 +570,13 @@ def multi_tenant_dashboard():
                         show_toast("Secondary API key regenerated", "success")
                         st.rerun()
             
-            st.info("⚠️ API keys provide full access to tenant data. Keep them secure and regenerate if compromised.")
+            st.info("API keys provide full access to tenant data. Keep them secure and regenerate if compromised.")
     
     # ==============================
     # TAB 5: LOGS
     # ==============================
     with tab5:
-        st.markdown("## 📜 Tenant Activity Logs")
+        st.markdown("## Tenant Activity Logs")
         st.caption("Audit trail of tenant management actions")
         
         if Path(TENANT_LOGS_FILE).exists():
@@ -595,7 +595,7 @@ def multi_tenant_dashboard():
                 # Export
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Export Tenant Logs (CSV)",
+                    label="Export Tenant Logs (CSV)",
                     data=csv,
                     file_name=f"tenant_logs_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"

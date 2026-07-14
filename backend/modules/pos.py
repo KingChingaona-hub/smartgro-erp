@@ -245,16 +245,16 @@ def pos_page():
     # Display shift status with detailed info
     if branch_shift.get("active"):
         st.success(f"""
-        🟢 **Shift ACTIVE** 
+        **Shift ACTIVE** 
         - ID: {branch_shift['shift_id'][:12]}...
         - Started by: {branch_shift['started_by']}
         - Opening Cash: ${branch_shift['opening_cash']:.2f}
         - Branch: {branch_shift['branch_name'] or user_branch}
         """)
-        st.caption("✅ You can process sales normally under this branch shift")
+        st.caption("You can process sales normally under this branch shift")
     else:
         st.warning("""
-        ⚠️ **No Active Shift in Your Branch**
+        **No Active Shift in Your Branch**
         
         Please ask your manager or owner to start a shift in the **Cash Dashboard**.
         
@@ -264,8 +264,8 @@ def pos_page():
         # Show if user can start a shift (managers/owners)
         user_role = st.session_state.get("role", "cashier")
         if user_role in ["owner", "manager"]:
-            st.info("💡 **You have permission to start a shift.** Go to the **Cash Dashboard** to start one.")
-            if st.button("🚀 Go to Cash Dashboard", use_container_width=True):
+            st.info("**You have permission to start a shift.** Go to the **Cash Dashboard** to start one.")
+            if st.button("Go to Cash Dashboard", use_container_width=True):
                 st.session_state.current_page = "Cash Dashboard"
                 st.rerun()
     
@@ -287,7 +287,7 @@ def pos_page():
             if idx < len(cols):
                 with cols[idx]:
                     if st.button(
-                        f"📦 {product['name'][:15]}...\n${product['price']:.2f}",
+                        f"{product['name'][:15]}...\n${product['price']:.2f}",
                         key=f"quick_product_{product['barcode']}_{idx}",
                         use_container_width=True
                     ):
@@ -308,16 +308,16 @@ def pos_page():
                                     "qty": 1,
                                     "total": float(product["price"])
                                 })
-                            st.success(f"✅ Added: {product['name']}")
+                            st.success(f"Added: {product['name']}")
                         else:
-                            st.error(f"❌ {product['name']} is out of stock!")
+                            st.error(f"{product['name']} is out of stock!")
     
     st.markdown("---")
     
     # ==============================
     # PRODUCT SEARCH
     # ==============================
-    st.markdown("## 🔍 Search Products")
+    st.markdown("## Search Products")
     
     if products_df.empty:
         st.warning("No products found. Please add products in Inventory first.")
@@ -368,18 +368,18 @@ def pos_page():
             with col3:
                 st.write(f"**Category:** {product['category']}")
             
-            if st.button("➕ Add to Cart", key="add_to_cart_btn", use_container_width=True):
+            if st.button("Add to Cart", key="add_to_cart_btn", use_container_width=True):
                 if product["stock"] <= 0:
-                    st.error("❌ Product out of stock")
+                    st.error("Product out of stock")
                 elif quick_qty > product["stock"]:
-                    st.error(f"❌ Only {product['stock']} units available")
+                    st.error(f"Only {product['stock']} units available")
                 else:
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
                             new_qty = item["qty"] + quick_qty
                             if new_qty > product["stock"]:
-                                st.error(f"❌ Cart exceeds available stock ({product['stock']})")
+                                st.error(f"Cart exceeds available stock ({product['stock']})")
                                 st.stop()
                             item["qty"] = new_qty
                             item["total"] = item["qty"] * item["price"]
@@ -396,24 +396,24 @@ def pos_page():
                             "total": float(product["price"]) * int(quick_qty)
                         })
                     
-                    st.success(f"✔ Added: {product['name']}")
+                    st.success(f"Added: {product['name']}")
     
     st.markdown("---")
     
     # ==============================
     # CART DISPLAY
     # ==============================
-    st.markdown("## 🧾 Current Cart")
+    st.markdown("## Current Cart")
     
     if not cart:
         st.info("Cart is empty. Add products to continue.")
         
         if st.session_state.saved_carts:
-            with st.expander("💾 Saved Carts"):
+            with st.expander("Saved Carts"):
                 for cart_name in st.session_state.saved_carts.keys():
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        st.write(f"📁 {cart_name}")
+                        st.write(f"{cart_name}")
                     with col2:
                         if st.button("Load", key=f"load_cart_{cart_name}"):
                             load_saved_cart(cart_name)
@@ -457,7 +457,7 @@ def pos_page():
     # ==============================
     # CUSTOMER DETAILS
     # ==============================
-    st.markdown("## 👤 Customer Details")
+    st.markdown("## Customer Details")
     
     if st.session_state.recent_customers:
         st.markdown("**Recent Customers:**")
@@ -492,7 +492,7 @@ def pos_page():
     # ==============================
     # RECEIPT STYLE SELECTOR
     # ==============================
-    st.markdown("## 🧾 Receipt Style")
+    st.markdown("## Receipt Style")
     
     receipt_style = st.selectbox(
         "Select Receipt Format",
@@ -505,7 +505,7 @@ def pos_page():
     # ==============================
     # PAYMENT METHOD
     # ==============================
-    st.markdown("## 💳 Payment")
+    st.markdown("## Payment")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -523,22 +523,22 @@ def pos_page():
     
     if payment_method == "CASH":
         if cash_received < final_total:
-            st.error("❌ Insufficient cash")
+            st.error("Insufficient cash")
             can_checkout = False
         else:
             st.success(f"Change: ${change:.2f}")
     
     elif payment_method == "CREDIT":
         if has_active_credit(customer_phone_clean):
-            st.error("❌ Customer already has unpaid debt")
+            st.error("Customer already has unpaid debt")
             can_checkout = False
         else:
             allowed, message = check_credit_allowed(customer_phone_clean, final_total)
             if not allowed:
-                st.error(f"❌ CREDIT DENIED: {message}")
+                st.error(f"CREDIT DENIED: {message}")
                 can_checkout = False
             else:
-                st.warning(f"⚠ CREDIT APPROVED: {message}")
+                st.warning(f"CREDIT APPROVED: {message}")
     
     # ==============================
     # LOYALTY POINTS
@@ -551,7 +551,7 @@ def pos_page():
         
         if customer_loyalty and customer_loyalty["points"] >= 100:
             st.markdown("---")
-            st.markdown("## ⭐ Loyalty Points")
+            st.markdown("## Loyalty Points")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -580,7 +580,7 @@ def pos_page():
                     if success:
                         final_total -= discount_amount_loyalty
                         points_used = points_to_redeem
-                        st.success(f"✅ Redeemed {points_to_redeem} points for ${discount_amount_loyalty:.2f} discount!")
+                        st.success(f"Redeemed {points_to_redeem} points for ${discount_amount_loyalty:.2f} discount!")
                         st.info(f"New total: ${final_total:.2f}")
     
     # ==============================
@@ -589,13 +589,13 @@ def pos_page():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("🗑️ Clear Cart", key="clear_cart_btn", use_container_width=True):
+        if st.button("Clear Cart", key="clear_cart_btn", use_container_width=True):
             st.session_state.cart = []
             st.rerun()
     
     with col2:
         cart_name = st.text_input("Save Cart As", placeholder="Cart name", key="save_cart_name", label_visibility="collapsed")
-        if st.button("💾 Save Cart", key="save_cart_btn", use_container_width=True):
+        if st.button("Save Cart", key="save_cart_btn", use_container_width=True):
             if cart_name:
                 save_current_cart(cart_name)
                 st.success(f"Cart saved as '{cart_name}'")
@@ -605,17 +605,17 @@ def pos_page():
     with col3:
         if st.session_state.saved_carts:
             load_cart_name = st.selectbox("Load Cart", [""] + list(st.session_state.saved_carts.keys()), key="load_cart_name", label_visibility="collapsed")
-            if load_cart_name and st.button("📂 Load Cart", key="load_cart_btn", use_container_width=True):
+            if load_cart_name and st.button("Load Cart", key="load_cart_btn", use_container_width=True):
                 load_saved_cart(load_cart_name)
                 st.rerun()
     
     with col4:
         # Disable checkout if no active shift
         if not st.session_state.branch_shift_active:
-            st.error("⛔ No active shift in your branch. Cannot process sales.")
-            st.button("✅ Checkout", key="checkout_btn", type="primary", use_container_width=True, disabled=True)
+            st.error("No active shift in your branch. Cannot process sales.")
+            st.button("Checkout", key="checkout_btn", type="primary", use_container_width=True, disabled=True)
         else:
-            if st.button("✅ Checkout", key="checkout_btn", type="primary", use_container_width=True):
+            if st.button("Checkout", key="checkout_btn", type="primary", use_container_width=True):
                 if not can_checkout:
                     st.stop()
                 
@@ -623,7 +623,7 @@ def pos_page():
                 products_df = get_products()
                 stock_ok, stock_message = check_stock_available(products_df, cart)
                 if not stock_ok:
-                    st.error(f"❌ STOCK ERROR: {stock_message}")
+                    st.error(f"STOCK ERROR: {stock_message}")
                     st.stop()
                 
                 receipt_no = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -773,7 +773,7 @@ def pos_page():
     # ==============================
     if st.session_state.get("show_receipt", False) and st.session_state.receipt:
         st.markdown("---")
-        st.subheader("🧾 RECEIPT")
+        st.subheader("RECEIPT")
         
         selected_style = st.session_state.get("receipt_style", "Standard")
         
@@ -798,7 +798,7 @@ def pos_page():
         pdf_file = generate_receipt_pdf(st.session_state.receipt)
         if pdf_file:
             st.download_button(
-                "📄 Download PDF Receipt",
+                "Download PDF Receipt",
                 data=pdf_file,
                 file_name=f"receipt_{st.session_state.get('last_receipt_no', 'receipt')}.pdf",
                 mime="application/pdf",
@@ -852,10 +852,10 @@ def pos_page():
         # Close receipt button
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🖨️ Print", key="print_receipt_btn", use_container_width=True):
+            if st.button("Print", key="print_receipt_btn", use_container_width=True):
                 st.info("Click the print button in the preview above")
         with col2:
-            if st.button("❌ Close Receipt", key="close_receipt_btn", use_container_width=True):
+            if st.button("Close Receipt", key="close_receipt_btn", use_container_width=True):
                 st.session_state.show_receipt = False
                 st.rerun()
     
@@ -864,11 +864,11 @@ def pos_page():
     # ==============================
     if st.session_state.last_receipt and not st.session_state.get("show_receipt", False):
         st.markdown("---")
-        with st.expander("📜 Last Receipt (Reprint)"):
+        with st.expander("Last Receipt (Reprint)"):
             st.text_area("Last Receipt", st.session_state.last_receipt, height=150, key="last_receipt_text")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🔁 Reprint", key="reprint_btn", use_container_width=True):
+                if st.button("Reprint", key="reprint_btn", use_container_width=True):
                     st.session_state.receipt = st.session_state.last_receipt
                     st.session_state.show_receipt = True
                     st.rerun()
@@ -876,7 +876,7 @@ def pos_page():
                 pdf_file = generate_receipt_pdf(st.session_state.last_receipt)
                 if pdf_file:
                     st.download_button(
-                        "📄 Download PDF",
+                        "Download PDF",
                         data=pdf_file,
                         file_name="receipt_last.pdf",
                         mime="application/pdf",
@@ -888,6 +888,6 @@ def pos_page():
     # REFRESH BUTTON
     # ==============================
     st.markdown("---")
-    if st.button("🔄 Refresh Page", key="refresh_page_btn", use_container_width=True):
+    if st.button("Refresh Page", key="refresh_page_btn", use_container_width=True):
         st.cache_data.clear()
         st.rerun()

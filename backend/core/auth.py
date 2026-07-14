@@ -377,7 +377,7 @@ def init_users():
     try:
         # Check if already initialized
         if st.session_state.get("auth_initialized", False):
-            logger.info("✅ Users already initialized in this session, skipping...")
+            logger.info("Users already initialized in this session, skipping...")
             return load_users()
         
         logger.info("Initializing users...")
@@ -387,12 +387,12 @@ def init_users():
             logger.info("No users found. Creating default users...")
             default_users = create_default_users()
             save_users(default_users)
-            logger.info("✅ Default users created successfully!")
+            logger.info("Default users created successfully!")
             st.session_state.auth_initialized = True
             return default_users
         
         if "admin" in df["username"].values:
-            logger.info("✅ Users already exist. Found admin user.")
+            logger.info("Users already exist. Found admin user.")
             st.session_state.auth_initialized = True
             return df
         
@@ -401,12 +401,12 @@ def init_users():
         combined_df = pd.concat([df, default_users], ignore_index=True)
         combined_df = combined_df.drop_duplicates(subset=["username"], keep="last")
         save_users(combined_df)
-        logger.info("✅ Default users added successfully!")
+        logger.info("Default users added successfully!")
         st.session_state.auth_initialized = True
         return combined_df
         
     except Exception as e:
-        logger.error(f"❌ Error initializing users: {e}")
+        logger.error(f"Error initializing users: {e}")
         return pd.DataFrame()
 
 
@@ -454,14 +454,14 @@ def check_login(username, password):
         ]
         
         if not user.empty:
-            logger.info(f"✅ Login successful (plain text) for: {username}")
+            logger.info(f"Login successful (plain text) for: {username}")
             # Convert to hashed password for security
             try:
                 hashed = hash_password(password)
                 idx = user.index[0]
                 df.loc[idx, "password"] = hashed
                 save_users(df)
-                logger.info(f"✅ Updated password to hashed for: {username}")
+                logger.info(f"Updated password to hashed for: {username}")
             except Exception as e:
                 logger.warning(f"Could not update to hashed password: {e}")
             return process_login_user(user, df)
@@ -475,7 +475,7 @@ def check_login(username, password):
         ]
         
         if not user.empty:
-            logger.info(f"✅ Login successful (hashed) for: {username}")
+            logger.info(f"Login successful (hashed) for: {username}")
             return process_login_user(user, df)
         
         # Check if user exists but inactive
@@ -485,14 +485,14 @@ def check_login(username, password):
         ]
         
         if not inactive_user.empty:
-            logger.warning(f"❌ Login blocked - user inactive: {username}")
+            logger.warning(f"Login blocked - user inactive: {username}")
             st.error("User account is deactivated. Please contact administrator.")
             return False, None
         
         # Check if user exists but password doesn't match
         user_exists = df[df["username"] == username]
         if not user_exists.empty:
-            logger.warning(f"❌ Invalid password for: {username}")
+            logger.warning(f"Invalid password for: {username}")
             # Increment attempts
             _login_attempts[username] += 1
             attempts_left = _MAX_ATTEMPTS - _login_attempts[username]
@@ -506,12 +506,12 @@ def check_login(username, password):
             return False, None
         
         # User doesn't exist
-        logger.warning(f"❌ User not found: {username}")
+        logger.warning(f"User not found: {username}")
         st.error("User not found. Please check your username.")
         return False, None
         
     except Exception as e:
-        logger.error(f"❌ Login error: {e}")
+        logger.error(f"Login error: {e}")
         st.error(f"Login error: {str(e)}")
         return False, None
 
@@ -536,7 +536,7 @@ def process_login_user(user, df):
             can_login, active_shift = can_cashier_login(username)
             
             if not can_login:
-                st.error("❌ No active shift in your branch. Please ask your manager to start a shift.")
+                st.error("No active shift in your branch. Please ask your manager to start a shift.")
                 return False, None
             
             # Store shift information in session
@@ -545,7 +545,7 @@ def process_login_user(user, df):
             st.session_state.active_shift_branch_name = active_shift.get("branch_name", "")
             st.session_state.shift_started_by = active_shift.get("cashier_name", "Unknown")
             
-            logger.info(f"✅ Cashier {username} logged in under branch shift {active_shift.get('shift_id')}")
+            logger.info(f"Cashier {username} logged in under branch shift {active_shift.get('shift_id')}")
         
         # For non-cashier roles, check if they can start a shift
         elif can_start_shift(role):
@@ -559,7 +559,7 @@ def process_login_user(user, df):
                 st.session_state.active_shift_branch_name = active_shift.get("branch_name", "")
                 st.session_state.shift_started_by = active_shift.get("cashier_name", "Unknown")
                 
-                logger.info(f"✅ Manager/Owner {username} logged in - branch shift {active_shift.get('shift_id')} is active")
+                logger.info(f"Manager/Owner {username} logged in - branch shift {active_shift.get('shift_id')} is active")
             else:
                 # No active shift - clear any stale shift data
                 st.session_state.active_shift_id = None
@@ -567,7 +567,7 @@ def process_login_user(user, df):
                 st.session_state.active_shift_branch_name = None
                 st.session_state.shift_started_by = None
                 
-                logger.info(f"ℹ️ No active shift in branch {branch_id}")
+                logger.info(f"No active shift in branch {branch_id}")
         
         # Store user info in session
         st.session_state.user_full_name = full_name
@@ -584,11 +584,11 @@ def process_login_user(user, df):
         df.loc[idx, "last_login"] = datetime.now().isoformat()
         save_users(df)
         
-        logger.info(f"✅ Login processed successfully for: {username}")
+        logger.info(f"Login processed successfully for: {username}")
         return True, role
         
     except Exception as e:
-        logger.error(f"❌ Error processing login: {e}")
+        logger.error(f"Error processing login: {e}")
         return False, None
 
 
@@ -670,7 +670,7 @@ def check_mobile_login(username, password):
         return False, None, "Invalid credentials or mobile access disabled"
         
     except Exception as e:
-        logger.error(f"❌ Mobile login error: {e}")
+        logger.error(f"Mobile login error: {e}")
         return False, None, f"Login error: {str(e)}"
 
 
@@ -729,7 +729,7 @@ def create_user(username, password, role, branch_id="HO", full_name="", phone=""
         return True, "User created successfully"
         
     except Exception as e:
-        logger.error(f"❌ Error creating user: {e}")
+        logger.error(f"Error creating user: {e}")
         return False, f"Error creating user: {str(e)}"
 
 
@@ -768,7 +768,7 @@ def update_user(username, **kwargs):
         return True, "User updated successfully"
         
     except Exception as e:
-        logger.error(f"❌ Error updating user: {e}")
+        logger.error(f"Error updating user: {e}")
         return False, f"Error updating user: {str(e)}"
 
 
@@ -787,7 +787,7 @@ def delete_user(username):
         return True, "User deleted"
         
     except Exception as e:
-        logger.error(f"❌ Error deleting user: {e}")
+        logger.error(f"Error deleting user: {e}")
         return False, f"Error deleting user: {str(e)}"
 
 
@@ -804,7 +804,7 @@ def toggle_user_active(username):
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error toggling user active: {e}")
+        logger.error(f"Error toggling user active: {e}")
         return False
 
 
@@ -821,7 +821,7 @@ def toggle_mobile_access(username):
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error toggling mobile access: {e}")
+        logger.error(f"Error toggling mobile access: {e}")
         return False
 
 
@@ -866,7 +866,7 @@ def reset_password(username, new_password):
         return True, "Password reset successfully"
         
     except Exception as e:
-        logger.error(f"❌ Error resetting password: {e}")
+        logger.error(f"Error resetting password: {e}")
         return False, f"Error resetting password: {str(e)}"
 
 
@@ -886,7 +886,7 @@ def force_reset_password(username):
         return True, f"Password reset. Temporary password: {temp_password}"
         
     except Exception as e:
-        logger.error(f"❌ Error forcing password reset: {e}")
+        logger.error(f"Error forcing password reset: {e}")
         return False, f"Error resetting password: {str(e)}"
 
 
@@ -913,7 +913,7 @@ def end_all_sessions(username):
             return True
         return False
     except Exception as e:
-        logger.error(f"❌ Error ending sessions: {e}")
+        logger.error(f"Error ending sessions: {e}")
         return False
 
 

@@ -113,7 +113,7 @@ SUMMARY
     if not critical.empty:
         report += f"""
 {'─'*40}
-🚨 CRITICAL - OUT OF STOCK (IMMEDIATE ACTION REQUIRED)
+CRITICAL - OUT OF STOCK (IMMEDIATE ACTION REQUIRED)
 {'─'*40}
 """
         for _, item in critical.iterrows():
@@ -122,7 +122,7 @@ SUMMARY
     if not high.empty:
         report += f"""
 {'─'*40}
-⚠️ HIGH URGENCY (Reorder Immediately)
+HIGH URGENCY (Reorder Immediately)
 {'─'*40}
 """
         for _, item in high.iterrows():
@@ -135,7 +135,7 @@ SUMMARY
     if not medium.empty:
         report += f"""
 {'─'*40}
-📦 MEDIUM URGENCY (Plan Reorder)
+MEDIUM URGENCY (Plan Reorder)
 {'─'*40}
 """
         for _, item in medium.head(10).iterrows():
@@ -146,7 +146,7 @@ SUMMARY
     if not low.empty:
         report += f"""
 {'─'*40}
-✅ LOW URGENCY (Monitor)
+LOW URGENCY (Monitor)
 {'─'*40}
 """
         for _, item in low.head(5).iterrows():
@@ -159,7 +159,7 @@ SUMMARY
         total_cost = low_stock_df["estimated_cost"].sum()
         report += f"""
 {'─'*40}
-💰 FINANCIAL IMPACT
+FINANCIAL IMPACT
 {'─'*40}
 Total estimated reorder cost: ${total_cost:,.2f}
 
@@ -255,11 +255,11 @@ def check_and_send_low_stock_alerts(force=False):
     total_count = len(low_stock_df)
     
     if critical_count > 0:
-        subject = f"🚨 URGENT: {critical_count} items OUT OF STOCK + {total_count - critical_count} low items"
+        subject = f"URGENT: {critical_count} items OUT OF STOCK + {total_count - critical_count} low items"
     elif new_items:
-        subject = f"⚠️ NEW Low Stock Alert: {len(new_items)} new items need attention"
+        subject = f"NEW Low Stock Alert: {len(new_items)} new items need attention"
     else:
-        subject = f"📦 Low Stock Summary: {total_count} items need reordering"
+        subject = f"Low Stock Summary: {total_count} items need reordering"
     
     # Send email to all recipients
     config = get_email_config()

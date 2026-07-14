@@ -228,7 +228,7 @@ def get_po_details(po_number):
 def purchases_page():
     """Enhanced Purchases Management Page with Auto-Stock Update"""
     
-    st.title("📦 Purchases & Suppliers Management")
+    st.title("Purchases & Suppliers Management")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
     
     products_df = load_products()
@@ -249,32 +249,32 @@ def purchases_page():
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
-        st.success(f"✅ Purchase Order **{st.session_state.last_po_number}** created successfully!")
+        st.success(f"Purchase Order **{st.session_state.last_po_number}** created successfully!")
         st.balloons()
         st.session_state.po_created = False
     
     if st.session_state.stock_updated and st.session_state.last_received_po:
-        st.success(f"✅ Stock for PO **{st.session_state.last_received_po}** has been added to inventory!")
+        st.success(f"Stock for PO **{st.session_state.last_received_po}** has been added to inventory!")
         st.balloons()
         st.session_state.stock_updated = False
     
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📝 Create Purchase Order",
-        "📦 Receive Stock (Auto-Update)",
-        "📊 Supplier Performance",
-        "📜 Purchase History"
+        "Create Purchase Order",
+        "Receive Stock (Auto-Update)",
+        "Supplier Performance",
+        "Purchase History"
     ])
     
     # ==============================
     # TAB 1: CREATE PURCHASE ORDER
     # ==============================
     with tab1:
-        st.markdown("## 📝 Create Purchase Order")
+        st.markdown("## Create Purchase Order")
         st.caption("Create a purchase order before receiving stock from suppliers")
         
         if products_df.empty:
-            st.warning("⚠️ No products in inventory. You can still add manual items below.")
+            st.warning("No products in inventory. You can still add manual items below.")
         
         col1, col2 = st.columns(2)
         
@@ -294,7 +294,7 @@ def purchases_page():
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
             
             with col1:
-                search = st.text_input("🔍 Search Product", key="po_search", 
+                search = st.text_input("Search Product", key="po_search", 
                                       placeholder="Type product name or barcode...")
                 
                 filtered_products = products_df.copy()
@@ -353,12 +353,12 @@ def purchases_page():
                                 "total": cost_val * po_qty
                             })
                         
-                        st.success(f"✅ Added {po_qty} x {selected_product['name']} to order")
+                        st.success(f"Added {po_qty} x {selected_product['name']} to order")
                         st.session_state.button_clicked = False
                         st.rerun()
             
             with col4:
-                clear_button = st.button("🗑️ Clear Cart", use_container_width=True)
+                clear_button = st.button("Clear Cart", use_container_width=True)
                 if clear_button and not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     st.session_state.po_cart = []
@@ -404,7 +404,7 @@ def purchases_page():
                             "total": float(manual_item_cost) * manual_item_qty
                         })
                     
-                    st.success(f"✅ Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
+                    st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
                 else:
                     st.error("Please enter an item name")
                 
@@ -414,7 +414,7 @@ def purchases_page():
         # Display PO Cart
         if st.session_state.po_cart:
             st.markdown("---")
-            st.markdown("### 🧾 Purchase Order Cart")
+            st.markdown("### Purchase Order Cart")
             
             po_cart_df = pd.DataFrame(st.session_state.po_cart)
             
@@ -429,12 +429,12 @@ def purchases_page():
             )
             
             po_total = po_cart_df["total"].sum()
-            st.info(f"💰 **Total Order Value: ${po_total:,.2f}**")
+            st.info(f"**Total Order Value: ${po_total:,.2f}**")
             
             col1, col2 = st.columns(2)
             
             with col1:
-                clear_all_button = st.button("🗑️ Clear All Items", use_container_width=True)
+                clear_all_button = st.button("Clear All Items", use_container_width=True)
                 if clear_all_button and not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     st.session_state.po_cart = []
@@ -442,14 +442,14 @@ def purchases_page():
                     st.rerun()
             
             with col2:
-                create_po_button = st.button("📄 Create Purchase Order", type="primary", use_container_width=True)
+                create_po_button = st.button("Create Purchase Order", type="primary", use_container_width=True)
                 if create_po_button and not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     
                     if not supplier_name or not supplier_name.strip():
-                        st.error("❌ Please enter a supplier name")
+                        st.error("Please enter a supplier name")
                     elif not st.session_state.po_cart:
-                        st.error("❌ Cart is empty. Add products to create a purchase order.")
+                        st.error("Cart is empty. Add products to create a purchase order.")
                     else:
                         po_number, po_df, error = create_purchase_order(
                             supplier=supplier_name,
@@ -458,7 +458,7 @@ def purchases_page():
                         )
                         
                         if error:
-                            st.error(f"❌ {error}")
+                            st.error(f"{error}")
                         else:
                             existing_df = load_purchases()
                             
@@ -473,7 +473,7 @@ def purchases_page():
                             st.session_state.po_created = True
                             st.session_state.last_po_number = po_number
                             
-                            st.success(f"✅ Purchase Order {po_number} created successfully!")
+                            st.success(f"Purchase Order {po_number} created successfully!")
                             st.info(f"""
                             **Purchase Order Summary:**
                             - PO Number: {po_number}
@@ -482,7 +482,7 @@ def purchases_page():
                             - Total Value: ${po_total:,.2f}
                             - Expected Date: {expected_date}
                             
-                            ⚠️ **Important:** Stock will be added to inventory when you RECEIVE this order in the "Receive Stock" tab.
+                            **Important:** Stock will be added to inventory when you RECEIVE this order in the "Receive Stock" tab.
                             """)
                             
                             po_text = f"""
@@ -517,7 +517,7 @@ Contact: +263 78 290 5853
 """
                             
                             st.download_button(
-                                label="📥 Download PO (TXT)",
+                                label="Download PO (TXT)",
                                 data=po_text,
                                 file_name=f"{po_number}.txt",
                                 mime="text/plain",
@@ -528,13 +528,13 @@ Contact: +263 78 290 5853
                     
                     st.session_state.button_clicked = False
         else:
-            st.info("🛒 Cart is empty. Add products above to create a purchase order.")
+            st.info("Cart is empty. Add products above to create a purchase order.")
     
     # ==============================
     # TAB 2: RECEIVE STOCK
     # ==============================
     with tab2:
-        st.markdown("## 📦 Receive Stock - Auto Update Inventory")
+        st.markdown("## Receive Stock - Auto Update Inventory")
         st.caption("Confirm receipt of stock. Inventory will be automatically updated.")
         
         purchases_df = load_purchases()
@@ -548,7 +548,7 @@ Contact: +263 78 290 5853
             pending_pos = purchases_df[purchases_df["status"] == "PENDING"]["po_number"].unique().tolist()
             
             if not pending_pos:
-                st.info("✅ No pending purchase orders. All orders have been received.")
+                st.info("No pending purchase orders. All orders have been received.")
             else:
                 selected_po = st.selectbox("Select Purchase Order to Receive", pending_pos, key="receive_po")
                 
@@ -572,7 +572,7 @@ Contact: +263 78 290 5853
                         
                         st.markdown("---")
                         st.markdown("### Receiving Details")
-                        st.info("ℹ️ When you receive items, stock will be AUTOMATICALLY added to inventory.")
+                        st.info("When you receive items, stock will be AUTOMATICALLY added to inventory.")
                         
                         invoice_no = st.text_input("Supplier Invoice Number *", key="invoice_no")
                         
@@ -620,12 +620,12 @@ Contact: +263 78 290 5853
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            confirm_button = st.button("✅ Confirm Receipt & Update Stock", type="primary", use_container_width=True)
+                            confirm_button = st.button("Confirm Receipt & Update Stock", type="primary", use_container_width=True)
                             if confirm_button and not st.session_state.button_clicked:
                                 st.session_state.button_clicked = True
                                 
                                 if not invoice_no:
-                                    st.error("❌ Please enter supplier invoice number")
+                                    st.error("Please enter supplier invoice number")
                                 else:
                                     success, updated_products, new_products = receive_purchase_order(
                                         selected_po, received_items, invoice_no
@@ -636,14 +636,14 @@ Contact: +263 78 290 5853
                                         st.session_state.last_received_po = selected_po
                                         
                                         if updated_products:
-                                            st.success(f"✅ Stock updated for {len(updated_products)} existing products!")
+                                            st.success(f"Stock updated for {len(updated_products)} existing products!")
                                             for p in updated_products[:5]:
                                                 st.write(f"   • {p['name']}: {p['old_stock']} → {p['new_stock']} (+{p['added']})")
                                             if len(updated_products) > 5:
                                                 st.write(f"   ... and {len(updated_products) - 5} more")
                                         
                                         if new_products:
-                                            st.info(f"🆕 Created {len(new_products)} new products in inventory!")
+                                            st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
                                                 st.write(f"   • {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
                                         
@@ -652,7 +652,7 @@ Contact: +263 78 290 5853
                                 st.session_state.button_clicked = False
                         
                         with col2:
-                            refresh_button = st.button("🔄 Refresh", use_container_width=True)
+                            refresh_button = st.button("Refresh", use_container_width=True)
                             if refresh_button and not st.session_state.button_clicked:
                                 st.rerun()
     
@@ -660,7 +660,7 @@ Contact: +263 78 290 5853
     # TAB 3: SUPPLIER PERFORMANCE
     # ==============================
     with tab3:
-        st.markdown("## 📊 Supplier Performance Dashboard")
+        st.markdown("## Supplier Performance Dashboard")
         
         supplier_perf = get_supplier_performance()
         
@@ -679,19 +679,19 @@ Contact: +263 78 290 5853
             
             st.markdown("---")
             
-            st.markdown("### 📋 Supplier Performance Metrics")
+            st.markdown("### Supplier Performance Metrics")
             st.dataframe(supplier_perf, use_container_width=True, hide_index=True)
             
             low_fulfillment = supplier_perf[supplier_perf["Fulfillment Rate"] < 80]
             if not low_fulfillment.empty:
-                st.warning(f"⚠️ {len(low_fulfillment)} suppliers have fulfillment rate below 80%")
+                st.warning(f"{len(low_fulfillment)} suppliers have fulfillment rate below 80%")
                 st.dataframe(low_fulfillment[["Supplier", "Fulfillment Rate"]], use_container_width=True, hide_index=True)
     
     # ==============================
     # TAB 4: PURCHASE HISTORY
     # ==============================
     with tab4:
-        st.markdown("## 📜 Purchase History")
+        st.markdown("## Purchase History")
         
         purchases_df = load_purchases()
         
@@ -731,7 +731,7 @@ Contact: +263 78 290 5853
             
             st.markdown("---")
             
-            st.markdown("### 📋 Purchase Order Summary")
+            st.markdown("### Purchase Order Summary")
             
             po_summary = purchases_df.groupby(["po_number", "supplier", "date_ordered", "status"]).agg({
                 "total_cost": "sum",
@@ -751,7 +751,7 @@ Contact: +263 78 290 5853
             
             st.markdown("---")
             
-            with st.expander("📄 View Detailed Purchase Records"):
+            with st.expander("View Detailed Purchase Records"):
                 display_cols = ["po_number", "date_ordered", "supplier", "product_name", "quantity_ordered", "quantity_received", "cost_price", "total_cost", "status"]
                 available_cols = [col for col in display_cols if col in purchases_df.columns]
                 
@@ -762,7 +762,7 @@ Contact: +263 78 290 5853
             
             csv = purchases_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Download Purchase History (CSV)",
+                label="Download Purchase History (CSV)",
                 data=csv,
                 file_name=f"purchase_history_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",

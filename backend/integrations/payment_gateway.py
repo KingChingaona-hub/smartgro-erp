@@ -337,13 +337,13 @@ def verify_ecocash_payment(transaction_id):
 def payment_dashboard():
     """Payment Gateway Dashboard with REAL data"""
     
-    st.title("💳 Payment Gateway Dashboard")
+    st.title("Payment Gateway Dashboard")
     st.caption("Manage payments, view transaction history, and process refunds")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access payment dashboard.")
+        st.error("Access Denied. Only owners and managers can access payment dashboard.")
         return
     
     init_payment_files()
@@ -352,16 +352,16 @@ def payment_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3 = st.tabs([
-        "📊 Payment Summary",
-        "📜 Transaction History",
-        "⚙️ Gateway Settings"
+        "Payment Summary",
+        "Transaction History",
+        "Gateway Settings"
     ])
     
     # ==============================
     # TAB 1: PAYMENT SUMMARY - REAL DATA
     # ==============================
     with tab1:
-        st.markdown("## 📊 Payment Summary")
+        st.markdown("## Payment Summary")
         
         # Get REAL data
         summary = get_payment_summary(30)
@@ -369,14 +369,14 @@ def payment_dashboard():
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("💰 Total Payments", f"${summary['total_amount']:,.2f}")
+            st.metric("Total Payments", f"${summary['total_amount']:,.2f}")
         with col2:
-            st.metric("📊 Total Transactions", summary["total_payments"])
+            st.metric("Total Transactions", summary["total_payments"])
         with col3:
             avg = summary['total_amount'] / summary['total_payments'] if summary['total_payments'] > 0 else 0
-            st.metric("💳 Avg Transaction", f"${avg:.2f}")
+            st.metric("Avg Transaction", f"${avg:.2f}")
         
-        st.markdown("### 💳 Payment Methods Breakdown")
+        st.markdown("### Payment Methods Breakdown")
         
         if summary["by_method"]:
             methods_df = pd.DataFrame(list(summary["by_method"].items()), columns=["Method", "Amount"])
@@ -396,7 +396,7 @@ def payment_dashboard():
         
         # Show recent payments
         if not summary["recent_payments"].empty:
-            st.markdown("### 📋 Recent Payments")
+            st.markdown("### Recent Payments")
             display_cols = ["receipt_no", "customer", "total", "payment_method", "date"]
             available_cols = [col for col in display_cols if col in summary["recent_payments"].columns]
             
@@ -414,7 +414,7 @@ def payment_dashboard():
     # TAB 2: TRANSACTION HISTORY - REAL DATA
     # ==============================
     with tab2:
-        st.markdown("## 📜 Transaction History")
+        st.markdown("## Transaction History")
         
         # Get REAL data
         payments_df = load_payments_from_sales()
@@ -457,7 +457,7 @@ def payment_dashboard():
                 # Export
                 csv = payments_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Export Transactions (CSV)",
+                    label="Export Transactions (CSV)",
                     data=csv,
                     file_name=f"payments_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
@@ -469,23 +469,23 @@ def payment_dashboard():
     # TAB 3: GATEWAY SETTINGS
     # ==============================
     with tab3:
-        st.markdown("## ⚙️ Gateway Settings")
+        st.markdown("## Gateway Settings")
         
-        st.info("🔧 Payment gateway configuration")
+        st.info("Payment gateway configuration")
         st.markdown("""
         **Available Payment Gateways:**
-        - ✅ Cash (Physical)
-        - ✅ EcoCash (Mobile Money) - Coming Soon
-        - ✅ Card Payments (Visa/Mastercard) - Coming Soon
-        - ✅ Bank Transfer - Coming Soon
-        - 🔜 PayNow (Coming Soon)
-        - 🔜 InnBucks (Coming Soon)
+        - Cash (Physical)
+        - EcoCash (Mobile Money) - Coming Soon
+        - Card Payments (Visa/Mastercard) - Coming Soon
+        - Bank Transfer - Coming Soon
+        - PayNow (Coming Soon)
+        - InnBucks (Coming Soon)
         """)
         
         # Show current payment stats from REAL data
         sales_df = load_sales()
         if not sales_df.empty:
-            st.markdown("### 📊 Current Payment Statistics")
+            st.markdown("### Current Payment Statistics")
             
             total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
             payment_col = "payment_method" if "payment_method" in sales_df.columns else None
@@ -498,7 +498,7 @@ def payment_dashboard():
                     st.metric("Total Transactions", len(sales_df))
                 
                 # Payment method distribution
-                st.markdown("### 📊 Payment Method Distribution")
+                st.markdown("### Payment Method Distribution")
                 method_dist = sales_df.groupby(payment_col)[total_col].sum().apply(to_float)
                 st.dataframe(
                     method_dist.reset_index().rename(columns={payment_col: "Method", total_col: "Amount"}),

@@ -8,7 +8,7 @@ from backend.core.db_adapter import load_sales
 # ==============================
 def sales_history_page():
 
-    st.title("📜 Sales History")
+    st.title("Sales History")
 
     df = load_sales()
 
@@ -31,7 +31,7 @@ def sales_history_page():
     # ==============================
     # FILTER SECTION
     # ==============================
-    st.subheader("🔍 Filter Sales")
+    st.subheader("Filter Sales")
 
     col1, col2, col3 = st.columns(3)
 
@@ -75,7 +75,7 @@ def sales_history_page():
     # ==============================
     # SALES TABLE
     # ==============================
-    st.subheader("📊 Sales Records")
+    st.subheader("Sales Records")
 
     st.dataframe(
         filtered_df,
@@ -86,7 +86,7 @@ def sales_history_page():
     # SUMMARY
     # ==============================
     st.markdown("---")
-    st.subheader("📈 Summary")
+    st.subheader("Summary")
 
     total_sales = float(filtered_df["total"].sum()) if "total" in filtered_df.columns else 0
     total_profit = float(filtered_df["profit"].sum()) if "profit" in filtered_df.columns else 0
@@ -113,7 +113,7 @@ def sales_history_page():
     # TOP PRODUCTS - FIXED for column names
     # ==============================
     st.markdown("---")
-    st.subheader("📦 Top Products")
+    st.subheader("Top Products")
 
     # Determine which column names exist
     product_col = None
@@ -192,7 +192,7 @@ def sales_history_page():
     # RECEIPT LOOKUP
     # ==============================
     st.markdown("---")
-    st.subheader("🧾 Receipt Lookup")
+    st.subheader("Receipt Lookup")
 
     receipt_search = st.text_input(
         "Enter Receipt Number"

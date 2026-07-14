@@ -543,7 +543,7 @@ def generate_alerts():
                 name_str = ", ".join(names) + ("..." if len(out_of_stock) > 3 else "")
                 alerts.append({
                     "level": "critical",
-                    "title": f"🚨 {len(out_of_stock)} Products Out of Stock",
+                    "title": f"{len(out_of_stock)} Products Out of Stock",
                     "message": f"Immediate action required: {name_str}",
                     "timestamp": datetime.now()
                 })
@@ -556,14 +556,14 @@ def generate_alerts():
         if total_score < 40:
             alerts.append({
                 "level": "critical",
-                "title": f"🚨 Business Health Critical ({total_score}/100)",
+                "title": f"Business Health Critical ({total_score}/100)",
                 "message": "Urgent attention needed across multiple business areas.",
                 "timestamp": datetime.now()
             })
         elif total_score < 60:
             alerts.append({
                 "level": "warning",
-                "title": f"⚠️ Business Health Warning ({total_score}/100)",
+                "title": f"Business Health Warning ({total_score}/100)",
                 "message": "Several areas need improvement to reach good standing.",
                 "timestamp": datetime.now()
             })
@@ -575,7 +575,7 @@ def generate_alerts():
         severity = anomaly.get("severity", "MEDIUM")
         alerts.append({
             "level": "warning" if severity == "MEDIUM" else "critical",
-            "title": f"📊 {anomaly.get('type', 'Anomaly').replace('_', ' ')} Detected",
+            "title": f"{anomaly.get('type', 'Anomaly').replace('_', ' ')} Detected",
             "message": anomaly.get("message", "Anomaly detected"),
             "timestamp": datetime.now()
         })

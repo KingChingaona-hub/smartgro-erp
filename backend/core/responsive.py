@@ -143,4 +143,4 @@ def apply_mobile_css():
 def show_mobile_banner():
     """Show a mobile banner when on mobile device"""
     if is_mobile_device():
-        st.success(f"📱 Mobile Mode Active - {get_device_type()}")
+        st.success(f"Mobile Mode Active - {get_device_type()}")

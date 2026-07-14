@@ -347,7 +347,7 @@ def language_selector():
     
     # Use a unique key for the selectbox
     selected = st.sidebar.selectbox(
-        "🌐 Language",
+        "Language",
         lang_options,
         index=current_index,
         key="language_selector_unique"
@@ -370,29 +370,29 @@ def language_selector():
 def language_dashboard():
     """Language management dashboard for admins - FIXED: No continuous rerun"""
     
-    st.title("🌐 Language Management")
+    st.title("Language Management")
     st.caption("Manage system languages and translations")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can manage language settings.")
+        st.error("Access Denied. Only owners and managers can manage language settings.")
         return
     
     # ==============================
     # TABS
     # ==============================
     tab1, tab2, tab3 = st.tabs([
-        "🌍 Language Settings",
-        "📝 Edit Translations",
-        "📊 Translation Status"
+        "Language Settings",
+        "Edit Translations",
+        "Translation Status"
     ])
     
     # ==============================
     # TAB 1: LANGUAGE SETTINGS - FIXED
     # ==============================
     with tab1:
-        st.markdown("## 🌍 System Language")
+        st.markdown("## System Language")
         
         current_lang = get_current_language()
         
@@ -420,7 +420,7 @@ def language_dashboard():
         st.markdown("---")
         
         # Language stats
-        st.markdown("### 📊 Language Statistics")
+        st.markdown("### Language Statistics")
         
         translations = load_translations()
         
@@ -441,7 +441,7 @@ def language_dashboard():
     # TAB 2: EDIT TRANSLATIONS - FIXED
     # ==============================
     with tab2:
-        st.markdown("## 📝 Edit Translations")
+        st.markdown("## Edit Translations")
         st.caption("Add or edit translations for any language")
         
         translations = load_translations()
@@ -476,7 +476,7 @@ def language_dashboard():
             st.info("No translation keys found")
         else:
             for key in page_keys:
-                with st.expander(f"🔑 {key}"):
+                with st.expander(f"{key}"):
                     col1, col2 = st.columns([3, 1])
                     
                     with col1:
@@ -503,7 +503,7 @@ def language_dashboard():
         
         # Add new translation key
         st.markdown("---")
-        st.markdown("### ➕ Add New Translation Key")
+        st.markdown("### Add New Translation Key")
         
         col1, col2 = st.columns(2)
         
@@ -513,7 +513,7 @@ def language_dashboard():
         with col2:
             new_value = st.text_input("English Translation", placeholder="Enter English text")
         
-        if st.button("➕ Add New Translation", use_container_width=True):
+        if st.button("Add New Translation", use_container_width=True):
             if new_key and new_value:
                 if new_key in translations:
                     st.warning(f"Key '{new_key}' already exists. Use edit instead.")
@@ -529,7 +529,7 @@ def language_dashboard():
     # TAB 3: TRANSLATION STATUS
     # ==============================
     with tab3:
-        st.markdown("## 📊 Translation Status")
+        st.markdown("## Translation Status")
         
         translations = load_translations()
         
@@ -557,7 +557,7 @@ def language_dashboard():
         )
         
         # Missing translations
-        st.markdown("### 📋 Missing Translations")
+        st.markdown("### Missing Translations")
         
         missing_lang = st.selectbox(
             "Show missing translations for",
@@ -576,7 +576,7 @@ def language_dashboard():
             missing_text = "\n".join(missing_keys[:100])
             st.text_area("Missing Keys (copy to work offline)", missing_text, height=200)
             
-            if st.button("📝 Auto-fill Missing with English", use_container_width=True):
+            if st.button("Auto-fill Missing with English", use_container_width=True):
                 for key in missing_keys:
                     if "en" in translations[key] and translations[key]["en"]:
                         translations[key][missing_lang] = translations[key]["en"]
@@ -584,11 +584,11 @@ def language_dashboard():
                     st.success(f"Auto-filled {len(missing_keys)} missing translations")
                     st.rerun()
         else:
-            st.success(f"✅ All translations complete for {LANGUAGES[missing_lang]['name']}!")
+            st.success(f"All translations complete for {LANGUAGES[missing_lang]['name']}!")
         
         # Export/Import
         st.markdown("---")
-        st.markdown("### 📥 Export/Import Translations")
+        st.markdown("### Export/Import Translations")
         
         col1, col2 = st.columns(2)
         
@@ -603,7 +603,7 @@ def language_dashboard():
             export_df = pd.DataFrame(export_data)
             csv = export_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Export Translations (CSV)",
+                label="Export Translations (CSV)",
                 data=csv,
                 file_name=f"translations_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"

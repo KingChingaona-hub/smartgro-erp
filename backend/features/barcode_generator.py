@@ -249,7 +249,7 @@ def generate_shelf_label_pdf(products):
 def barcode_generator_page():
     """Barcode Generation and Printing Dashboard"""
     
-    st.title("📦 Barcode & Label Generator")
+    st.title("Barcode & Label Generator")
     st.caption("Generate printable barcodes, QR codes, and shelf labels for your products")
     
     products_df = load_products()
@@ -265,17 +265,17 @@ def barcode_generator_page():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🔍 Single Barcode",
-        "📦 Bulk Barcode Printing",
-        "📱 QR Code Generator",
-        "🏷️ Shelf Labels"
+        "Single Barcode",
+        "Bulk Barcode Printing",
+        "QR Code Generator",
+        "Shelf Labels"
     ])
     
     # ==============================
     # TAB 1: SINGLE BARCODE
     # ==============================
     with tab1:
-        st.markdown("## 🔍 Generate Single Barcode")
+        st.markdown("## Generate Single Barcode")
         
         # Product selection
         selected_product = st.selectbox(
@@ -290,14 +290,14 @@ def barcode_generator_page():
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("### 📊 Product Info")
+                st.markdown("### Product Info")
                 st.write(f"**Name:** {product['name']}")
                 st.write(f"**Barcode:** {product['barcode']}")
                 st.write(f"**Price:** ${product['price']:.2f}")
                 st.write(f"**Stock:** {product['stock']} units")
             
             with col2:
-                st.markdown("### 🖨️ Barcode Preview")
+                st.markdown("### Barcode Preview")
                 
                 # Generate barcode HTML
                 barcode_html = generate_barcode_image(product['barcode'])
@@ -306,7 +306,7 @@ def barcode_generator_page():
                     
                     # Download button for HTML barcode
                     st.download_button(
-                        label="📥 Download Barcode (HTML)",
+                        label="Download Barcode (HTML)",
                         data=barcode_html.encode('utf-8'),
                         file_name=f"barcode_{product['barcode']}.html",
                         mime="text/html",
@@ -316,7 +316,7 @@ def barcode_generator_page():
                     st.warning("Could not generate barcode preview")
             
             # Print barcode HTML
-            st.markdown("### 🖨️ Print Barcode Label")
+            st.markdown("### Print Barcode Label")
             
             html_label = generate_shelf_label(product)
             st.components.v1.html(html_label, height=250)
@@ -325,14 +325,14 @@ def barcode_generator_page():
     # TAB 2: BULK BARCODE PRINTING
     # ==============================
     with tab2:
-        st.markdown("## 📦 Bulk Barcode Printing")
+        st.markdown("## Bulk Barcode Printing")
         st.caption("Generate barcodes for multiple products at once")
         
         # Product selection
         st.markdown("### Select Products")
         
         # Search filter
-        search = st.text_input("🔍 Filter Products", placeholder="Type to search...")
+        search = st.text_input("Filter Products", placeholder="Type to search...")
         
         filtered_products = products_df.copy()
         if search:
@@ -362,7 +362,7 @@ def barcode_generator_page():
             with col2:
                 label_type = st.selectbox("Label Type", ["Barcodes Only", "Shelf Labels", "QR Codes"])
             
-            if st.button("📄 Generate PDF", type="primary", use_container_width=True):
+            if st.button("Generate PDF", type="primary", use_container_width=True):
                 with st.spinner("Generating PDF..."):
                     if label_type == "Barcodes Only":
                         pdf_buffer = generate_barcode_pdf(selected_data.to_dict('records'), page)
@@ -375,20 +375,20 @@ def barcode_generator_page():
                         filename = f"qr_codes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
                     
                     st.download_button(
-                        label="📥 Download PDF",
+                        label="Download PDF",
                         data=pdf_buffer,
                         file_name=filename,
                         mime="application/pdf",
                         use_container_width=True
                     )
                     
-                    st.success("✅ PDF generated successfully!")
+                    st.success("PDF generated successfully!")
     
     # ==============================
     # TAB 3: QR CODE GENERATOR
     # ==============================
     with tab3:
-        st.markdown("## 📱 QR Code Generator")
+        st.markdown("## QR Code Generator")
         st.caption("Generate QR codes for mobile product lookup")
         
         selected_product = st.selectbox(
@@ -403,7 +403,7 @@ def barcode_generator_page():
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("### 📊 Product Info")
+                st.markdown("### Product Info")
                 st.write(f"**Name:** {product['name']}")
                 st.write(f"**Barcode:** {product['barcode']}")
                 st.write(f"**Price:** ${product['price']:.2f}")
@@ -426,7 +426,7 @@ Stock: {product['stock']} units
                     qr_data = st.text_area("Custom Message", value=f"Scan to view {product['name']} details")
             
             with col2:
-                st.markdown("### 🖨️ QR Code Preview")
+                st.markdown("### QR Code Preview")
                 
                 # Generate QR code
                 qr_img = generate_qr_code(qr_data.strip())
@@ -436,7 +436,7 @@ Stock: {product['stock']} units
                     # Download button
                     qr_data_bin = qr_img.getvalue()
                     st.download_button(
-                        label="📥 Download QR Code (PNG)",
+                        label="Download QR Code (PNG)",
                         data=qr_data_bin,
                         file_name=f"qrcode_{product['barcode']}.png",
                         mime="image/png",
@@ -449,7 +449,7 @@ Stock: {product['stock']} units
     # TAB 4: SHELF LABELS
     # ==============================
     with tab4:
-        st.markdown("## 🏷️ Shelf Label Printing")
+        st.markdown("## Shelf Label Printing")
         st.caption("Professional shelf labels for retail displays")
         
         # Layout selection
@@ -483,17 +483,17 @@ Stock: {product['stock']} units
                 st.components.v1.html(label_html, height=250)
                 
                 # Download as PDF
-                if st.button("📄 Download as PDF", use_container_width=True):
+                if st.button("Download as PDF", use_container_width=True):
                     pdf_buffer = generate_shelf_label_pdf([product.to_dict()])
                     st.download_button(
-                        label="📥 Download PDF",
+                        label="Download PDF",
                         data=pdf_buffer,
                         file_name=f"shelf_label_{product['barcode']}.pdf",
                         mime="application/pdf"
                     )
         else:
             # Multi-label selection
-            search = st.text_input("🔍 Search Products", key="shelf_search")
+            search = st.text_input("Search Products", key="shelf_search")
             
             filtered = products_df.copy()
             if search:
@@ -509,7 +509,7 @@ Stock: {product['stock']} units
                 selected_data = products_df[products_df["name"].isin(selected_products)]
                 
                 # Preview
-                st.markdown("### 📋 Preview")
+                st.markdown("### Preview")
                 
                 cols = st.columns(min(3, len(selected_data)))
                 for idx, (_, product) in enumerate(selected_data.head(6).iterrows()):
@@ -521,10 +521,10 @@ Stock: {product['stock']} units
                     st.caption(f"... and {len(selected_data) - 6} more labels")
                 
                 # Download all
-                if st.button("📄 Generate All Labels", type="primary", use_container_width=True):
+                if st.button("Generate All Labels", type="primary", use_container_width=True):
                     pdf_buffer = generate_shelf_label_pdf(selected_data.to_dict('records'))
                     st.download_button(
-                        label="📥 Download PDF",
+                        label="Download PDF",
                         data=pdf_buffer,
                         file_name=f"shelf_labels_{datetime.now().strftime('%Y%m%d')}.pdf",
                         mime="application/pdf",
@@ -535,14 +535,14 @@ Stock: {product['stock']} units
     # MOBILE SCANNING SUPPORT SECTION
     # ==============================
     st.markdown("---")
-    st.markdown("## 📱 Mobile Scanning Support")
+    st.markdown("## Mobile Scanning Support")
     st.caption("Use your phone camera to scan barcodes")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("""
-        ### 📷 How to Scan
+        ### How to Scan
         
         1. Open your phone's camera
         2. Point at any generated barcode
@@ -557,7 +557,7 @@ Stock: {product['stock']} units
     
     with col2:
         st.markdown("""
-        ### 🔍 Scan to View Product
+        ### Scan to View Product
         
         Generate a QR code for any product, then scan with your phone to see:
         - Product name and price

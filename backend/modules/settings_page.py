@@ -117,13 +117,13 @@ def save_settings(settings):
 
 def show_toast(message, type="info"):
     if type == "success":
-        st.success(f"✅ {message}")
+        st.success(f"{message}")
     elif type == "error":
-        st.error(f"❌ {message}")
+        st.error(f"{message}")
     elif type == "warning":
-        st.warning(f"⚠️ {message}")
+        st.warning(f"{message}")
     else:
-        st.info(f"ℹ️ {message}")
+        st.info(f"{message}")
 
 
 # ==============================
@@ -223,7 +223,7 @@ Navigate to the SmartGro_System folder and run:
 
 Step 5: Access the System
 • Open your web browser
-• Go to: http://localhost:8501
+• Go to: https://smartgro.streamlit.app/
 • Login using the provided credentials
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -494,12 +494,12 @@ def settings_page():
     
     init_settings_session()
     
-    st.title("⚙️ System Settings")
+    st.title("System Settings")
     st.caption(f"Configure {SYSTEM_NAME} - Version {SYSTEM_VERSION}")
     
     # Security check - only owner can access
     if st.session_state.get("role") != "owner":
-        st.error("❌ Access Denied. Only system owner can access settings.")
+        st.error("Access Denied. Only system owner can access settings.")
         return
     
     # Load current settings
@@ -509,27 +509,27 @@ def settings_page():
     # TABS FOR DIFFERENT SETTINGS
     # ==============================
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "📖 User Manual",
-        "🏪 Store Settings",
-        "📧 Email Reports",
-        "💾 Backup & Restore",
-        "ℹ️ System Info",
-        "🧹 Data Management",
-        "🔧 Advanced"
+        "User Manual",
+        "Store Settings",
+        "Email Reports",
+        "Backup & Restore",
+        "System Info",
+        "Data Management",
+        "Advanced"
     ])
     
     # ==============================
     # TAB 1: USER MANUAL
     # ==============================
     with tab1:
-        st.markdown("## 📖 System User Manual")
+        st.markdown("## System User Manual")
         st.caption(f"Complete documentation for {SYSTEM_NAME}")
         
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("""
-            ### 📚 Manual Contents
+            ### Manual Contents
             
             - System Overview
             - Installation Guide
@@ -548,7 +548,7 @@ def settings_page():
             """)
             
             st.info("""
-            📌 **System Information:**
+            **System Information:**
             - Target Market: Zimbabwe Retail Businesses
             - Support Hours: Mon-Fri 7AM-8PM
             - Emergency: +263 78 290 5853
@@ -556,7 +556,7 @@ def settings_page():
         
         with col2:
             st.markdown("""
-            ### 📥 Download Options
+            ### Download Options
             
             Choose your preferred format:
             
@@ -567,38 +567,38 @@ def settings_page():
             current_date = datetime.now().strftime('%Y%m%d')
             
             st.download_button(
-                label="📄 Download TXT Manual",
+                label="Download TXT Manual",
                 data=manual_text,
                 file_name=f"SmartGro_Manual_{current_date}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
             
-            st.info("💡 Tip: The manual includes complete system documentation, installation guide, and troubleshooting tips.")
+            st.info("Tip: The manual includes complete system documentation, installation guide, and troubleshooting tips.")
         
         st.markdown("---")
         
         # Quick links
-        st.markdown("### 🔗 Quick Links")
+        st.markdown("### Quick Links")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.markdown("[📧 Email Setup](#email-reports)")
+            st.markdown("[Email Setup](#email-reports)")
         with col2:
-            st.markdown("[🔐 Login Guide](#login-access)")
+            st.markdown("[Login Guide](#login-access)")
         with col3:
-            st.markdown("[🛠️ Troubleshooting](#troubleshooting)")
+            st.markdown("[Troubleshooting](#troubleshooting)")
         with col4:
-            st.markdown("[📞 Support](#support-contact)")
+            st.markdown("[Support](#support-contact)")
         
         # Preview manual
-        with st.expander("📖 Preview Manual (Click to expand)"):
+        with st.expander("Preview Manual (Click to expand)"):
             st.text_area("Manual Preview", manual_text[:3000], height=400)
     
     # ==============================
     # TAB 2: STORE SETTINGS
     # ==============================
     with tab2:
-        st.markdown("## 🏪 Store Information")
+        st.markdown("## Store Information")
         st.caption("Configure your store details for receipts, invoices, and reports")
         
         col1, col2 = st.columns(2)
@@ -631,7 +631,7 @@ def settings_page():
                 sms_provider = st.selectbox("SMS Provider", ["africastalking", "twilio", "semaphore"],
                                            index=["africastalking", "twilio", "semaphore"].index(settings.get("sms_provider", "africastalking")))
         
-        if st.button("💾 Save Store Settings", type="primary", use_container_width=True):
+        if st.button("Save Store Settings", type="primary", use_container_width=True):
             settings["store_name"] = store_name
             settings["store_phone"] = store_phone
             settings["store_email"] = store_email
@@ -648,7 +648,7 @@ def settings_page():
                 settings["sms_provider"] = sms_provider
             
             if save_settings(settings):
-                st.success("✅ Store settings saved successfully!")
+                st.success("Store settings saved successfully!")
                 show_toast("Store settings updated!", "success")
                 st.rerun()
     
@@ -656,7 +656,7 @@ def settings_page():
     # TAB 3: EMAIL REPORTS
     # ==============================
     with tab3:
-        st.markdown("## 📧 Email Reports Configuration")
+        st.markdown("## Email Reports Configuration")
         st.caption("Configure email settings for automated reports")
         
         email_config = get_email_config()
@@ -668,19 +668,19 @@ def settings_page():
                 with st.spinner("Testing connection..."):
                     success, message = test_email_connection()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
-                        st.info("💡 For Gmail: You need to use an App Password. Go to Google Account → Security → App Passwords.")
+                        st.error(f"{message}")
+                        st.info("For Gmail: You need to use an App Password. Go to Google Account → Security → App Passwords.")
         
         with col2:
-            if st.button("📧 Send Test Email", use_container_width=True):
+            if st.button("Send Test Email", use_container_width=True):
                 with st.spinner("Sending test email..."):
                     success, message = send_test_email()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         st.markdown("---")
         
@@ -696,8 +696,8 @@ def settings_page():
         with col2:
             sender_password = st.text_input("App Password", type="password", value=email_config.get("sender_password", ""), 
                                             placeholder="16-character app password", key="email_password")
-            st.caption("🔑 **Gmail users:** Generate an App Password at myaccount.google.com/apppasswords")
-            st.caption("📧 **Other providers:** Use your regular password or SMTP password")
+            st.caption("**Gmail users:** Generate an App Password at myaccount.google.com/apppasswords")
+            st.caption("**Other providers:** Use your regular password or SMTP password")
         
         st.markdown("### Recipients")
         
@@ -712,20 +712,20 @@ def settings_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            enable_daily = st.checkbox("📊 Enable Daily Sales Report", value=email_config.get("enable_daily_report", False), key="email_enable_daily")
+            enable_daily = st.checkbox("Enable Daily Sales Report", value=email_config.get("enable_daily_report", False), key="email_enable_daily")
             if enable_daily:
                 st.info("Daily report will be sent at end of each day")
         
         with col2:
-            enable_weekly = st.checkbox("📈 Enable Weekly Sales Report", value=email_config.get("enable_weekly_report", False), key="email_enable_weekly")
+            enable_weekly = st.checkbox("Enable Weekly Sales Report", value=email_config.get("enable_weekly_report", False), key="email_enable_weekly")
             if enable_weekly:
                 st.info("Weekly report will be sent every Sunday")
         
-        enable_low_stock = st.checkbox("⚠️ Enable Low Stock Alerts", value=email_config.get("enable_low_stock_alert", False), key="email_enable_low_stock")
+        enable_low_stock = st.checkbox("Enable Low Stock Alerts", value=email_config.get("enable_low_stock_alert", False), key="email_enable_low_stock")
         if enable_low_stock:
             st.info("Low stock alerts sent when inventory falls below reorder levels")
         
-        if st.button("💾 Save Email Settings", type="primary", use_container_width=True):
+        if st.button("Save Email Settings", type="primary", use_container_width=True):
             recipients = [r.strip() for r in recipients_text.split("\n") if r.strip()]
             
             new_config = {
@@ -739,9 +739,9 @@ def settings_page():
                 "enable_low_stock_alert": enable_low_stock
             }
             if save_email_config(new_config):
-                st.success("✅ Email settings saved successfully!")
+                st.success("Email settings saved successfully!")
             else:
-                st.error("❌ Failed to save email settings")
+                st.error("Failed to save email settings")
         
         st.markdown("---")
         
@@ -751,35 +751,35 @@ def settings_page():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("📧 Send Daily Report Now", use_container_width=True):
+            if st.button("Send Daily Report Now", use_container_width=True):
                 with st.spinner("Sending daily report..."):
                     success, message = send_daily_report()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         with col2:
-            if st.button("📊 Send Weekly Report Now", use_container_width=True):
+            if st.button("Send Weekly Report Now", use_container_width=True):
                 with st.spinner("Sending weekly report..."):
                     success, message = send_weekly_report()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         with col3:
-            if st.button("⚠️ Send Low Stock Alert", use_container_width=True):
+            if st.button("Send Low Stock Alert", use_container_width=True):
                 with st.spinner("Checking stock and sending..."):
                     success, message = send_low_stock_alert()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         st.markdown("---")
         
-        with st.expander("🔧 Why aren't emails sending? Click for help"):
+        with st.expander("Why aren't emails sending? Click for help"):
             st.markdown("""
             **Common Issues and Solutions:**
             
@@ -808,23 +808,23 @@ def settings_page():
     # TAB 4: BACKUP & RESTORE
     # ==============================
     with tab4:
-        st.markdown("## 💾 Backup & Restore")
+        st.markdown("## Backup & Restore")
         st.caption("Protect your data with automatic and manual backups")
         
-        st.warning("⚠️ Regular backups are recommended to prevent data loss")
+        st.warning("Regular backups are recommended to prevent data loss")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 📦 Manual Backup")
-            if st.button("📦 Create Backup Now", use_container_width=True):
+            st.markdown("### Manual Backup")
+            if st.button("Create Backup Now", use_container_width=True):
                 with st.spinner("Creating backup..."):
                     backup_file = create_backup()
-                    st.success(f"✅ Backup created successfully!")
+                    st.success(f"Backup created successfully!")
                     
                     with open(backup_file, "rb") as f:
                         st.download_button(
-                            label="📥 Download Backup",
+                            label="Download Backup",
                             data=f,
                             file_name=backup_file.name,
                             mime="application/zip",
@@ -833,12 +833,12 @@ def settings_page():
                     st.session_state.settings_backup_created = True
         
         with col2:
-            st.markdown("### 🔄 Restore Backup")
+            st.markdown("### Restore Backup")
             uploaded_file = st.file_uploader("Restore from Backup", type=["zip"])
             if uploaded_file is not None:
-                st.warning("⚠️ Restoring will overwrite current data!")
+                st.warning("Restoring will overwrite current data!")
                 confirm = st.checkbox("I understand this will replace all current data")
-                if confirm and st.button("🔄 Restore Backup", use_container_width=True):
+                if confirm and st.button("Restore Backup", use_container_width=True):
                     with st.spinner("Restoring backup..."):
                         temp_zip = Path("temp_restore.zip")
                         with open(temp_zip, "wb") as f:
@@ -847,11 +847,11 @@ def settings_page():
                         restore_backup(temp_zip)
                         temp_zip.unlink()
                         
-                        st.success("✅ Backup restored successfully! Please restart the application.")
+                        st.success("Backup restored successfully! Please restart the application.")
         
         st.markdown("---")
         
-        st.markdown("### ⏰ Auto Backup Settings")
+        st.markdown("### Auto Backup Settings")
         
         col1, col2 = st.columns(2)
         
@@ -866,10 +866,10 @@ def settings_page():
                                             value=settings.get("data_retention_days", 90))
         
         if auto_backup:
-            st.info(f"📌 Auto backup will run {backup_frequency} and keep {data_retention} days of data")
+            st.info(f"Auto backup will run {backup_frequency} and keep {data_retention} days of data")
         
         # List existing backups
-        st.markdown("### 📋 Existing Backups")
+        st.markdown("### Existing Backups")
         
         backup_dir = Path("backups")
         if backup_dir.exists():
@@ -893,13 +893,13 @@ def settings_page():
     # TAB 5: SYSTEM INFO
     # ==============================
     with tab5:
-        st.markdown("## ℹ️ System Information")
+        st.markdown("## System Information")
         st.caption(f"Details about {SYSTEM_NAME}")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 📊 System Details")
+            st.markdown("### System Details")
             st.write(f"**System Name:** {SYSTEM_NAME}")
             st.write(f"**Version:** {SYSTEM_VERSION}")
             st.write(f"**Founder:** {FOUNDER}")
@@ -910,7 +910,7 @@ def settings_page():
             st.write(f"**OS:** {platform.system()} {platform.release()}")
         
         with col2:
-            st.markdown("### 📈 Database Stats")
+            st.markdown("### Database Stats")
             
             try:
                 products = load_products()
@@ -940,7 +940,7 @@ def settings_page():
         
         st.markdown("---")
         
-        st.markdown("### 👨‍💻 Developer Information")
+        st.markdown("### Developer Information")
         st.markdown(f"""
         | Detail | Information |
         |--------|-------------|
@@ -954,7 +954,7 @@ def settings_page():
         
         st.markdown("---")
         
-        st.markdown("### 📜 License Information")
+        st.markdown("### License Information")
         st.markdown("""
         **SmartGro ERP System**  
         Copyright © 2026 Aziel Investments  
@@ -968,7 +968,7 @@ def settings_page():
         
         st.markdown("---")
         
-        st.markdown("### 🚀 Technology Stack")
+        st.markdown("### Technology Stack")
         st.markdown("""
         | Component | Technology |
         |-----------|------------|
@@ -984,27 +984,27 @@ def settings_page():
         """)
         
         # Clear cache button
-        if st.button("🗑️ Clear System Cache", use_container_width=True):
+        if st.button("Clear System Cache", use_container_width=True):
             st.cache_data.clear()
-            st.success("✅ Cache cleared! Refresh the page.")
+            st.success("Cache cleared! Refresh the page.")
     
     # ==============================
     # TAB 6: DATA MANAGEMENT
     # ==============================
     with tab6:
-        st.markdown("## 🧹 Data Management")
+        st.markdown("## Data Management")
         st.caption("Clean up old data and manage system storage")
         
-        st.warning("⚠️ These actions can permanently delete data. Use with caution.")
+        st.warning("These actions can permanently delete data. Use with caution.")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 🗑️ Clear Old Sales Data")
+            st.markdown("### Clear Old Sales Data")
             days_to_keep = st.number_input("Keep data from last (days)", min_value=30, max_value=365, value=settings.get("data_retention_days", 90))
             
-            if st.button("🗑️ Clear Old Sales", use_container_width=True):
-                confirm = st.checkbox("⚠️ I understand this will delete old sales records permanently")
+            if st.button("Clear Old Sales", use_container_width=True):
+                confirm = st.checkbox("I understand this will delete old sales records permanently")
                 if confirm:
                     sales_df = load_sales()
                     if not sales_df.empty and "date" in sales_df.columns:
@@ -1012,12 +1012,12 @@ def settings_page():
                         cutoff = datetime.now() - timedelta(days=days_to_keep)
                         filtered_df = sales_df[sales_df["date"] >= cutoff]
                         save_sales(filtered_df)
-                        st.success(f"✅ Removed records older than {days_to_keep} days. {len(filtered_df)} records remaining.")
+                        st.success(f"Removed records older than {days_to_keep} days. {len(filtered_df)} records remaining.")
         
         with col2:
-            st.markdown("### 📥 Export All Data")
+            st.markdown("### Export All Data")
             
-            if st.button("📥 Export All Data (CSV)", use_container_width=True):
+            if st.button("Export All Data (CSV)", use_container_width=True):
                 import zipfile
                 from io import BytesIO
                 
@@ -1043,7 +1043,7 @@ def settings_page():
                 
                 zip_buffer.seek(0)
                 st.download_button(
-                    label="📥 Download All Data (ZIP)",
+                    label="Download All Data (ZIP)",
                     data=zip_buffer,
                     file_name=f"all_data_export_{datetime.now().strftime('%Y%m%d')}.zip",
                     mime="application/zip",
@@ -1053,26 +1053,26 @@ def settings_page():
         
         st.markdown("---")
         
-        st.markdown("### 🧹 Clear Cache Files")
-        if st.button("🧹 Clear All Cache Files", use_container_width=True):
+        st.markdown("### Clear Cache Files")
+        if st.button("Clear All Cache Files", use_container_width=True):
             import shutil
             cache_dir = Path("__pycache__")
             if cache_dir.exists():
                 shutil.rmtree(cache_dir)
-                st.success("✅ Cache files cleared!")
+                st.success("Cache files cleared!")
             else:
                 st.info("No cache files found.")
         
         st.markdown("---")
         
-        st.markdown("### 🔄 Reset System")
-        st.error("⚠️ This will delete ALL data and reset the system to factory defaults!")
+        st.markdown("### Reset System")
+        st.error("This will delete ALL data and reset the system to factory defaults!")
         
         confirm_reset = st.checkbox("I understand this will delete ALL data. This action CANNOT be undone.")
         reset_password = st.text_input("Type 'RESET' to confirm", type="password")
         
         if confirm_reset and reset_password == "RESET":
-            if st.button("🔥 RESET SYSTEM", use_container_width=True):
+            if st.button("RESET SYSTEM", use_container_width=True):
                 # Backup before reset
                 backup_file = create_backup()
                 st.info(f"Backup created at: {backup_file}")
@@ -1093,17 +1093,17 @@ def settings_page():
                 
                 init_data_folder()
                 
-                st.success("✅ System reset to factory defaults! Please restart the application.")
+                st.success("System reset to factory defaults! Please restart the application.")
                 st.warning("Your backup file has been saved. You can restore it from Backup & Restore tab.")
     
     # ==============================
     # TAB 7: ADVANCED
     # ==============================
     with tab7:
-        st.markdown("## 🔧 Advanced Settings")
+        st.markdown("## Advanced Settings")
         st.caption("Configure advanced system features")
         
-        st.markdown("### 🤖 AI & Intelligence")
+        st.markdown("### AI & Intelligence")
         
         col1, col2 = st.columns(2)
         
@@ -1117,7 +1117,7 @@ def settings_page():
             if enable_voice:
                 st.info("Voice commands allow hands-free operation of the system")
         
-        st.markdown("### 🏪 Branch Management")
+        st.markdown("### Branch Management")
         
         col1, col2 = st.columns(2)
         
@@ -1130,7 +1130,7 @@ def settings_page():
             if branch_auto_sync:
                 st.info("Products will be automatically synced to all branches")
         
-        st.markdown("### 🔒 Security")
+        st.markdown("### Security")
         
         col1, col2 = st.columns(2)
         
@@ -1142,7 +1142,7 @@ def settings_page():
             max_login_attempts = st.number_input("Max Login Attempts", min_value=3, max_value=10, 
                                                 value=settings.get("max_login_attempts", 5))
         
-        st.markdown("### 📱 Integration Settings")
+        st.markdown("### Integration Settings")
         
         col1, col2 = st.columns(2)
         
@@ -1150,7 +1150,7 @@ def settings_page():
             enable_api = st.checkbox("Enable API Access", value=settings.get("enable_api", False))
             if enable_api:
                 api_key = st.text_input("API Key", value=settings.get("api_key", ""), type="password")
-                st.info("⚠️ API access allows external applications to connect")
+                st.info("API access allows external applications to connect")
         
         with col2:
             enable_webhooks = st.checkbox("Enable Webhooks", value=settings.get("enable_webhooks", False))
@@ -1158,7 +1158,7 @@ def settings_page():
                 webhook_url = st.text_input("Webhook URL", value=settings.get("webhook_url", ""))
                 st.info("Webhooks send real-time data to external services")
         
-        if st.button("💾 Save Advanced Settings", type="primary", use_container_width=True):
+        if st.button("Save Advanced Settings", type="primary", use_container_width=True):
             settings.update({
                 "enable_ai_advisor": enable_ai_advisor,
                 "enable_voice": enable_voice,
@@ -1172,11 +1172,11 @@ def settings_page():
                 "webhook_url": webhook_url if enable_webhooks else ""
             })
             save_settings(settings)
-            st.success("✅ Advanced settings saved successfully!")
+            st.success("Advanced settings saved successfully!")
             st.rerun()
         
         st.markdown("---")
-        st.markdown("### ⚙️ System Performance")
+        st.markdown("### System Performance")
         
         st.info("""
         **Performance Tips:**
@@ -1214,18 +1214,18 @@ def settings_page():
                 
                 if issues:
                     for issue in issues:
-                        st.error(f"❌ {issue}")
+                        st.error(f"{issue}")
                 if warnings:
                     for warning in warnings:
-                        st.warning(f"⚠️ {warning}")
+                        st.warning(f"{warning}")
                 if not issues and not warnings:
-                    st.success("✅ All systems healthy!")
+                    st.success("All systems healthy!")
     
     # ==============================
     # REFRESH BUTTON
     # ==============================
     st.markdown("---")
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.session_state.settings_force_refresh = True
         st.rerun()

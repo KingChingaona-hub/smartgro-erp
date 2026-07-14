@@ -26,7 +26,7 @@ operations.
 │  Founder & Lead Developer:  King T Chingaona , Walker Takaendesa                               │
 │  System Name:               SmartGro ERP System                              │
 │  Version:                   3.0 (Zimbabwe Edition)                           │
-│  Release Date:              June 2024                                        │
+│  Release Date:              June 2026                                       │
 │  Target Market:             Zimbabwe Retail Businesses                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -87,12 +87,12 @@ Navigate to the SmartGro_System folder and run:
 
 Step 5: Access the System
 • Open your web browser
-• Go to: http://localhost:8501
+• Go to: https://smartgro.streamlit.app/
 • Login using the provided credentials
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-                    LOGIN & ACCESS
+                    LOGIN & ACCESS (Samples)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Branch Selection:
@@ -402,8 +402,8 @@ Retreat Park, Harare
 Zimbabwe
 
 Support Hours:
-Monday - Friday: 8:00 AM - 5:00 PM
-Saturday: 9:00 AM - 1:00 PM
+Monday - Friday: 7:00 AM - 8:00 PM
+Saturday: 7:00 AM - 5:00 PM
 Sunday: Closed
 
 Emergency Support: +263 78 290 5853
@@ -414,7 +414,7 @@ Emergency Support: +263 78 290 5853
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SmartGro ERP System
-Copyright © 2024 Aziel Investments
+Copyright © 2026 Aziel Investments
 
 All rights reserved. This software is proprietary and confidential.
 Unauthorized copying, distribution, or modification is strictly prohibited.
@@ -424,7 +424,7 @@ branches only. The software may not be resold, sublicensed, or used for
 commercial purposes without explicit written permission.
 
 For licensing inquiries, please contact:
-aziel@investments.co.zw
+aziel@investments.co.zw / 0782905853
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -463,32 +463,32 @@ Developed with ❤️ by King T Chingaona & Walker Takaendesa
 def display_manual_page():
     """Display the manual in the app"""
     
-    st.title("📖 SmartGro System User Manual")
+    st.title("SmartGro System User Manual")
     st.caption("Complete documentation for the SmartGro ERP System")
     
     st.info("""
-    📚 **User Manual**
+    **User Manual**
     
     This comprehensive manual covers all aspects of the SmartGro ERP System.
     You can read it online or download a PDF version for offline use.
     """)
     
     # Display manual content in an expander
-    with st.expander("📖 Read Full Manual Online", expanded=False):
+    with st.expander("Read Full Manual Online", expanded=False):
         manual_text = get_system_manual()
         st.text_area("System Manual", manual_text, height=600, key="manual_display")
     
     st.markdown("---")
     
     # Download section
-    st.subheader("📥 Download Manual")
+    st.subheader("Download Manual")
     st.write("Click the button below to download the complete user manual.")
     
     manual_text = get_system_manual()
     
     # Create downloadable file
     st.download_button(
-        label="📄 Download User Manual (TXT)",
+        label="Download User Manual (TXT)",
         data=manual_text,
         file_name=f"SmartGro_User_Manual_{datetime.now().strftime('%Y%m%d')}.txt",
         mime="text/plain",
@@ -533,7 +533,7 @@ def display_manual_page():
         
         pdf_buffer = create_pdf_manual()
         st.download_button(
-            label="📕 Download User Manual (PDF)",
+            label="Download User Manual (PDF)",
             data=pdf_buffer,
             file_name=f"SmartGro_User_Manual_{datetime.now().strftime('%Y%m%d')}.pdf",
             mime="application/pdf",

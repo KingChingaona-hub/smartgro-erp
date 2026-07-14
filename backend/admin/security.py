@@ -634,32 +634,32 @@ def load_security_settings():
 def security_dashboard():
     """Security management dashboard for admins"""
     
-    st.title("🔒 Advanced Security Dashboard")
+    st.title("Advanced Security Dashboard")
     st.caption("Manage security settings, audit logs, and user sessions")
     
     role = st.session_state.get("role", "cashier")
     
     # Only owner and managers can access security settings
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access security settings.")
+        st.error("Access Denied. Only owners and managers can access security settings.")
         return
     
     # ==============================
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📋 Audit Log",
-        "🔐 Two-Factor Authentication",
-        "🖥️ Active Sessions",
-        "🌐 IP Whitelist",
-        "⚙️ Security Settings"
+        "Audit Log",
+        "Two-Factor Authentication",
+        "Active Sessions",
+        "IP Whitelist",
+        "Security Settings"
     ])
     
     # ==============================
     # TAB 1: AUDIT LOG
     # ==============================
     with tab1:
-        st.markdown("## 📋 System Audit Log")
+        st.markdown("## System Audit Log")
         st.caption("Track all user activities and system events")
         
         col1, col2, col3 = st.columns(3)
@@ -687,7 +687,7 @@ def security_dashboard():
             )
             
             # Summary stats
-            st.markdown("### 📊 Activity Summary")
+            st.markdown("### Activity Summary")
             summary = get_user_activity_summary(user_filter if user_filter else None, days)
             
             col1, col2, col3, col4 = st.columns(4)
@@ -703,7 +703,7 @@ def security_dashboard():
             # Export
             csv = audit_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Export Audit Log (CSV)",
+                label="Export Audit Log (CSV)",
                 data=csv,
                 file_name=f"audit_log_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
@@ -715,7 +715,7 @@ def security_dashboard():
     # TAB 2: TWO-FACTOR AUTHENTICATION
     # ==============================
     with tab2:
-        st.markdown("## 🔐 Two-Factor Authentication (2FA)")
+        st.markdown("## Two-Factor Authentication (2FA)")
         st.caption("Add an extra layer of security to user accounts")
         
         try:
@@ -739,19 +739,19 @@ def security_dashboard():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.markdown(f"**Current Status:** {'✅ ENABLED' if current_2fa else '❌ DISABLED'}")
+                    st.markdown(f"**Current Status:** {'ENABLED' if current_2fa else 'DISABLED'}")
                     if current_phone:
                         st.markdown(f"**2FA Phone:** {current_phone}")
                 
                 with col2:
                     if not current_2fa:
                         phone = st.text_input("Phone Number for 2FA", placeholder="0777123456")
-                        if st.button("🔐 Enable 2FA", use_container_width=True):
+                        if st.button("Enable 2FA", use_container_width=True):
                             if phone:
                                 valid, standardized, msg = validate_zimbabwe_phone(phone)
                                 if valid:
                                     if enable_2fa(selected_user, standardized):
-                                        st.success(f"✅ 2FA enabled for {selected_user}")
+                                        st.success(f"2FA enabled for {selected_user}")
                                         st.rerun()
                                     else:
                                         st.error("Failed to enable 2FA")
@@ -760,9 +760,9 @@ def security_dashboard():
                             else:
                                 st.error("Please enter phone number")
                     else:
-                        if st.button("🔓 Disable 2FA", use_container_width=True):
+                        if st.button("Disable 2FA", use_container_width=True):
                             if disable_2fa(selected_user):
-                                st.success(f"✅ 2FA disabled for {selected_user}")
+                                st.success(f"2FA disabled for {selected_user}")
                                 st.rerun()
                             else:
                                 st.error("Failed to disable 2FA")
@@ -770,9 +770,9 @@ def security_dashboard():
                 # Test 2FA
                 if current_2fa and current_phone:
                     st.markdown("---")
-                    st.markdown("### 📱 Test 2FA")
+                    st.markdown("### Test 2FA")
                     
-                    if st.button("📧 Send Test Code", use_container_width=True):
+                    if st.button("Send Test Code", use_container_width=True):
                         whatsapp_link = create_2fa_code(selected_user, current_phone)
                         if whatsapp_link:
                             st.markdown(f'<a href="{whatsapp_link}" target="_blank"><button style="background:#25D366;color:white;border:none;border-radius:30px;padding:10px;width:100%;">📱 Send Test Code via WhatsApp</button></a>', unsafe_allow_html=True)
@@ -781,9 +781,9 @@ def security_dashboard():
                             if st.button("Verify Test Code"):
                                 success, message = verify_2fa_code(selected_user, test_code)
                                 if success:
-                                    st.success("✅ Test successful! 2FA is working correctly.")
+                                    st.success("Test successful! 2FA is working correctly.")
                                 else:
-                                    st.error(f"❌ {message}")
+                                    st.error(f"{message}")
         else:
             st.info("No users found")
     
@@ -791,7 +791,7 @@ def security_dashboard():
     # TAB 3: ACTIVE SESSIONS
     # ==============================
     with tab3:
-        st.markdown("## 🖥️ Active User Sessions")
+        st.markdown("## Active User Sessions")
         st.caption("Monitor and manage active user sessions")
         
         sessions_df = get_active_sessions()
@@ -811,12 +811,12 @@ def security_dashboard():
             )
             
             # Revoke all sessions for a user
-            st.markdown("### 🔒 Revoke Sessions")
+            st.markdown("### Revoke Sessions")
             users_with_sessions = sessions_df["user"].unique().tolist()
             if users_with_sessions:
                 selected_revoke_user = st.selectbox("Select User", users_with_sessions)
                 
-                if st.button("🚫 Revoke All Sessions for User", use_container_width=True):
+                if st.button("Revoke All Sessions for User", use_container_width=True):
                     revoke_all_sessions(selected_revoke_user)
                     st.success(f"All sessions revoked for {selected_revoke_user}")
                     st.rerun()
@@ -827,11 +827,11 @@ def security_dashboard():
     # TAB 4: IP WHITELIST
     # ==============================
     with tab4:
-        st.markdown("## 🌐 IP Whitelist")
+        st.markdown("## IP Whitelist")
         st.caption("Restrict access to specific IP addresses")
         
         # Add new IP
-        st.markdown("### ➕ Add IP to Whitelist")
+        st.markdown("### Add IP to Whitelist")
         
         col1, col2 = st.columns(2)
         
@@ -841,7 +841,7 @@ def security_dashboard():
         with col2:
             ip_description = st.text_input("Description", placeholder="Head Office Network")
         
-        if st.button("➕ Add IP", use_container_width=True):
+        if st.button("Add IP", use_container_width=True):
             if new_ip:
                 success, message = add_ip_to_whitelist(new_ip, ip_description, st.session_state.get("username", "admin"))
                 if success:
@@ -853,7 +853,7 @@ def security_dashboard():
                 st.error("Please enter IP address")
         
         # List whitelisted IPs
-        st.markdown("### 📋 Whitelisted IPs")
+        st.markdown("### Whitelisted IPs")
         
         whitelist_df = get_whitelisted_ips()
         
@@ -862,7 +862,7 @@ def security_dashboard():
             
             # Remove IP
             ip_to_remove = st.selectbox("Select IP to Remove", whitelist_df["ip_address"].tolist())
-            if st.button("🗑️ Remove IP", use_container_width=True):
+            if st.button("Remove IP", use_container_width=True):
                 remove_ip_from_whitelist(ip_to_remove, st.session_state.get("username", "admin"))
                 st.success(f"IP {ip_to_remove} removed from whitelist")
                 st.rerun()
@@ -873,20 +873,20 @@ def security_dashboard():
     # TAB 5: SECURITY SETTINGS
     # ==============================
     with tab5:
-        st.markdown("## ⚙️ Security Settings")
+        st.markdown("## Security Settings")
         st.caption("Configure system-wide security policies")
         
         # Load current settings
         settings = load_security_settings()
         
         # Session timeout settings
-        st.markdown("### ⏱️ Session Management")
+        st.markdown("### ⏱Session Management")
         
         session_timeout = st.slider("Session Timeout (minutes)", 5, 120, settings.get("session_timeout", 30), 
                                    help="User will be logged out after inactivity")
         
         # Password policy
-        st.markdown("### 🔑 Password Policy")
+        st.markdown("### Password Policy")
         
         min_password_length = st.number_input("Minimum Password Length", min_value=4, max_value=20, 
                                              value=settings.get("min_password_length", 6))
@@ -896,14 +896,14 @@ def security_dashboard():
                                      value=settings.get("require_numbers", False))
         
         # Login attempts
-        st.markdown("### 🔒 Login Security")
+        st.markdown("### Login Security")
         
         max_login_attempts = st.number_input("Max Login Attempts before lockout", min_value=3, max_value=10, 
                                             value=settings.get("max_login_attempts", 5))
         lockout_duration = st.number_input("Lockout Duration (minutes)", min_value=5, max_value=120, 
                                           value=settings.get("lockout_duration", 30))
         
-        if st.button("💾 Save Security Settings", type="primary", use_container_width=True):
+        if st.button("Save Security Settings", type="primary", use_container_width=True):
             new_settings = {
                 "session_timeout": session_timeout,
                 "min_password_length": min_password_length,
@@ -920,15 +920,15 @@ def security_dashboard():
                     json.dump(new_settings, f, indent=2)
                 
                 log_audit(st.session_state.get("username", "system"), "SECURITY_SETTINGS_UPDATED", "Security settings updated")
-                st.success("✅ Security settings saved successfully!")
+                st.success("Security settings saved successfully!")
             except Exception as e:
                 st.error(f"Error saving settings: {e}")
         
         # Clear audit log button
         st.markdown("---")
-        st.markdown("### 🗑️ Data Management")
+        st.markdown("### Data Management")
         
-        if st.button("🗑️ Clear Old Audit Logs (30+ days)", use_container_width=True):
+        if st.button("Clear Old Audit Logs (30+ days)", use_container_width=True):
             try:
                 cutoff = datetime.now() - timedelta(days=30)
                 df = pd.read_csv(AUDIT_LOG_FILE)
@@ -948,7 +948,7 @@ def security_dashboard():
 def two_factor_login_step(username, phone):
     """Handle 2FA step during login"""
     
-    st.markdown("### 🔐 Two-Factor Authentication")
+    st.markdown("### Two-Factor Authentication")
     st.caption(f"Verification code sent to {phone}")
     
     # Send code
@@ -957,7 +957,7 @@ def two_factor_login_step(username, phone):
     if whatsapp_link:
         st.markdown(f'<a href="{whatsapp_link}" target="_blank"><button style="background:#25D366;color:white;border:none;border-radius:30px;padding:10px;width:100%;">📱 Send Code via WhatsApp</button></a>', unsafe_allow_html=True)
     
-    if st.button("🔄 Resend Code", use_container_width=True):
+    if st.button("Resend Code", use_container_width=True):
         whatsapp_link = create_2fa_code(username, phone)
         if whatsapp_link:
             st.success("New code sent!")
@@ -966,7 +966,7 @@ def two_factor_login_step(username, phone):
     
     verification_code = st.text_input("Enter 6-digit verification code", type="password")
     
-    if st.button("✅ Verify & Login", type="primary", use_container_width=True):
+    if st.button("Verify & Login", type="primary", use_container_width=True):
         success, message = verify_2fa_code(username, verification_code)
         if success:
             return True, "Verified"

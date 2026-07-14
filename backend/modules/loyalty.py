@@ -64,13 +64,13 @@ def load_redemptions():
 def get_tier(total_spent):
     """Determine customer tier based on total spending"""
     if total_spent >= 5000:
-        return "👑 PLATINUM"
+        return "PLATINUM"
     elif total_spent >= 2000:
-        return "🥇 GOLD"
+        return "GOLD"
     elif total_spent >= 500:
-        return "🥈 SILVER"
+        return "SILVER"
     else:
-        return "🥉 BRONZE"
+        return "BRONZE"
 
 
 # ==============================
@@ -79,32 +79,32 @@ def get_tier(total_spent):
 def get_tier_benefits(tier):
     """Return benefits for each tier"""
     benefits = {
-        "🥉 BRONZE": {
+        "BRONZE": {
             "points_multiplier": 1,
             "discount": 0,
             "birthday_bonus": 50,
             "free_delivery": False
         },
-        "🥈 SILVER": {
+        "SILVER": {
             "points_multiplier": 1.2,
             "discount": 5,
             "birthday_bonus": 100,
             "free_delivery": False
         },
-        "🥇 GOLD": {
+        "GOLD": {
             "points_multiplier": 1.5,
             "discount": 10,
             "birthday_bonus": 200,
             "free_delivery": True
         },
-        "👑 PLATINUM": {
+        "PLATINUM": {
             "points_multiplier": 2,
             "discount": 15,
             "birthday_bonus": 500,
             "free_delivery": True
         }
     }
-    return benefits.get(tier, benefits["🥉 BRONZE"])
+    return benefits.get(tier, benefits["BRONZE"])
 
 
 # ==============================

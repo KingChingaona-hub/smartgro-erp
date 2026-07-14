@@ -539,7 +539,7 @@ def identify_slow_movers(products_df, sales_df, days_threshold=90):
 def demand_forecasting_dashboard():
     """Main demand forecasting dashboard - FIXED"""
     
-    st.title("🤖 AI-Powered Demand Forecasting")
+    st.title("AI-Powered Demand Forecasting")
     st.caption("Predict sales, identify trends, and optimize inventory with machine learning")
     
     # Load data
@@ -564,18 +564,18 @@ def demand_forecasting_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📈 Sales Forecast",
-        "📊 Product Analytics",
-        "🔄 Product Recommendations",
-        "🐌 Slow Movers",
-        "📋 EOQ Calculator"
+        "Sales Forecast",
+        "Product Analytics",
+        "Product Recommendations",
+        "Slow Movers",
+        "EOQ Calculator"
     ])
     
     # ==============================
     # TAB 1: SALES FORECAST
     # ==============================
     with tab1:
-        st.markdown("## 📈 30-Day Sales Forecast")
+        st.markdown("## 30-Day Sales Forecast")
         
         col1, col2 = st.columns(2)
         
@@ -586,7 +586,7 @@ def demand_forecasting_dashboard():
             forecast_days = st.slider("Forecast Days", 7, 90, 30, key="forecast_days")
             model_type = st.selectbox("Forecast Model", ["Linear Regression", "Random Forest"], key="model_type")
         
-        if st.button("🔮 Generate Forecast", type="primary", use_container_width=True):
+        if st.button("Generate Forecast", type="primary", use_container_width=True):
             with st.spinner("Training AI model and generating forecast..."):
                 daily_sales = prepare_sales_data(sales_df, selected_product)
                 
@@ -603,13 +603,13 @@ def demand_forecasting_dashboard():
                         # Display metrics
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
-                            st.metric("📊 Total Forecast", f"${forecast_result['total_forecast']:,.2f}")
+                            st.metric("Total Forecast", f"${forecast_result['total_forecast']:,.2f}")
                         with col2:
-                            st.metric("📈 Avg Daily", f"${forecast_result['avg_daily']:.2f}")
+                            st.metric("Avg Daily", f"${forecast_result['avg_daily']:.2f}")
                         with col3:
-                            st.metric("🎯 Trend", forecast_result['trend'].capitalize())
+                            st.metric("Trend", forecast_result['trend'].capitalize())
                         with col4:
-                            st.metric("📐 Confidence", f"±${forecast_result['confidence_interval']:.2f}")
+                            st.metric("Confidence", f"±${forecast_result['confidence_interval']:.2f}")
                         
                         st.markdown("---")
                         
@@ -672,7 +672,7 @@ def demand_forecasting_dashboard():
                         st.plotly_chart(fig, use_container_width=True)
                         
                         # Model metrics
-                        with st.expander("📊 Model Performance Metrics"):
+                        with st.expander("Model Performance Metrics"):
                             col1, col2 = st.columns(2)
                             with col1:
                                 st.metric("Mean Absolute Error (MAE)", f"${forecast_result['mae']:.2f}")
@@ -687,7 +687,7 @@ def demand_forecasting_dashboard():
                         # Download forecast
                         csv = forecast_df.to_csv(index=False).encode('utf-8')
                         st.download_button(
-                            label="📥 Download Forecast (CSV)",
+                            label="Download Forecast (CSV)",
                             data=csv,
                             file_name=f"forecast_{selected_product}_{datetime.now().strftime('%Y%m%d')}.csv",
                             mime="text/csv"
@@ -699,7 +699,7 @@ def demand_forecasting_dashboard():
     # TAB 2: PRODUCT ANALYTICS
     # ==============================
     with tab2:
-        st.markdown("## 📊 Product Demand Analytics")
+        st.markdown("## Product Demand Analytics")
         
         if not products_df.empty and product_col_products:
             selected_product = st.selectbox("Select Product for Analysis", products_df[product_col_products].tolist(), key="analytics_product")
@@ -710,20 +710,20 @@ def demand_forecasting_dashboard():
                 if metrics:
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("📦 Total Sold", metrics['total_sold'])
+                        st.metric("Total Sold", metrics['total_sold'])
                     with col2:
-                        st.metric("📈 Sales/Day", f"{metrics['sales_per_day']:.1f}")
+                        st.metric("Sales/Day", f"{metrics['sales_per_day']:.1f}")
                     with col3:
-                        st.metric("📊 Classification", metrics['classification'])
+                        st.metric("Classification", metrics['classification'])
                     with col4:
-                        st.metric("💰 Margin", f"{metrics['margin_percent']:.1f}%")
+                        st.metric("Margin", f"{metrics['margin_percent']:.1f}%")
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("🏷️ Current Stock", metrics['current_stock'])
+                        st.metric("Current Stock", metrics['current_stock'])
                     with col2:
                         days_color = "inverse" if metrics['days_of_stock'] < 7 else "normal"
-                        st.metric("📅 Days of Stock", f"{metrics['days_of_stock']:.0f}", delta_color=days_color)
+                        st.metric("Days of Stock", f"{metrics['days_of_stock']:.0f}", delta_color=days_color)
                     with col3:
                         growth_icon = "📈" if metrics['growth_rate'] > 0 else "📉"
                         st.metric(f"{growth_icon} Growth Rate", f"{metrics['growth_rate']:.1f}%")
@@ -732,7 +732,7 @@ def demand_forecasting_dashboard():
                     
                     # Monthly pattern visualization
                     if metrics['monthly_pattern']:
-                        st.markdown("### 📅 Seasonal Pattern")
+                        st.markdown("### Seasonal Pattern")
                         months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
                         pattern_data = []
                         for month, sales in metrics['monthly_pattern'].items():
@@ -753,13 +753,13 @@ def demand_forecasting_dashboard():
                             st.plotly_chart(fig, use_container_width=True)
                     
                     # Reorder recommendation
-                    st.markdown("### 💡 Reorder Recommendation")
+                    st.markdown("### Reorder Recommendation")
                     if metrics['days_of_stock'] < 7:
-                        st.error(f"⚠️ CRITICAL: Only {metrics['days_of_stock']:.0f} days of stock remaining! Order immediately.")
+                        st.error(f"CRITICAL: Only {metrics['days_of_stock']:.0f} days of stock remaining! Order immediately.")
                     elif metrics['days_of_stock'] < 14:
-                        st.warning(f"⚠️ Low stock: {metrics['days_of_stock']:.0f} days remaining. Place order soon.")
+                        st.warning(f"Low stock: {metrics['days_of_stock']:.0f} days remaining. Place order soon.")
                     else:
-                        st.success(f"✅ Stock healthy: {metrics['days_of_stock']:.0f} days of inventory.")
+                        st.success(f"Stock healthy: {metrics['days_of_stock']:.0f} days of inventory.")
                 else:
                     st.info("Not enough data for this product")
         else:
@@ -769,7 +769,7 @@ def demand_forecasting_dashboard():
     # TAB 3: PRODUCT RECOMMENDATIONS
     # ==============================
     with tab3:
-        st.markdown("## 🔄 Frequently Bought Together")
+        st.markdown("## Frequently Bought Together")
         st.caption("\"Customers who bought X also bought Y\" recommendations")
         
         recommendations_df = get_recommendations(sales_df, products_df)
@@ -796,7 +796,7 @@ def demand_forecasting_dashboard():
     # TAB 4: SLOW MOVERS
     # ==============================
     with tab4:
-        st.markdown("## 🐌 Slow-Moving Products")
+        st.markdown("## Slow-Moving Products")
         st.caption("Products that need attention")
         
         days_threshold = st.slider("Days without sale to classify as slow mover", 30, 180, 90)
@@ -804,23 +804,23 @@ def demand_forecasting_dashboard():
         slow_movers_df = identify_slow_movers(products_df, sales_df, days_threshold)
         
         if not slow_movers_df.empty:
-            st.warning(f"⚠️ {len(slow_movers_df)} products are slow-moving or have no recent sales")
+            st.warning(f"{len(slow_movers_df)} products are slow-moving or have no recent sales")
             st.dataframe(slow_movers_df, use_container_width=True, hide_index=True)
             
             # Total value at risk
             total_value = slow_movers_df["Stock Value"].sum()
-            st.error(f"💰 Total inventory value at risk: ${total_value:,.2f}")
+            st.error(f"Total inventory value at risk: ${total_value:,.2f}")
             
             if st.button("Generate Markdown Suggestions"):
                 st.info("Suggested actions sent to manager's dashboard")
         else:
-            st.success("✅ No slow-moving products detected! All products are selling well.")
+            st.success("No slow-moving products detected! All products are selling well.")
     
     # ==============================
     # TAB 5: EOQ CALCULATOR
     # ==============================
     with tab5:
-        st.markdown("## 📋 Economic Order Quantity (EOQ) Calculator")
+        st.markdown("## Economic Order Quantity (EOQ) Calculator")
         st.caption("Calculate the optimal order quantity to minimize total inventory costs")
         
         col1, col2 = st.columns(2)
@@ -845,7 +845,7 @@ def demand_forecasting_dashboard():
                     else:
                         annual_demand = metrics['total_sold'] * 12
                     
-                    st.info(f"📊 Estimated Annual Demand: {int(annual_demand):,} units")
+                    st.info(f"Estimated Annual Demand: {int(annual_demand):,} units")
                 else:
                     annual_demand = st.number_input("Annual Demand (units)", min_value=1, value=100)
             else:
@@ -855,18 +855,18 @@ def demand_forecasting_dashboard():
             order_cost = st.number_input("Order Cost ($ per order)", min_value=1.0, value=50.0, step=5.0)
             holding_cost = st.number_input("Holding Cost ($ per unit per year)", min_value=0.1, value=5.0, step=0.5)
         
-        if st.button("📊 Calculate EOQ", type="primary", use_container_width=True):
+        if st.button("Calculate EOQ", type="primary", use_container_width=True):
             eoq = calculate_eoq(annual_demand, order_cost, holding_cost)
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("🎯 Economic Order Quantity", f"{eoq:,} units")
+                st.metric("Economic Order Quantity", f"{eoq:,} units")
             with col2:
                 orders_per_year = annual_demand / eoq if eoq > 0 else 0
-                st.metric("📦 Orders per Year", f"{orders_per_year:.1f}")
+                st.metric("Orders per Year", f"{orders_per_year:.1f}")
             with col3:
                 total_cost = (annual_demand / eoq * order_cost) + (eoq / 2 * holding_cost) if eoq > 0 else 0
-                st.metric("💰 Total Annual Cost", f"${total_cost:,.2f}")
+                st.metric("Total Annual Cost", f"${total_cost:,.2f}")
             
             st.info(f"""
             **Recommendation:** Order **{eoq:,} units** each time to minimize total inventory costs.

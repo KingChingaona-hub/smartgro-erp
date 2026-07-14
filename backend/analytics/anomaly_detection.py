@@ -738,13 +738,13 @@ def get_customer_column(df):
 def anomaly_detection_dashboard():
     """Advanced Anomaly Detection Dashboard"""
     
-    st.title("🚨 Advanced Anomaly Detection")
+    st.title("Advanced Anomaly Detection")
     st.caption("AI-powered detection of unusual patterns in your business data")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access anomaly detection.")
+        st.error("Access Denied. Only owners and managers can access anomaly detection.")
         return
     
     # Load data
@@ -769,22 +769,22 @@ def anomaly_detection_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3 = st.tabs([
-        "📊 Overview",
-        "🔍 Detected Anomalies",
-        "📈 Trends & Patterns"
+        "Overview",
+        "Detected Anomalies",
+        "Trends & Patterns"
     ])
     
     # ==============================
     # TAB 1: OVERVIEW
     # ==============================
     with tab1:
-        st.markdown("## 📊 Anomaly Detection Overview")
+        st.markdown("## Anomaly Detection Overview")
         
         col1, col2 = st.columns([3, 1])
         with col1:
             days = st.slider("Analysis Period (days)", 7, 90, 30)
         with col2:
-            if st.button("🔍 Run Detection", type="primary", use_container_width=True):
+            if st.button("Run Detection", type="primary", use_container_width=True):
                 with st.spinner("Analyzing data..."):
                     results = st.session_state.anomaly_detector.run_full_analysis(
                         sales_df, products_df, customers_df, 
@@ -792,7 +792,7 @@ def anomaly_detection_dashboard():
                     )
                     st.session_state.anomalies_detected = True
                     st.session_state.anomaly_results = results
-                    st.success(f"✅ Analysis complete! Found {results['total_count']} anomalies")
+                    st.success(f"Analysis complete! Found {results['total_count']} anomalies")
                     st.balloons()
                     st.rerun()
         
@@ -800,20 +800,20 @@ def anomaly_detection_dashboard():
             results = st.session_state.anomaly_results
             summary = st.session_state.anomaly_detector.get_summary()
             
-            st.markdown("### 📊 Anomaly Summary")
+            st.markdown("### Anomaly Summary")
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("📊 Total Anomalies", summary.get("total", 0))
+                st.metric("Total Anomalies", summary.get("total", 0))
             with col2:
-                st.metric("🚨 Critical", summary.get("critical", 0), delta="⚠️" if summary.get("critical", 0) > 0 else "✅")
+                st.metric("Critical", summary.get("critical", 0), delta="⚠️" if summary.get("critical", 0) > 0 else "✅")
             with col3:
-                st.metric("🔴 High", summary.get("high", 0))
+                st.metric("High", summary.get("high", 0))
             with col4:
-                st.metric("🟡 Medium", summary.get("medium", 0))
+                st.metric("Medium", summary.get("medium", 0))
             
             if summary.get("by_type"):
-                st.markdown("### 📈 Anomalies by Type")
+                st.markdown("### Anomalies by Type")
                 
                 type_data = pd.DataFrame({
                     "Type": list(summary["by_type"].keys()),
@@ -831,29 +831,29 @@ def anomaly_detection_dashboard():
                 fig.update_layout(height=350)
                 st.plotly_chart(fig, use_container_width=True)
             
-            st.caption(f"🔍 Last analysis: {results.get('analysis_date', datetime.now()).strftime('%Y-%m-%d %H:%M:%S')}")
+            st.caption(f"Last analysis: {results.get('analysis_date', datetime.now()).strftime('%Y-%m-%d %H:%M:%S')}")
             
             st.markdown("---")
-            st.markdown("### ⚡ Quick Actions")
+            st.markdown("### Quick Actions")
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("📧 Send Anomaly Report", use_container_width=True):
+                if st.button("Send Anomaly Report", use_container_width=True):
                     st.info("Anomaly report would be sent to configured recipients")
             with col2:
-                if st.button("📥 Export Anomalies", use_container_width=True):
+                if st.button("Export Anomalies", use_container_width=True):
                     st.info("Exporting anomalies data...")
         else:
-            st.info("🔍 Click 'Run Detection' to analyze your data for anomalies")
+            st.info("Click 'Run Detection' to analyze your data for anomalies")
     
     # ==============================
     # TAB 2: DETECTED ANOMALIES
     # ==============================
     with tab2:
-        st.markdown("## 🔍 Detected Anomalies")
+        st.markdown("## Detected Anomalies")
         
         if not st.session_state.anomalies_detected:
-            st.warning("⚠️ Run anomaly detection first in the Overview tab.")
+            st.warning("Run anomaly detection first in the Overview tab.")
         else:
             anomalies = {
                 "Sales": st.session_state.anomaly_detector.sales_anomalies,
@@ -910,25 +910,25 @@ def anomaly_detection_dashboard():
                 high_count = len(df[df["Severity"] == "HIGH"])
                 
                 if critical_count > 0:
-                    st.error(f"🚨 {critical_count} CRITICAL anomalies require immediate attention!")
+                    st.error(f"{critical_count} CRITICAL anomalies require immediate attention!")
                 if high_count > 0:
-                    st.warning(f"⚠️ {high_count} HIGH severity anomalies need review")
+                    st.warning(f"{high_count} HIGH severity anomalies need review")
                 
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Anomalies Report (CSV)",
+                    label="Download Anomalies Report (CSV)",
                     data=csv,
                     file_name=f"anomalies_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
             else:
-                st.success("✅ No anomalies found matching the filters!")
+                st.success("No anomalies found matching the filters!")
     
     # ==============================
     # TAB 3: TRENDS & PATTERNS
     # ==============================
     with tab3:
-        st.markdown("## 📈 Trends & Patterns")
+        st.markdown("## Trends & Patterns")
         
         if not sales_df.empty:
             date_col = get_date_column(sales_df)
@@ -1043,13 +1043,13 @@ def anomaly_detection_dashboard():
                         
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.metric("📊 Avg Daily Sales", f"${safe_mean(sales_values):,.2f}")
+                            st.metric("Avg Daily Sales", f"${safe_mean(sales_values):,.2f}")
                         with col2:
-                            st.metric("📈 Trend", "Increasing" if sales_values[-1] > sales_values[0] else "Decreasing")
+                            st.metric("Trend", "Increasing" if sales_values[-1] > sales_values[0] else "Decreasing")
                         with col3:
-                            st.metric("🔍 Anomalies Found", len(anomaly_points))
+                            st.metric("Anomalies Found", len(anomaly_points))
                         
-                        st.markdown("### 📅 Day of Week Pattern")
+                        st.markdown("### Day of Week Pattern")
                         
                         # Calculate day of week averages
                         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

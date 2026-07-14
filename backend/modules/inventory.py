@@ -11,27 +11,27 @@ def inventory_page():
     # Load products fresh each time
     df = load_products()
     
-    st.title("📦 Inventory Management")
+    st.title("Inventory Management")
     
     # ==============================
     # DISPLAY CURRENT BRANCH
     # ==============================
     current_branch = st.session_state.get("user_branch", "HO")
-    st.info(f"📍 Managing inventory for Branch: **{current_branch}**")
+    st.info(f"Managing inventory for Branch: **{current_branch}**")
     
     # ==============================
     # SMART STOCK ALERTS
     # ==============================
-    st.markdown("## ⚠️ Smart Stock Alerts")
+    st.markdown("## Smart Stock Alerts")
     
     if not df.empty and "stock" in df.columns and "reorder_level" in df.columns:
         low_stock = df[df["stock"] <= df["reorder_level"]]
         
         if not low_stock.empty:
-            st.error(f"⚠️ {len(low_stock)} products need reordering!")
+            st.error(f"{len(low_stock)} products need reordering!")
             st.dataframe(low_stock[["name", "stock", "reorder_level", "price"]], use_container_width=True, hide_index=True)
         else:
-            st.success("✅ All products are sufficiently stocked.")
+            st.success("All products are sufficiently stocked.")
     else:
         st.info("Add products to see stock alerts")
     
@@ -40,7 +40,7 @@ def inventory_page():
     # ==============================
     # SEARCH PRODUCT
     # ==============================
-    st.markdown("## 🔍 Search Product")
+    st.markdown("## Search Product")
     
     search = st.text_input("Enter Barcode or Name", key="inventory_search", placeholder="Type to search...")
     
@@ -52,7 +52,7 @@ def inventory_page():
         
         if not result.empty:
             st.dataframe(result, use_container_width=True, hide_index=True)
-            st.success(f"✅ Found {len(result)} product(s)")
+            st.success(f"Found {len(result)} product(s)")
         else:
             st.warning("No product found")
     
@@ -61,7 +61,7 @@ def inventory_page():
     # ==============================
     # ALL PRODUCTS TABLE
     # ==============================
-    st.markdown("## 📋 All Products")
+    st.markdown("## All Products")
     
     if not df.empty:
         display_cols = ["barcode", "name", "category", "price", "stock", "reorder_level"]
@@ -76,7 +76,7 @@ def inventory_page():
     # ==============================
     # ADD PRODUCT
     # ==============================
-    st.markdown("## ➕ Add Product")
+    st.markdown("## Add Product")
     
     with st.form("add_product_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -92,12 +92,12 @@ def inventory_page():
             stock = st.number_input("Stock", min_value=0, step=1, key="add_stock")
             reorder_level = st.number_input("Reorder Level", min_value=0, step=1, key="add_reorder")
         
-        submitted = st.form_submit_button("➕ Add Product", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Add Product", type="primary", use_container_width=True)
         
         if submitted:
             if barcode and name and price > 0:
                 if not df.empty and barcode in df["barcode"].astype(str).values:
-                    st.error(f"❌ Barcode '{barcode}' already exists!")
+                    st.error(f"Barcode '{barcode}' already exists!")
                 else:
                     new_row = pd.DataFrame([{
                         "barcode": barcode.strip(),
@@ -115,19 +115,19 @@ def inventory_page():
                         df = pd.concat([df, new_row], ignore_index=True)
                     
                     if save_products(df):
-                        st.success(f"✅ Product '{name}' added successfully!")
-                        st.info("📌 Scroll down to see the updated list")
+                        st.success(f"Product '{name}' added successfully!")
+                        st.info("Scroll down to see the updated list")
                     else:
-                        st.error("❌ Failed to save product.")
+                        st.error("Failed to save product.")
             else:
-                st.error("❌ Barcode, Name, and Price are required.")
+                st.error("Barcode, Name, and Price are required.")
     
     st.markdown("---")
     
     # ==============================
     # UPDATE PRODUCT
     # ==============================
-    st.markdown("## ✏️ Update Product")
+    st.markdown("## Update Product")
     
     if not df.empty:
         product_names = df["name"].tolist()
@@ -153,7 +153,7 @@ def inventory_page():
                 col_btn1, col_btn2 = st.columns(2)
                 
                 with col_btn1:
-                    if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                    if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
                         idx = df[df["name"] == selected_product].index[0]
                         
                         df.at[idx, "barcode"] = update_barcode.strip()
@@ -165,26 +165,26 @@ def inventory_page():
                         df.at[idx, "reorder_level"] = update_reorder
                         
                         if save_products(df):
-                            st.success(f"✅ Product '{update_name}' updated successfully!")
-                            st.info("📌 Scroll down to see the updated list")
+                            st.success(f"Product '{update_name}' updated successfully!")
+                            st.info("Scroll down to see the updated list")
                         else:
-                            st.error("❌ Failed to update product.")
+                            st.error("Failed to update product.")
                 
                 with col_btn2:
-                    delete_clicked = st.form_submit_button("🗑️ Delete Product", use_container_width=True)
+                    delete_clicked = st.form_submit_button("Delete Product", use_container_width=True)
                     
                     if delete_clicked:
-                        st.warning("⚠️ Check the box below to confirm deletion")
+                        st.warning("Check the box below to confirm deletion")
                         confirm = st.checkbox("I understand this action CANNOT be undone", key="delete_confirm")
                         
                         if confirm:
                             df = df[df["name"] != selected_product]
                             
                             if save_products(df):
-                                st.success(f"✅ Product '{selected_product}' deleted successfully!")
-                                st.info("📌 Scroll down to see the updated list")
+                                st.success(f"Product '{selected_product}' deleted successfully!")
+                                st.info("Scroll down to see the updated list")
                             else:
-                                st.error("❌ Failed to delete product.")
+                                st.error("Failed to delete product.")
     else:
         st.info("No products in inventory. Add your first product above.")
     
@@ -192,9 +192,9 @@ def inventory_page():
     # REFRESH BUTTON - Manual only
     # ==============================
     st.markdown("---")
-    st.caption("💡 After adding/updating/deleting, scroll down to see changes. Use the refresh button below if needed.")
+    st.caption("After adding/updating/deleting, scroll down to see changes. Use the refresh button below if needed.")
     
-    if st.button("🔄 Refresh Page", use_container_width=True):
+    if st.button("Refresh Page", use_container_width=True):
         st.cache_data.clear()
         # No rerun - user must click again or use browser refresh
-        st.info("✅ Cache cleared. Click the button again or refresh your browser to see changes.")
+        st.info("Cache cleared. Click the button again or refresh your browser to see changes.")

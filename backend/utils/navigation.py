@@ -153,11 +153,11 @@ def sub_menu(module):
     # ==============================
     elif module == "Returns & Refunds":
         options = [
-            "📝 Process Return",
-            "💰 Store Credit",
-            "📋 Warranty Check",
-            "📊 Return Analytics",
-            "📜 Return History"
+            "Process Return",
+            "Store Credit",
+            "Warranty Check",
+            "Return Analytics",
+            "Return History"
         ]
         choice = st.sidebar.radio("Returns Menu", options, key="returns_menu_radio")
         return choice

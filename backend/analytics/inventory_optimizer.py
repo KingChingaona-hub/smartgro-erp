@@ -412,13 +412,13 @@ class InventoryOptimizer:
 def inventory_optimizer_dashboard():
     """Inventory ABC Analysis and Optimization Dashboard"""
     
-    st.title("📦 Inventory Optimizer")
+    st.title("Inventory Optimizer")
     st.caption("ABC analysis, optimization, and inventory intelligence")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access inventory optimizer.")
+        st.error("Access Denied. Only owners and managers can access inventory optimizer.")
         return
     
     # Load data
@@ -440,21 +440,21 @@ def inventory_optimizer_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 ABC Analysis",
-        "📋 Reorder Recommendations",
-        "🐌 Slow Movers",
-        "💡 Optimization Tips",
-        "📈 Inventory Metrics"
+        "ABC Analysis",
+        "Reorder Recommendations",
+        "Slow Movers",
+        "Optimization Tips",
+        "Inventory Metrics"
     ])
     
     # ==============================
     # TAB 1: ABC ANALYSIS
     # ==============================
     with tab1:
-        st.markdown("## 📊 ABC Analysis")
+        st.markdown("## ABC Analysis")
         
         if not st.session_state.optimizer_ready:
-            st.warning("⚠️ Run ABC analysis to classify your inventory.")
+            st.warning("Run ABC analysis to classify your inventory.")
             
             st.info("""
             **ABC Analysis Classifies Products by Value:**
@@ -463,37 +463,37 @@ def inventory_optimizer_dashboard():
             - **C Items (50% of products, 5% of value)** - Low priority, simple control
             """)
             
-            if st.button("🚀 Run ABC Analysis", type="primary", use_container_width=True):
+            if st.button("Run ABC Analysis", type="primary", use_container_width=True):
                 with st.spinner("Analyzing products..."):
                     success, message = st.session_state.inventory_optimizer.perform_abc_analysis(
                         products_df, sales_df, purchases_df
                     )
                     if success:
                         st.session_state.optimizer_ready = True
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                         st.balloons()
                         st.rerun()
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         else:
             # Show summary
             summary = st.session_state.inventory_optimizer.get_abc_summary()
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("📦 Total Products", summary.get("total_products", 0))
+                st.metric("Total Products", summary.get("total_products", 0))
             with col2:
-                st.metric("💰 Total Value", f"${summary.get('total_value', 0):,.2f}")
+                st.metric("Total Value", f"${summary.get('total_value', 0):,.2f}")
             with col3:
-                st.metric("📅 Analyzed", summary.get("analysis_date", datetime.now()).strftime("%Y-%m-%d"))
+                st.metric("Analyzed", summary.get("analysis_date", datetime.now()).strftime("%Y-%m-%d"))
             with col4:
                 total_class = sum(summary.get("class_counts", {}).values())
-                st.metric("🏷️ Classes", f"{len(summary.get('class_counts', {}))}")
+                st.metric("Classes", f"{len(summary.get('class_counts', {}))}")
             
             st.markdown("---")
             
             # Class distribution
-            st.markdown("### 📊 Class Distribution")
+            st.markdown("### Class Distribution")
             
             col1, col2 = st.columns(2)
             
@@ -525,7 +525,7 @@ def inventory_optimizer_dashboard():
                 st.plotly_chart(fig, use_container_width=True)
             
             # Class table
-            st.markdown("### 📋 ABC Classification")
+            st.markdown("### ABC Classification")
             
             abc_df = st.session_state.inventory_optimizer.abc_classification.copy()
             
@@ -547,33 +547,33 @@ def inventory_optimizer_dashboard():
             # Export
             csv = abc_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download ABC Analysis (CSV)",
+                label="Download ABC Analysis (CSV)",
                 data=csv,
                 file_name=f"abc_analysis_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
             
             # Re-run analysis button
-            if st.button("🔄 Re-run Analysis", use_container_width=True):
+            if st.button("Re-run Analysis", use_container_width=True):
                 with st.spinner("Re-analyzing..."):
                     success, message = st.session_state.inventory_optimizer.perform_abc_analysis(
                         products_df, sales_df, purchases_df
                     )
                     if success:
                         st.session_state.optimizer_ready = True
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                         st.rerun()
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
     
     # ==============================
     # TAB 2: REORDER RECOMMENDATIONS
     # ==============================
     with tab2:
-        st.markdown("## 📋 Reorder Recommendations")
+        st.markdown("## Reorder Recommendations")
         
         if not st.session_state.optimizer_ready:
-            st.warning("⚠️ Run ABC analysis first in the ABC Analysis tab.")
+            st.warning("Run ABC analysis first in the ABC Analysis tab.")
         else:
             recommendations = st.session_state.inventory_optimizer.get_reorder_recommendations()
             
@@ -594,7 +594,7 @@ def inventory_optimizer_dashboard():
                 # Show urgent items count
                 high_urgency = len(recommendations[recommendations["urgency"] == "HIGH"])
                 if high_urgency > 0:
-                    st.error(f"🚨 {high_urgency} items require URGENT reordering!")
+                    st.error(f"{high_urgency} items require URGENT reordering!")
                 
                 st.dataframe(
                     filtered[["product", "classification", "stock", "reorder_level", "days_of_stock", "urgency", "action"]],
@@ -609,7 +609,7 @@ def inventory_optimizer_dashboard():
                 # Export
                 csv = filtered.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Recommendations (CSV)",
+                    label="Download Recommendations (CSV)",
                     data=csv,
                     file_name=f"reorder_recommendations_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
@@ -621,20 +621,20 @@ def inventory_optimizer_dashboard():
     # TAB 3: SLOW MOVERS
     # ==============================
     with tab3:
-        st.markdown("## 🐌 Slow-Moving Products")
+        st.markdown("## Slow-Moving Products")
         
         if not st.session_state.optimizer_ready:
-            st.warning("⚠️ Run ABC analysis first in the ABC Analysis tab.")
+            st.warning("Run ABC analysis first in the ABC Analysis tab.")
         else:
             days_threshold = st.slider("Days without sale to classify as slow mover", 30, 180, 90)
             
             slow_movers = st.session_state.inventory_optimizer.get_slow_movers(days_threshold)
             
             if not slow_movers.empty:
-                st.warning(f"⚠️ {len(slow_movers)} products are slow-moving or have no sales")
+                st.warning(f"{len(slow_movers)} products are slow-moving or have no sales")
                 
                 total_value = slow_movers["stock_value"].sum()
-                st.metric("💰 Total value at risk", f"${total_value:,.2f}")
+                st.metric("Total value at risk", f"${total_value:,.2f}")
                 
                 st.dataframe(
                     slow_movers[["product", "classification", "stock", "stock_value", "annual_demand", "reason", "suggested_action"]],
@@ -645,28 +645,28 @@ def inventory_optimizer_dashboard():
                     }
                 )
                 
-                if st.button("📤 Generate Markdown Suggestions", use_container_width=True):
+                if st.button("Generate Markdown Suggestions", use_container_width=True):
                     st.info("Suggested actions sent to manager's dashboard")
                 
                 # Export
                 csv = slow_movers.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Slow Movers (CSV)",
+                    label="Download Slow Movers (CSV)",
                     data=csv,
                     file_name=f"slow_movers_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
             else:
-                st.success("✅ No slow-moving products detected! All products are selling well.")
+                st.success("No slow-moving products detected! All products are selling well.")
     
     # ==============================
     # TAB 4: OPTIMIZATION TIPS
     # ==============================
     with tab4:
-        st.markdown("## 💡 Optimization Recommendations")
+        st.markdown("## Optimization Recommendations")
         
         if not st.session_state.optimizer_ready:
-            st.warning("⚠️ Run ABC analysis first in the ABC Analysis tab.")
+            st.warning("Run ABC analysis first in the ABC Analysis tab.")
         else:
             recommendations = st.session_state.inventory_optimizer.get_optimization_recommendations()
             
@@ -674,11 +674,11 @@ def inventory_optimizer_dashboard():
                 for rec in recommendations:
                     priority = rec.get("priority", "LOW")
                     if priority == "HIGH":
-                        st.error(f"### 🚨 {rec['title']}")
+                        st.error(f"### {rec['title']}")
                     elif priority == "MEDIUM":
-                        st.warning(f"### ⚠️ {rec['title']}")
+                        st.warning(f"### {rec['title']}")
                     else:
-                        st.info(f"### ℹ️ {rec['title']}")
+                        st.info(f"### {rec['title']}")
                     
                     st.write(f"**Category:** {rec['category']}")
                     st.write(f"**Description:** {rec['description']}")
@@ -686,13 +686,13 @@ def inventory_optimizer_dashboard():
                     st.write(f"**Impact:** {rec['impact']}")
                     st.markdown("---")
             else:
-                st.success("✅ No optimization recommendations at this time. Inventory is well managed!")
+                st.success("No optimization recommendations at this time. Inventory is well managed!")
     
     # ==============================
     # TAB 5: INVENTORY METRICS
     # ==============================
     with tab5:
-        st.markdown("## 📈 Inventory Metrics")
+        st.markdown("## Inventory Metrics")
         
         if not products_df.empty:
             # Calculate metrics
@@ -705,19 +705,19 @@ def inventory_optimizer_dashboard():
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("📦 Total Products", total_products)
+                st.metric("Total Products", total_products)
             with col2:
-                st.metric("📊 Total Stock Units", f"{total_stock:,}")
+                st.metric("Total Stock Units", f"{total_stock:,}")
             with col3:
-                st.metric("💰 Total Stock Value", f"${total_value:,.2f}")
+                st.metric("Total Stock Value", f"${total_value:,.2f}")
             with col4:
-                st.metric("⚠️ Low Stock Items", low_stock)
+                st.metric("Low Stock Items", low_stock)
             
             st.markdown("---")
             
             # Stock by category
             if "category" in products_df.columns:
-                st.markdown("### 📊 Stock by Category")
+                st.markdown("### Stock by Category")
                 
                 category_summary = products_df.groupby("category").agg({
                     "stock": "sum",
@@ -741,7 +741,7 @@ def inventory_optimizer_dashboard():
                 st.plotly_chart(fig, use_container_width=True)
             
             # Stock health gauge
-            st.markdown("### 📊 Stock Health")
+            st.markdown("### Stock Health")
             
             if total_products > 0:
                 health_score = ((total_products - low_stock - out_of_stock) / total_products * 100)

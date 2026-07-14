@@ -9,7 +9,7 @@ from backend.core.db_adapter import load_sales, load_products, load_customers
 def sales_dashboard():
     """Enhanced Sales Analytics Dashboard with Advanced Visualizations"""
     
-    st.title("📊 Sales Intelligence Dashboard")
+    st.title("Sales Intelligence Dashboard")
     st.caption("Advanced analytics and insights for business growth")
     
     # Load data
@@ -37,7 +37,7 @@ def sales_dashboard():
     # ==============================
     # DATE RANGE SELECTOR
     # ==============================
-    st.markdown("## 📅 Date Range Selector")
+    st.markdown("## Date Range Selector")
     
     # Convert date column
     sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
@@ -124,7 +124,7 @@ def sales_dashboard():
     # ==============================
     # KEY PERFORMANCE INDICATORS
     # ==============================
-    st.markdown("## 📈 Key Performance Indicators")
+    st.markdown("## Key Performance Indicators")
     
     total_col = "final_total" if "final_total" in filtered_df.columns else "total" if "total" in filtered_df.columns else None
     profit_col = "profit" if "profit" in filtered_df.columns else None
@@ -170,33 +170,33 @@ def sales_dashboard():
         )
     
     with col2:
-        st.metric("📈 Total Profit", f"${total_profit:,.2f}")
+        st.metric("Total Profit", f"${total_profit:,.2f}")
     
     with col3:
-        st.metric("📦 Items Sold", f"{total_items:,}")
+        st.metric("Items Sold", f"{total_items:,}")
     
     with col4:
-        st.metric("💳 Avg Transaction", f"${avg_transaction:.2f}")
+        st.metric("Avg Transaction", f"${avg_transaction:.2f}")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("🔄 Transactions", f"{transaction_count:,}")
+        st.metric("Transactions", f"{transaction_count:,}")
     
     with col2:
         margin_color = "normal" if profit_margin > 20 else "inverse"
-        st.metric("📊 Profit Margin", f"{profit_margin:.1f}%", delta_color=margin_color)
+        st.metric("Profit Margin", f"{profit_margin:.1f}%", delta_color=margin_color)
     
     with col3:
         unique_customers = filtered_df[customer_col].nunique() if customer_col else 0
-        st.metric("👥 Unique Customers", unique_customers)
+        st.metric("Unique Customers", unique_customers)
     
     st.markdown("---")
     
     # ==============================
     # REVENUE & PROFIT TREND
     # ==============================
-    st.markdown("## 📊 Revenue & Profit Trends")
+    st.markdown("## Revenue & Profit Trends")
     
     if total_col:
         daily_df = filtered_df.groupby(filtered_df[date_col].dt.date).agg({
@@ -250,7 +250,7 @@ def sales_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("## 🏆 Top Selling Products")
+        st.markdown("## Top Selling Products")
         
         name_col = "name" if "name" in filtered_df.columns else "product_name" if "product_name" in filtered_df.columns else None
         
@@ -276,7 +276,7 @@ def sales_dashboard():
             st.info("Product name data not available")
     
     with col2:
-        st.markdown("## 💰 Top Revenue Products")
+        st.markdown("## Top Revenue Products")
         
         name_col = "name" if "name" in filtered_df.columns else "product_name" if "product_name" in filtered_df.columns else None
         
@@ -309,7 +309,7 @@ def sales_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("## 💳 Payment Methods")
+        st.markdown("## Payment Methods")
         
         payment_col = "payment_method" if "payment_method" in filtered_df.columns else None
         if payment_col:
@@ -330,7 +330,7 @@ def sales_dashboard():
             st.info("Payment method data not available")
     
     with col2:
-        st.markdown("## 📅 Sales by Day of Week")
+        st.markdown("## Sales by Day of Week")
         
         filtered_df["day_of_week"] = filtered_df[date_col].dt.day_name()
         day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -358,7 +358,7 @@ def sales_dashboard():
     # ==============================
     # HOURLY SALES HEATMAP
     # ==============================
-    st.markdown("## ⏰ Hourly Sales Heatmap")
+    st.markdown("## Hourly Sales Heatmap")
     
     time_col = "time" if "time" in filtered_df.columns else None
     if time_col and total_col:
@@ -383,7 +383,7 @@ def sales_dashboard():
             
             if not hourly_sales.empty:
                 peak_hour = hourly_sales.loc[hourly_sales[total_col].idxmax(), "hour"]
-                st.info(f"💡 **Insight:** Peak sales hour is **{int(peak_hour)}:00** - Consider scheduling more staff during this time.")
+                st.info(f"**Insight:** Peak sales hour is **{int(peak_hour)}:00** - Consider scheduling more staff during this time.")
     
     st.markdown("---")
     
@@ -417,7 +417,7 @@ def sales_dashboard():
     # ==============================
     # PRODUCT PERFORMANCE MATRIX
     # ==============================
-    st.markdown("## 📊 Product Performance Matrix")
+    st.markdown("## Product Performance Matrix")
     
     name_col = "name" if "name" in filtered_df.columns else "product_name" if "product_name" in filtered_df.columns else None
     
@@ -435,7 +435,7 @@ def sales_dashboard():
         
         csv = product_perf.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Product Performance Report",
+            label="Download Product Performance Report",
             data=csv,
             file_name=f"product_performance_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
@@ -446,7 +446,7 @@ def sales_dashboard():
     # ==============================
     # BUSINESS INSIGHTS
     # ==============================
-    st.markdown("## 🧠 Business Insights")
+    st.markdown("## Business Insights")
     
     insights = []
     
@@ -459,24 +459,24 @@ def sales_dashboard():
             insights.append(f"📉 **Slowest Sales Day:** {worst_day}")
     
     if profit_margin < 10:
-        insights.append("⚠️ **Low Profit Margin:** Consider reviewing your pricing strategy or negotiating better supplier costs.")
+        insights.append("**Low Profit Margin:** Consider reviewing your pricing strategy or negotiating better supplier costs.")
     elif profit_margin > 30:
-        insights.append("✅ **Excellent Profit Margin:** Your pricing strategy is working well!")
+        insights.append("**Excellent Profit Margin:** Your pricing strategy is working well!")
     
     if customer_col and not filtered_df[customer_col].isna().all() and total_col:
         top_customers = filtered_df.groupby(customer_col)[total_col].sum().nlargest(1)
         if not top_customers.empty and total_revenue > 0:
             top_customer_share = (top_customers.iloc[0] / total_revenue * 100)
             if top_customer_share > 30:
-                insights.append(f"⚠️ **Customer Concentration Risk:** Top customer contributes {top_customer_share:.1f}% of revenue. Diversify your customer base.")
+                insights.append(f"**Customer Concentration Risk:** Top customer contributes {top_customer_share:.1f}% of revenue. Diversify your customer base.")
     
     payment_col = "payment_method" if "payment_method" in filtered_df.columns else None
     if payment_col:
         cash_percentage = (filtered_df[filtered_df[payment_col] == "CASH"].shape[0] / len(filtered_df) * 100)
         if cash_percentage > 70:
-            insights.append("💰 **High Cash Usage:** Consider implementing better cash management procedures.")
+            insights.append("**High Cash Usage:** Consider implementing better cash management procedures.")
         elif cash_percentage < 30:
-            insights.append("💳 **Low Cash Usage:** Your customers prefer digital payments - ensure all systems are working.")
+            insights.append("**Low Cash Usage:** Your customers prefer digital payments - ensure all systems are working.")
     
     for insight in insights:
         if "⚠️" in insight:
@@ -491,12 +491,12 @@ def sales_dashboard():
     # ==============================
     # RAW DATA VIEW
     # ==============================
-    with st.expander("📜 View Raw Sales Data"):
+    with st.expander("View Raw Sales Data"):
         st.dataframe(filtered_df.sort_values(date_col, ascending=False), use_container_width=True, height=300)
         
         csv_data = filtered_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Filtered Data (CSV)",
+            label="Download Filtered Data (CSV)",
             data=csv_data,
             file_name=f"sales_data_{start_date}_{end_date}.csv",
             mime="text/csv"

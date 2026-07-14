@@ -37,7 +37,7 @@ from backend.analytics.reports_engine import (
 def reports_dashboard():
     """Main reports dashboard - Cleaned and optimized"""
     
-    st.title("📊 Reports Dashboard")
+    st.title("Reports Dashboard")
     st.caption("Comprehensive business reports and analytics")
     
     # ==============================
@@ -76,7 +76,7 @@ def reports_dashboard():
     
     if report_type == "Sales" or report_type == "Combined":
         st.markdown("---")
-        st.markdown("## 💰 Sales Report")
+        st.markdown("## Sales Report")
         
         sales_data = get_sales_report_data(start_datetime, end_datetime)
         
@@ -86,13 +86,13 @@ def reports_dashboard():
             # Key metrics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("💰 Total Sales", f"${sales_report['total_sales']:,.2f}")
+                st.metric("Total Sales", f"${sales_report['total_sales']:,.2f}")
             with col2:
-                st.metric("📈 Total Profit", f"${sales_report['total_profit']:,.2f}")
+                st.metric("Total Profit", f"${sales_report['total_profit']:,.2f}")
             with col3:
-                st.metric("📊 Profit Margin", f"{sales_report['profit_margin']:.1f}%")
+                st.metric("Profit Margin", f"{sales_report['profit_margin']:.1f}%")
             with col4:
-                st.metric("🛒 Transactions", f"{sales_report['total_transactions']:,}")
+                st.metric("Transactions", f"{sales_report['total_transactions']:,}")
             
             # Daily sales trend
             if not sales_report['daily_sales'].empty:
@@ -153,7 +153,7 @@ def reports_dashboard():
                         sales_report['payment_methods'],
                         values="total",
                         names="payment_method",
-                        title="💳 Revenue by Payment Method",
+                        title="Revenue by Payment Method",
                         color_discrete_sequence=px.colors.qualitative.Set2
                     )
                     fig.update_layout(height=350)
@@ -164,7 +164,7 @@ def reports_dashboard():
                         sales_report['payment_methods'],
                         values="transactions",
                         names="payment_method",
-                        title="📊 Transactions by Payment Method",
+                        title="Transactions by Payment Method",
                         color_discrete_sequence=px.colors.qualitative.Set3
                     )
                     fig.update_layout(height=350)
@@ -176,14 +176,14 @@ def reports_dashboard():
             with col1:
                 csv_data = sales_data.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Sales Data (CSV)",
+                    label="Download Sales Data (CSV)",
                     data=csv_data,
                     file_name=f"sales_report_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
             
             with col2:
-                if st.button("📄 Download Sales Report (PDF)", key="sales_pdf"):
+                if st.button("Download Sales Report (PDF)", key="sales_pdf"):
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_sales_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
@@ -203,7 +203,7 @@ def reports_dashboard():
     # ==============================
     if report_type == "Expenses" or report_type == "Combined":
         st.markdown("---")
-        st.markdown("## 💸 Expenses Report")
+        st.markdown("## Expenses Report")
         
         expenses_data = get_expenses_report_data(start_datetime, end_datetime)
         
@@ -213,11 +213,11 @@ def reports_dashboard():
             # Key metrics
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("💸 Total Expenses", f"${expense_report['total_expenses']:,.2f}")
+                st.metric("Total Expenses", f"${expense_report['total_expenses']:,.2f}")
             with col2:
-                st.metric("📂 Categories", len(expense_report['by_category']))
+                st.metric("Categories", len(expense_report['by_category']))
             with col3:
-                st.metric("📅 Days with Expenses", len(expense_report['daily_expenses']))
+                st.metric("Days with Expenses", len(expense_report['daily_expenses']))
             
             # Expenses by category
             if not expense_report['by_category'].empty:
@@ -228,7 +228,7 @@ def reports_dashboard():
                         expense_report['by_category'],
                         values="amount",
                         names="category",
-                        title="📊 Expenses by Category",
+                        title="Expenses by Category",
                         color_discrete_sequence=px.colors.qualitative.Set3
                     )
                     fig.update_layout(height=400)
@@ -239,7 +239,7 @@ def reports_dashboard():
                         expense_report['by_category'],
                         x="category",
                         y="amount",
-                        title="📊 Expenses by Category",
+                        title="Expenses by Category",
                         color="amount",
                         color_continuous_scale="Reds",
                         text="amount"
@@ -254,7 +254,7 @@ def reports_dashboard():
                     expense_report['daily_expenses'],
                     x="date",
                     y="amount",
-                    title="📈 Daily Expenses Trend",
+                    title="Daily Expenses Trend",
                     labels={"amount": "Expenses ($)", "date": "Date"},
                     markers=True,
                     color_discrete_sequence=["#E74C3C"]
@@ -268,14 +268,14 @@ def reports_dashboard():
             with col1:
                 csv_data = expenses_data.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Expenses Data (CSV)",
+                    label="Download Expenses Data (CSV)",
                     data=csv_data,
                     file_name=f"expenses_report_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
             
             with col2:
-                if st.button("📄 Download Expenses Report (PDF)", key="expenses_pdf"):
+                if st.button("Download Expenses Report (PDF)", key="expenses_pdf"):
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_expenses_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
@@ -283,7 +283,7 @@ def reports_dashboard():
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
-                if st.button("📄 Download Expenses Report (HTML)", key="expenses_html"):
+                if st.button("Download Expenses Report (HTML)", key="expenses_html"):
                     html_bytes = generate_expenses_report_pdf(start_date, end_date)
                     b64_html = base64.b64encode(html_bytes).decode()
                     href_html = f'<a href="data:text/html;base64,{b64_html}" download="expenses_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
@@ -296,7 +296,7 @@ def reports_dashboard():
     # ==============================
     if report_type == "Purchases" or report_type == "Combined":
         st.markdown("---")
-        st.markdown("## 📦 Purchases Report")
+        st.markdown("## Purchases Report")
         
         purchases_data = get_purchases_report_data(start_datetime, end_datetime)
         
@@ -306,11 +306,11 @@ def reports_dashboard():
             # Key metrics
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("📦 Total Purchases", f"${purchase_report['total_purchases']:,.2f}")
+                st.metric("Total Purchases", f"${purchase_report['total_purchases']:,.2f}")
             with col2:
-                st.metric("🏢 Suppliers", len(purchase_report['by_supplier']))
+                st.metric("Suppliers", len(purchase_report['by_supplier']))
             with col3:
-                st.metric("📋 Orders", len(purchase_report['daily_purchases']))
+                st.metric("Orders", len(purchase_report['daily_purchases']))
             
             # By supplier
             if not purchase_report['by_supplier'].empty:
@@ -319,7 +319,7 @@ def reports_dashboard():
                     x="amount",
                     y="supplier",
                     orientation='h',
-                    title="🏢 Top Suppliers by Purchase Amount",
+                    title="Top Suppliers by Purchase Amount",
                     color="amount",
                     color_continuous_scale="Blues",
                     text="amount"
@@ -334,7 +334,7 @@ def reports_dashboard():
                     purchase_report['by_status'],
                     values="count",
                     names="status",
-                    title="📊 Purchase Orders by Status",
+                    title="Purchase Orders by Status",
                     color_discrete_sequence=px.colors.qualitative.Set3
                 )
                 fig.update_layout(height=350)
@@ -346,7 +346,7 @@ def reports_dashboard():
                     purchase_report['daily_purchases'],
                     x="date",
                     y="amount",
-                    title="📈 Daily Purchases Trend",
+                    title="Daily Purchases Trend",
                     labels={"amount": "Purchases ($)", "date": "Date"},
                     markers=True,
                     color_discrete_sequence=["#F39C12"]
@@ -360,14 +360,14 @@ def reports_dashboard():
             with col1:
                 csv_data = purchases_data.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Purchases Data (CSV)",
+                    label="Download Purchases Data (CSV)",
                     data=csv_data,
                     file_name=f"purchases_report_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
             
             with col2:
-                if st.button("📄 Download Purchases Report (PDF)", key="purchases_pdf"):
+                if st.button("Download Purchases Report (PDF)", key="purchases_pdf"):
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_purchases_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
@@ -375,7 +375,7 @@ def reports_dashboard():
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
-                if st.button("📄 Download Purchases Report (HTML)", key="purchases_html"):
+                if st.button("Download Purchases Report (HTML)", key="purchases_html"):
                     html_bytes = generate_purchases_report_pdf(start_date, end_date)
                     b64_html = base64.b64encode(html_bytes).decode()
                     href_html = f'<a href="data:text/html;base64,{b64_html}" download="purchases_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
@@ -388,7 +388,7 @@ def reports_dashboard():
     # ==============================
     if report_type == "Inventory" or report_type == "Combined":
         st.markdown("---")
-        st.markdown("## 📦 Inventory Report")
+        st.markdown("## Inventory Report")
         
         inventory_data = get_inventory_report_data()
         
@@ -401,18 +401,18 @@ def reports_dashboard():
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("📦 Total Products", f"{total_products:,}")
+                st.metric("Total Products", f"{total_products:,}")
             with col2:
-                st.metric("📊 Total Units", f"{total_units:,}")
+                st.metric("Total Units", f"{total_units:,}")
             with col3:
-                st.metric("💰 Stock Value", f"${total_value:,.2f}")
+                st.metric("Stock Value", f"${total_value:,.2f}")
             with col4:
-                st.metric("📈 Potential Profit", f"${potential_profit:,.2f}")
+                st.metric("Potential Profit", f"${potential_profit:,.2f}")
             
             # Low stock alert
             low_stock = inventory_data[inventory_data['stock'] < 5]
             if not low_stock.empty:
-                st.warning(f"⚠️ {len(low_stock)} products have low stock (less than 5 units)")
+                st.warning(f"{len(low_stock)} products have low stock (less than 5 units)")
                 st.dataframe(
                     low_stock[['name', 'stock', 'price', 'stock_value']],
                     use_container_width=True,
@@ -436,7 +436,7 @@ def reports_dashboard():
                     category_summary,
                     x="category",
                     y="stock_value",
-                    title="📊 Inventory Value by Category",
+                    title="Inventory Value by Category",
                     color="stock_value",
                     color_continuous_scale="Greens",
                     text="stock_value"
@@ -466,14 +466,14 @@ def reports_dashboard():
             with col1:
                 csv_data = inventory_data.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Download Inventory Data (CSV)",
+                    label="Download Inventory Data (CSV)",
                     data=csv_data,
                     file_name=f"inventory_report_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
             
             with col2:
-                if st.button("📄 Download Inventory Report (PDF)", key="inventory_pdf"):
+                if st.button("Download Inventory Report (PDF)", key="inventory_pdf"):
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_inventory_report_pdf()
                         b64 = base64.b64encode(pdf_bytes).decode()
@@ -481,7 +481,7 @@ def reports_dashboard():
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
-                if st.button("📄 Download Inventory Report (HTML)", key="inventory_html"):
+                if st.button("Download Inventory Report (HTML)", key="inventory_html"):
                     html_bytes = generate_inventory_report_pdf()
                     b64_html = base64.b64encode(html_bytes).decode()
                     href_html = f'<a href="data:text/html;base64,{b64_html}" download="inventory_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
@@ -494,31 +494,31 @@ def reports_dashboard():
     # ==============================
     if report_type == "Customers" or report_type == "Combined":
         st.markdown("---")
-        st.markdown("## 👥 Customers Report")
+        st.markdown("## Customers Report")
         
         customer_report = generate_customer_report(start_datetime, end_datetime)
         
         if customer_report['total_customers'] > 0:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("👥 Total Customers", f"{customer_report['total_customers']:,}")
+                st.metric("Total Customers", f"{customer_report['total_customers']:,}")
             with col2:
-                st.metric("🆕 New Customers", f"{customer_report['new_customers']:,}")
+                st.metric("New Customers", f"{customer_report['new_customers']:,}")
             with col3:
-                st.metric("🔄 Repeat Customers", f"{customer_report['repeat_customers']:,}")
+                st.metric("Repeat Customers", f"{customer_report['repeat_customers']:,}")
             with col4:
-                st.metric("📊 Retention Rate", f"{customer_report['customer_retention']:.1f}%")
+                st.metric("Retention Rate", f"{customer_report['customer_retention']:.1f}%")
             
             # Top customers
             if not customer_report['top_customers'].empty:
-                st.markdown("### 🏆 Top Customers")
+                st.markdown("### Top Customers")
                 
                 fig = px.bar(
                     customer_report['top_customers'],
                     x="total",
                     y="customer",
                     orientation='h',
-                    title="🏆 Top Customers by Spending",
+                    title="Top Customers by Spending",
                     color="total",
                     color_continuous_scale="Blues",
                     text="total"
@@ -547,14 +547,14 @@ def reports_dashboard():
                 if not customers_data.empty:
                     csv_data = customers_data.to_csv(index=False).encode('utf-8')
                     st.download_button(
-                        label="📥 Download Customers Data (CSV)",
+                        label="Download Customers Data (CSV)",
                         data=csv_data,
                         file_name=f"customers_report_{datetime.now().strftime('%Y%m%d')}.csv",
                         mime="text/csv"
                     )
             
             with col2:
-                if st.button("📄 Download Customers Report (PDF)", key="customers_pdf"):
+                if st.button("Download Customers Report (PDF)", key="customers_pdf"):
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_customers_report_pdf(start_date, end_date)
                         b64 = base64.b64encode(pdf_bytes).decode()
@@ -568,23 +568,23 @@ def reports_dashboard():
     # ==============================
     if report_type == "Debtors" or report_type == "Combined":
         st.markdown("---")
-        st.markdown("## 💰 Debtors Report")
+        st.markdown("## Debtors Report")
         
         debtors_report = generate_debtors_report()
         
         if debtors_report['debtors_count'] > 0:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("💰 Total Debt", f"${debtors_report['total_debt']:,.2f}")
+                st.metric("Total Debt", f"${debtors_report['total_debt']:,.2f}")
             with col2:
-                st.metric("✅ Total Paid", f"${debtors_report['total_paid']:,.2f}")
+                st.metric("Total Paid", f"${debtors_report['total_paid']:,.2f}")
             with col3:
-                st.metric("📊 Outstanding", f"${debtors_report['outstanding_balance']:,.2f}")
+                st.metric("Outstanding", f"${debtors_report['outstanding_balance']:,.2f}")
             with col4:
-                st.metric("👥 Debtors", f"{debtors_report['debtors_count']}")
+                st.metric("Debtors", f"{debtors_report['debtors_count']}")
             
             if debtors_report['overdue_count'] > 0:
-                st.error(f"⚠️ {debtors_report['overdue_count']} overdue debtors require attention!")
+                st.error(f"{debtors_report['overdue_count']} overdue debtors require attention!")
             
             # By status
             if not debtors_report['by_status'].empty:
@@ -595,7 +595,7 @@ def reports_dashboard():
                         debtors_report['by_status'],
                         values="balance",
                         names="status",
-                        title="📊 Debt by Status",
+                        title="Debt by Status",
                         color_discrete_sequence=px.colors.qualitative.Set3
                     )
                     fig.update_layout(height=350)
@@ -606,7 +606,7 @@ def reports_dashboard():
                         debtors_report['by_status'],
                         x="status",
                         y="balance",
-                        title="📊 Outstanding Balance by Status",
+                        title="Outstanding Balance by Status",
                         color="balance",
                         color_continuous_scale="Reds",
                         text="balance"
@@ -617,7 +617,7 @@ def reports_dashboard():
             
             # Top debtors
             if not debtors_report['top_debtors'].empty:
-                st.markdown("### 🔴 Top Debtors")
+                st.markdown("### Top Debtors")
                 st.dataframe(
                     debtors_report['top_debtors'],
                     use_container_width=True,
@@ -639,14 +639,14 @@ def reports_dashboard():
                 if not debtors_data.empty:
                     csv_data = debtors_data.to_csv(index=False).encode('utf-8')
                     st.download_button(
-                        label="📥 Download Debtors Data (CSV)",
+                        label="Download Debtors Data (CSV)",
                         data=csv_data,
                         file_name=f"debtors_report_{datetime.now().strftime('%Y%m%d')}.csv",
                         mime="text/csv"
                     )
             
             with col2:
-                if st.button("📄 Download Debtors Report (PDF)", key="debtors_pdf"):
+                if st.button("Download Debtors Report (PDF)", key="debtors_pdf"):
                     with st.spinner("Generating PDF..."):
                         pdf_bytes = generate_debtors_report_pdf()
                         b64 = base64.b64encode(pdf_bytes).decode()
@@ -654,7 +654,7 @@ def reports_dashboard():
                         st.markdown(href, unsafe_allow_html=True)
             
             with col3:
-                if st.button("📄 Download Debtors Report (HTML)", key="debtors_html"):
+                if st.button("Download Debtors Report (HTML)", key="debtors_html"):
                     html_bytes = generate_debtors_report_pdf()
                     b64_html = base64.b64encode(html_bytes).decode()
                     href_html = f'<a href="data:text/html;base64,{b64_html}" download="debtors_report_{datetime.now().strftime("%Y%m%d")}.html">📥 Download HTML</a>'
@@ -667,7 +667,7 @@ def reports_dashboard():
     # ==============================
     if report_type == "Combined":
         st.markdown("---")
-        st.markdown("## 📊 Executive Summary")
+        st.markdown("## Executive Summary")
         
         # Get all reports
         sales_report = generate_sales_report(start_datetime, end_datetime)
@@ -683,21 +683,21 @@ def reports_dashboard():
         
         with col1:
             st.metric(
-                "📈 Total Revenue",
+                "Total Revenue",
                 f"${sales_report['total_sales']:,.2f}",
                 help="Total sales revenue"
             )
         
         with col2:
             st.metric(
-                "💸 Total Expenses",
+                "Total Expenses",
                 f"${expense_report['total_expenses']:,.2f}",
                 help="Total expenses"
             )
         
         with col3:
             st.metric(
-                "💰 Net Profit",
+                "Net Profit",
                 f"${net_profit:,.2f}",
                 delta=f"{(net_profit / sales_report['total_sales'] * 100):.1f}%" if sales_report['total_sales'] > 0 else "0%",
                 help="Revenue minus expenses"
@@ -706,7 +706,7 @@ def reports_dashboard():
         with col4:
             expense_ratio = (expense_report['total_expenses'] / sales_report['total_sales'] * 100) if sales_report['total_sales'] > 0 else 0
             st.metric(
-                "📊 Expense Ratio",
+                "Expense Ratio",
                 f"{expense_ratio:.1f}%",
                 help="Expenses as percentage of revenue"
             )
@@ -716,40 +716,40 @@ def reports_dashboard():
         
         with col1:
             st.metric(
-                "📦 Total Purchases",
+                "Total Purchases",
                 f"${purchase_report['total_purchases']:,.2f}",
                 help="Total purchases"
             )
         
         with col2:
             st.metric(
-                "👥 Total Customers",
+                "Total Customers",
                 f"{customer_report['total_customers']:,}",
                 help="Total customers"
             )
         
         with col3:
             st.metric(
-                "💰 Outstanding Debt",
+                "Outstanding Debt",
                 f"${debtors_report['outstanding_balance']:,.2f}",
                 help="Total outstanding debt"
             )
         
         with col4:
             st.metric(
-                "📋 Total Transactions",
+                "Total Transactions",
                 f"{sales_report['total_transactions']:,}",
                 help="Number of sales transactions"
             )
         
         # Combined Report Download
         st.markdown("---")
-        st.markdown("### 📥 Download Combined Report")
+        st.markdown("### Download Combined Report")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📄 Download Combined Report (PDF)", key="combined_pdf", use_container_width=True):
+            if st.button("Download Combined Report (PDF)", key="combined_pdf", use_container_width=True):
                 with st.spinner("Generating combined report PDF..."):
                     pdf_bytes = generate_combined_report_pdf(start_date, end_date)
                     b64 = base64.b64encode(pdf_bytes).decode()
@@ -757,7 +757,7 @@ def reports_dashboard():
                     st.markdown(href, unsafe_allow_html=True)
         
         with col2:
-            if st.button("📄 Download Combined Report (HTML)", key="combined_html", use_container_width=True):
+            if st.button("Download Combined Report (HTML)", key="combined_html", use_container_width=True):
                 with st.spinner("Generating combined report HTML..."):
                     html_bytes = generate_combined_report_pdf(start_date, end_date)
                     b64_html = base64.b64encode(html_bytes).decode()

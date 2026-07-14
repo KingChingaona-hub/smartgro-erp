@@ -16,7 +16,7 @@ from backend.analytics.debt_notifications import get_overdue_messages
 def debt_intelligence_dashboard():
     """Credit Intelligence Dashboard - Complete View"""
     
-    st.title("🧠 Credit Intelligence System")
+    st.title("Credit Intelligence System")
     st.caption("AI-powered credit risk analysis and debt management")
     
     # Load data
@@ -29,7 +29,7 @@ def debt_intelligence_dashboard():
     # ==============================
     # KEY METRICS
     # ==============================
-    st.subheader("📊 Credit Overview")
+    st.subheader("Credit Overview")
     
     total_outstanding = df["balance"].sum()
     total_debtors = len(df[df["balance"] > 0])
@@ -38,27 +38,27 @@ def debt_intelligence_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("💰 Total Outstanding", f"${total_outstanding:,.2f}")
+        st.metric("Total Outstanding", f"${total_outstanding:,.2f}")
     with col2:
-        st.metric("👥 Active Debtors", total_debtors)
+        st.metric("Active Debtors", total_debtors)
     with col3:
-        st.metric("📊 Avg Debt per Customer", f"${avg_debt:.2f}")
+        st.metric("Avg Debt per Customer", f"${avg_debt:.2f}")
     with col4:
         aging_summary = get_aging_summary()
         overdue_90 = aging_summary.get("days_90_plus", 0)
-        st.metric("⚠️ 90+ Days Overdue", f"${overdue_90:,.2f}")
+        st.metric("90+ Days Overdue", f"${overdue_90:,.2f}")
     
     st.markdown("---")
     
     # ==============================
     # CREDIT SCORES
     # ==============================
-    st.subheader("📊 Credit Scores")
+    st.subheader("Credit Scores")
     
     credit_scores = get_credit_score()
     if not credit_scores.empty:
         # Show low credit scores first (highest risk)
-        st.warning("⚠️ Customers with low credit scores need attention")
+        st.warning("Customers with low credit scores need attention")
         st.dataframe(
             credit_scores[["customer_name", "phone", "credit_score", "balance", "risk_level"]].head(20),
             use_container_width=True,
@@ -75,25 +75,25 @@ def debt_intelligence_dashboard():
     # ==============================
     # BLOCKED CUSTOMERS
     # ==============================
-    st.subheader("⛔ Blocked Customers")
+    st.subheader("Blocked Customers")
     
     blocked = get_blocked_customers(threshold=30)
     if not blocked.empty:
-        st.error(f"🚨 {len(blocked)} customers are BLOCKED due to poor credit")
+        st.error(f"{len(blocked)} customers are BLOCKED due to poor credit")
         st.dataframe(
             blocked[["customer_name", "phone", "credit_score", "balance", "risk_level"]],
             use_container_width=True,
             hide_index=True
         )
     else:
-        st.success("✅ No blocked customers")
+        st.success("No blocked customers")
     
     st.markdown("---")
     
     # ==============================
     # DEBT AGING REPORT
     # ==============================
-    st.subheader("📦 Debt Aging Report")
+    st.subheader("Debt Aging Report")
     
     aging_df = get_debt_aging()
     if not aging_df.empty:
@@ -124,12 +124,12 @@ def debt_intelligence_dashboard():
     # ==============================
     # OVERDUE NOTIFICATIONS
     # ==============================
-    st.subheader("📢 Overdue Notifications")
+    st.subheader("Overdue Notifications")
     
     messages = get_overdue_messages()
     
     if not messages.empty:
-        st.warning(f"⚠️ {len(messages)} overdue customers need attention")
+        st.warning(f"{len(messages)} overdue customers need attention")
         
         # Group by severity
         severity_colors = {
@@ -146,20 +146,20 @@ def debt_intelligence_dashboard():
         # Export messages
         csv = messages.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Overdue Messages (CSV)",
+            label="Download Overdue Messages (CSV)",
             data=csv,
             file_name=f"overdue_messages_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
     else:
-        st.success("✅ No overdue customers")
+        st.success("No overdue customers")
     
     st.markdown("---")
     
     # ==============================
     # RISK DISTRIBUTION CHART
     # ==============================
-    st.subheader("📊 Risk Distribution")
+    st.subheader("Risk Distribution")
     
     if not df.empty and "risk_level" in df.columns:
         risk_counts = df["risk_level"].value_counts().reset_index()
@@ -187,7 +187,7 @@ def debt_intelligence_dashboard():
     # ==============================
     # EXPORT FULL REPORT
     # ==============================
-    st.subheader("📥 Export Credit Report")
+    st.subheader("Export Credit Report")
     
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(

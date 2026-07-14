@@ -652,13 +652,13 @@ def generate_reminders():
         balance = row["balance"]
         
         if days <= 7:
-            message = f"🔔 Gentle Reminder: Your payment of ${balance:.2f} is due."
+            message = f"Gentle Reminder: Your payment of ${balance:.2f} is due."
         elif days <= 30:
-            message = f"⚠️ Payment Reminder: ${balance:.2f} is now {days} days overdue."
+            message = f"Payment Reminder: ${balance:.2f} is now {days} days overdue."
         elif days <= 60:
-            message = f"🚨 URGENT: ${balance:.2f} is {days} days overdue. Please pay immediately."
+            message = f"URGENT: ${balance:.2f} is {days} days overdue. Please pay immediately."
         else:
-            message = f"⛔ FINAL NOTICE: ${balance:.2f} is {days} days overdue. Account may be blocked."
+            message = f"FINAL NOTICE: ${balance:.2f} is {days} days overdue. Account may be blocked."
         
         reminders.append({
             "customer_name": row["customer_name"],

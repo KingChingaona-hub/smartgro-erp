@@ -386,13 +386,13 @@ def get_approvals_by_type():
 def workflow_approvals_dashboard():
     """Workflow Approvals Dashboard"""
     
-    st.title("✅ Workflow Approvals")
+    st.title("Workflow Approvals")
     st.caption("Multi-level approval workflows for purchases, discounts, credit limits, and more")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access workflow approvals.")
+        st.error("Access Denied. Only owners and managers can access workflow approvals.")
         return
     
     init_approval_files()
@@ -401,44 +401,44 @@ def workflow_approvals_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Dashboard",
-        "📝 Pending Approvals",
-        "📋 All Requests",
-        "📜 History",
-        "⚙️ Settings"
+        "Dashboard",
+        "Pending Approvals",
+        "All Requests",
+        "History",
+        "Settings"
     ])
     
     # ==============================
     # TAB 1: DASHBOARD
     # ==============================
     with tab1:
-        st.markdown("## 📊 Approval Dashboard")
+        st.markdown("## Approval Dashboard")
         
         summary = get_approval_summary()
         
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            st.metric("⏳ Pending", summary.get("pending", 0))
+            st.metric("Pending", summary.get("pending", 0))
         with col2:
-            st.metric("✅ Approved", summary.get("approved", 0))
+            st.metric("Approved", summary.get("approved", 0))
         with col3:
-            st.metric("❌ Rejected", summary.get("rejected", 0))
+            st.metric("Rejected", summary.get("rejected", 0))
         with col4:
-            st.metric("🤖 Auto-Approved", summary.get("auto_approved", 0))
+            st.metric("Auto-Approved", summary.get("auto_approved", 0))
         with col5:
-            st.metric("📊 Total", summary.get("total", 0))
+            st.metric("Total", summary.get("total", 0))
         
         if summary.get("pending", 0) > 0:
-            st.warning(f"⚠️ {summary['pending']} requests pending approval")
+            st.warning(f"{summary['pending']} requests pending approval")
         
         # Approval by type
         if summary.get("by_type", {}):
-            st.markdown("### 📊 Approval by Type")
+            st.markdown("### Approval by Type")
             types_df = pd.DataFrame(list(summary["by_type"].items()), columns=["Type", "Count"])
             st.bar_chart(types_df.set_index("Type"))
         
         # Recent approvals
-        st.markdown("### 📋 Recent Approvals")
+        st.markdown("### Recent Approvals")
         df = load_approvals()
         if not df.empty:
             recent = df.sort_values("requested_date", ascending=False).head(10)
@@ -455,13 +455,13 @@ def workflow_approvals_dashboard():
     # TAB 2: PENDING APPROVALS
     # ==============================
     with tab2:
-        st.markdown("## 📝 Pending Approvals")
+        st.markdown("## Pending Approvals")
         
         df = load_approvals()
         pending = df[df["status"].isin(["PENDING", "PENDING_LEVEL_2"])]
         
         if not pending.empty:
-            st.info(f"📋 {len(pending)} requests awaiting approval")
+            st.info(f"{len(pending)} requests awaiting approval")
             
             for _, approval in pending.iterrows():
                 with st.container():
@@ -516,13 +516,13 @@ def workflow_approvals_dashboard():
                     st.markdown(f"**Details:** {approval['details']}")
                     st.markdown("---")
         else:
-            st.success("✅ No pending approvals!")
+            st.success("No pending approvals!")
     
     # ==============================
     # TAB 3: ALL REQUESTS
     # ==============================
     with tab3:
-        st.markdown("## 📋 All Approval Requests")
+        st.markdown("## All Approval Requests")
         
         df = load_approvals()
         
@@ -560,7 +560,7 @@ def workflow_approvals_dashboard():
             # Export
             csv = filtered_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Export Approvals (CSV)",
+                label="Export Approvals (CSV)",
                 data=csv,
                 file_name=f"approvals_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
@@ -572,7 +572,7 @@ def workflow_approvals_dashboard():
     # TAB 4: HISTORY
     # ==============================
     with tab4:
-        st.markdown("## 📜 Approval History")
+        st.markdown("## Approval History")
         
         history_df = load_approval_history()
         
@@ -604,11 +604,11 @@ def workflow_approvals_dashboard():
     # TAB 5: SETTINGS
     # ==============================
     with tab5:
-        st.markdown("## ⚙️ Approval Settings")
+        st.markdown("## Approval Settings")
         
         settings = load_approval_settings()
         
-        st.markdown("### 📋 Approval Rules")
+        st.markdown("### Approval Rules")
         
         approval_types = ["purchase_order", "discount", "credit_limit", "price_change", "bulk_discount"]
         type_labels = {
@@ -620,7 +620,7 @@ def workflow_approvals_dashboard():
         }
         
         for approval_type in approval_types:
-            with st.expander(f"⚙️ {type_labels.get(approval_type, approval_type)}"):
+            with st.expander(f"{type_labels.get(approval_type, approval_type)}"):
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
@@ -663,9 +663,9 @@ def workflow_approvals_dashboard():
                 settings[approval_type]["levels"] = levels
                 settings[approval_type]["approvers"] = [x.strip() for x in approvers_input.split(",") if x.strip()]
         
-        if st.button("💾 Save All Settings", type="primary", use_container_width=True):
+        if st.button("Save All Settings", type="primary", use_container_width=True):
             save_approval_settings(settings)
-            st.success("✅ Settings saved successfully!")
+            st.success("Settings saved successfully!")
             show_toast("Approval settings updated!", "success")
             st.rerun()
 

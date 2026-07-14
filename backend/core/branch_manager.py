@@ -91,7 +91,7 @@ def branch_selector():
     
     selected_idx = branch_ids.index(current_branch) if current_branch in branch_ids else 0
     selected_name = st.sidebar.selectbox(
-        "🏢 Select Branch",
+        "Select Branch",
         branch_names,
         index=selected_idx,
         key="branch_selector"

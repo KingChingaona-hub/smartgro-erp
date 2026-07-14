@@ -122,13 +122,13 @@ def save_api_keys(keys):
 def show_toast(message, type="info"):
     """Show a toast notification using Streamlit"""
     if type == "success":
-        st.success(f"✅ {message}")
+        st.success(f"{message}")
     elif type == "error":
-        st.error(f"❌ {message}")
+        st.error(f"{message}")
     elif type == "warning":
-        st.warning(f"⚠️ {message}")
+        st.warning(f"{message}")
     else:
-        st.info(f"ℹ️ {message}")
+        st.info(f"{message}")
 
 
 def generate_api_key():
@@ -267,13 +267,13 @@ def get_api_stats():
 def api_developer_dashboard():
     """API Developer Dashboard"""
     
-    st.title("🔌 API Developer Dashboard")
+    st.title("API Developer Dashboard")
     st.caption("Manage and monitor API access for developers")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager", "developer"]:
-        st.error("❌ Access Denied. API management is for owners, managers, and developers only.")
+        st.error("Access Denied. API management is for owners, managers, and developers only.")
         return
     
     init_api_files()
@@ -281,15 +281,15 @@ def api_developer_dashboard():
     keys = load_api_keys()
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Dashboard",
-        "🔑 API Keys",
-        "⚙️ Configuration",
-        "📜 Logs",
-        "📚 Documentation"
+        "Dashboard",
+        "API Keys",
+        "Configuration",
+        "Logs",
+        "Documentation"
     ])
     
     with tab1:
-        st.markdown("## 📊 API Usage Dashboard")
+        st.markdown("## API Usage Dashboard")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -312,7 +312,7 @@ def api_developer_dashboard():
             success_rate = (stats["successful_calls"] / stats["total_calls"] * 100) if stats["total_calls"] > 0 else 0
             st.metric("Success Rate", f"{success_rate:.1f}%")
         
-        st.markdown("### 📋 Recent API Calls")
+        st.markdown("### Recent API Calls")
         if stats["recent_calls"]:
             df = pd.DataFrame(stats["recent_calls"])
             st.dataframe(df, use_container_width=True, hide_index=True)
@@ -320,15 +320,15 @@ def api_developer_dashboard():
             st.info("No API calls recorded yet")
         
         if stats["endpoints"]:
-            st.markdown("### 🔝 Top Endpoints")
+            st.markdown("### Top Endpoints")
             endpoint_df = pd.DataFrame(list(stats["endpoints"].items()), columns=["Endpoint", "Calls"])
             st.bar_chart(endpoint_df.set_index("Endpoint"))
     
     with tab2:
-        st.markdown("## 🔑 API Key Management")
+        st.markdown("## API Key Management")
         st.caption("Generate and manage API keys for developers")
         
-        st.markdown("### 📋 Existing API Keys")
+        st.markdown("### Existing API Keys")
         
         key_list = []
         for key_id, key_data in keys["api_keys"].items():
@@ -347,7 +347,7 @@ def api_developer_dashboard():
         else:
             st.info("No API keys found")
         
-        st.markdown("### 🔑 Generate New API Key")
+        st.markdown("### Generate New API Key")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -362,7 +362,7 @@ def api_developer_dashboard():
             rate_limit = st.number_input("Rate Limit (requests per minute)", min_value=10, max_value=1000, value=60)
             expires_in_days = st.number_input("Expires In (days)", min_value=1, max_value=365, value=30)
         
-        if st.button("🔑 Generate API Key", type="primary", use_container_width=True):
+        if st.button("Generate API Key", type="primary", use_container_width=True):
             if key_name:
                 new_key = generate_api_key()
                 new_key_data = {
@@ -380,16 +380,16 @@ def api_developer_dashboard():
                 save_api_keys(keys)
                 
                 show_toast("API Key generated successfully!", "success")
-                st.info(f"📋 **Your API Key:** `{new_key}`")
-                st.warning("⚠️ Copy this key now. It will not be shown again.")
-                st.rerun()
+                st.info(f"**Your API Key:** `{new_key}`")
+                st.warning("Copy this key now. It will not be shown again.")
+                #st.rerun()
             else:
                 show_toast("Please enter a key name", "error")
         
-        st.markdown("### 🔒 Revoke API Key")
+        st.markdown("### Revoke API Key")
         key_to_revoke = st.selectbox("Select Key to Revoke", list(keys["api_keys"].keys()))
         
-        if st.button("🔒 Revoke Key", use_container_width=True):
+        if st.button("Revoke Key", use_container_width=True):
             if key_to_revoke and key_to_revoke in keys["api_keys"]:
                 keys["api_keys"][key_to_revoke]["status"] = "revoked"
                 save_api_keys(keys)
@@ -397,7 +397,7 @@ def api_developer_dashboard():
                 st.rerun()
     
     with tab3:
-        st.markdown("## ⚙️ API Configuration")
+        st.markdown("## API Configuration")
         st.caption("Configure API settings and endpoints")
         
         col1, col2 = st.columns(2)
@@ -431,11 +431,11 @@ def api_developer_dashboard():
                 value=", ".join(config.get("allowed_origins", ["*"]))
             )
         
-        st.markdown("### 🎯 Endpoint Configuration")
+        st.markdown("### Endpoint Configuration")
         
         endpoints = config.get("endpoints", {})
         for endpoint, settings in endpoints.items():
-            with st.expander(f"📌 {endpoint.upper()}"):
+            with st.expander(f"{endpoint.upper()}"):
                 enabled_endpoint = st.checkbox(f"Enable {endpoint}", value=settings.get("enabled", True))
                 methods = st.multiselect(
                     f"Methods for {endpoint}",
@@ -447,7 +447,7 @@ def api_developer_dashboard():
                     "methods": methods
                 }
         
-        if st.button("💾 Save API Configuration", type="primary", use_container_width=True):
+        if st.button("Save API Configuration", type="primary", use_container_width=True):
             config.update({
                 "enabled": enabled,
                 "rate_limiting": rate_limiting,
@@ -463,7 +463,7 @@ def api_developer_dashboard():
             st.rerun()
     
     with tab4:
-        st.markdown("## 📜 API Access Logs")
+        st.markdown("## API Access Logs")
         st.caption("Audit trail of all API requests")
         
         if API_LOGS_FILE.exists():
@@ -481,7 +481,7 @@ def api_developer_dashboard():
                 
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Export API Logs (CSV)",
+                    label="Export API Logs (CSV)",
                     data=csv,
                     file_name=f"api_logs_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
@@ -491,7 +491,7 @@ def api_developer_dashboard():
         else:
             st.info("No API logs found")
         
-        st.markdown("### 🔍 Filter Logs")
+        st.markdown("### Filter Logs")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -503,15 +503,15 @@ def api_developer_dashboard():
         with col3:
             filter_method = st.selectbox("Filter by Method", ["All", "GET", "POST", "PUT", "DELETE"])
         
-        if st.button("🔍 Apply Filters", use_container_width=True):
+        if st.button("Apply Filters", use_container_width=True):
             show_toast("Filters applied", "info")
     
     with tab5:
-        st.markdown("## 📚 API Documentation")
+        st.markdown("## API Documentation")
         st.caption("API endpoint documentation and examples")
         
         # Getting Started section
-        st.markdown("### 🚀 Getting Started")
+        st.markdown("### Getting Started")
         st.markdown("#### Base URL")
         st.code("https://your-domain.com/api/v1/", language="text")
         
@@ -539,12 +539,12 @@ response = requests.get("https://your-domain.com/api/v1/products", headers=heade
         """, language="python")
         
         # Endpoints section
-        st.markdown("### 📡 Endpoints")
+        st.markdown("### Endpoints")
         
         endpoints = config.get("endpoints", {})
         for endpoint, settings in endpoints.items():
             if settings.get("enabled", True):
-                with st.expander(f"📌 {endpoint.upper()}"):
+                with st.expander(f"{endpoint.upper()}"):
                     st.markdown(f"**Endpoint:** `/api/{config.get('version', 'v1')}/{endpoint}`")
                     st.markdown(f"**Methods:** {', '.join(settings.get('methods', ['GET']))}")
                     
@@ -619,7 +619,7 @@ customers = response.json()
                         """, language="python")
         
         # Response Format section
-        st.markdown("### 📊 Response Format")
+        st.markdown("### Response Format")
         st.markdown("All responses follow this format:")
         st.code("""
 {
@@ -635,7 +635,7 @@ customers = response.json()
         """, language="json")
         
         # Error Responses section
-        st.markdown("### ⚠️ Error Responses")
+        st.markdown("### Error Responses")
         st.code("""
 {
     "status": "error",
@@ -647,13 +647,13 @@ customers = response.json()
         """, language="json")
         
         # Rate Limiting section
-        st.markdown("### 🔒 Rate Limiting")
+        st.markdown("### Rate Limiting")
         st.markdown(f"""
 - **Requests per minute:** {config.get('max_requests_per_minute', 60)}
 - **Requests per hour:** {config.get('max_requests_per_hour', 1000)}
         """)
         
-        st.info("💡 For more detailed documentation, visit the API reference page.")
+        st.info("For more detailed documentation, visit the API reference page.")
 
 
 # ==============================

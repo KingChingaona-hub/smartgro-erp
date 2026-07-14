@@ -229,13 +229,13 @@ def get_navigation_menu(role):
     
     # Define menu hierarchy with emoji icons
     menu_structure = {
-        "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
-        "💰 Sales": ["POS", "Sales History", "Sales Dashboard", "Returns & Refunds"],
-        "💳 Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
-        "📥 Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding"],
-        "👥 Customers": ["Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard", "Customer App", "Customer Insights", "Customer 360 View"],
-        "🤖 Intelligence": ["Business Advisor", "Debtors", "Debtors Dashboard", "Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
-        "📊 Analytics": [
+        "Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
+        "Sales": ["POS", "Sales History", "Sales Dashboard", "Returns & Refunds"],
+        "Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
+        "Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding"],
+        "Customers": ["Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard", "Customer App", "Customer Insights", "Customer 360 View"],
+        "Intelligence": ["Business Advisor", "Debtors", "Debtors Dashboard", "Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
+        "Analytics": [
             "Profit Center Analysis", 
             "Predictive Analytics", 
             "Competitor Price Monitoring",
@@ -245,26 +245,26 @@ def get_navigation_menu(role):
             "Anomaly Detection",
             "Automated Insights"
         ],
-        "📁 Reports": ["Reports Dashboard", "Documents"],
-        "🔄 Operations": ["Shift Management"],
-        "📱 Mobile": ["Mobile Dashboard"],
-        "🛍️ E-commerce": ["E-commerce Sync"],
-        "📱 Communications": ["SMS Gateway", "Voice Commands"],
-        "📷 Scanner": ["Barcode Scanner"],
-        "📦 Replenishment": ["Smart Replenishment"],
-        "🤖 Automation": ["Automated Follow-up", "Workflow Approvals"],
-        "⚙️ Administration": ["White Label", "Multi-Tenant", "API Developer", "PWA Setup", "User Management", "Branch Management", "Branch Performance", "Settings", "Offline Mode"]
+        "Reports": ["Reports Dashboard", "Documents"],
+        "Operations": ["Shift Management"],
+        "Mobile": ["Mobile Dashboard"],
+        "E-commerce": ["E-commerce Sync"],
+        "Communications": ["SMS Gateway", "Voice Commands"],
+        "Scanner": ["Barcode Scanner"],
+        "Replenishment": ["Smart Replenishment"],
+        "Automation": ["Automated Follow-up", "Workflow Approvals"],
+        "Administration": ["White Label", "Multi-Tenant", "API Developer", "PWA Setup", "User Management", "Branch Management", "Branch Performance", "Settings", "Offline Mode"]
     }
     
     # Cashier gets simplified mobile view
     if role == "cashier":
         menu_structure = {
-            "🛒 POS": ["POS"],
-            "📊 Today": ["Mobile Dashboard"],
-            "📜 History": ["Sales History"],
-            "📦 Stock": ["Stock Dashboard", "Barcode Generator"],
-            "🎤 Voice": ["Voice Commands"],
-            "📷 Scanner": ["Barcode Scanner"]
+            "POS": ["POS"],
+            "Today": ["Mobile Dashboard"],
+            "History": ["Sales History"],
+            "Stock": ["Stock Dashboard", "Barcode Generator"],
+            "Voice": ["Voice Commands"],
+            "Scanner": ["Barcode Scanner"]
         }
     
     # Filter based on role permissions
@@ -296,13 +296,13 @@ def get_mobile_menu(role):
     
     # Simplified menu for mobile devices
     mobile_menu = {
-        "📊 Dashboard": ["Mobile Dashboard"],
-        "🛒 Sales": ["POS", "Sales History", "Returns & Refunds"],
-        "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
-        "💰 Finance": ["Cash Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
-        "👥 Customers": ["Customer Dashboard", "Customer App", "Customer 360 View"],
-        "🤖 Intelligence": ["Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
-        "📊 Analytics": [
+        "Dashboard": ["Mobile Dashboard"],
+        "Sales": ["POS", "Sales History", "Returns & Refunds"],
+        "Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
+        "Finance": ["Cash Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
+        "Customers": ["Customer Dashboard", "Customer App", "Customer 360 View"],
+        "Intelligence": ["Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
+        "Analytics": [
             "Profit Center Analysis", 
             "Predictive Analytics", 
             "Competitor Price Monitoring",
@@ -312,23 +312,23 @@ def get_mobile_menu(role):
             "Anomaly Detection",
             "Automated Insights"
         ],
-        "🛍️ E-commerce": ["E-commerce Sync"],
-        "📱 Communications": ["SMS Gateway", "Voice Commands"],
-        "📷 Scanner": ["Barcode Scanner"],
-        "📦 Replenishment": ["Smart Replenishment"],
-        "🤖 Automation": ["Automated Follow-up", "Workflow Approvals"],
-        "⚙️ More": []
+        "E-commerce": ["E-commerce Sync"],
+        "Communications": ["SMS Gateway", "Voice Commands"],
+        "Scanner": ["Barcode Scanner"],
+        "Replenishment": ["Smart Replenishment"],
+        "Automation": ["Automated Follow-up", "Workflow Approvals"],
+        "More": []
     }
     
     # Add role-specific items
     if role in ["manager", "owner"]:
-        mobile_menu["⚙️ More"].extend(["Purchases", "Expenses", "Reports Dashboard", "Customer Insights", "Offline Mode", "Supplier Bidding", "Documents", "PWA Setup", "API Developer"])
+        mobile_menu["More"].extend(["Purchases", "Expenses", "Reports Dashboard", "Customer Insights", "Offline Mode", "Supplier Bidding", "Documents", "PWA Setup", "API Developer"])
     
     if role == "owner":
-        mobile_menu["⚙️ More"].extend(["User Management", "Settings", "Branch Management", "White Label", "Multi-Tenant"])
+        mobile_menu["More"].extend(["User Management", "Settings", "Branch Management", "White Label", "Multi-Tenant"])
     
     if role == "manager":
-        mobile_menu["⚙️ More"].extend(["Branch Performance"])
+        mobile_menu["More"].extend(["Branch Performance"])
     
     # Filter based on permissions
     filtered_menu = {}
@@ -345,7 +345,7 @@ def get_mobile_menu(role):
                     visible_items.append(item)
         
         # Don't show empty categories
-        if visible_items or category == "⚙️ More":
+        if visible_items or category == "More":
             filtered_menu[category] = visible_items
     
     return filtered_menu
@@ -495,7 +495,7 @@ def get_mobile_navigation_html(role, current_page):
     # Add more menu items
     more_items = get_mobile_menu(role)
     for category, items in more_items.items():
-        if category != "⚙️ More":
+        if category != "More":
             continue
         for item in items:
             nav_html += f'<a href="#" class="mobile-menu-item" onclick="window.location.href=\'?page={item}\'">{item}</a>'
@@ -555,7 +555,7 @@ def render_sidebar_menu(role, current_page):
     menu = get_navigation_menu(role)
     badges = get_menu_badge_counts()
     
-    st.sidebar.markdown("### 📋 Navigation")
+    st.sidebar.markdown("### Navigation")
     
     for category, items in menu.items():
         st.sidebar.markdown(f"**{category}**")

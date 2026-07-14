@@ -219,32 +219,32 @@ def process_voice_command(parsed_command):
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"✅ Added {product} to cart"
+                response["message"] = f"Added {product} to cart"
                 response["navigate_action"] = "ADD_TO_CART"
                 response["product"] = product
             else:
-                response["message"] = "❌ Which product would you like to add?"
+                response["message"] = "Which product would you like to add?"
         
         elif action == "checkout":
             response["success"] = True
-            response["message"] = "✅ Proceeding to checkout"
+            response["message"] = "Proceeding to checkout"
             response["navigate_action"] = "CHECKOUT"
         
         elif action == "clear_cart":
             response["success"] = True
-            response["message"] = "✅ Cart cleared"
+            response["message"] = "Cart cleared"
             response["navigate_action"] = "CLEAR_CART"
         
         elif action == "view_cart":
             response["success"] = True
-            response["message"] = "✅ Showing cart contents"
+            response["message"] = "Showing cart contents"
             response["navigate_action"] = "VIEW_CART"
         
         elif action == "search_product":
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"✅ Searching for {product}"
+                response["message"] = f"Searching for {product}"
                 response["navigate_action"] = "SEARCH_PRODUCT"
                 response["product"] = product
     
@@ -253,34 +253,34 @@ def process_voice_command(parsed_command):
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"✅ Checking stock for {product}"
+                response["message"] = f"Checking stock for {product}"
                 response["navigate_action"] = "VIEW_STOCK"
                 response["product"] = product
             else:
-                response["message"] = "❌ Which product would you like to check?"
+                response["message"] = "Which product would you like to check?"
         
         elif action == "add_stock":
             product = params.get("product")
             if product:
                 response["success"] = True
-                response["message"] = f"✅ Adding stock to {product}"
+                response["message"] = f"Adding stock to {product}"
                 response["navigate_action"] = "ADD_STOCK"
                 response["product"] = product
     
     elif category == "sales":
         if action == "today_sales":
             response["success"] = True
-            response["message"] = "✅ Showing today's sales"
+            response["message"] = "Showing today's sales"
             response["navigate_action"] = "TODAY_SALES"
         
         elif action == "weekly_sales":
             response["success"] = True
-            response["message"] = "✅ Showing weekly sales"
+            response["message"] = "Showing weekly sales"
             response["navigate_action"] = "WEEKLY_SALES"
         
         elif action == "best_sellers":
             response["success"] = True
-            response["message"] = "✅ Showing best selling products"
+            response["message"] = "Showing best selling products"
             response["navigate_action"] = "BEST_SELLERS"
     
     elif category == "customers":
@@ -288,17 +288,17 @@ def process_voice_command(parsed_command):
             name = params.get("name")
             if name:
                 response["success"] = True
-                response["message"] = f"✅ Searching for customer {name}"
+                response["message"] = f"Searching for customer {name}"
                 response["navigate_action"] = "FIND_CUSTOMER"
                 response["customer_name"] = name
             else:
-                response["message"] = "❌ Which customer would you like to find?"
+                response["message"] = "Which customer would you like to find?"
         
         elif action == "add_customer":
             name = params.get("name")
             if name:
                 response["success"] = True
-                response["message"] = f"✅ Adding customer {name}"
+                response["message"] = f"Adding customer {name}"
                 response["navigate_action"] = "ADD_CUSTOMER"
                 response["customer_name"] = name
     
@@ -325,23 +325,23 @@ def process_voice_command(parsed_command):
         if action in page_map:
             page_info = page_map[action]
             response["success"] = True
-            response["message"] = f"✅ Navigating to {page_info['display']}"
+            response["message"] = f"Navigating to {page_info['display']}"
             response["navigate_to"] = page_info['page']
             response["navigate_action"] = "NAVIGATE"
     
     elif category == "general":
         if action == "help":
             response["success"] = True
-            response["message"] = "💡 Available commands: Add product, Checkout, View stock, Today's sales, Go to POS, Help, and more"
+            response["message"] = "Available commands: Add product, Checkout, View stock, Today's sales, Go to POS, Help, and more"
         
         elif action == "cancel":
             response["success"] = True
-            response["message"] = "✅ Command cancelled"
+            response["message"] = "Command cancelled"
             response["navigate_action"] = "CANCEL"
         
         elif action == "logout":
             response["success"] = True
-            response["message"] = "✅ Logging out..."
+            response["message"] = "Logging out..."
             response["navigate_action"] = "LOGOUT"
     
     return response
@@ -350,13 +350,13 @@ def process_voice_command(parsed_command):
 def show_toast(message, type="info"):
     """Show a toast notification using Streamlit"""
     if type == "success":
-        st.success(f"✅ {message}")
+        st.success(f"{message}")
     elif type == "error":
-        st.error(f"❌ {message}")
+        st.error(f"{message}")
     elif type == "warning":
-        st.warning(f"⚠️ {message}")
+        st.warning(f"{message}")
     else:
-        st.info(f"ℹ️ {message}")
+        st.info(f"{message}")
 
 
 # ==============================
@@ -365,13 +365,13 @@ def show_toast(message, type="info"):
 def voice_commands_dashboard():
     """Voice Commands Dashboard"""
     
-    st.title("🎤 Voice Commands")
+    st.title("Voice Commands")
     st.caption("Control the system using voice commands")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager", "cashier"]:
-        st.error("❌ Access Denied. Voice commands are available to all staff.")
+        st.error("Access Denied. Voice commands are available to all staff.")
         return
     
     init_voice_files()
@@ -393,17 +393,17 @@ def voice_commands_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🎤 Voice Control",
-        "📋 Available Commands",
-        "📜 Command History",
-        "⚙️ Settings"
+        "Voice Control",
+        "Available Commands",
+        "Command History",
+        "Settings"
     ])
     
     # ==============================
     # TAB 1: VOICE CONTROL
     # ==============================
     with tab1:
-        st.markdown("## 🎤 Voice Control")
+        st.markdown("## Voice Control")
         
         if not settings.get("enabled", True):
             st.warning("Voice commands are disabled. Enable them in Settings.")
@@ -505,7 +505,7 @@ def voice_commands_dashboard():
                 function startRecognition() {
                     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                     if (!SpeechRecognition) {
-                        micStatus.textContent = '❌ Browser not supported';
+                        micStatus.textContent = 'Browser not supported';
                         return;
                     }
                     
@@ -518,7 +518,7 @@ def voice_commands_dashboard():
                         isListening = true;
                         micBtn.classList.add('listening');
                         micBtn.textContent = '🔴 Stop';
-                        micStatus.textContent = '🎤 Speak now...';
+                        micStatus.textContent = 'Speak now...';
                         micStatus.className = 'mic-status listening';
                     };
                     
@@ -577,29 +577,29 @@ def voice_commands_dashboard():
             """, unsafe_allow_html=True)
         
         # Process button
-        if st.button("🔍 Process Command", key="process_voice"):
+        if st.button("Process Command", key="process_voice"):
             if voice_text:
                 with st.spinner("Processing command..."):
                     parsed = parse_voice_command(voice_text)
                     
                     if parsed:
-                        st.success(f"✅ Command recognized: {parsed['action'].replace('_', ' ').title()}")
+                        st.success(f"Command recognized: {parsed['action'].replace('_', ' ').title()}")
                         
                         result = process_voice_command(parsed)
                         
                         if result["success"]:
-                            st.info(f"💬 Response: {result['message']}")
+                            st.info(f"Response: {result['message']}")
                             
                             # Handle navigation
                             if result.get("navigate_to"):
-                                st.success(f"🔄 Navigating to: {result['navigate_to']}")
+                                st.success(f"Navigating to: {result['navigate_to']}")
                                 st.session_state.voice_command_result = result
                                 
                                 # Store the navigation target in session state
                                 st.session_state.navigate_to = result['navigate_to']
                                 
                                 # Use st.rerun() to trigger navigation
-                                st.rerun()
+                                #st.rerun()
                             
                             # Handle POS actions
                             if result.get("navigate_action") in ["ADD_TO_CART", "CHECKOUT", "CLEAR_CART", "VIEW_CART"]:
@@ -620,31 +620,31 @@ def voice_commands_dashboard():
                             result.get("message", "")
                         )
                     else:
-                        st.error("❌ Command not recognized. Please try again.")
-                        st.info("💡 Try: 'Help' to see available commands")
+                        st.error("Command not recognized. Please try again.")
+                        st.info("Try: 'Help' to see available commands")
             else:
                 st.warning("Please enter or speak a command first")
         
         # Check for navigation
         if st.session_state.get("navigate_to"):
             nav_target = st.session_state.navigate_to
-            st.info(f"🔄 Navigating to: {nav_target}")
+            st.info(f"Navigating to: {nav_target}")
             st.session_state.navigate_to = None
         
         # Quick action buttons
-        st.markdown("### ⚡ Quick Voice Actions")
+        st.markdown("### Quick Voice Actions")
         
         col1, col2, col3, col4 = st.columns(4)
         
         quick_actions = [
-            ("📦 Add to Cart", "Add bread to cart"),
-            ("💰 Checkout", "Checkout"),
-            ("📊 Today's Sales", "Today's sales"),
-            ("📱 Go to POS", "Go to POS"),
-            ("📈 Go to Reports", "Go to reports"),
-            ("📦 Go to Stock", "Go to stock"),
-            ("👥 Go to Customers", "Go to customers"),
-            ("🔄 Help", "Help")
+            ("Add to Cart", "Add bread to cart"),
+            ("Checkout", "Checkout"),
+            ("Today's Sales", "Today's sales"),
+            ("Go to POS", "Go to POS"),
+            ("Go to Reports", "Go to reports"),
+            ("Go to Stock", "Go to stock"),
+            ("Go to Customers", "Go to customers"),
+            ("Help", "Help")
         ]
         
         for idx, (label, command) in enumerate(quick_actions):
@@ -659,7 +659,7 @@ def voice_commands_dashboard():
     # TAB 2: AVAILABLE COMMANDS
     # ==============================
     with tab2:
-        st.markdown("## 📋 Available Voice Commands")
+        st.markdown("## Available Voice Commands")
         
         commands = load_voice_commands()
         
@@ -667,7 +667,7 @@ def voice_commands_dashboard():
             st.markdown(f"### {category.upper()}")
             
             for action, patterns in category_commands.items():
-                with st.expander(f"🎯 {action.replace('_', ' ').title()}"):
+                with st.expander(f"{action.replace('_', ' ').title()}"):
                     st.markdown("**Patterns:**")
                     for pattern in patterns:
                         st.code(f"• {pattern}")
@@ -676,7 +676,7 @@ def voice_commands_dashboard():
     # TAB 3: COMMAND HISTORY
     # ==============================
     with tab3:
-        st.markdown("## 📜 Voice Command History")
+        st.markdown("## Voice Command History")
         
         if Path(VOICE_LOGS_FILE).exists():
             df = pd.read_csv(VOICE_LOGS_FILE)
@@ -693,7 +693,7 @@ def voice_commands_dashboard():
                 
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Export Voice Logs (CSV)",
+                    label="Export Voice Logs (CSV)",
                     data=csv,
                     file_name=f"voice_logs_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
@@ -707,7 +707,7 @@ def voice_commands_dashboard():
     # TAB 4: SETTINGS
     # ==============================
     with tab4:
-        st.markdown("## ⚙️ Voice Settings")
+        st.markdown("## Voice Settings")
         
         col1, col2 = st.columns(2)
         
@@ -731,7 +731,7 @@ def voice_commands_dashboard():
             )
             auto_complete = st.checkbox("Auto-complete Commands", value=settings.get("auto_complete", True))
         
-        if st.button("💾 Save Voice Settings", type="primary", use_container_width=True):
+        if st.button("Save Voice Settings", type="primary", use_container_width=True):
             settings.update({
                 "enabled": enabled,
                 "voice_enabled": voice_enabled,
@@ -741,10 +741,10 @@ def voice_commands_dashboard():
                 "auto_complete": auto_complete
             })
             save_voice_settings(settings)
-            st.success("✅ Voice settings saved successfully!")
+            st.success("Voice settings saved successfully!")
             show_toast("Voice settings updated!", "success")
         
-        st.markdown("### ➕ Add Custom Command")
+        st.markdown("### Add Custom Command")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -757,7 +757,7 @@ def voice_commands_dashboard():
         with col2:
             new_pattern = st.text_input("Command Pattern", placeholder="my custom command {product}")
         
-        if st.button("➕ Add Command", use_container_width=True):
+        if st.button("Add Command", use_container_width=True):
             if new_action and new_pattern:
                 commands = load_voice_commands()
                 if new_category not in commands:
@@ -766,7 +766,7 @@ def voice_commands_dashboard():
                     commands[new_category][new_action] = []
                 commands[new_category][new_action].append(new_pattern)
                 save_voice_commands(commands)
-                st.success(f"✅ Command added: {new_action}")
+                st.success(f"Command added: {new_action}")
                 show_toast("New voice command added!", "success")
                 st.rerun()
             else:

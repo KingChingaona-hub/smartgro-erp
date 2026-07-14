@@ -101,8 +101,8 @@ operations.
 │  Founder & Lead Developer:  King T Chingaona                                │
 │  Co-Developer:              Walker Takaendesa                               │
 │  System Name:               SmartGro ERP System                              │
-│  Version:                   3.0 (Zimbabwe Edition)                           │
-│  Release Date:              June 2024                                        │
+│  Version:                   2.0 (Zimbabwe Edition)                           │
+│  Release Date:              July 2026                                        │
 │  Target Market:             Zimbabwe Retail Businesses                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -164,7 +164,7 @@ Navigate to the SmartGro_System folder and run:
 
 Step 5: Access the System
 • Open your web browser
-• Go to: http://localhost:8501
+• Go to: https://smartgro.streamlit.app/
 • Login using the provided credentials
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -317,7 +317,7 @@ Solution:
 
 Developer:          King T Chingaona, Walker Takaendesa
 System Name:        SmartGro ERP System
-Version:            3.0 (Zimbabwe Edition)
+Version:            2.0 (Zimbabwe Edition)
 Email Support:      aziel@investments.co.zw
 Phone Support:      +263 78 290 5853
 Website:            www.azielinvestments.co.zw
@@ -328,8 +328,8 @@ Retreat Park, Harare
 Zimbabwe
 
 Support Hours:
-Monday - Friday: 8:00 AM - 5:00 PM
-Saturday: 9:00 AM - 1:00 PM
+Monday - Friday: 7:00 AM - 8:00 PM
+Saturday: 7:00 AM - 5:00 PM
 Sunday: Closed
 
 Emergency Support: +263 78 290 5853
@@ -340,7 +340,7 @@ Emergency Support: +263 78 290 5853
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SmartGro ERP System
-Copyright © 2024 Aziel Investments
+Copyright © 2026 Aziel Investments
 
 All rights reserved. This software is proprietary and confidential.
 Unauthorized copying, distribution, or modification is strictly prohibited.
@@ -427,12 +427,12 @@ def restore_backup(zip_file):
 def settings_page():
     """Settings Page with complete configuration"""
     
-    st.title("⚙️ System Settings")
+    st.title("System Settings")
     st.caption("Configure system preferences, manage backups, and access documentation")
     
     # Security check - only owner can access
     if st.session_state.get("role") != "owner":
-        st.error("❌ Access Denied. Only system owner can access settings.")
+        st.error("Access Denied. Only system owner can access settings.")
         return
     
     # Load current settings
@@ -442,26 +442,26 @@ def settings_page():
     # TABS FOR DIFFERENT SETTINGS
     # ==============================
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📖 User Manual",
-        "🏪 Store Settings",
-        "💾 Backup & Restore",
-        "ℹ️ System Info",
-        "📧 Email Reports",
-        "🧹 Data Management"
+        "User Manual",
+        "Store Settings",
+        "Backup & Restore",
+        "ℹSystem Info",
+        "Email Reports",
+        "Data Management"
     ])
     
     # ==============================
     # TAB 1: USER MANUAL
     # ==============================
     with tab1:
-        st.markdown("## 📖 System User Manual")
+        st.markdown("## System User Manual")
         st.markdown("Complete documentation for the SmartGro ERP System")
         
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("""
-            ### 📚 Manual Contents
+            ### Manual Contents
             
             - System Overview
             - Installation Guide
@@ -476,12 +476,12 @@ def settings_page():
             
             **Founder:** King T Chingaona
             **Co-Developer:** Walker Takaendesa
-            **Version:** 3.0 (Zimbabwe Edition)
+            **Version:** 2.0 (Zimbabwe Edition)
             """)
         
         with col2:
             st.markdown("""
-            ### 📥 Download Options
+            ### Download Options
             
             Choose your preferred format:
             
@@ -493,26 +493,26 @@ def settings_page():
             current_date = datetime.now().strftime('%Y%m%d')
             
             st.download_button(
-                label="📄 Download TXT Manual",
+                label="Download TXT Manual",
                 data=manual_text,
                 file_name=f"SmartGro_Manual_{current_date}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
             
-            st.info("💡 Tip: The manual includes complete system documentation, installation guide, and troubleshooting tips.")
+            st.info("Tip: The manual includes complete system documentation, installation guide, and troubleshooting tips.")
         
         st.markdown("---")
         
         # Preview manual
-        with st.expander("📖 Preview Manual (Click to expand)"):
+        with st.expander("Preview Manual (Click to expand)"):
             st.text_area("Manual Preview", manual_text[:3000], height=400)
     
     # ==============================
     # TAB 2: STORE SETTINGS
     # ==============================
     with tab2:
-        st.markdown("## 🏪 Store Information")
+        st.markdown("## Store Information")
         
         col1, col2 = st.columns(2)
         
@@ -530,7 +530,7 @@ def settings_page():
         store_address = st.text_area("Store Address", value=settings.get("store_address", "Retreat Park, Harare, Zimbabwe"))
         receipt_footer = st.text_input("Receipt Footer Message", value=settings.get("receipt_footer", "Thank you for shopping with us!"))
         
-        if st.button("💾 Save Store Settings", type="primary", use_container_width=True):
+        if st.button("Save Store Settings", type="primary", use_container_width=True):
             settings["store_name"] = store_name
             settings["store_phone"] = store_phone
             settings["store_email"] = store_email
@@ -539,27 +539,27 @@ def settings_page():
             settings["tax_rate"] = tax_rate
             settings["receipt_footer"] = receipt_footer
             save_settings(settings)
-            st.success("✅ Store settings saved successfully!")
+            st.success("Store settings saved successfully!")
             st.rerun()
     
     # ==============================
     # TAB 3: BACKUP & RESTORE
     # ==============================
     with tab3:
-        st.markdown("## 💾 Backup & Restore")
-        st.warning("⚠️ Regular backups are recommended to prevent data loss")
+        st.markdown("## Backup & Restore")
+        st.warning("Regular backups are recommended to prevent data loss")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📦 Create Backup", use_container_width=True):
+            if st.button("Create Backup", use_container_width=True):
                 with st.spinner("Creating backup..."):
                     backup_file = create_backup()
-                    st.success(f"✅ Backup created successfully!")
+                    st.success(f"Backup created successfully!")
                     
                     with open(backup_file, "rb") as f:
                         st.download_button(
-                            label="📥 Download Backup",
+                            label="Download Backup",
                             data=f,
                             file_name=backup_file.name,
                             mime="application/zip",
@@ -569,9 +569,9 @@ def settings_page():
         with col2:
             uploaded_file = st.file_uploader("Restore from Backup", type=["zip"])
             if uploaded_file is not None:
-                st.warning("⚠️ Restoring will overwrite current data!")
+                st.warning("Restoring will overwrite current data!")
                 confirm = st.checkbox("I understand this will replace all current data")
-                if confirm and st.button("🔄 Restore Backup", use_container_width=True):
+                if confirm and st.button("Restore Backup", use_container_width=True):
                     with st.spinner("Restoring backup..."):
                         # Save uploaded file temporarily
                         temp_zip = Path("temp_restore.zip")
@@ -581,27 +581,27 @@ def settings_page():
                         restore_backup(temp_zip)
                         temp_zip.unlink()
                         
-                        st.success("✅ Backup restored successfully! Please restart the application.")
+                        st.success("Backup restored successfully! Please restart the application.")
     
     # ==============================
     # TAB 4: SYSTEM INFO
     # ==============================
     with tab4:
-        st.markdown("## ℹ️ System Information")
+        st.markdown("## System Information")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 📊 System Details")
+            st.markdown("### System Details")
             st.write(f"**System Name:** SmartGro ERP")
-            st.write(f"**Version:** 3.0 (Zimbabwe Edition)")
+            st.write(f"**Version:** 2.0 (Zimbabwe Edition)")
             st.write(f"**Founder:** King T Chingaona")
             st.write(f"**Co-Developer:** Walker Takaendesa")
-            st.write(f"**Release Date:** June 2024")
+            st.write(f"**Release Date:** June 2026")
             st.write(f"**Framework:** Streamlit")
         
         with col2:
-            st.markdown("### 📈 Database Stats")
+            st.markdown("### Database Stats")
             
             products = load_products()
             sales = load_sales()
@@ -615,7 +615,7 @@ def settings_page():
         
         st.markdown("---")
         
-        st.markdown("### 👨‍💻 Developer Information")
+        st.markdown("### Developer Information")
         st.markdown(f"""
         | Detail | Information |
         |--------|-------------|
@@ -629,25 +629,25 @@ def settings_page():
         
         st.markdown("---")
         
-        st.markdown("### 📜 License Information")
+        st.markdown("### License Information")
         st.markdown("""
         **SmartGro ERP System**  
-        Copyright © 2024 Aziel Investments  
+        Copyright © 2026 Aziel Investments  
         
         All rights reserved. This software is proprietary and confidential.
         Unauthorized copying, distribution, or modification is strictly prohibited.
         """)
         
         # Clear cache button
-        if st.button("🗑️ Clear System Cache", use_container_width=True):
+        if st.button("Clear System Cache", use_container_width=True):
             st.cache_data.clear()
-            st.success("✅ Cache cleared! Refresh the page.")
+            st.success("Cache cleared! Refresh the page.")
     
     # ==============================
     # TAB 5: EMAIL REPORTS (FULLY FUNCTIONAL)
     # ==============================
     with tab5:
-        st.markdown("## 📧 Email Reports Configuration")
+        st.markdown("## Email Reports Configuration")
         st.caption("Configure email settings for automated reports")
         
         # Load email config
@@ -660,19 +660,19 @@ def settings_page():
                 with st.spinner("Testing connection..."):
                     success, message = test_email_connection()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
-                        st.info("💡 For Gmail: You need to use an App Password. Go to Google Account → Security → App Passwords.")
+                        st.error(f"{message}")
+                        st.info("For Gmail: You need to use an App Password. Go to Google Account → Security → App Passwords.")
         
         with col2:
-            if st.button("📧 Send Test Email", use_container_width=True):
+            if st.button("Send Test Email", use_container_width=True):
                 with st.spinner("Sending test email..."):
                     success, message = send_test_email()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         st.markdown("---")
         
@@ -688,8 +688,8 @@ def settings_page():
         with col2:
             sender_password = st.text_input("App Password", type="password", value=email_config.get("sender_password", ""), 
                                             placeholder="16-character app password", key="email_password")
-            st.caption("🔑 **Gmail users:** Generate an App Password at myaccount.google.com/apppasswords")
-            st.caption("📧 **Other providers:** Use your regular password or SMTP password")
+            st.caption("**Gmail users:** Generate an App Password at myaccount.google.com/apppasswords")
+            st.caption("**Other providers:** Use your regular password or SMTP password")
         
         st.markdown("### Recipients")
         
@@ -704,20 +704,20 @@ def settings_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            enable_daily = st.checkbox("📊 Enable Daily Sales Report", value=email_config.get("enable_daily_report", False), key="email_enable_daily")
+            enable_daily = st.checkbox("Enable Daily Sales Report", value=email_config.get("enable_daily_report", False), key="email_enable_daily")
             if enable_daily:
                 st.info("Daily report will be sent at end of each day")
         
         with col2:
-            enable_weekly = st.checkbox("📈 Enable Weekly Sales Report", value=email_config.get("enable_weekly_report", False), key="email_enable_weekly")
+            enable_weekly = st.checkbox("Enable Weekly Sales Report", value=email_config.get("enable_weekly_report", False), key="email_enable_weekly")
             if enable_weekly:
                 st.info("Weekly report will be sent every Sunday")
         
-        enable_low_stock = st.checkbox("⚠️ Enable Low Stock Alerts", value=email_config.get("enable_low_stock_alert", False), key="email_enable_low_stock")
+        enable_low_stock = st.checkbox("Enable Low Stock Alerts", value=email_config.get("enable_low_stock_alert", False), key="email_enable_low_stock")
         if enable_low_stock:
             st.info("Low stock alerts sent when inventory falls below reorder levels")
         
-        if st.button("💾 Save Email Settings", type="primary", use_container_width=True):
+        if st.button("Save Email Settings", type="primary", use_container_width=True):
             recipients = [r.strip() for r in recipients_text.split("\n") if r.strip()]
             
             new_config = {
@@ -731,9 +731,9 @@ def settings_page():
                 "enable_low_stock_alert": enable_low_stock
             }
             if save_email_config(new_config):
-                st.success("✅ Email settings saved successfully!")
+                st.success("Email settings saved successfully!")
             else:
-                st.error("❌ Failed to save email settings")
+                st.error("Failed to save email settings")
         
         st.markdown("---")
         
@@ -743,37 +743,37 @@ def settings_page():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("📧 Send Daily Report Now", use_container_width=True):
+            if st.button("Send Daily Report Now", use_container_width=True):
                 with st.spinner("Sending daily report..."):
                     success, message = send_daily_report()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         with col2:
-            if st.button("📊 Send Weekly Report Now", use_container_width=True):
+            if st.button("Send Weekly Report Now", use_container_width=True):
                 with st.spinner("Sending weekly report..."):
                     success, message = send_weekly_report()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         with col3:
-            if st.button("⚠️ Send Low Stock Alert", use_container_width=True):
+            if st.button("Send Low Stock Alert", use_container_width=True):
                 with st.spinner("Checking stock and sending..."):
                     success, message = send_low_stock_alert()
                     if success:
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         
         st.markdown("---")
         
         st.markdown("### Troubleshooting")
         
-        with st.expander("🔧 Why aren't emails sending? Click for help"):
+        with st.expander("Why aren't emails sending? Click for help"):
             st.markdown("""
             **Common Issues and Solutions:**
             
@@ -802,10 +802,10 @@ def settings_page():
     # TAB 6: DATA MANAGEMENT
     # ==============================
     with tab6:
-        st.markdown("## 🧹 Data Management")
+        st.markdown("## Data Management")
         st.caption("Clean up old data and manage system storage")
         
-        st.warning("⚠️ These actions can permanently delete data. Use with caution.")
+        st.warning("These actions can permanently delete data. Use with caution.")
         
         col1, col2 = st.columns(2)
         
@@ -813,8 +813,8 @@ def settings_page():
             st.markdown("### Clear Old Sales Data")
             days_to_keep = st.number_input("Keep data from last (days)", min_value=30, max_value=365, value=90)
             
-            if st.button("🗑️ Clear Old Sales", use_container_width=True):
-                confirm = st.checkbox("⚠️ I understand this will delete old sales records permanently")
+            if st.button("Clear Old Sales", use_container_width=True):
+                confirm = st.checkbox("I understand this will delete old sales records permanently")
                 if confirm:
                     sales_df = load_sales()
                     if not sales_df.empty and "date" in sales_df.columns:
@@ -822,12 +822,12 @@ def settings_page():
                         cutoff = datetime.now() - timedelta(days=days_to_keep)
                         filtered_df = sales_df[sales_df["date"] >= cutoff]
                         save_sales(filtered_df)
-                        st.success(f"✅ Removed records older than {days_to_keep} days. {len(filtered_df)} records remaining.")
+                        st.success(f"Removed records older than {days_to_keep} days. {len(filtered_df)} records remaining.")
         
         with col2:
             st.markdown("### Export All Data")
             
-            if st.button("📥 Export All Data (CSV)", use_container_width=True):
+            if st.button("Export All Data (CSV)", use_container_width=True):
                 import zipfile
                 from io import BytesIO
                 
@@ -851,7 +851,7 @@ def settings_page():
                 
                 zip_buffer.seek(0)
                 st.download_button(
-                    label="📥 Download All Data (ZIP)",
+                    label="Download All Data (ZIP)",
                     data=zip_buffer,
                     file_name=f"all_data_export_{datetime.now().strftime('%Y%m%d')}.zip",
                     mime="application/zip",
@@ -861,13 +861,13 @@ def settings_page():
         st.markdown("---")
         
         st.markdown("### Reset System (Danger Zone)")
-        st.error("⚠️ This will delete ALL data and reset the system to factory defaults!")
+        st.error("This will delete ALL data and reset the system to factory defaults!")
         
         confirm_reset = st.checkbox("I understand this will delete ALL data. This action CANNOT be undone.")
         reset_password = st.text_input("Type 'RESET' to confirm", type="password")
         
         if confirm_reset and reset_password == "RESET":
-            if st.button("🔥 RESET SYSTEM", use_container_width=True):
+            if st.button("RESET SYSTEM", use_container_width=True):
                 # Backup before reset
                 backup_file = create_backup()
                 st.info(f"Backup created at: {backup_file}")
@@ -892,14 +892,14 @@ def settings_page():
                 # Reinitialize
                 init_data_folder()
                 
-                st.success("✅ System reset to factory defaults! Please restart the application.")
+                st.success("System reset to factory defaults! Please restart the application.")
                 st.warning("Your backup file has been saved. You can restore it from Backup & Restore tab.")
     
     # ==============================
     # REFRESH BUTTON
     # ==============================
     st.markdown("---")
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 

@@ -199,9 +199,9 @@ def generate_receipt_html(receipt_data):
             <div class="watermark">AZIEL</div>
             
             <div class="receipt-header">
-                <h2>🏢 AZIEL INVESTMENTS</h2>
-                <p>Retail Park, Harare</p>
-                <p>📞 +263 78 290 5853</p>
+                <h2>AZIEL INVESTMENTS</h2>
+                <p>Retreat Park, Harare</p>
+                <p>+263 78 290 5853</p>
                 <p style="font-size: 9px; color: #999;">DEBT PAYMENT RECEIPT</p>
             </div>
             
@@ -478,9 +478,9 @@ def generate_receipt_pdf_html(receipt_data):
             <div class="watermark">AZIEL</div>
             
             <div class="receipt-header">
-                <h2>🏢 AZIEL INVESTMENTS</h2>
-                <p>Retail Park, Harare</p>
-                <p>📞 +263 78 290 5853</p>
+                <h2>AZIEL INVESTMENTS</h2>
+                <p>Retreat Park, Harare</p>
+                <p>+263 78 290 5853</p>
                 <p style="font-size: 7pt; color: #999; margin-top: 4px;">DEBT PAYMENT RECEIPT</p>
             </div>
             
@@ -547,7 +547,7 @@ def generate_receipt_pdf_html(receipt_data):
             </div>
             
             <div class="{receipt_data.get('status_class', 'status-paid')}">
-                {receipt_data.get('status_text', '✅ FULLY PAID - THANK YOU!')}
+                {receipt_data.get('status_text', 'FULLY PAID - THANK YOU!')}
             </div>
             
             <div class="receipt-footer">
@@ -559,7 +559,7 @@ def generate_receipt_pdf_html(receipt_data):
         </div>
         
         <div style="text-align: center; margin-top: 15px; width: 80mm;">
-            <button class="print-btn no-print" onclick="window.print()">🖨️ Print Receipt</button>
+            <button class="print-btn no-print" onclick="window.print()">Print Receipt</button>
             <br>
             <button class="print-btn no-print" style="background: #666;" onclick="window.location.href='/'">✖️ Close</button>
         </div>
@@ -587,7 +587,7 @@ def generate_receipt_pdf_html(receipt_data):
 def debtors_page():
     """Enhanced Debtors Management Page"""
     
-    st.title("⏱️ Debtors Management System")
+    st.title("⏱Debtors Management System")
     st.caption("Track customer credit, manage payments, and reduce bad debt")
     
     # Update risk levels on load
@@ -620,18 +620,18 @@ def debtors_page():
     # TABS FOR DIFFERENT FUNCTIONS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "➕ Create Debt",
-        "💰 Record Payment",
-        "⚠️ Overdue & Reminders",
-        "📊 Aging Report",
-        "📋 All Debtors"
+        "Create Debt",
+        "Record Payment",
+        "Overdue & Reminders",
+        "Aging Report",
+        "All Debtors"
     ])
     
     # ==============================
     # TAB 1: CREATE DEBT
     # ==============================
     with tab1:
-        st.markdown("## ➕ Create New Debt")
+        st.markdown("## Create New Debt")
         st.caption("Select products and create a debt record")
         
         # Customer Information
@@ -646,7 +646,7 @@ def debtors_page():
             due_date = st.date_input("Expected Repayment Date", min_value=datetime.now().date(), key="debt_due_date")
         
         # Payment Plan Options
-        st.markdown("### 📅 Payment Plan (Optional)")
+        st.markdown("### Payment Plan (Optional)")
         
         col1, col2, col3 = st.columns(3)
         
@@ -665,7 +665,7 @@ def debtors_page():
         st.markdown("---")
         
         # Product Selection for Debt
-        st.markdown("### 📦 Select Products")
+        st.markdown("### Select Products")
         
         # Search and select product
         col1, col2, col3 = st.columns([2, 1, 1])
@@ -693,7 +693,7 @@ def debtors_page():
                 if product_stock > 0:
                     debt_qty = st.number_input("Quantity", min_value=1, max_value=product_stock, value=1, key="debt_qty")
                 else:
-                    st.error(f"⚠️ {product['name']} is OUT OF STOCK")
+                    st.error(f"{product['name']} is OUT OF STOCK")
                     debt_qty = 1
             else:
                 product_stock = 0
@@ -701,7 +701,7 @@ def debtors_page():
         
         with col3:
             if selected_product and product_stock > 0:
-                if st.button("➕ Add to Debt", key="add_debt_item"):
+                if st.button("Add to Debt", key="add_debt_item"):
                     if not st.session_state.button_clicked:
                         st.session_state.button_clicked = True
                         if product_stock >= debt_qty:
@@ -718,7 +718,7 @@ def debtors_page():
                         st.session_state.button_clicked = False
         
         # Manual item entry
-        st.markdown("### ✏️ Manual Item (Non-Inventory)")
+        st.markdown("### Manual Item (Non-Inventory)")
         
         col1, col2, col3 = st.columns([2, 1, 1])
         
@@ -729,7 +729,7 @@ def debtors_page():
             manual_amount = st.number_input("Amount ($)", min_value=0.0, step=5.0, key="manual_item_amount")
         
         with col3:
-            if st.button("➕ Add Manual", key="add_manual_debt_item"):
+            if st.button("Add Manual", key="add_manual_debt_item"):
                 if not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     if manual_item and manual_amount > 0:
@@ -746,17 +746,17 @@ def debtors_page():
         # Display Debt Cart
         if st.session_state.debt_cart:
             st.markdown("---")
-            st.markdown("### 🧾 Debt Items Cart")
+            st.markdown("### Debt Items Cart")
             
             cart_df = pd.DataFrame(st.session_state.debt_cart)
             st.dataframe(cart_df[["name", "quantity", "price", "total"]], use_container_width=True, hide_index=True)
             
             debt_total = cart_df["total"].sum()
-            st.info(f"💰 **TOTAL DEBT AMOUNT: ${debt_total:.2f}**")
+            st.info(f"**TOTAL DEBT AMOUNT: ${debt_total:.2f}**")
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🗑️ Clear Cart", key="clear_debt_cart"):
+                if st.button("Clear Cart", key="clear_debt_cart"):
                     if not st.session_state.button_clicked:
                         st.session_state.button_clicked = True
                         st.session_state.debt_cart = []
@@ -765,7 +765,7 @@ def debtors_page():
             with col2:
                 notes = st.text_area("Notes (optional)", key="debt_notes")
             
-            if st.button("📝 Create Debt Record", type="primary", key="create_debt_record"):
+            if st.button("Create Debt Record", type="primary", key="create_debt_record"):
                 if not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     
@@ -790,15 +790,15 @@ def debtors_page():
                         
                         if success:
                             st.balloons()
-                            st.success(f"✅ Debt created successfully! Debt ID: {result}")
-                            st.info(f"💰 Total Amount: ${debt_total:.2f}")
-                            st.info(f"📅 Expected Repayment: {due_date}")
+                            st.success(f"Debt created successfully! Debt ID: {result}")
+                            st.info(f"Total Amount: ${debt_total:.2f}")
+                            st.info(f"Expected Repayment: {due_date}")
                             if credit_limit > 0:
-                                st.info(f"💳 Credit Limit: ${credit_limit:.2f}")
+                                st.info(f"Credit Limit: ${credit_limit:.2f}")
                             st.session_state.debt_cart = []
                             st.session_state.debt_created = True
                         else:
-                            st.error(f"❌ Failed: {result}")
+                            st.error(f"Failed: {result}")
                     
                     st.session_state.button_clicked = False
     
@@ -806,7 +806,7 @@ def debtors_page():
     # TAB 2: RECORD PAYMENT
     # ==============================
     with tab2:
-        st.markdown("## 💰 Record Debt Payment")
+        st.markdown("## Record Debt Payment")
         
         if df.empty:
             st.info("No debt records found")
@@ -822,7 +822,7 @@ def debtors_page():
                 total_balance = customer_debts["balance"].sum()
                 credit_limit_val = customer_debts["credit_limit"].iloc[0] if not customer_debts.empty and "credit_limit" in customer_debts.columns else 0
                 
-                st.markdown("### 📊 Customer Summary")
+                st.markdown("### Customer Summary")
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
@@ -836,7 +836,7 @@ def debtors_page():
                     st.metric("Credit Available", f"${credit_available:,.2f}")
                 
                 # Individual debts
-                st.markdown("### 📋 Individual Debts")
+                st.markdown("### Individual Debts")
                 
                 for idx, (_, debt) in enumerate(customer_debts.iterrows()):
                     debt_id_safe = str(debt['debt_id']).replace("-", "_")
@@ -847,7 +847,7 @@ def debtors_page():
                 
                 # Payment input
                 st.markdown("---")
-                st.markdown("### 💵 Payment Details")
+                st.markdown("### Payment Details")
                 
                 col1, col2 = st.columns(2)
                 
@@ -865,14 +865,14 @@ def debtors_page():
                 if cash_tendered > 0 and pay_amount > 0:
                     if cash_tendered >= pay_amount:
                         change_debt = cash_tendered - pay_amount
-                        st.success(f"💰 Change to return: ${change_debt:.2f}")
+                        st.success(f"Change to return: ${change_debt:.2f}")
                     else:
                         st.warning(f"Cash tendered is less than payment amount")
                 
                 if pay_amount > total_balance:
                     st.error(f"Payment amount exceeds outstanding balance (${total_balance:.2f})")
                 
-                if st.button("💰 Record Payment", type="primary", key="record_debt_payment"):
+                if st.button("Record Payment", type="primary", key="record_debt_payment"):
                     if not st.session_state.button_clicked:
                         st.session_state.button_clicked = True
                         
@@ -895,7 +895,7 @@ def debtors_page():
                                 is_paid = new_balance <= 0
                                 
                                 st.balloons()
-                                st.success(f"✅ Payment of ${pay_amount:.2f} recorded")
+                                st.success(f"Payment of ${pay_amount:.2f} recorded")
                                 
                                 # Prepare receipt data
                                 receipt_data = {
@@ -934,10 +934,10 @@ def debtors_page():
                                 
                                 # Set status
                                 if is_paid:
-                                    receipt_data["status_text"] = "✅ FULLY PAID - THANK YOU!"
+                                    receipt_data["status_text"] = "FULLY PAID - THANK YOU!"
                                     receipt_data["status_class"] = "status-paid"
                                 else:
-                                    receipt_data["status_text"] = f"💰 PARTIAL PAYMENT - Remaining: ${new_balance:.2f}"
+                                    receipt_data["status_text"] = f"PARTIAL PAYMENT - Remaining: ${new_balance:.2f}"
                                     receipt_data["status_class"] = "status-partial"
                                 
                                 # Store receipt data in session
@@ -951,12 +951,12 @@ def debtors_page():
     # TAB 3: OVERDUE & REMINDERS
     # ==============================
     with tab3:
-        st.markdown("## ⚠️ Overdue Debtors & Reminders")
+        st.markdown("## Overdue Debtors & Reminders")
         
         overdue = get_overdue_debtors()
         
         if not overdue.empty:
-            st.warning(f"🚨 {len(overdue)} customers with overdue payments")
+            st.warning(f"{len(overdue)} customers with overdue payments")
             
             total_overdue = overdue["balance"].sum()
             st.metric("Total Overdue Amount", f"${total_overdue:,.2f}")
@@ -968,13 +968,13 @@ def debtors_page():
             )
             
             st.markdown("---")
-            st.markdown("### 📢 Send Payment Reminders")
+            st.markdown("### Send Payment Reminders")
             
             reminders = generate_reminders()
             
             for idx, reminder in enumerate(reminders):
                 debt_id_safe = str(reminder.get('debt_id', idx)).replace("-", "_")
-                with st.expander(f"📱 {reminder['customer_name']} - {reminder['days_overdue']} days overdue"):
+                with st.expander(f"{reminder['customer_name']} - {reminder['days_overdue']} days overdue"):
                     st.write(f"**Balance:** ${reminder['balance']:.2f}")
                     st.write(f"**Message:** {reminder['message']}")
                     
@@ -995,7 +995,7 @@ def debtors_page():
                                 <button style="background: #25D366; color: white; border: none; 
                                                border-radius: 30px; padding: 8px 16px; 
                                                cursor: pointer; font-weight: bold;">
-                                    📱 Send WhatsApp Reminder
+                                    Send WhatsApp Reminder
                                 </button>
                             </a>
                             """, unsafe_allow_html=True)
@@ -1003,24 +1003,24 @@ def debtors_page():
                             st.warning("No valid phone number")
                     
                     with col2:
-                        if st.button(f"📧 Send SMS", key=f"sms_reminder_{idx}_{debt_id_safe}"):
+                        if st.button(f"Send SMS", key=f"sms_reminder_{idx}_{debt_id_safe}"):
                             if not st.session_state.button_clicked:
                                 st.session_state.button_clicked = True
                                 st.info("SMS integration - message would be sent")
                                 st.session_state.button_clicked = False
         else:
-            st.success("✅ No overdue payments! All debts are current.")
+            st.success("No overdue payments! All debts are current.")
     
     # ==============================
     # TAB 4: AGING REPORT
     # ==============================
     with tab4:
-        st.markdown("## 📊 Debt Aging Report")
+        st.markdown("## Debt Aging Report")
         
         aging_summary = get_aging_summary()
         recoverable = get_recoverable_debt()
         
-        st.markdown("### 📈 Aging Buckets")
+        st.markdown("### Aging Buckets")
         
         aging_data = pd.DataFrame([
             {"Bucket": "Current", "Amount": aging_summary.get("current", 0)},
@@ -1034,7 +1034,7 @@ def debtors_page():
         
         st.markdown("---")
         
-        st.markdown("### 💰 Recovery Analysis")
+        st.markdown("### Recovery Analysis")
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -1045,13 +1045,13 @@ def debtors_page():
             st.metric("Recovery Rate", f"{recoverable.get('recovery_rate', 0):.1f}%")
         
         if recoverable.get('expected_loss', 0) > 0:
-            st.warning(f"⚠️ Estimated Bad Debt Risk: ${recoverable['expected_loss']:,.2f}")
+            st.warning(f"Estimated Bad Debt Risk: ${recoverable['expected_loss']:,.2f}")
     
     # ==============================
     # TAB 5: ALL DEBTORS
     # ==============================
     with tab5:
-        st.markdown("## 📋 Complete Debtors List")
+        st.markdown("## Complete Debtors List")
         
         if not df.empty:
             total_debt = df["balance"].sum()
@@ -1081,7 +1081,7 @@ def debtors_page():
             
             csv = filtered_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Download Debtors Report (CSV)",
+                label="Download Debtors Report (CSV)",
                 data=csv,
                 file_name=f"debtors_report_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
@@ -1094,10 +1094,10 @@ def debtors_page():
     # ==============================
     if st.session_state.payment_receipt and st.session_state.receipt_data:
         st.markdown("---")
-        st.subheader("🧾 PAYMENT RECEIPT")
+        st.subheader("PAYMENT RECEIPT")
         
         # Display receipt in an expandable section
-        with st.expander("📄 View Receipt", expanded=True):
+        with st.expander("View Receipt", expanded=True):
             # Show receipt preview in a frame
             st.components.v1.html(
                 st.session_state.payment_receipt,
@@ -1122,7 +1122,7 @@ def debtors_page():
                 width: 100%;
                 margin: 5px 0;
             ">
-                🖨️ Print Receipt
+                Print Receipt
             </button>
             """, unsafe_allow_html=True)
         
@@ -1134,13 +1134,13 @@ def debtors_page():
             st.markdown(href, unsafe_allow_html=True)
         
         with col3:
-            if st.button("❌ Close Receipt", key="close_payment_receipt"):
+            if st.button("Close Receipt", key="close_payment_receipt"):
                 st.session_state.payment_receipt = None
                 st.session_state.receipt_data = None
                 st.session_state.payment_recorded = False
                 st.rerun()
         
-        st.caption("💡 Click 'Print Receipt' to print or save as PDF")
+        st.caption("Click 'Print Receipt' to print or save as PDF")
 
 
 # ==============================

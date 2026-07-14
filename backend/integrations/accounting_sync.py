@@ -374,13 +374,13 @@ def export_audit_trail(audit_df, date_from, date_to):
 def accounting_sync_dashboard():
     """Accounting Software Sync Dashboard with REAL data"""
     
-    st.title("📊 Accounting Software Sync")
+    st.title("Accounting Software Sync")
     st.caption("Export REAL data to QuickBooks, Pastel, Xero, Sage, and ZIMRA")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access accounting sync.")
+        st.error("Access Denied. Only owners and managers can access accounting sync.")
         return
     
     init_accounting_files()
@@ -388,7 +388,7 @@ def accounting_sync_dashboard():
     # ==============================
     # DATE RANGE SELECTION
     # ==============================
-    st.markdown("### 📅 Select Export Period")
+    st.markdown("### Select Export Period")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -417,24 +417,24 @@ def accounting_sync_dashboard():
     # ==============================
     # DISPLAY REAL METRICS
     # ==============================
-    st.markdown("### 📊 Period Summary")
+    st.markdown("### Period Summary")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("💰 Total Sales", f"${total_sales:,.2f}")
+        st.metric("Total Sales", f"${total_sales:,.2f}")
     with col2:
-        st.metric("📉 Total Expenses", f"${total_expenses:,.2f}")
+        st.metric("Total Expenses", f"${total_expenses:,.2f}")
     with col3:
-        st.metric("📈 Total Profit", f"${total_profit:,.2f}")
+        st.metric("Total Profit", f"${total_profit:,.2f}")
     with col4:
-        st.metric("📊 Transactions", transaction_count)
+        st.metric("Transactions", transaction_count)
     
     st.markdown("---")
     
     # ==============================
     # EXPORT OPTIONS
     # ==============================
-    st.markdown("### 📤 Export to Accounting Software")
+    st.markdown("### Export to Accounting Software")
     
     col1, col2 = st.columns(2)
     
@@ -457,9 +457,9 @@ def accounting_sync_dashboard():
     # ==============================
     # GENERATE EXPORT
     # ==============================
-    if st.button("📥 Generate Export File", type="primary", use_container_width=True):
+    if st.button("Generate Export File", type="primary", use_container_width=True):
         if sales_df.empty and export_format != "Audit Trail (CSV)":
-            st.error("❌ No sales data found for the selected period. Please add sales or change the date range.")
+            st.error("No sales data found for the selected period. Please add sales or change the date range.")
         else:
             with st.spinner("Generating export file..."):
                 
@@ -470,47 +470,47 @@ def accounting_sync_dashboard():
                     export_data = export_to_quickbooks(sales_df, expenses_df if include_expenses else pd.DataFrame(), date_from, date_to)
                     export_filename = f"quickbooks_export_{date_from.strftime('%Y%m%d')}_{date_to.strftime('%Y%m%d')}.iif"
                     if export_data:
-                        st.success(f"✅ QuickBooks export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
+                        st.success(f"QuickBooks export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
                     else:
-                        st.error("❌ No data to export for QuickBooks")
+                        st.error("No data to export for QuickBooks")
                 
                 elif export_format == "Pastel Partner (CSV)":
                     export_data = export_to_pastel(sales_df, expenses_df if include_expenses else pd.DataFrame(), date_from, date_to)
                     export_filename = f"pastel_export_{date_from.strftime('%Y%m%d')}_{date_to.strftime('%Y%m%d')}.csv"
                     if export_data:
-                        st.success(f"✅ Pastel Partner export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
+                        st.success(f"Pastel Partner export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
                     else:
-                        st.error("❌ No data to export for Pastel")
+                        st.error("No data to export for Pastel")
                 
                 elif export_format == "Xero (CSV)":
                     export_data = export_to_xero(sales_df, expenses_df if include_expenses else pd.DataFrame(), date_from, date_to)
                     export_filename = f"xero_export_{date_from.strftime('%Y%m%d')}_{date_to.strftime('%Y%m%d')}.csv"
                     if export_data:
-                        st.success(f"✅ Xero export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
+                        st.success(f"Xero export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
                     else:
-                        st.error("❌ No data to export for Xero")
+                        st.error("No data to export for Xero")
                 
                 elif export_format == "Sage One (CSV)":
                     export_data = export_to_sage(sales_df, expenses_df if include_expenses else pd.DataFrame(), date_from, date_to)
                     export_filename = f"sage_export_{date_from.strftime('%Y%m%d')}_{date_to.strftime('%Y%m%d')}.csv"
                     if export_data:
-                        st.success(f"✅ Sage One export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
+                        st.success(f"Sage One export generated! {transaction_count} transactions, Revenue: ${total_sales:,.2f}")
                     else:
-                        st.error("❌ No data to export for Sage")
+                        st.error("No data to export for Sage")
                 
                 elif export_format == "ZIMRA e-filing (CSV)":
                     export_data = export_to_zimra(sales_df, date_from, date_to)
                     export_filename = f"zimra_export_{date_from.strftime('%Y%m%d')}_{date_to.strftime('%Y%m%d')}.csv"
                     if export_data:
-                        st.success(f"✅ ZIMRA e-filing export generated! Revenue: ${total_sales:,.2f}")
+                        st.success(f"ZIMRA e-filing export generated! Revenue: ${total_sales:,.2f}")
                     else:
-                        st.error("❌ No data to export for ZIMRA")
+                        st.error("No data to export for ZIMRA")
                 
                 elif export_format == "Audit Trail (CSV)":
                     audit_df = get_audit_log(365)
                     export_data = export_audit_trail(audit_df, date_from, date_to)
                     export_filename = f"audit_trail_{date_from.strftime('%Y%m%d')}_{date_to.strftime('%Y%m%d')}.csv"
-                    st.success("✅ Audit trail export generated!")
+                    st.success("Audit trail export generated!")
                 
                 if export_data:
                     # Save export record
@@ -530,7 +530,7 @@ def accounting_sync_dashboard():
                     
                     # Download button
                     st.download_button(
-                        label="💾 Download Export File",
+                        label="Download Export File",
                         data=export_data.encode('utf-8') if isinstance(export_data, str) else export_data,
                         file_name=export_filename,
                         mime="text/csv",
@@ -543,7 +543,7 @@ def accounting_sync_dashboard():
     # EXPORT HISTORY
     # ==============================
     st.markdown("---")
-    st.markdown("### 📋 Export History")
+    st.markdown("### Export History")
     
     exports_df = load_accounting_exports()
     if not exports_df.empty:

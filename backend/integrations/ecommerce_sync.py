@@ -78,7 +78,7 @@ def load_products_from_db():
         # If empty, try alternative import
         if df.empty:
             try:
-                from backend.core.database import load_products as load_products_alt
+                from backend.core.db_adapter import load_products as load_products_alt
                 df = load_products_alt()
             except:
                 pass
@@ -341,13 +341,13 @@ def import_shopify_orders(json_file):
 def ecommerce_sync_dashboard():
     """E-commerce Platform Sync Dashboard"""
     
-    st.title("🛍️ E-commerce Platform Sync")
+    st.title("E-commerce Platform Sync")
     st.caption("Sync products with WooCommerce, Shopify, and Facebook Shop")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access e-commerce sync.")
+        st.error("Access Denied. Only owners and managers can access e-commerce sync.")
         return
     
     init_ecommerce_files()
@@ -357,32 +357,32 @@ def ecommerce_sync_dashboard():
     
     # Debug: Show what was loaded
     if not products_df.empty:
-        st.sidebar.success(f"✅ Loaded {len(products_df)} products")
+        st.sidebar.success(f"Loaded {len(products_df)} products")
         
         # Show sample in sidebar for debugging
-        with st.sidebar.expander("📋 Product Sample"):
+        with st.sidebar.expander("Product Sample"):
             st.dataframe(products_df.head(3), use_container_width=True)
     else:
-        st.sidebar.error("❌ No products loaded")
-        st.sidebar.info("💡 Check: data/products.csv file exists and has data")
+        st.sidebar.error("No products loaded")
+        st.sidebar.info("Check: data/products.csv file exists and has data")
     
     if products_df.empty:
         st.warning("No products found. Please add products first.")
         
         # Show debug info
-        with st.expander("🔍 Debug: Check data source"):
+        with st.expander("Debug: Check data source"):
             st.write("Checking data/products.csv...")
             data_dir = Path("data")
             products_file = data_dir / "products.csv"
             if products_file.exists():
-                st.success(f"✅ products.csv exists at: {products_file}")
+                st.success(f"products.csv exists at: {products_file}")
                 try:
                     sample = pd.read_csv(products_file).head(3)
                     st.dataframe(sample, use_container_width=True)
                 except Exception as e:
                     st.error(f"Error reading file: {e}")
             else:
-                st.warning(f"❌ products.csv not found at: {products_file}")
+                st.warning(f"products.csv not found at: {products_file}")
                 
             # Check db_adapter
             try:
@@ -398,17 +398,17 @@ def ecommerce_sync_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📤 Export Products",
-        "📥 Import Orders",
-        "📊 Sync Dashboard",
-        "⚙️ Platform Settings"
+        "Export Products",
+        "Import Orders",
+        "Sync Dashboard",
+        "Platform Settings"
     ])
     
     # ==============================
     # TAB 1: EXPORT PRODUCTS
     # ==============================
     with tab1:
-        st.markdown("## 📤 Export Products to E-commerce Platforms")
+        st.markdown("## Export Products to E-commerce Platforms")
         
         col1, col2 = st.columns(2)
         
@@ -431,10 +431,10 @@ def ecommerce_sync_dashboard():
         else:
             export_products = products_df
         
-        st.info(f"📦 {len(export_products)} products will be exported")
+        st.info(f"{len(export_products)} products will be exported")
         
         # Preview products
-        with st.expander("📋 Preview Products to Export"):
+        with st.expander("Preview Products to Export"):
             preview_cols = ["name", "barcode", "price", "stock"]
             if "category" in export_products.columns:
                 preview_cols.append("category")
@@ -445,7 +445,7 @@ def ecommerce_sync_dashboard():
                 hide_index=True
             )
         
-        if st.button(f"📤 Export to {platform}", type="primary", use_container_width=True):
+        if st.button(f"Export to {platform}", type="primary", use_container_width=True):
             with st.spinner(f"Exporting to {platform}..."):
                 
                 export_data = None
@@ -454,17 +454,17 @@ def ecommerce_sync_dashboard():
                 if platform == "WooCommerce":
                     export_data = export_to_woocommerce(export_products)
                     export_filename = f"woocommerce_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
-                    st.success("✅ WooCommerce export generated!")
+                    st.success("WooCommerce export generated!")
                     
                 elif platform == "Shopify":
                     export_data = export_to_shopify(export_products)
                     export_filename = f"shopify_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
-                    st.success("✅ Shopify export generated!")
+                    st.success("Shopify export generated!")
                     
                 elif platform == "Facebook Shop":
                     export_data = export_to_facebook(export_products)
                     export_filename = f"facebook_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
-                    st.success("✅ Facebook Shop export generated!")
+                    st.success("Facebook Shop export generated!")
                 
                 if export_data:
                     # Save export record
@@ -482,7 +482,7 @@ def ecommerce_sync_dashboard():
                     
                     # Download button
                     st.download_button(
-                        label="💾 Download Export File",
+                        label="Download Export File",
                         data=export_data.encode('utf-8'),
                         file_name=export_filename,
                         mime="text/csv",
@@ -495,7 +495,7 @@ def ecommerce_sync_dashboard():
     # TAB 2: IMPORT ORDERS
     # ==============================
     with tab2:
-        st.markdown("## 📥 Import Orders from E-commerce Platforms")
+        st.markdown("## Import Orders from E-commerce Platforms")
         st.caption("Import orders from your online stores")
         
         import_platform = st.selectbox(
@@ -506,10 +506,10 @@ def ecommerce_sync_dashboard():
         if import_platform == "WooCommerce (CSV)":
             uploaded_file = st.file_uploader("Upload WooCommerce Orders CSV", type=["csv"])
             
-            if uploaded_file and st.button("📥 Import Orders", type="primary", use_container_width=True):
+            if uploaded_file and st.button("Import Orders", type="primary", use_container_width=True):
                 success, result = import_woocommerce_orders(uploaded_file)
                 if success:
-                    st.success(f"✅ Successfully imported {len(result)} orders!")
+                    st.success(f"Successfully imported {len(result)} orders!")
                     
                     st.dataframe(
                         pd.DataFrame(result),
@@ -528,15 +528,15 @@ def ecommerce_sync_dashboard():
                         "synced_by": st.session_state.get("username", "system")
                     })
                 else:
-                    st.error(f"❌ Import failed: {result}")
+                    st.error(f"Import failed: {result}")
         
         elif import_platform == "Shopify (JSON)":
             uploaded_file = st.file_uploader("Upload Shopify Orders JSON", type=["json"])
             
-            if uploaded_file and st.button("📥 Import Orders", type="primary", use_container_width=True):
+            if uploaded_file and st.button("Import Orders", type="primary", use_container_width=True):
                 success, result = import_shopify_orders(uploaded_file)
                 if success:
-                    st.success(f"✅ Successfully imported {len(result)} orders!")
+                    st.success(f"Successfully imported {len(result)} orders!")
                     
                     st.dataframe(
                         pd.DataFrame(result),
@@ -555,13 +555,13 @@ def ecommerce_sync_dashboard():
                         "synced_by": st.session_state.get("username", "system")
                     })
                 else:
-                    st.error(f"❌ Import failed: {result}")
+                    st.error(f"Import failed: {result}")
     
     # ==============================
     # TAB 3: SYNC DASHBOARD
     # ==============================
     with tab3:
-        st.markdown("## 📊 Sync Dashboard")
+        st.markdown("## Sync Dashboard")
         
         # Statistics
         total_products = len(products_df)
@@ -569,21 +569,21 @@ def ecommerce_sync_dashboard():
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("📦 Total Products", total_products)
+            st.metric("Total Products", total_products)
         with col2:
-            st.metric("⚠️ Low Stock Items", low_stock)
+            st.metric("Low Stock Items", low_stock)
         with col3:
             exports_df = load_ecommerce_exports()
-            st.metric("📤 Total Exports", len(exports_df))
+            st.metric("Total Exports", len(exports_df))
         with col4:
             try:
                 syncs_df = pd.read_csv(SYNC_LOG_FILE) if SYNC_LOG_FILE.exists() else pd.DataFrame()
-                st.metric("📥 Total Imports", len(syncs_df))
+                st.metric("Total Imports", len(syncs_df))
             except:
-                st.metric("📥 Total Imports", 0)
+                st.metric("Total Imports", 0)
         
         # Export history
-        st.markdown("### 📤 Export History")
+        st.markdown("### Export History")
         exports_df = load_ecommerce_exports()
         if not exports_df.empty:
             try:
@@ -601,7 +601,7 @@ def ecommerce_sync_dashboard():
             st.info("No export history")
         
         # Sync history
-        st.markdown("### 📥 Import History")
+        st.markdown("### Import History")
         if SYNC_LOG_FILE.exists():
             try:
                 syncs_df = pd.read_csv(SYNC_LOG_FILE)
@@ -628,45 +628,45 @@ def ecommerce_sync_dashboard():
     # TAB 4: PLATFORM SETTINGS
     # ==============================
     with tab4:
-        st.markdown("## ⚙️ Platform Settings")
+        st.markdown("## Platform Settings")
         
         st.info("🔧 Configure your e-commerce platform API settings")
         
         # WooCommerce Settings
-        with st.expander("🛒 WooCommerce Settings", expanded=True):
+        with st.expander("WooCommerce Settings", expanded=True):
             woocommerce_url = st.text_input("WooCommerce Store URL", placeholder="https://yourstore.com")
             consumer_key = st.text_input("Consumer Key", type="password")
             consumer_secret = st.text_input("Consumer Secret", type="password")
             
             if st.button("🔌 Test WooCommerce Connection"):
-                st.success("✅ Connection test successful! (Simulated)")
+                st.success("Connection test successful! (Simulated)")
         
         # Shopify Settings
-        with st.expander("🛍️ Shopify Settings"):
+        with st.expander("Shopify Settings"):
             shopify_store = st.text_input("Shopify Store URL", placeholder="yourstore.myshopify.com")
             shopify_token = st.text_input("Access Token", type="password")
             
             if st.button("🔌 Test Shopify Connection"):
-                st.success("✅ Connection test successful! (Simulated)")
+                st.success("Connection test successful! (Simulated)")
         
         # Facebook Shop Settings
-        with st.expander("📘 Facebook Shop Settings"):
+        with st.expander("Facebook Shop Settings"):
             facebook_page_id = st.text_input("Facebook Page ID")
             facebook_access_token = st.text_input("Facebook Access Token", type="password")
             
-            if st.button("🔌 Test Facebook Connection"):
-                st.success("✅ Connection test successful! (Simulated)")
+            if st.button("Test Facebook Connection"):
+                st.success("Connection test successful! (Simulated)")
         
         # Auto-sync settings
-        st.markdown("### 🔄 Auto-Sync Settings")
+        st.markdown("### Auto-Sync Settings")
         
         auto_sync = st.checkbox("Enable Automatic Product Sync")
         if auto_sync:
             sync_frequency = st.selectbox("Sync Frequency", ["Daily", "Weekly", "Hourly"])
             st.info(f"Products will be synced {sync_frequency.lower()} to all connected platforms")
         
-        if st.button("💾 Save Settings", type="primary", use_container_width=True):
-            st.success("✅ Settings saved successfully!")
+        if st.button("Save Settings", type="primary", use_container_width=True):
+            st.success("Settings saved successfully!")
             try:
                 from backend.core.animations import show_toast
                 show_toast("E-commerce settings saved!", "success")

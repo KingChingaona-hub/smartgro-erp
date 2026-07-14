@@ -119,14 +119,14 @@ def load_db_config():
         database_url = os.environ.get("POSTGRESQL_URL") or os.environ.get("DATABASE_URL")
         
         if database_url:
-            print("✅ Using database URL from environment")
+            print("Using database URL from environment")
             parsed = urlparse(database_url)
             
             # Extract sslmode from URL query params
             query_params = parse_qs(parsed.query)
             sslmode = query_params.get('sslmode', ['require'])[0]
             
-            print(f"🔐 Using sslmode: {sslmode}")
+            print(f"Using sslmode: {sslmode}")
             
             return {
                 "host": parsed.hostname,
@@ -142,7 +142,7 @@ def load_db_config():
         
         # Try local config file
         if CONFIG_FILE.exists():
-            print("✅ Using database config from local file")
+            print("Using database config from local file")
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
                 config.setdefault("connect_timeout", 30)
@@ -150,9 +150,9 @@ def load_db_config():
                 return config
                 
     except Exception as e:
-        print(f"⚠️ Error loading database config: {e}")
+        print(f"Error loading database config: {e}")
     
-    print("⚠️ Using default database config")
+    print("Using default database config")
     config = get_default_config()
     config["sslmode"] = "require"
     return config
@@ -195,13 +195,13 @@ def get_connection_pool():
                 cur = test_conn.cursor()
                 cur.execute("SELECT 1")
                 _connection_pool.putconn(test_conn)
-                print("✅ Database connection established!")
+                print("Database connection established!")
             else:
-                print("❌ Failed to get test connection")
+                print("Failed to get test connection")
                 _connection_pool = None
                 
         except Exception as e:
-            print(f"❌ Database connection failed: {str(e)}")
+            print(f"Database connection failed: {str(e)}")
             _connection_pool = None
     
     return _connection_pool
@@ -211,7 +211,7 @@ def get_db_connection():
     """Context manager for database connections"""
     pool = get_connection_pool()
     if pool is None:
-        print("⚠️ Connection pool not available")
+        print("Connection pool not available")
         yield None
         return
     
@@ -220,7 +220,7 @@ def get_db_connection():
         conn = pool.getconn()
         yield conn
     except Exception as e:
-        print(f"❌ Error getting connection: {e}")
+        print(f"Error getting connection: {e}")
         yield None
     finally:
         if conn:
@@ -244,7 +244,7 @@ def get_db_cursor():
             finally:
                 cursor.close()
     except Exception as e:
-        print(f"❌ Database cursor error: {e}")
+        print(f"Database cursor error: {e}")
         yield None, None
 
 def test_connection():
@@ -268,14 +268,14 @@ def reset_connection_pool():
         except:
             pass
         _connection_pool = None
-        print("🔄 Connection pool reset")
+        print("Connection pool reset")
 
 def init_database():
     """Initialize the database schema if not exists"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
-                print("⚠️ No database connection - skipping initialization")
+                print("No database connection - skipping initialization")
                 return False
             
             # Check if tables exist
@@ -287,7 +287,7 @@ def init_database():
                 exists = False
             
             if not exists:
-                print("⚠️ Database schema not found. Please run the schema.sql script.")
+                print("Database schema not found. Please run the schema.sql script.")
                 return False
             
             # Check if branches exist
@@ -308,11 +308,11 @@ def init_database():
                     ('VIL', 'Village Branch', 'Gweru', 5, TRUE)
                 """)
                 conn.commit()
-                print("✅ Default branches inserted")
+                print("Default branches inserted")
             
             return True
     except Exception as e:
-        print(f"⚠️ Database initialization error: {e}")
+        print(f"Database initialization error: {e}")
         return False
 
 # ==============================
@@ -393,7 +393,7 @@ def load_branches():
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading branches: {e}")
+        print(f"Error loading branches: {e}")
         return pd.DataFrame()
 
 def load_all_branches():
@@ -411,7 +411,7 @@ def save_branches(df):
                 if 'branch_id' in row:
                     valid, msg = validate_branch_code(str(row["branch_id"]))
                     if not valid:
-                        print(f"⚠️ Invalid branch_id: {msg}")
+                        print(f"Invalid branch_id: {msg}")
                         continue
                 
                 cur.execute("""
@@ -426,7 +426,7 @@ def save_branches(df):
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving branches: {e}")
+        print(f"Error saving branches: {e}")
         return False
 
 # ==============================
@@ -510,7 +510,7 @@ def load_products(branch_id=None):
             return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                          "price", "cost", "stock", "reorder_level"])
     except Exception as e:
-        print(f"⚠️ Error loading products: {e}")
+        print(f"Error loading products: {e}")
         return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                      "price", "cost", "stock", "reorder_level"])
 
@@ -552,12 +552,12 @@ def save_products(df, branch_id=None):
                       clean_data.get("reorder_level", 0)))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving products: {e}")
+        print(f"Error saving products: {e}")
         return False
 
 # ==============================
@@ -665,7 +665,7 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
                 return df
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading sales: {e}")
+        print(f"Error loading sales: {e}")
         return pd.DataFrame()
     
 def save_sales(df, branch_id=None):
@@ -755,12 +755,12 @@ def save_sales(df, branch_id=None):
                 ))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving sales: {e}")
+        print(f"Error saving sales: {e}")
         return False
 
 def generate_receipt_number():
@@ -822,7 +822,7 @@ def load_customers(branch_id=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading customers: {e}")
+        print(f"Error loading customers: {e}")
         return pd.DataFrame()
 
 def save_customers(df, branch_id=None):
@@ -862,12 +862,12 @@ def save_customers(df, branch_id=None):
                       clean_data.get("favorite_product", "")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving customers: {e}")
+        print(f"Error saving customers: {e}")
         return False
 
 # ==============================
@@ -884,13 +884,13 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
     # Validate input data
     valid, msg = validate_customer_name(customer_name)
     if not valid:
-        print(f"⚠️ Invalid customer name: {msg}")
+        print(f"Invalid customer name: {msg}")
         return False
     
     if phone:
         valid, msg = validate_phone(phone)
         if not valid:
-            print(f"⚠️ Invalid phone: {msg}")
+            print(f"Invalid phone: {msg}")
             return False
     
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -937,12 +937,12 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
                 if 'barcode' in item:
                     valid, msg = validate_barcode(item.get("barcode", ""))
                     if not valid:
-                        print(f"⚠️ Invalid barcode: {msg}")
+                        print(f"Invalid barcode: {msg}")
                 
                 if 'name' in item:
                     valid, msg = validate_product_name(item.get("name", ""))
                     if not valid:
-                        print(f"⚠️ Invalid product name: {msg}")
+                        print(f"Invalid product name: {msg}")
                 
                 cur.execute("""
                     INSERT INTO customer_transactions (branch_id, transaction_date, customer_name, 
@@ -955,7 +955,7 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error recording customer purchase: {e}")
+        print(f"Error recording customer purchase: {e}")
         return False
 
 def load_customer_transactions(branch_id=None, customer_phone=None):
@@ -986,7 +986,7 @@ def load_customer_transactions(branch_id=None, customer_phone=None):
                                          "phone", "receipt_no", "barcode", "product_name", 
                                          "quantity", "amount"])
     except Exception as e:
-        print(f"⚠️ Error loading customer transactions: {e}")
+        print(f"Error loading customer transactions: {e}")
         return pd.DataFrame(columns=["id", "branch_id", "transaction_date", "customer_name", 
                                      "phone", "receipt_no", "barcode", "product_name", 
                                      "quantity", "amount"])
@@ -1026,12 +1026,12 @@ def save_customer_transactions(df, branch_id=None):
                       row["quantity"], row["amount"]))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving customer transactions: {e}")
+        print(f"Error saving customer transactions: {e}")
         return False
 
 # ==============================
@@ -1125,7 +1125,7 @@ def load_debtors(branch_id=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading debtors: {e}")
+        print(f"Error loading debtors: {e}")
         return pd.DataFrame()
 
 def save_debtors(df, branch_id=None):
@@ -1171,12 +1171,12 @@ def save_debtors(df, branch_id=None):
                       clean_data.get("risk_level", "LOW"), clean_data.get("notes", "")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving debtors: {e}")
+        print(f"Error saving debtors: {e}")
         return False
 
 def get_overdue_debtors():
@@ -1204,12 +1204,12 @@ def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
     # Validate input
     valid, msg = validate_customer_name(customer_name)
     if not valid:
-        print(f"⚠️ Invalid customer name: {msg}")
+        print(f"Invalid customer name: {msg}")
         return False
     
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     try:
@@ -1240,7 +1240,7 @@ def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
         # Validate receipt number
         valid, msg = validate_receipt_no(receipt_no)
         if not valid:
-            print(f"⚠️ Invalid receipt number: {msg}")
+            print(f"Invalid receipt number: {msg}")
             receipt_no = f"PAY-{debt_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
         new_payment = pd.DataFrame([{
@@ -1266,7 +1266,7 @@ def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
         
         return True
     except Exception as e:
-        print(f"⚠️ Error recording debt payment: {e}")
+        print(f"Error recording debt payment: {e}")
         return False
 
 def load_debtor_payments():
@@ -1281,7 +1281,7 @@ def load_debtor_payments():
                 return pd.DataFrame(rows)
             return pd.DataFrame(columns=["id", "date", "debt_id", "customer_name", "amount_paid", "balance_after", "receipt_no", "note"])
     except Exception as e:
-        print(f"⚠️ Error loading debtor payments: {e}")
+        print(f"Error loading debtor payments: {e}")
         return pd.DataFrame(columns=["id", "date", "debt_id", "customer_name", "amount_paid", "balance_after", "receipt_no", "note"])
 
 def save_debtor_payments(df):
@@ -1314,12 +1314,12 @@ def save_debtor_payments(df):
                       row["balance_after"], row["receipt_no"], row.get("note", "")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving debtor payments: {e}")
+        print(f"Error saving debtor payments: {e}")
         return False
 
 def get_debt_items(debt_id):
@@ -1334,7 +1334,7 @@ def get_debt_items(debt_id):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error getting debt items: {e}")
+        print(f"Error getting debt items: {e}")
         return pd.DataFrame()
 
 def get_debt_aging():
@@ -1444,7 +1444,7 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading expenses: {e}")
+        print(f"Error loading expenses: {e}")
         return pd.DataFrame()
 
 def save_expenses(df, branch_id=None):
@@ -1477,12 +1477,12 @@ def save_expenses(df, branch_id=None):
                       clean_data.get("notes", "")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving expenses: {e}")
+        print(f"Error saving expenses: {e}")
         return False
 
 def get_total_expenses():
@@ -1501,7 +1501,7 @@ def load_expense_categories():
             categories = [row["category"] for row in rows] if rows else []
             return categories
     except Exception as e:
-        print(f"⚠️ Error loading expense categories: {e}")
+        print(f"Error loading expense categories: {e}")
         return []
 
 def load_expense_budget(branch_id=None, year=None, month=None):
@@ -1529,7 +1529,7 @@ def load_expense_budget(branch_id=None, year=None, month=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading expense budget: {e}")
+        print(f"Error loading expense budget: {e}")
         return pd.DataFrame()
 
 def save_expense_budget(df, branch_id=None):
@@ -1546,7 +1546,7 @@ def save_expense_budget(df, branch_id=None):
                 if 'budget_amount' in row:
                     valid, amount, msg = validate_amount(row["budget_amount"])
                     if not valid:
-                        print(f"⚠️ Invalid budget amount: {msg}")
+                        print(f"Invalid budget amount: {msg}")
                         continue
                     row["budget_amount"] = amount
                 
@@ -1561,7 +1561,7 @@ def save_expense_budget(df, branch_id=None):
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving expense budget: {e}")
+        print(f"Error saving expense budget: {e}")
         return False
 
 def get_budget_vs_actual(year=None, month=None):
@@ -1594,7 +1594,7 @@ def load_recurring_expenses(branch_id=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading recurring expenses: {e}")
+        print(f"Error loading recurring expenses: {e}")
         return pd.DataFrame()
 
 def save_recurring_expenses(df, branch_id=None):
@@ -1647,12 +1647,12 @@ def save_recurring_expenses(df, branch_id=None):
                       row.get("end_date"), row.get("active", True), row.get("notes", "")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving recurring expenses: {e}")
+        print(f"Error saving recurring expenses: {e}")
         return False
 
 def get_expenses_by_category(month=None, year=None):
@@ -1693,18 +1693,18 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
     # Validate input
     valid, msg = validate_category(category)
     if not valid:
-        print(f"⚠️ Invalid category: {msg}")
+        print(f"Invalid category: {msg}")
         return False
     
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     if vendor:
         valid, msg = validate_supplier_name(vendor)
         if not valid:
-            print(f"⚠️ Invalid vendor: {msg}")
+            print(f"Invalid vendor: {msg}")
             return False
     
     df = load_expenses()
@@ -1781,7 +1781,7 @@ def load_income(branch_id=None, date_from=None, date_to=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading income: {e}")
+        print(f"Error loading income: {e}")
         return pd.DataFrame()
 
 def save_income(df, branch_id=None):
@@ -1810,12 +1810,12 @@ def save_income(df, branch_id=None):
                 """, (branch_id, row["date"], row["income_source"], row["description"], row["amount"], row.get("user", "system")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving income: {e}")
+        print(f"Error saving income: {e}")
         return False
 
 def get_monthly_income(month=None):
@@ -1838,7 +1838,7 @@ def record_income(income_source, description, amount, user="System"):
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     df = load_income()
@@ -1875,7 +1875,7 @@ def load_purchases(branch_id=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading purchases: {e}")
+        print(f"Error loading purchases: {e}")
         return pd.DataFrame()
 
 def save_purchases(df, branch_id=None):
@@ -1952,12 +1952,12 @@ def save_purchases(df, branch_id=None):
                       row.get("invoice_no", "")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving purchases: {e}")
+        print(f"Error saving purchases: {e}")
         return False
 
 # ==============================
@@ -2031,7 +2031,7 @@ def load_cash(branch_id=None, shift_id=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading cash: {e}")
+        print(f"Error loading cash: {e}")
         return pd.DataFrame()
 
 def save_cash(df, branch_id=None):
@@ -2064,12 +2064,12 @@ def save_cash(df, branch_id=None):
                       clean_data.get("cashier", "system")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving cash: {e}")
+        print(f"Error saving cash: {e}")
         return False
 
 def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", payment_method="CASH", note=""):
@@ -2077,18 +2077,18 @@ def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", p
     # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     valid, msg = validate_receipt_no(receipt_no)
     if not valid:
-        print(f"⚠️ Invalid receipt number: {msg}")
+        print(f"Invalid receipt number: {msg}")
         return False
     
     if customer_name and customer_name != "Walk-in":
         valid, msg = validate_customer_name(customer_name)
         if not valid:
-            print(f"⚠️ Invalid customer name: {msg}")
+            print(f"Invalid customer name: {msg}")
             return False
     
     df = load_cash()
@@ -2118,17 +2118,17 @@ def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
     # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     valid, msg = validate_receipt_no(receipt_no)
     if not valid:
-        print(f"⚠️ Invalid receipt number: {msg}")
+        print(f"Invalid receipt number: {msg}")
         return False
     
     valid, msg = validate_customer_name(customer_name)
     if not valid:
-        print(f"⚠️ Invalid customer name: {msg}")
+        print(f"Invalid customer name: {msg}")
         return False
     
     df = load_cash()
@@ -2158,17 +2158,17 @@ def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", no
     # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     valid, msg = validate_receipt_no(receipt_no)
     if not valid:
-        print(f"⚠️ Invalid receipt number: {msg}")
+        print(f"Invalid receipt number: {msg}")
         return False
     
     valid, msg = validate_customer_name(customer_name)
     if not valid:
-        print(f"⚠️ Invalid customer name: {msg}")
+        print(f"Invalid customer name: {msg}")
         return False
     
     df = load_cash()
@@ -2198,7 +2198,7 @@ def set_opening_cash(amount, shift_id=""):
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     # If shift_id not provided, get branch active shift
@@ -2228,7 +2228,7 @@ def record_closing_cash(amount, shift_id=""):
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     # If shift_id not provided, get branch active shift
@@ -2258,13 +2258,13 @@ def record_petty_cash(description, amount, category, shift_id="", approved_by=""
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     # Validate category
     valid, msg = validate_category(category)
     if not valid:
-        print(f"⚠️ Invalid category: {msg}")
+        print(f"Invalid category: {msg}")
         return False
     
     # If shift_id not provided, get branch active shift
@@ -2301,7 +2301,7 @@ def load_petty_cash():
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading petty cash: {e}")
+        print(f"Error loading petty cash: {e}")
         return pd.DataFrame()
 
 def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes=""):
@@ -2309,7 +2309,7 @@ def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes="
     # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return False
     
     # If shift_id not provided, get branch active shift
@@ -2346,7 +2346,7 @@ def load_bank_deposits():
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading bank deposits: {e}")
+        print(f"Error loading bank deposits: {e}")
         return pd.DataFrame()
 
 def get_cash_summary(shift_id=None):
@@ -2526,7 +2526,7 @@ def load_shifts(branch_id=None, status=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading shifts: {e}")
+        print(f"Error loading shifts: {e}")
         return pd.DataFrame()
 
 def save_shifts(df, branch_id=None):
@@ -2636,12 +2636,12 @@ def save_shifts(df, branch_id=None):
                 ))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving shifts: {e}")
+        print(f"Error saving shifts: {e}")
         return False
 
 def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_username, opening_cash=0):
@@ -2804,7 +2804,7 @@ def get_all_active_shifts():
         return active[available_columns].copy()
         
     except Exception as e:
-        print(f"⚠️ Error getting active shifts: {e}")
+        print(f"Error getting active shifts: {e}")
         return pd.DataFrame()
 
 def get_shifts_by_date(date_str):
@@ -2878,7 +2878,7 @@ def load_suppliers(branch_id=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading suppliers: {e}")
+        print(f"Error loading suppliers: {e}")
         return pd.DataFrame()
 
 # ==============================
@@ -2900,7 +2900,7 @@ def load_loyalty(branch_id=None):
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading loyalty: {e}")
+        print(f"Error loading loyalty: {e}")
         return pd.DataFrame()
 
 def save_loyalty(df, branch_id=None):
@@ -2956,12 +2956,12 @@ def save_loyalty(df, branch_id=None):
                       row.get("last_visit"), row.get("birthday"), row.get("joined_date")))
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
             return True
     except Exception as e:
-        print(f"⚠️ Error saving loyalty: {e}")
+        print(f"Error saving loyalty: {e}")
         return False
 
 def get_customer_loyalty_info(phone):
@@ -2969,7 +2969,7 @@ def get_customer_loyalty_info(phone):
     # Validate phone
     valid, msg = validate_phone(phone)
     if not valid:
-        print(f"⚠️ Invalid phone: {msg}")
+        print(f"Invalid phone: {msg}")
         return None
     
     df = load_loyalty()
@@ -2982,12 +2982,12 @@ def get_customer_loyalty_info(phone):
     
     def get_tier_benefits(tier):
         benefits = {
-            "🥉 BRONZE": {"points_multiplier": 1, "discount": 0, "birthday_bonus": 50, "free_delivery": False},
-            "🥈 SILVER": {"points_multiplier": 1.2, "discount": 5, "birthday_bonus": 100, "free_delivery": False},
-            "🥇 GOLD": {"points_multiplier": 1.5, "discount": 10, "birthday_bonus": 200, "free_delivery": True},
-            "👑 PLATINUM": {"points_multiplier": 2, "discount": 15, "birthday_bonus": 500, "free_delivery": True}
+            "BRONZE": {"points_multiplier": 1, "discount": 0, "birthday_bonus": 50, "free_delivery": False},
+            "SILVER": {"points_multiplier": 1.2, "discount": 5, "birthday_bonus": 100, "free_delivery": False},
+            "GOLD": {"points_multiplier": 1.5, "discount": 10, "birthday_bonus": 200, "free_delivery": True},
+            "PLATINUM": {"points_multiplier": 2, "discount": 15, "birthday_bonus": 500, "free_delivery": True}
         }
-        return benefits.get(tier, benefits["🥉 BRONZE"])
+        return benefits.get(tier, benefits["BRONZE"])
     
     tier_benefits = get_tier_benefits(row["tier"])
     
@@ -3018,12 +3018,12 @@ def get_points_to_next_tier(total_spent):
 def get_tier_benefits(tier):
     """Get benefits for a tier"""
     benefits = {
-        "🥉 BRONZE": {"points_multiplier": 1, "discount": 0, "birthday_bonus": 50, "free_delivery": False},
-        "🥈 SILVER": {"points_multiplier": 1.2, "discount": 5, "birthday_bonus": 100, "free_delivery": False},
-        "🥇 GOLD": {"points_multiplier": 1.5, "discount": 10, "birthday_bonus": 200, "free_delivery": True},
-        "👑 PLATINUM": {"points_multiplier": 2, "discount": 15, "birthday_bonus": 500, "free_delivery": True}
+        "BRONZE": {"points_multiplier": 1, "discount": 0, "birthday_bonus": 50, "free_delivery": False},
+        "SILVER": {"points_multiplier": 1.2, "discount": 5, "birthday_bonus": 100, "free_delivery": False},
+        "GOLD": {"points_multiplier": 1.5, "discount": 10, "birthday_bonus": 200, "free_delivery": True},
+        "PLATINUM": {"points_multiplier": 2, "discount": 15, "birthday_bonus": 500, "free_delivery": True}
     }
-    return benefits.get(tier, benefits["🥉 BRONZE"])
+    return benefits.get(tier, benefits["BRONZE"])
 
 def get_top_loyalty_customers(n=10):
     """Get top loyalty customers"""
@@ -3049,22 +3049,22 @@ def add_loyalty_points(customer_name, phone, amount_spent, receipt_no):
     # Validate input
     valid, msg = validate_customer_name(customer_name)
     if not valid:
-        print(f"⚠️ Invalid customer name: {msg}")
+        print(f"Invalid customer name: {msg}")
         return 0
     
     valid, msg = validate_phone(phone)
     if not valid:
-        print(f"⚠️ Invalid phone: {msg}")
+        print(f"Invalid phone: {msg}")
         return 0
     
     valid, amount, msg = validate_amount(amount_spent)
     if not valid:
-        print(f"⚠️ Invalid amount: {msg}")
+        print(f"Invalid amount: {msg}")
         return 0
     
     valid, msg = validate_receipt_no(receipt_no)
     if not valid:
-        print(f"⚠️ Invalid receipt number: {msg}")
+        print(f"Invalid receipt number: {msg}")
         return 0
     
     df = load_loyalty()
@@ -3095,7 +3095,7 @@ def add_loyalty_points(customer_name, phone, amount_spent, receipt_no):
             "customer_name": customer_name,
             "phone": phone,
             "points": points_earned + 50,
-            "tier": "🥉 BRONZE",
+            "tier": "BRONZE",
             "total_spent": amount_spent,
             "total_orders": 1,
             "last_visit": datetime.now().strftime("%Y-%m-%d"),
@@ -3110,13 +3110,13 @@ def add_loyalty_points(customer_name, phone, amount_spent, receipt_no):
 def get_tier_from_spent(total_spent):
     """Determine tier based on total spent"""
     if total_spent >= 5000:
-        return "👑 PLATINUM"
+        return "PLATINUM"
     elif total_spent >= 2000:
-        return "🥇 GOLD"
+        return "GOLD"
     elif total_spent >= 500:
-        return "🥈 SILVER"
+        return "SILVER"
     else:
-        return "🥉 BRONZE"
+        return "BRONZE"
 
 def redeem_points(customer_phone, points_to_redeem, receipt_no):
     """Redeem loyalty points for discount with validation"""
@@ -3176,7 +3176,7 @@ def load_loyalty_redemptions():
                 return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
-        print(f"⚠️ Error loading loyalty redemptions: {e}")
+        print(f"Error loading loyalty redemptions: {e}")
         return pd.DataFrame()
 
 # ==============================
@@ -3185,7 +3185,7 @@ def load_loyalty_redemptions():
 
 def init_data_folder():
     """Initialize data folder structure for compatibility"""
-    print("📦 PostgreSQL database ready (no CSV folders needed)")
+    print("PostgreSQL database ready (no CSV folders needed)")
     return True
 
 def get_branch_data_path(branch_id, filename):
@@ -3194,7 +3194,7 @@ def get_branch_data_path(branch_id, filename):
 
 def initialize_branch_with_empty_data(branch_id):
     """Initialize branch with empty data - for compatibility"""
-    print(f"✅ PostgreSQL ready for branch: {branch_id}")
+    print(f"PostgreSQL ready for branch: {branch_id}")
     return True
 
 def initialize_branch_data(branch_id):
@@ -3580,7 +3580,7 @@ def load_users():
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
-                print("⚠️ No database connection - returning empty users")
+                print("No database connection - returning empty users")
                 return pd.DataFrame(columns=[
                     "username", "password", "role", "branch_id", "full_name", 
                     "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
@@ -3604,9 +3604,9 @@ def load_users():
                     "last_login", "last_mobile_login", "device_info", 
                     "two_factor_enabled", "session_token"
                 ])
-                print(f"✅ Loaded {len(df)} users successfully")
+                print(f"Loaded {len(df)} users successfully")
                 return df
-            print("⚠️ No users found in database")
+            print("No users found in database")
             return pd.DataFrame(columns=[
                 "username", "password", "role", "branch_id", "full_name", 
                 "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",
@@ -3629,7 +3629,7 @@ def save_users(df):
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
-                print("❌ No database connection")
+                print("No database connection")
                 return False
             
             validation_errors = []
@@ -3694,18 +3694,18 @@ def save_users(df):
                     ))
                     saved_count += 1
                 except Exception as e:
-                    print(f"❌ Error saving user {clean_data.get('username', 'unknown')}: {e}")
+                    print(f"Error saving user {clean_data.get('username', 'unknown')}: {e}")
                     validation_errors.append(f"Row {idx}: Database error - {str(e)}")
             
             if validation_errors:
-                print(f"⚠️ Validation errors: {validation_errors}")
+                print(f"Validation errors: {validation_errors}")
             
             conn.commit()
-            print(f"✅ Saved {saved_count} users successfully")
+            print(f"Saved {saved_count} users successfully")
             return True
             
     except Exception as e:
-        print(f"❌ Error saving users: {e}")
+        print(f"Error saving users: {e}")
         return False
 
 def init_users():

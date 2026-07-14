@@ -17,7 +17,7 @@ from backend.analytics.debtors_engine import (
 def debtors_dashboard():
     """Debtors Analytics Dashboard"""
     
-    st.title("📊 Debtors Intelligence Dashboard")
+    st.title("Debtors Intelligence Dashboard")
     st.caption("Analytics and insights for credit management")
     
     # Update risk levels on load
@@ -31,7 +31,7 @@ def debtors_dashboard():
     # ==============================
     # KEY METRICS
     # ==============================
-    st.subheader("📈 Key Metrics")
+    st.subheader("Key Metrics")
     
     total_outstanding = df["balance"].sum()
     total_principal = df["total_amount"].sum()
@@ -40,20 +40,20 @@ def debtors_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("💰 Outstanding Debt", f"${total_outstanding:,.2f}")
+        st.metric("Outstanding Debt", f"${total_outstanding:,.2f}")
     with col2:
-        st.metric("📋 Total Principal", f"${total_principal:,.2f}")
+        st.metric("Total Principal", f"${total_principal:,.2f}")
     with col3:
-        st.metric("📊 Collection Rate", f"{collection_rate:.1f}%")
+        st.metric("Collection Rate", f"{collection_rate:.1f}%")
     with col4:
-        st.metric("👥 Active Debtors", len(df[df["balance"] > 0]))
+        st.metric("Active Debtors", len(df[df["balance"] > 0]))
     
     st.markdown("---")
     
     # ==============================
     # RISK BREAKDOWN
     # ==============================
-    st.subheader("⚠️ Risk Level Breakdown")
+    st.subheader("Risk Level Breakdown")
     
     if "risk_level" in df.columns:
         risk_counts = df["risk_level"].value_counts().reset_index()
@@ -73,10 +73,10 @@ def debtors_dashboard():
             # Critical risks
             critical = df[df["risk_level"] == "CRITICAL"]
             if not critical.empty:
-                st.error(f"🚨 {len(critical)} CRITICAL risk debtors need immediate attention!")
+                st.error(f"{len(critical)} CRITICAL risk debtors need immediate attention!")
                 st.dataframe(critical[["customer_name", "balance", "expected_repayment_date"]], use_container_width=True, hide_index=True)
             else:
-                st.success("✅ No CRITICAL risk debtors")
+                st.success("No CRITICAL risk debtors")
     else:
         st.info("No risk level data available")
     
@@ -85,7 +85,7 @@ def debtors_dashboard():
     # ==============================
     # CREDIT SCORES
     # ==============================
-    st.subheader("📊 Credit Scores")
+    st.subheader("Credit Scores")
     
     credit_scores = get_credit_score()
     if not credit_scores.empty and "credit_score" in credit_scores.columns:
@@ -107,7 +107,7 @@ def debtors_dashboard():
     # ==============================
     # DEBT AGING
     # ==============================
-    st.subheader("📅 Debt Aging Report")
+    st.subheader("Debt Aging Report")
     
     aging_df = get_debt_aging()
     if not aging_df.empty and "aging_bucket" in aging_df.columns:
@@ -121,7 +121,7 @@ def debtors_dashboard():
         
         # Recovery analysis
         st.markdown("---")
-        st.subheader("💰 Recovery Analysis")
+        st.subheader("Recovery Analysis")
         
         recoverable = get_recoverable_debt()
         
@@ -134,7 +134,7 @@ def debtors_dashboard():
             st.metric("Recovery Rate", f"{recoverable.get('recovery_rate', 0):.1f}%")
         
         if recoverable.get('expected_loss', 0) > 0:
-            st.warning(f"⚠️ Estimated Bad Debt Risk: ${recoverable['expected_loss']:,.2f}")
+            st.warning(f"Estimated Bad Debt Risk: ${recoverable['expected_loss']:,.2f}")
     else:
         st.info("No aging data available")
     
@@ -143,25 +143,25 @@ def debtors_dashboard():
     # ==============================
     # OVERDUE DEBTORS
     # ==============================
-    st.subheader("⏰ Overdue Debtors")
+    st.subheader("Overdue Debtors")
     
     overdue = get_overdue_debtors()
     if not overdue.empty:
-        st.warning(f"⚠️ {len(overdue)} customers with overdue payments")
+        st.warning(f"{len(overdue)} customers with overdue payments")
         st.dataframe(
             overdue[["customer_name", "balance", "expected_repayment_date", "risk_level", "days_overdue"]],
             use_container_width=True,
             hide_index=True
         )
     else:
-        st.success("✅ No overdue payments")
+        st.success("No overdue payments")
     
     st.markdown("---")
     
     # ==============================
     # CUSTOMER DEBT DETAILS
     # ==============================
-    st.subheader("🔍 Customer Debt Details")
+    st.subheader("Customer Debt Details")
     
     if not df.empty:
         selected_customer = st.selectbox("Select Customer", df["customer_name"].tolist())
@@ -197,11 +197,11 @@ def debtors_dashboard():
     # ==============================
     # EXPORT DATA
     # ==============================
-    st.subheader("📥 Export Data")
+    st.subheader("Export Data")
     
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="⬇ Download Debtors Report (CSV)",
+        label="Download Debtors Report (CSV)",
         data=csv,
         file_name=f"debtors_report_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",

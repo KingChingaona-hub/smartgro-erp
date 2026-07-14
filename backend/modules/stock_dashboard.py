@@ -7,7 +7,7 @@ from backend.core.db_adapter import load_products
 # ==============================
 def dashboard_page():
 
-    st.title("📊 SmartGro Dashboard")
+    st.title("SmartGro Dashboard")
 
     df = load_products()
 
@@ -36,7 +36,7 @@ def dashboard_page():
     # ==========================
     # LOW STOCK ALERT
     # ==========================
-    st.subheader("⚠️ Low Stock Items")
+    st.subheader("Low Stock Items")
 
     if not low_stock.empty:
         st.dataframe(low_stock[["barcode", "name", "stock", "reorder_level"]])
@@ -48,13 +48,13 @@ def dashboard_page():
     # ==========================
     # STOCK OVERVIEW
     # ==========================
-    st.subheader("📦 Inventory Overview")
+    st.subheader("Inventory Overview")
     st.dataframe(df, use_container_width=True)
 
     # ==========================
     # CATEGORY INSIGHT
     # ==========================
-    st.subheader("📂 Stock by Category")
+    st.subheader("Stock by Category")
 
     category_summary = df.groupby("category")["stock"].sum().reset_index()
     st.dataframe(category_summary, use_container_width=True)

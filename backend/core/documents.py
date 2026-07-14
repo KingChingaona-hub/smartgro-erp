@@ -15,7 +15,7 @@ from PIL import Image as PILImage
 # CONSTANTS
 # ==============================
 COMPANY_NAME = "AZIEL INVESTMENTS"
-COMPANY_ADDRESS = "Retail Park, Harare"
+COMPANY_ADDRESS = "Retreat Park, Harare"
 COMPANY_PHONE = "+263 78 290 5853"
 COMPANY_EMAIL = "info@azielinvestments.co.zw"
 
@@ -519,31 +519,31 @@ def generate_qr_code(data):
 def documents_dashboard():
     """Main documents dashboard"""
     
-    st.title("📄 Document Management")
+    st.title("Document Management")
     st.caption("Generate professional business documents")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access document management.")
+        st.error("Access Denied. Only owners and managers can access document management.")
         return
     
     # ==============================
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📄 Proforma Invoice",
-        "📦 Delivery Note",
-        "💳 Credit Note",
-        "📊 Customer Statement",
-        "📋 Purchase Order"
+        "Proforma Invoice",
+        "Delivery Note",
+        "Credit Note",
+        "Customer Statement",
+        "Purchase Order"
     ])
     
     # ==============================
     # TAB 1: PROFORMA INVOICE
     # ==============================
     with tab1:
-        st.markdown("## 📄 Generate Proforma Invoice")
+        st.markdown("## Generate Proforma Invoice")
         st.caption("Create a professional proforma invoice with company branding")
         
         col1, col2 = st.columns(2)
@@ -568,7 +568,7 @@ def documents_dashboard():
         with col3:
             item_price = st.number_input("Price ($)", min_value=0.0, value=0.0, step=0.5, key="pi_price")
         with col4:
-            if st.button("➕ Add", key="pi_add"):
+            if st.button("Add", key="pi_add"):
                 if item_name and item_price > 0:
                     if "pi_items" not in st.session_state:
                         st.session_state.pi_items = []
@@ -592,13 +592,13 @@ def documents_dashboard():
             tax = subtotal * (tax_rate / 100)
             total = subtotal + tax
             
-            st.info(f"💰 **Subtotal:** ${subtotal:.2f} | **Tax:** ${tax:.2f} | **Total:** ${total:.2f}")
+            st.info(f"**Subtotal:** ${subtotal:.2f} | **Tax:** ${tax:.2f} | **Total:** ${total:.2f}")
             
-            if st.button("🗑️ Clear Items", key="pi_clear"):
+            if st.button("Clear Items", key="pi_clear"):
                 st.session_state.pi_items = []
                 st.rerun()
             
-            if st.button("📄 Generate Proforma Invoice", type="primary", key="pi_generate"):
+            if st.button("Generate Proforma Invoice", type="primary", key="pi_generate"):
                 data = {
                     "invoice_no": invoice_no,
                     "date": date.strftime("%Y-%m-%d"),
@@ -615,14 +615,14 @@ def documents_dashboard():
                 download_pdf_button(
                     pdf_buffer,
                     f"proforma_invoice_{invoice_no}.pdf",
-                    "📥 Download Proforma Invoice"
+                    "Download Proforma Invoice"
                 )
     
     # ==============================
     # TAB 2: DELIVERY NOTE
     # ==============================
     with tab2:
-        st.markdown("## 📦 Generate Delivery Note")
+        st.markdown("## Generate Delivery Note")
         st.caption("Create a professional delivery note with company branding")
         
         col1, col2 = st.columns(2)
@@ -643,7 +643,7 @@ def documents_dashboard():
         with col2:
             item_qty = st.number_input("Qty", min_value=1, value=1, key="dn_qty")
         with col3:
-            if st.button("➕ Add", key="dn_add"):
+            if st.button("Add", key="dn_add"):
                 if item_name:
                     if "dn_items" not in st.session_state:
                         st.session_state.dn_items = []
@@ -660,11 +660,11 @@ def documents_dashboard():
             items_df = pd.DataFrame(st.session_state.dn_items)
             st.dataframe(items_df, use_container_width=True, hide_index=True)
             
-            if st.button("🗑️ Clear Items", key="dn_clear"):
+            if st.button("Clear Items", key="dn_clear"):
                 st.session_state.dn_items = []
                 st.rerun()
             
-            if st.button("📦 Generate Delivery Note", type="primary", key="dn_generate"):
+            if st.button("Generate Delivery Note", type="primary", key="dn_generate"):
                 data = {
                     "note_no": note_no,
                     "date": date.strftime("%Y-%m-%d"),
@@ -677,14 +677,14 @@ def documents_dashboard():
                 download_pdf_button(
                     pdf_buffer,
                     f"delivery_note_{note_no}.pdf",
-                    "📥 Download Delivery Note"
+                    "Download Delivery Note"
                 )
     
     # ==============================
     # TAB 3: CREDIT NOTE
     # ==============================
     with tab3:
-        st.markdown("## 💳 Generate Credit Note")
+        st.markdown("## Generate Credit Note")
         st.caption("Create a professional credit note with company branding")
         
         col1, col2 = st.columns(2)
@@ -708,7 +708,7 @@ def documents_dashboard():
         with col3:
             refund = st.number_input("Refund ($)", min_value=0.0, value=0.0, step=0.5, key="cn_refund")
         
-        if st.button("➕ Add", key="cn_add"):
+        if st.button("Add", key="cn_add"):
             if item_name and refund > 0:
                 if "cn_items" not in st.session_state:
                     st.session_state.cn_items = []
@@ -727,13 +727,13 @@ def documents_dashboard():
             st.dataframe(items_df, use_container_width=True, hide_index=True)
             
             total = items_df["refund"].sum()
-            st.info(f"💰 **Total Credit Amount:** ${total:.2f}")
+            st.info(f"**Total Credit Amount:** ${total:.2f}")
             
-            if st.button("🗑️ Clear Items", key="cn_clear"):
+            if st.button("Clear Items", key="cn_clear"):
                 st.session_state.cn_items = []
                 st.rerun()
             
-            if st.button("💳 Generate Credit Note", type="primary", key="cn_generate"):
+            if st.button("Generate Credit Note", type="primary", key="cn_generate"):
                 data = {
                     "note_no": note_no,
                     "invoice_no": invoice_no if invoice_no else "N/A",
@@ -748,14 +748,14 @@ def documents_dashboard():
                 download_pdf_button(
                     pdf_buffer,
                     f"credit_note_{note_no}.pdf",
-                    "📥 Download Credit Note"
+                    "Download Credit Note"
                 )
     
     # ==============================
     # TAB 4: CUSTOMER STATEMENT - FIXED
     # ==============================
     with tab4:
-        st.markdown("## 📊 Generate Customer Statement")
+        st.markdown("## Generate Customer Statement")
         st.caption("Create a professional customer statement with company branding")
         
         col1, col2 = st.columns(2)
@@ -780,7 +780,7 @@ def documents_dashboard():
         with col4:
             trans_credit = st.number_input("Credit ($)", min_value=0.0, value=0.0, step=5.0, key="cs_credit")
         
-        if st.button("➕ Add Transaction", key="cs_add"):
+        if st.button("Add Transaction", key="cs_add"):
             if trans_invoice or trans_debit > 0 or trans_credit > 0:
                 if "cs_transactions" not in st.session_state:
                     st.session_state.cs_transactions = []
@@ -813,13 +813,13 @@ def documents_dashboard():
             total_credits = trans_df["credit"].sum()
             closing_balance = opening_balance + total_debits - total_credits
             
-            st.info(f"💰 **Opening Balance:** ${opening_balance:.2f} | **Total Debits:** ${total_debits:.2f} | **Total Credits:** ${total_credits:.2f} | **Closing Balance:** ${closing_balance:.2f}")
+            st.info(f"**Opening Balance:** ${opening_balance:.2f} | **Total Debits:** ${total_debits:.2f} | **Total Credits:** ${total_credits:.2f} | **Closing Balance:** ${closing_balance:.2f}")
             
-            if st.button("🗑️ Clear Transactions", key="cs_clear"):
+            if st.button("Clear Transactions", key="cs_clear"):
                 st.session_state.cs_transactions = []
                 st.rerun()
             
-            if st.button("📊 Generate Statement", type="primary", key="cs_generate"):
+            if st.button("Generate Statement", type="primary", key="cs_generate"):
                 data = {
                     "customer": customer if customer else "Unknown Customer",
                     "phone": phone if phone else "N/A",
@@ -835,14 +835,14 @@ def documents_dashboard():
                 download_pdf_button(
                     pdf_buffer,
                     f"customer_statement_{customer.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf",
-                    "📥 Download Customer Statement"
+                    "Download Customer Statement"
                 )
     
     # ==============================
     # TAB 5: PURCHASE ORDER
     # ==============================
     with tab5:
-        st.markdown("## 📋 Generate Purchase Order")
+        st.markdown("## Generate Purchase Order")
         st.caption("Create a professional purchase order with company branding")
         
         col1, col2 = st.columns(2)
@@ -865,7 +865,7 @@ def documents_dashboard():
         with col3:
             item_cost = st.number_input("Cost ($)", min_value=0.0, value=0.0, step=0.5, key="po_cost")
         with col4:
-            if st.button("➕ Add", key="po_add"):
+            if st.button("Add", key="po_add"):
                 if item_name and item_cost > 0:
                     if "po_items" not in st.session_state:
                         st.session_state.po_items = []
@@ -885,15 +885,15 @@ def documents_dashboard():
             st.dataframe(items_df, use_container_width=True, hide_index=True)
             
             total = items_df["total"].sum()
-            st.info(f"💰 **Total Amount:** ${total:.2f}")
+            st.info(f"**Total Amount:** ${total:.2f}")
             
-            if st.button("🗑️ Clear Items", key="po_clear"):
+            if st.button("Clear Items", key="po_clear"):
                 st.session_state.po_items = []
                 st.rerun()
             
             terms = st.text_area("Terms & Conditions", value="Standard payment terms apply. Delivery within 7-14 business days.")
             
-            if st.button("📋 Generate Purchase Order", type="primary", key="po_generate"):
+            if st.button("Generate Purchase Order", type="primary", key="po_generate"):
                 data = {
                     "po_number": po_number,
                     "date": date.strftime("%Y-%m-%d"),
@@ -908,7 +908,7 @@ def documents_dashboard():
                 download_pdf_button(
                     pdf_buffer,
                     f"purchase_order_{po_number}.pdf",
-                    "📥 Download Purchase Order"
+                    "Download Purchase Order"
                 )
 
 

@@ -28,7 +28,7 @@ def get_deployment_info():
 def deployment_status_page():
     """Show deployment status and access information"""
     
-    st.title("🌐 System Deployment Status")
+    st.title("System Deployment Status")
     
     info = get_deployment_info()
     
@@ -41,13 +41,13 @@ def deployment_status_page():
         st.write(f"**Cloud Deployment:** {'Yes' if info['is_cloud'] else 'No'}")
         
         if info['is_cloud']:
-            st.success(f"🌍 **Public URL:** {info['url']}")
+            st.success(f"**Public URL:** {info['url']}")
         else:
-            st.info(f"🏠 **Local URL:** http://localhost:8501")
-            st.info(f"🌐 **Network URL:** http://{info['ip_address']}:8501")
+            st.info(f"**Local URL:** http://localhost:8501")
+            st.info(f"**Network URL:** http://{info['ip_address']}:8501")
     
     with col2:
-        st.markdown("### 📱 Mobile Access")
+        st.markdown("### Mobile Access")
         st.markdown("""
         **To access from mobile:**
         1. Ensure computer and phone are on same WiFi

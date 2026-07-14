@@ -155,27 +155,27 @@ def get_whatsapp_alert_message(alert_type, data):
         products = data.get("products", [])
         if not products:
             return None
-        message = f"🚨 *STOCK OUT ALERT* 🚨\n\n"
+        message = f"*STOCK OUT ALERT*\n\n"
         message += f"The following products are OUT OF STOCK:\n\n"
         for p in products[:5]:
-            message += f"❌ {p['name']}\n"
+            message += f"{p['name']}\n"
         if len(products) > 5:
             message += f"\n... and {len(products) - 5} more items\n"
-        message += f"\n📅 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        message += f"🔔 *Immediate action required!*\n"
+        message += f"\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        message += f"*Immediate action required!*\n"
         return message
     
     elif alert_type == "low_stock":
         products = data.get("products", [])
         if not products:
             return None
-        message = f"⚠️ *LOW STOCK ALERT* ⚠️\n\n"
+        message = f"*LOW STOCK ALERT*\n\n"
         message += f"The following products need reordering:\n\n"
         for p in products[:5]:
-            message += f"📦 {p['name']}: {p['stock']} units left (Reorder at {p['reorder_level']})\n"
+            message += f"{p['name']}: {p['stock']} units left (Reorder at {p['reorder_level']})\n"
         if len(products) > 5:
             message += f"\n... and {len(products) - 5} more items\n"
-        message += f"\n📅 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        message += f"\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         return message
     
     elif alert_type == "daily_summary":
@@ -185,12 +185,12 @@ def get_whatsapp_alert_message(alert_type, data):
         top_product = data.get("top_product", "N/A")
         shift_id = data.get("shift_id", "N/A")
         
-        message = f"📊 *Daily Sales Summary* 📊\n\n"
-        message += f"📅 Date: {datetime.now().strftime('%Y-%m-%d')}\n"
-        message += f"💰 Total Sales: ${sales:,.2f}\n"
-        message += f"📈 Profit: ${profit:,.2f}\n"
-        message += f"🛒 Transactions: {transactions}\n"
-        message += f"🏆 Top Product: {top_product}\n"
+        message = f"*Daily Sales Summary*\n\n"
+        message += f"Date: {datetime.now().strftime('%Y-%m-%d')}\n"
+        message += f"Total Sales: ${sales:,.2f}\n"
+        message += f"Profit: ${profit:,.2f}\n"
+        message += f"Transactions: {transactions}\n"
+        message += f"Top Product: {top_product}\n"
         if shift_id != "N/A":
             message += f"🆔 Shift: {shift_id}\n"
         message += f"\n📱 *SmartGro ERP* - Aziel Investments"
@@ -202,7 +202,7 @@ def get_whatsapp_alert_message(alert_type, data):
         total = data.get("total", 0)
         items = data.get("items", [])
         
-        message = f"📋 *Purchase Order Approval Required* 📋\n\n"
+        message = f"*Purchase Order Approval Required*\n\n"
         message += f"PO Number: {po_number}\n"
         message += f"Supplier: {supplier}\n"
         message += f"Total Value: ${total:,.2f}\n"
@@ -221,15 +221,15 @@ def get_whatsapp_alert_message(alert_type, data):
         cash_sales = shift_data.get("cash_sales", 0)
         credit_sales = shift_data.get("credit_sales", 0)
         
-        message = f"🕐 *Shift Summary* 🕐\n\n"
+        message = f"*Shift Summary*\n\n"
         message += f"Shift ID: {shift_id}\n"
         message += f"Cashier: {cashier}\n"
-        message += f"💰 Revenue: ${revenue:,.2f}\n"
-        message += f"📈 Profit: ${profit:,.2f}\n"
-        message += f"🛒 Transactions: {transactions}\n"
-        message += f"💵 Cash Sales: ${cash_sales:,.2f}\n"
-        message += f"💳 Credit Sales: ${credit_sales:,.2f}\n"
-        message += f"\n📱 *SmartGro ERP* - Aziel Investments"
+        message += f"Revenue: ${revenue:,.2f}\n"
+        message += f"Profit: ${profit:,.2f}\n"
+        message += f"Transactions: {transactions}\n"
+        message += f"Cash Sales: ${cash_sales:,.2f}\n"
+        message += f"Credit Sales: ${credit_sales:,.2f}\n"
+        message += f"\n*SmartGro ERP* - Aziel Investments"
         return message
     
     return None
@@ -524,7 +524,7 @@ def mobile_dashboard():
     # DASHBOARD TAB
     # ==============================
     if st.session_state.mobile_tab == "Dashboard":
-        st.markdown("## 📊 Today's Overview")
+        st.markdown("## Today's Overview")
         
         stats = get_todays_stats()
         weekly = get_weekly_stats()
@@ -536,7 +536,7 @@ def mobile_dashboard():
         if active_shift:
             st.info(f"🟢 Active Shift: {active_shift.get('shift_id', 'N/A')} - {active_shift.get('cashier_name', 'Unknown')}")
         else:
-            st.warning("⚠️ No active shift")
+            st.warning("No active shift")
         
         # Quick stats in a grid
         col1, col2 = st.columns(2)
@@ -576,7 +576,7 @@ def mobile_dashboard():
             """, unsafe_allow_html=True)
         
         # Weekly and Monthly stats
-        st.markdown("## 📈 Period Summary")
+        st.markdown("## Period Summary")
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -590,12 +590,12 @@ def mobile_dashboard():
         alerts = get_stock_alerts()
         
         if alerts["critical"] or alerts["warning"]:
-            st.markdown("## ⚠️ Stock Alerts")
+            st.markdown("## Stock Alerts")
             
             if alerts["critical"]:
                 st.markdown(f"""
                 <div class="alert-critical">
-                    🚨 <strong>{len(alerts['critical'])} products OUT OF STOCK</strong><br>
+                    <strong>{len(alerts['critical'])} products OUT OF STOCK</strong><br>
                     Immediate action required!
                 </div>
                 """, unsafe_allow_html=True)
@@ -603,7 +603,7 @@ def mobile_dashboard():
             if alerts["warning"]:
                 st.markdown(f"""
                 <div class="alert-warning">
-                    ⚠️ <strong>{len(alerts['warning'])} products low on stock</strong><br>
+                    <strong>{len(alerts['warning'])} products low on stock</strong><br>
                     Reorder soon to avoid stockouts.
                 </div>
                 """, unsafe_allow_html=True)
@@ -612,7 +612,7 @@ def mobile_dashboard():
         if stats['top_product'] != "N/A":
             st.markdown(f"""
             <div class="alert-info">
-                🏆 <strong>Top Selling Today</strong><br>
+                <strong>Top Selling Today</strong><br>
                 {stats['top_product']}
             </div>
             """, unsafe_allow_html=True)
@@ -620,7 +620,7 @@ def mobile_dashboard():
         # Pending approvals
         pending = get_pending_purchases()
         if pending:
-            st.markdown("## 📋 Pending Approvals")
+            st.markdown("## Pending Approvals")
             for po in pending[:3]:
                 st.markdown(f"""
                 <div class="stat-card">
@@ -635,29 +635,29 @@ def mobile_dashboard():
     # ALERTS TAB
     # ==============================
     elif st.session_state.mobile_tab == "Alerts":
-        st.markdown("## 🔔 Real-time Alerts")
+        st.markdown("## Real-time Alerts")
         
         alerts = get_stock_alerts()
         
         # Critical alerts
         if alerts["critical"]:
-            st.markdown("### 🚨 Critical Alerts")
+            st.markdown("### Critical Alerts")
             for product in alerts["critical"]:
                 st.error(f"**{product['name']}** - OUT OF STOCK!\nReorder immediately.")
         
         # Warning alerts
         if alerts["warning"]:
-            st.markdown("### ⚠️ Warning Alerts")
+            st.markdown("### Warning Alerts")
             for product in alerts["warning"][:10]:
                 st.warning(f"**{product['name']}** - Only {product['stock']} units left (Reorder at {product['reorder_level']})")
         
         if not alerts["critical"] and not alerts["warning"]:
-            st.success("✅ No active alerts! All stock levels are healthy.")
+            st.success("No active alerts! All stock levels are healthy.")
         
         # Pending purchase approvals
         pending = get_pending_purchases()
         if pending:
-            st.markdown("### 📋 Pending Approvals")
+            st.markdown("### Pending Approvals")
             for po in pending:
                 with st.expander(f"PO: {po['po_number']} - {po['supplier']}"):
                     st.write(f"**Total Value:** ${po['total_cost']:,.2f}")
@@ -665,24 +665,24 @@ def mobile_dashboard():
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button(f"✅ Approve", key=f"approve_{po['po_number']}"):
+                        if st.button(f"Approve", key=f"approve_{po['po_number']}"):
                             st.success(f"PO {po['po_number']} approved!")
                     with col2:
-                        if st.button(f"❌ Reject", key=f"reject_{po['po_number']}"):
+                        if st.button(f"Reject", key=f"reject_{po['po_number']}"):
                             st.warning(f"PO {po['po_number']} rejected")
     
     # ==============================
     # WHATSAPP TAB
     # ==============================
     elif st.session_state.mobile_tab == "WhatsApp":
-        st.markdown("## 📱 WhatsApp Notifications")
+        st.markdown("## WhatsApp Notifications")
         st.caption("Receive real-time alerts on WhatsApp")
         
         # Phone number input
         st.markdown("### Configure WhatsApp Alerts")
         
         phone = st.text_input("Your WhatsApp Number", 
-                             placeholder="0777123456",
+                             placeholder="0782905853",
                              help="Enter Zimbabwe phone number")
         
         if phone:
@@ -695,15 +695,15 @@ def mobile_dashboard():
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    stock_out_alerts = st.checkbox("🚨 Stock Out Alerts", value=True)
-                    low_stock_alerts = st.checkbox("⚠️ Low Stock Alerts", value=True)
+                    stock_out_alerts = st.checkbox("Stock Out Alerts", value=True)
+                    low_stock_alerts = st.checkbox("Low Stock Alerts", value=True)
                 with col2:
-                    daily_summary = st.checkbox("📊 Daily Sales Summary", value=True)
-                    shift_summary_alert = st.checkbox("🕐 Shift Summary", value=True)
+                    daily_summary = st.checkbox("Daily Sales Summary", value=True)
+                    shift_summary_alert = st.checkbox("Shift Summary", value=True)
                 
                 # Test button
                 if st.button("📱 Send Test WhatsApp Message", use_container_width=True):
-                    test_message = f"✅ *SmartGro ERP Test*\n\nYour WhatsApp alerts are now configured!\n\nYou will receive real-time notifications for:\n"
+                    test_message = f"*SmartGro ERP Test*\n\nYour WhatsApp alerts are now configured!\n\nYou will receive real-time notifications for:\n"
                     if stock_out_alerts:
                         test_message += "• Stock out alerts\n"
                     if low_stock_alerts:
@@ -712,14 +712,14 @@ def mobile_dashboard():
                         test_message += "• Daily sales summary\n"
                     if shift_summary_alert:
                         test_message += "• Shift summaries\n"
-                    test_message += f"\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    test_message += f"\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     
                     link = get_whatsapp_link(standardized, test_message)
                     if link:
                         st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">📱 Send Test Message</button></a>', unsafe_allow_html=True)
                 
                 # Save settings button
-                if st.button("💾 Save Alert Settings", type="primary", use_container_width=True):
+                if st.button("Save Alert Settings", type="primary", use_container_width=True):
                     st.session_state.whatsapp_number = standardized
                     st.session_state.alert_prefs = {
                         "stock_out": stock_out_alerts,
@@ -727,13 +727,13 @@ def mobile_dashboard():
                         "daily_summary": daily_summary,
                         "shift_summary": shift_summary_alert
                     }
-                    st.success("✅ Alert settings saved!")
+                    st.success("Alert settings saved!")
             else:
-                st.error(f"❌ {msg}")
+                st.error(f"{msg}")
         
         # Quick send section
         st.markdown("---")
-        st.markdown("### 📤 Quick WhatsApp Actions")
+        st.markdown("### Quick WhatsApp Actions")
         
         col1, col2 = st.columns(2)
         
@@ -743,7 +743,7 @@ def mobile_dashboard():
             if summary_msg:
                 link = get_whatsapp_link(phone if phone else "0772123456", summary_msg)
                 if link:
-                    st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">📊 Send Daily Summary</button></a>', unsafe_allow_html=True)
+                    st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">Send Daily Summary</button></a>', unsafe_allow_html=True)
         
         with col2:
             alerts = get_stock_alerts()
@@ -752,13 +752,13 @@ def mobile_dashboard():
                 if stock_msg:
                     link = get_whatsapp_link(phone if phone else "0772123456", stock_msg)
                     if link:
-                        st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">🚨 Send Stock Alert</button></a>', unsafe_allow_html=True)
+                        st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">Send Stock Alert</button></a>', unsafe_allow_html=True)
     
     # ==============================
     # REPORTS TAB
     # ==============================
     elif st.session_state.mobile_tab == "Reports":
-        st.markdown("## 📈 Mobile Reports")
+        st.markdown("## Mobile Reports")
         
         report_type = st.selectbox("Select Report", 
                                    ["Today's Sales", "Weekly Sales", "Monthly Sales", "Low Stock Report", "Pending Orders"])
@@ -782,15 +782,15 @@ def mobile_dashboard():
             """)
             
             # Share via WhatsApp
-            share_msg = f"📊 *Daily Sales Report*\n\n"
+            share_msg = f"*Daily Sales Report*\n\n"
             share_msg += f"Date: {datetime.now().strftime('%Y-%m-%d')}\n"
             share_msg += f"Sales: ${stats['sales']:,.2f}\n"
             share_msg += f"Profit: ${stats['profit']:,.2f}\n"
             share_msg += f"Transactions: {stats['transactions']}\n"
             share_msg += f"Top Product: {stats['top_product']}\n"
             
-            if st.button("📱 Share via WhatsApp", use_container_width=True):
-                phone = st.session_state.get("whatsapp_number", "0772123456")
+            if st.button("Share via WhatsApp", use_container_width=True):
+                phone = st.session_state.get("whatsapp_number", "0782905853")
                 link = get_whatsapp_link(phone, share_msg)
                 if link:
                     st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">📱 Share Report</button></a>', unsafe_allow_html=True)
@@ -848,7 +848,7 @@ def mobile_dashboard():
     # SHIFTS TAB
     # ==============================
     elif st.session_state.mobile_tab == "Shifts":
-        st.markdown("## 🕐 Shift Management")
+        st.markdown("## Shift Management")
         
         shift_summary = get_shift_summary()
         
@@ -881,7 +881,7 @@ def mobile_dashboard():
         closed_shifts = shifts_df[shifts_df["status"] == "CLOSED"] if not shifts_df.empty else pd.DataFrame()
         
         if not closed_shifts.empty:
-            st.markdown("### 📋 Recent Closed Shifts")
+            st.markdown("### Recent Closed Shifts")
             recent = closed_shifts.head(10)
             for _, shift in recent.iterrows():
                 col1, col2, col3 = st.columns(3)
@@ -896,7 +896,7 @@ def mobile_dashboard():
     # REFRESH BUTTON
     # ==============================
     st.markdown("---")
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 

@@ -8,7 +8,7 @@ from backend.core.db_adapter import get_customer_actions
 def customers_lifecycle_dashboard():
     """Customer Lifecycle Dashboard"""
 
-    st.title("🔄 Customer Lifecycle & Action Engine")
+    st.title("Customer Lifecycle & Action Engine")
 
     df = get_customer_actions()
 
@@ -19,7 +19,7 @@ def customers_lifecycle_dashboard():
     # ==============================
     # LIFECYCLE OVERVIEW
     # ==============================
-    st.markdown("## 📊 Lifecycle Distribution")
+    st.markdown("## Lifecycle Distribution")
 
     summary = df["lifecycle_stage"].value_counts().reset_index()
     summary.columns = ["stage", "count"]
@@ -37,7 +37,7 @@ def customers_lifecycle_dashboard():
     # ==============================
     # FULL CUSTOMER TABLE
     # ==============================
-    st.markdown("## 👥 Customer Lifecycle Table")
+    st.markdown("## Customer Lifecycle Table")
 
     st.dataframe(
         df[[
@@ -56,7 +56,7 @@ def customers_lifecycle_dashboard():
     # ==============================
     # STRATEGIC INSIGHTS
     # ==============================
-    st.markdown("## 🧠 Business Actions")
+    st.markdown("## Business Actions")
 
     at_risk = len(df[df["lifecycle_stage"] == "At Risk"])
     loyal = len(df[df["lifecycle_stage"] == "Loyal"])
@@ -65,6 +65,6 @@ def customers_lifecycle_dashboard():
     st.metric("Loyal Customers", loyal)
 
     if at_risk > loyal:
-        st.error("⚠ You are losing customers faster than you retain them")
+        st.error("You are losing customers faster than you retain them")
     else:
-        st.success("✔ Healthy customer lifecycle balance")
+        st.success("Healthy customer lifecycle balance")

@@ -13,22 +13,22 @@ def add_shift_name_column():
     print("=" * 60)
     
     # Test connection first
-    print("\n📡 Testing database connection...")
+    print("\nTesting database connection...")
     success, message = test_connection()
     print(f"   {message}")
     
     if not success:
-        print("❌ Cannot proceed - connection failed")
+        print("Cannot proceed - connection failed")
         return False
     
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
-                print("❌ No database connection")
+                print("No database connection")
                 return False
             
             # Check if column exists
-            print("\n📋 Checking if shift_name column exists...")
+            print("\nChecking if shift_name column exists...")
             cur.execute("""
                 SELECT EXISTS (
                     SELECT 1 
@@ -41,46 +41,46 @@ def add_shift_name_column():
             exists = result.get('exists', False) if isinstance(result, dict) else result[0]
             
             if exists:
-                print("✅ shift_name column already exists")
+                print("shift_name column already exists")
                 return True
             
             # Add the column
-            print("\n📝 Adding shift_name column...")
+            print("\nAdding shift_name column...")
             cur.execute("""
                 ALTER TABLE shifts ADD COLUMN shift_name VARCHAR(20) DEFAULT 'ALPHA'
             """)
             conn.commit()
-            print("✅ shift_name column added successfully!")
+            print("shift_name column added successfully!")
             
             # Update existing records
-            print("\n📝 Updating existing shifts with shift_name...")
+            print("\nUpdating existing shifts with shift_name...")
             cur.execute("""
                 UPDATE shifts 
                 SET shift_name = 'ALPHA' 
                 WHERE shift_name IS NULL OR shift_name = ''
             """)
             conn.commit()
-            print("✅ Existing shifts updated with default shift_name 'ALPHA'")
+            print("Existing shifts updated with default shift_name 'ALPHA'")
             
             # Add index
-            print("\n📝 Creating index on shift_name...")
+            print("\nCreating index on shift_name...")
             try:
                 cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_shifts_shift_name ON shifts(shift_name)
                 """)
                 conn.commit()
-                print("✅ Index on shift_name created successfully!")
+                print("Index on shift_name created successfully!")
             except Exception as idx_error:
-                print(f"⚠️ Could not create index: {idx_error}")
+                print(f"Could not create index: {idx_error}")
             
             print("\n" + "=" * 60)
-            print("  ✅ MIGRATION COMPLETED SUCCESSFULLY!")
+            print("  MIGRATION COMPLETED SUCCESSFULLY!")
             print("=" * 60)
             
             return True
             
     except Exception as e:
-        print(f"❌ Error adding shift_name column: {e}")
+        print(f"Error adding shift_name column: {e}")
         return False
 
 if __name__ == "__main__":

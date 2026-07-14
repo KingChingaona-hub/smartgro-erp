@@ -73,7 +73,7 @@ def initialize_branch_with_empty_data(branch_id):
             "barcode", "name", "category", "price", "cost", "stock", "reorder_level"
         ])
         products_df.to_csv(products_file, index=False)
-        print(f"✅ Created empty products file for branch {branch_id}")
+        print(f"Created empty products file for branch {branch_id}")
     
     # Create EMPTY sales file
     sales_file = get_branch_sales_file(branch_id)
@@ -173,7 +173,7 @@ def save_branch_products(branch_id, df):
     
     try:
         df.to_csv(file_path, index=False)
-        print(f"✅ Saved {len(df)} products to {file_path}")
+        print(f"Saved {len(df)} products to {file_path}")
         return True
     except Exception as e:
         print(f"Error saving products: {e}")

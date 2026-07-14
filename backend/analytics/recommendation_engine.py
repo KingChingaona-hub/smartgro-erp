@@ -389,13 +389,13 @@ class RecommendationEngine:
 def recommendation_engine_dashboard():
     """Product Recommendation Engine Dashboard"""
     
-    st.title("🛍️ Product Recommendation Engine")
+    st.title("Product Recommendation Engine")
     st.caption("AI-powered product recommendations for cross-selling and up-selling")
     
     role = st.session_state.get("role", "cashier")
     
     if role not in ["owner", "manager"]:
-        st.error("❌ Access Denied. Only owners and managers can access the recommendation engine.")
+        st.error("Access Denied. Only owners and managers can access the recommendation engine.")
         return
     
     # Load data
@@ -422,51 +422,51 @@ def recommendation_engine_dashboard():
     # TABS
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Dashboard",
-        "🔍 Product Lookup",
-        "👤 Customer Recommendations",
-        "📦 Bundle Builder"
+        "Dashboard",
+        "Product Lookup",
+        "Customer Recommendations",
+        "Bundle Builder"
     ])
     
     # ==============================
     # TAB 1: DASHBOARD
     # ==============================
     with tab1:
-        st.markdown("## 📊 Recommendation Engine Dashboard")
+        st.markdown("## Recommendation Engine Dashboard")
         
         # Check if engine is built
         if not st.session_state.recommendation_engine_ready:
-            st.warning("⚠️ Recommendation engine not built. Click below to build.")
+            st.warning("Recommendation engine not built. Click below to build.")
             
-            if st.button("🚀 Build Recommendation Engine", type="primary", use_container_width=True):
+            if st.button("Build Recommendation Engine", type="primary", use_container_width=True):
                 with st.spinner("Building recommendation engine..."):
                     success, message = st.session_state.recommendation_engine.build_association_rules(
                         sales_df, products_df
                     )
                     if success:
                         st.session_state.recommendation_engine_ready = True
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                         st.balloons()
                         st.rerun()
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
         else:
             # Show stats
             stats = st.session_state.recommendation_engine.get_recommendation_stats()
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("📦 Products Analyzed", stats.get("product_count", 0))
+                st.metric("Products Analyzed", stats.get("product_count", 0))
             with col2:
-                st.metric("🔗 Product Pairs", stats.get("pair_count", 0))
+                st.metric("Product Pairs", stats.get("pair_count", 0))
             with col3:
-                st.metric("🏆 Top Product", stats.get("top_product", "N/A"))
+                st.metric("Top Product", stats.get("top_product", "N/A"))
             with col4:
-                st.metric("📊 Last Updated", stats.get("last_update", "Never").strftime("%Y-%m-%d") if stats.get("last_update") else "Never")
+                st.metric("Last Updated", stats.get("last_update", "Never").strftime("%Y-%m-%d") if stats.get("last_update") else "Never")
             
             # Show top products
             st.markdown("---")
-            st.markdown("### 🏆 Top Selling Products")
+            st.markdown("### Top Selling Products")
             
             top_products = st.session_state.recommendation_engine.get_top_products(10)
             
@@ -496,26 +496,26 @@ def recommendation_engine_dashboard():
             
             # Rebuild button
             st.markdown("---")
-            if st.button("🔄 Rebuild Recommendations", use_container_width=True):
+            if st.button("Rebuild Recommendations", use_container_width=True):
                 with st.spinner("Rebuilding..."):
                     success, message = st.session_state.recommendation_engine.build_association_rules(
                         sales_df, products_df
                     )
                     if success:
                         st.session_state.recommendation_engine_ready = True
-                        st.success(f"✅ {message}")
+                        st.success(f"{message}")
                         st.rerun()
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"{message}")
     
     # ==============================
     # TAB 2: PRODUCT LOOKUP
     # ==============================
     with tab2:
-        st.markdown("## 🔍 Product Recommendations")
+        st.markdown("## Product Recommendations")
         
         if not st.session_state.recommendation_engine_ready:
-            st.warning("⚠️ Recommendation engine not built yet. Build it first in the Dashboard tab.")
+            st.warning("Recommendation engine not built yet. Build it first in the Dashboard tab.")
         else:
             # Product search
             product_col = get_product_column(products_df)
@@ -536,7 +536,7 @@ def recommendation_engine_dashboard():
                     )
                     
                     if selected_product:
-                        st.markdown(f"### 📦 Recommendations for: {selected_product}")
+                        st.markdown(f"### Recommendations for: {selected_product}")
                         
                         rec_type = st.radio(
                             "Recommendation Type",
@@ -555,7 +555,7 @@ def recommendation_engine_dashboard():
                             )
                         
                         if not recommendations.empty:
-                            st.markdown("#### 📋 Recommendations")
+                            st.markdown("#### Recommendations")
                             
                             # Add confidence/score column
                             if "score" not in recommendations.columns:
@@ -572,7 +572,7 @@ def recommendation_engine_dashboard():
                             )
                             
                             # Display as cards
-                            st.markdown("#### 🎯 Recommended Products")
+                            st.markdown("#### Recommended Products")
                             
                             cols = st.columns(min(3, len(recommendations)))
                             for idx, (_, row) in enumerate(recommendations.head(6).iterrows()):
@@ -611,10 +611,10 @@ def recommendation_engine_dashboard():
     # TAB 3: CUSTOMER RECOMMENDATIONS
     # ==============================
     with tab3:
-        st.markdown("## 👤 Personalized Customer Recommendations")
+        st.markdown("## Personalized Customer Recommendations")
         
         if not st.session_state.recommendation_engine_ready:
-            st.warning("⚠️ Recommendation engine not built yet. Build it first in the Dashboard tab.")
+            st.warning("Recommendation engine not built yet. Build it first in the Dashboard tab.")
         else:
             customer_col = get_customer_column(customers_df)
             
@@ -630,7 +630,7 @@ def recommendation_engine_dashboard():
                     if not customer_results.empty:
                         selected_customer = customer_results.iloc[0][customer_col]
                         
-                        st.markdown(f"### 🛍️ Recommendations for: {selected_customer}")
+                        st.markdown(f"### Recommendations for: {selected_customer}")
                         
                         # Get recommendations
                         recommendations = st.session_state.recommendation_engine.get_recommendations_for_customer(
@@ -638,7 +638,7 @@ def recommendation_engine_dashboard():
                         )
                         
                         if not recommendations.empty:
-                            st.markdown("#### 🎯 Recommended Products")
+                            st.markdown("#### Recommended Products")
                             
                             # Display as cards
                             cols = st.columns(min(3, len(recommendations)))
@@ -654,7 +654,7 @@ def recommendation_engine_dashboard():
                                     """, unsafe_allow_html=True)
                             
                             # Show as table
-                            st.markdown("#### 📋 Recommendation Details")
+                            st.markdown("#### Recommendation Details")
                             st.dataframe(
                                 recommendations[["product", "price", "category", "score"]],
                                 use_container_width=True,
@@ -665,7 +665,7 @@ def recommendation_engine_dashboard():
                             )
                             
                             # Customer purchase history summary
-                            st.markdown("#### 📜 Customer Purchase History")
+                            st.markdown("#### Customer Purchase History")
                             
                             customer_sales = sales_df[sales_df[get_customer_column(sales_df)].astype(str).str.contains(
                                 selected_customer, case=False, na=False
@@ -688,14 +688,14 @@ def recommendation_engine_dashboard():
     # TAB 4: BUNDLE BUILDER
     # ==============================
     with tab4:
-        st.markdown("## 📦 Smart Bundle Builder")
+        st.markdown("## Smart Bundle Builder")
         st.caption("Build product bundles based on purchase patterns")
         
         if not st.session_state.recommendation_engine_ready:
-            st.warning("⚠️ Recommendation engine not built yet. Build it first in the Dashboard tab.")
+            st.warning("Recommendation engine not built yet. Build it first in the Dashboard tab.")
         else:
             # Cart builder
-            st.markdown("### 🛒 Add Products to Cart")
+            st.markdown("### Add Products to Cart")
             
             product_col = get_product_column(products_df)
             
@@ -718,7 +718,7 @@ def recommendation_engine_dashboard():
                         key="cart_product_select"
                     )
                     
-                    if st.button("➕ Add to Cart", use_container_width=True, key="add_to_cart_btn"):
+                    if st.button("Add to Cart", use_container_width=True, key="add_to_cart_btn"):
                         if selected_cart_product:
                             if selected_cart_product not in st.session_state.bundle_cart:
                                 st.session_state.bundle_cart.append(selected_cart_product)
@@ -728,7 +728,7 @@ def recommendation_engine_dashboard():
                 
                 # Display cart
                 if st.session_state.bundle_cart:
-                    st.markdown("#### 🧾 Current Cart")
+                    st.markdown("#### Current Cart")
                     
                     cart_df = pd.DataFrame({
                         "Product": st.session_state.bundle_cart,
@@ -736,23 +736,23 @@ def recommendation_engine_dashboard():
                     })
                     
                     st.dataframe(cart_df, use_container_width=True, hide_index=True)
-                    st.info(f"💰 Total: ${cart_df['Price'].sum():.2f}")
+                    st.info(f"Total: ${cart_df['Price'].sum():.2f}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("🗑️ Clear Cart", use_container_width=True, key="clear_cart_btn"):
+                        if st.button("Clear Cart", use_container_width=True, key="clear_cart_btn"):
                             st.session_state.bundle_cart = []
                             st.rerun()
                     
                     with col2:
-                        if st.button("🎯 Get Bundle Recommendations", type="primary", use_container_width=True, key="get_bundle_btn"):
+                        if st.button("Get Bundle Recommendations", type="primary", use_container_width=True, key="get_bundle_btn"):
                             if len(st.session_state.bundle_cart) >= 2:
                                 recommendations = st.session_state.recommendation_engine.get_bundle_recommendations(
                                     st.session_state.bundle_cart, 5
                                 )
                                 
                                 if not recommendations.empty:
-                                    st.markdown("#### 🎯 Recommended Add-ons")
+                                    st.markdown("#### Recommended Add-ons")
                                     
                                     cols = st.columns(min(3, len(recommendations)))
                                     for idx, (_, row) in enumerate(recommendations.iterrows()):
@@ -796,7 +796,7 @@ def display_pos_recommendations(cart_products):
     recs = get_recommendations_for_pos(cart_products, 5)
     
     if not recs.empty:
-        st.markdown("### 🎯 You Might Also Like")
+        st.markdown("### You Might Also Like")
         for _, row in recs.iterrows():
             col1, col2, col3 = st.columns([2, 1, 1])
             with col1:
@@ -804,9 +804,9 @@ def display_pos_recommendations(cart_products):
             with col2:
                 st.write(f"${row['price']:.2f}")
             with col3:
-                if st.button("➕ Add", key=f"pos_rec_{row['product']}"):
+                if st.button("Add", key=f"pos_rec_{row['product']}"):
                     return row["product"]
-        st.caption("💡 These products are frequently bought together")
+        st.caption("These products are frequently bought together")
 
 
 # ==============================

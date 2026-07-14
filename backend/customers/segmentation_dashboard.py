@@ -12,7 +12,7 @@ from backend.core.db_adapter import (
 def customers_segmentation_dashboard():
     """Customer Segmentation Dashboard"""
 
-    st.title("🎯 Customer Segmentation & Marketing Engine")
+    st.title("Customer Segmentation & Marketing Engine")
 
     df = get_customer_segments()
     summary = get_segment_summary()
@@ -25,7 +25,7 @@ def customers_segmentation_dashboard():
     # ==============================
     # SEGMENT OVERVIEW
     # ==============================
-    st.markdown("## 📊 Segment Distribution")
+    st.markdown("## Segment Distribution")
 
     fig = px.pie(
         summary,
@@ -42,7 +42,7 @@ def customers_segmentation_dashboard():
     # ==============================
     # VIP CUSTOMERS
     # ==============================
-    st.markdown("## 🟢 VIP Customers")
+    st.markdown("## VIP Customers")
 
     vip = targets["vip"]
 
@@ -59,7 +59,7 @@ def customers_segmentation_dashboard():
     # ==============================
     # AT RISK CUSTOMERS
     # ==============================
-    st.markdown("## ⚠ At Risk Customers")
+    st.markdown("## At Risk Customers")
 
     risk = targets["at_risk"]
 
@@ -74,7 +74,7 @@ def customers_segmentation_dashboard():
     # ==============================
     # NEW / LOW VALUE CUSTOMERS
     # ==============================
-    st.markdown("## 🟡 New / Low Value Customers")
+    st.markdown("## New / Low Value Customers")
 
     new = targets["new"]
 
@@ -85,7 +85,7 @@ def customers_segmentation_dashboard():
     # INSIGHTS
     # ==============================
     st.markdown("---")
-    st.markdown("## 🧠 Marketing Insights")
+    st.markdown("## Marketing Insights")
 
     vip_pct = len(vip) / len(df) * 100 if len(df) > 0 else 0
     risk_pct = len(risk) / len(df) * 100 if len(df) > 0 else 0

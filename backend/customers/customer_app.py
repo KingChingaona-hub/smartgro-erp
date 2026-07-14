@@ -301,7 +301,7 @@ def generate_digital_loyalty_card(customer_data):
     
     phone = customer_data.get("phone_display", normalize_phone_for_display(customer_data.get("phone", "")))
     points = customer_data.get("points", 0)
-    tier = customer_data.get("tier", "🥉 BRONZE")
+    tier = customer_data.get("tier", "BRONZE")
     name = customer_data.get("customer_name", "Valued Customer")
     branch = customer_data.get("branch", "HO")
     
@@ -335,10 +335,10 @@ def generate_digital_loyalty_card(customer_data):
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <p style="margin: 5px 0;"><strong>{name}</strong></p>
-                <p style="margin: 5px 0; font-size: 12px;">📞 {phone}</p>
-                <p style="margin: 5px 0;">📍 Branch: {branch}</p>
-                <p style="margin: 5px 0;">🏆 {tier}</p>
-                <p style="margin: 5px 0;">⭐ {points} points</p>
+                <p style="margin: 5px 0; font-size: 12px;">{phone}</p>
+                <p style="margin: 5px 0;"> Branch: {branch}</p>
+                <p style="margin: 5px 0;">{tier}</p>
+                <p style="margin: 5px 0;">{points} points</p>
             </div>
             <div>
                 <img src="data:image/png;base64,{qr_base64}" width="100" height="100">
@@ -382,10 +382,10 @@ def customer_login_page():
         pass
     st.markdown("<h2 style='text-align:center;'>Customer Portal</h2>", unsafe_allow_html=True)
     
-    tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+    tab1, tab2 = st.tabs(["Login", "Register"])
     
     with tab1:
-        phone = st.text_input("Phone Number", placeholder="e.g., 0772123456 or 782905853", key="login_phone")
+        phone = st.text_input("Phone Number", placeholder="e.g., 0782905853", key="login_phone")
         
         if st.button("Login", type="primary", use_container_width=True):
             if phone:
@@ -396,7 +396,7 @@ def customer_login_page():
                     st.session_state.customer_phone = phone
                     st.session_state.customer_branch = customer_data.get("branch", "HO")
                     st.success(f"Welcome back, {customer_data.get('customer_name')}!")
-                    st.rerun()
+                    #st.rerun()
                 else:
                     st.error("Customer not found. Please register.")
             else:
@@ -404,7 +404,7 @@ def customer_login_page():
     
     with tab2:
         current_branch = get_current_branch()
-        st.info(f"📍 Registering for branch: {current_branch}")
+        st.info(f"Registering for branch: {current_branch}")
         
         name = st.text_input("Full Name", placeholder="John Doe", key="reg_name")
         phone = st.text_input("Phone Number", placeholder="e.g., 0772123456", key="reg_phone")
@@ -420,7 +420,7 @@ def customer_login_page():
                         st.session_state.customer_data = customer_data
                         st.session_state.customer_phone = phone
                         st.session_state.customer_branch = customer_data.get("branch", current_branch)
-                        st.rerun()
+                        #st.rerun()
                 else:
                     st.error(message)
             else:
@@ -440,34 +440,34 @@ def customer_dashboard():
     
     display_phone = normalize_phone_for_display(customer.get("phone", phone))
     
-    st.title("🎁 My Loyalty Dashboard")
+    st.title("My Loyalty Dashboard")
     st.caption(f"Welcome back, {customer.get('customer_name', 'Valued Customer')}!")
     
     if customer.get("branch"):
-        st.info(f"📍 Registered Branch: {customer.get('branch')}")
+        st.info(f"Registered Branch: {customer.get('branch')}")
     
     # Display metrics
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("🏆 Tier", customer.get('tier', '🥉 BRONZE'))
+        st.metric("Tier", customer.get('tier', 'BRONZE'))
     with col2:
-        st.metric("⭐ Points", f"{customer.get('points', 0):,}")
+        st.metric("Points", f"{customer.get('points', 0):,}")
     with col3:
-        st.metric("💰 Total Spent", f"${to_float(customer.get('total_spent', 0)):,.2f}")
+        st.metric("Total Spent", f"${to_float(customer.get('total_spent', 0)):,.2f}")
     with col4:
-        st.metric("🛒 Orders", customer.get('total_orders', 0))
+        st.metric("Orders", customer.get('total_orders', 0))
     
     st.markdown("---")
     
     # Digital Loyalty Card
-    st.markdown("## 💳 Digital Loyalty Card")
+    st.markdown("## Digital Loyalty Card")
     
     card_html, qr_base64 = generate_digital_loyalty_card(customer)
     st.markdown(card_html, unsafe_allow_html=True)
     
     st.download_button(
-        label="📥 Download QR Code",
+        label="Download QR Code",
         data=base64.b64decode(qr_base64),
         file_name=f"loyalty_qr_{display_phone}.png",
         mime="image/png",
@@ -477,9 +477,9 @@ def customer_dashboard():
     st.markdown("---")
     
     # Tier Benefits
-    st.markdown("## ✨ Your Tier Benefits")
+    st.markdown("## Your Tier Benefits")
     
-    tier = customer.get('tier', '🥉 BRONZE')
+    tier = customer.get('tier', 'BRONZE')
     benefits = get_tier_benefits(tier)
     
     col1, col2, col3, col4 = st.columns(4)
@@ -490,26 +490,26 @@ def customer_dashboard():
     with col3:
         st.metric("Birthday Bonus", f"{benefits.get('birthday_bonus', 50)} pts")
     with col4:
-        st.metric("Free Delivery", "✅" if benefits.get('free_delivery', False) else "❌")
+        st.metric("Free Delivery", "YES" if benefits.get('free_delivery', False) else "NO")
     
     # Next Tier Progress
-    st.markdown("### 🎯 Next Tier Progress")
+    st.markdown("### Next Tier Progress")
     
     current_spent = to_float(customer.get('total_spent', 0))
     if current_spent < 500:
-        next_tier = "🥈 SILVER"
+        next_tier = "SILVER"
         next_amount = 500 - current_spent
         progress = current_spent / 500
     elif current_spent < 2000:
-        next_tier = "🥇 GOLD"
+        next_tier = "GOLD"
         next_amount = 2000 - current_spent
         progress = current_spent / 2000
     elif current_spent < 5000:
-        next_tier = "👑 PLATINUM"
+        next_tier = "PLATINUM"
         next_amount = 5000 - current_spent
         progress = current_spent / 5000
     else:
-        next_tier = "👑 PLATINUM (Max)"
+        next_tier = "PLATINUM (Max)"
         next_amount = 0
         progress = 1
     
@@ -517,12 +517,12 @@ def customer_dashboard():
     if next_amount > 0:
         st.caption(f"Spend ${next_amount:,.2f} more to reach {next_tier}")
     else:
-        st.caption("🎉 You've reached the highest tier! Congratulations!")
+        st.caption("You've reached the highest tier! Congratulations!")
     
     st.markdown("---")
     
     # Purchase History
-    st.markdown("## 📜 My Purchase History")
+    st.markdown("## My Purchase History")
     
     purchase_history = get_customer_purchase_history(phone, 10)
     
@@ -544,7 +544,7 @@ def customer_dashboard():
     st.markdown("---")
     
     # Recommendations
-    st.markdown("## 🛍️ Recommended for You")
+    st.markdown("## Recommended for You")
     
     recommendations = get_customer_recommendations(phone)
     
@@ -562,7 +562,7 @@ def customer_dashboard():
                 
                 st.markdown(f"""
                 <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center;">
-                    <h4>📦 {product['name'][:20]}</h4>
+                    <h4>{product['name'][:20]}</h4>
                     <p style="font-size: 24px; color: green;">${product_price:.2f}</p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -572,7 +572,7 @@ def customer_dashboard():
     st.markdown("---")
     
     # Redeem Points
-    st.markdown("## 💎 Redeem Points")
+    st.markdown("## Redeem Points")
     
     current_points = customer.get('points', 0)
     points_value = current_points / 100
@@ -580,12 +580,12 @@ def customer_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.info(f"💰 Your {current_points} points are worth **${points_value:.2f}** discount!")
+        st.info(f"Your {current_points} points are worth **${points_value:.2f}** discount!")
         st.caption("100 points = $1 discount")
     
     with col2:
         if current_points >= 100:
-            if st.button("🎁 Redeem Now", use_container_width=True):
+            if st.button("Redeem Now", use_container_width=True):
                 st.session_state.show_redeem = True
         
         if st.session_state.get("show_redeem", False):
@@ -598,12 +598,12 @@ def customer_dashboard():
             )
             
             if st.button("Confirm Redemption", use_container_width=True):
-                st.info(f"🎉 Show this screen at checkout to redeem {points_to_redeem} points for ${points_to_redeem/100:.2f} discount!")
+                st.info(f"Show this screen at checkout to redeem {points_to_redeem} points for ${points_to_redeem/100:.2f} discount!")
     
     st.markdown("---")
     
     # Stay Connected
-    st.markdown("## 📱 Stay Connected")
+    st.markdown("## Stay Connected")
     
     col1, col2 = st.columns(2)
     
@@ -613,22 +613,22 @@ def customer_dashboard():
             st.markdown(f"""
             <a href="{whatsapp_link}" target="_blank">
                 <button style="background:#25D366;color:white;border:none;border-radius:30px;padding:10px;width:100%;cursor:pointer;">
-                    📱 Get Offers on WhatsApp
+                    Get Offers on WhatsApp
                 </button>
             </a>
             """, unsafe_allow_html=True)
     
     with col2:
-        if st.button("📞 Contact Support", use_container_width=True):
+        if st.button("Contact Support", use_container_width=True):
             st.info("Call us: +263 78 290 5853")
     
     st.markdown("---")
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button("Logout", use_container_width=True):
         st.session_state.customer_logged_in = False
         st.session_state.customer_data = None
         st.session_state.customer_phone = None
         st.session_state.customer_branch = None
-        st.rerun()
+        #st.rerun()
 
 
 # ==============================
@@ -651,7 +651,7 @@ def customer_app():
 def customer_insights_page():
     """Admin page for customer insights across all branches"""
     
-    st.markdown("## 📊 Customer Insights Dashboard")
+    st.markdown("## Customer Insights Dashboard")
     st.caption("Analytics about customer behavior and loyalty program across all branches")
     
     all_customers = []

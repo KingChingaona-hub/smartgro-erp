@@ -490,7 +490,7 @@ def get_shift_stats():
 # ==============================
 def init_shift_file():
     """Compatibility function - no longer needed with PostgreSQL"""
-    print("📦 Shift data stored in PostgreSQL - no CSV file needed")
+    print("Shift data stored in PostgreSQL - no CSV file needed")
     return load_shifts()
 
 

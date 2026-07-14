@@ -8,7 +8,7 @@ from datetime import datetime
 def income_page():
     """Income Management Page - FIXED: Proper delete using unique identifiers"""
     
-    st.title("💰 Business Income")
+    st.title("Business Income")
     st.caption("Record and track all business income")
 
     # ==============================
@@ -25,7 +25,7 @@ def income_page():
     # DISPLAY MESSAGES FROM SESSION STATE
     # ==============================
     if st.session_state.income_success and st.session_state.income_message:
-        st.success(f"✅ {st.session_state.income_message}")
+        st.success(f"{st.session_state.income_message}")
         st.balloons()
         st.session_state.income_success = False
         st.session_state.income_message = ""
@@ -33,7 +33,7 @@ def income_page():
     # ==============================
     # INPUT FORM
     # ==============================
-    st.subheader("➕ Record Income")
+    st.subheader("Record Income")
 
     with st.form(key="income_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -75,13 +75,13 @@ def income_page():
                 key="income_user"
             )
         
-        submitted = st.form_submit_button("💰 Record Income", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Record Income", type="primary", use_container_width=True)
 
         if submitted:
             if amount <= 0:
-                st.error("❌ Please enter a valid amount greater than 0")
+                st.error("Please enter a valid amount greater than 0")
             elif not description:
-                st.error("❌ Please enter a description")
+                st.error("Please enter a description")
             else:
                 success, message = record_income(
                     income_source,
@@ -92,10 +92,10 @@ def income_page():
                 if success:
                     st.session_state.income_success = True
                     st.session_state.income_message = message
-                    st.success(f"✅ {message}")
+                    st.success(f"{message}")
                     st.balloons()
                 else:
-                    st.error(f"❌ Failed to record income: {message}")
+                    st.error(f"Failed to record income: {message}")
 
     # ==============================
     # SUMMARY
@@ -107,17 +107,17 @@ def income_page():
     monthly_total = get_monthly_income()
     
     with col1:
-        st.metric("💰 This Month Income", f"${monthly_total:.2f}")
+        st.metric("This Month Income", f"${monthly_total:.2f}")
     
     source_df = get_income_by_source()
     if not source_df.empty:
         with col2:
             top_source = source_df.iloc[0]["income_source"]
             top_amount = source_df.iloc[0]["amount"]
-            st.metric("🏆 Top Source", f"{top_source}", delta=f"${top_amount:.2f}")
+            st.metric("Top Source", f"{top_source}", delta=f"${top_amount:.2f}")
         
         with col3:
-            st.metric("📊 Total Sources", len(source_df))
+            st.metric("Total Sources", len(source_df))
     
     st.markdown("---")
     
@@ -125,7 +125,7 @@ def income_page():
     # INCOME BY SOURCE CHART
     # ==============================
     if not source_df.empty:
-        st.subheader("📊 Income by Source")
+        st.subheader("Income by Source")
         
         import plotly.express as px
         
@@ -157,7 +157,7 @@ def income_page():
     # TABLE & DELETE - FIXED
     # ==============================
     st.markdown("---")
-    st.subheader("📜 Income Records")
+    st.subheader("Income Records")
     
     df = load_income()
 
@@ -180,8 +180,8 @@ def income_page():
         # ==============================
         # DELETE RECORD - FIXED: Use delete_income_by_id
         # ==============================
-        with st.expander("🗑️ Delete Income Record"):
-            st.warning("⚠️ This action cannot be undone")
+        with st.expander("Delete Income Record"):
+            st.warning("This action cannot be undone")
             
             if not df.empty:
                 # Create a list of records to select from with unique identifiers
@@ -214,11 +214,11 @@ def income_page():
                     record_to_delete = record_data[selected_idx]
                     
                     # Show what will be deleted
-                    st.info(f"⚠️ You are about to delete: {selected_record}")
+                    st.info(f"You are about to delete: {selected_record}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("🗑️ Confirm Delete", type="secondary", use_container_width=True):
+                        if st.button("Confirm Delete", type="secondary", use_container_width=True):
                             # Use the safer delete_by_id method
                             success = delete_income_by_id(
                                 date_str=record_to_delete["date"],
@@ -228,13 +228,13 @@ def income_page():
                             )
                             
                             if success:
-                                st.success("✅ Income record deleted successfully!")
+                                st.success("Income record deleted successfully!")
                                 st.rerun()
                             else:
-                                st.error("❌ Failed to delete record. Please try again.")
+                                st.error("Failed to delete record. Please try again.")
                     
                     with col2:
-                        if st.button("❌ Cancel", use_container_width=True):
+                        if st.button("Cancel", use_container_width=True):
                             st.info("Deletion cancelled")
     else:
         st.info("No income recorded yet.")
@@ -244,11 +244,11 @@ def income_page():
     # ==============================
     if not df.empty:
         st.markdown("---")
-        st.subheader("📥 Export Data")
+        st.subheader("Export Data")
         
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Income Data (CSV)",
+            label="Download Income Data (CSV)",
             data=csv,
             file_name=f"income_data_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",

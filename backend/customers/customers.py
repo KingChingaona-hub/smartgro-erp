@@ -22,7 +22,7 @@ def init_customer_session():
 # ==============================
 def customer_capture_form():
 
-    st.markdown("## 👤 Customer Details")
+    st.markdown("## Customer Details")
 
     col1, col2 = st.columns(2)
 
@@ -36,7 +36,7 @@ def customer_capture_form():
         value=st.session_state.customer_phone
     )
 
-    attach = st.button("➕ Attach Customer to Sale")
+    attach = st.button("Attach Customer to Sale")
 
     if attach:
 

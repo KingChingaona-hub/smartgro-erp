@@ -30,7 +30,7 @@ def safe_numeric(df, columns):
 def purchases_dashboard():
     """Purchases Dashboard with analytics"""
     
-    st.title("📊 Purchases Dashboard")
+    st.title("Purchases Dashboard")
     
     df = load_purchases()
     
@@ -146,7 +146,7 @@ def purchases_dashboard():
     if expected_profit == 0 and total_purchase_value > 0:
         # Assume 30% markup
         expected_profit = total_purchase_value * 0.3
-        st.info("📊 Expected profit calculated using 30% estimated markup (selling prices not found in product database)")
+        st.info("Expected profit calculated using 30% estimated markup (selling prices not found in product database)")
     
     # Calculate total items
     if qty_col:
@@ -166,39 +166,39 @@ def purchases_dashboard():
     # ==============================
     # DISPLAY METRICS
     # ==============================
-    st.markdown("## 💰 Purchases Overview")
+    st.markdown("## Purchases Overview")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("💰 Total Purchase Value", f"${total_purchase_value:,.2f}")
+        st.metric("Total Purchase Value", f"${total_purchase_value:,.2f}")
     
     with col2:
-        st.metric("📈 Expected Profit", f"${expected_profit:,.2f}")
+        st.metric("Expected Profit", f"${expected_profit:,.2f}")
     
     with col3:
-        st.metric("📦 Items Purchased", f"{int(total_items):,}")
+        st.metric("Items Purchased", f"{int(total_items):,}")
     
     with col4:
-        st.metric("📋 Purchase Orders", total_orders)
+        st.metric("Purchase Orders", total_orders)
     
     st.markdown("---")
     
     # Profit margin
     if profit_margin > 0:
         if profit_margin < 20:
-            st.warning(f"⚠️ Expected Profit Margin: {profit_margin:.1f}% (Consider increasing prices or negotiating better costs)")
+            st.warning(f"Expected Profit Margin: {profit_margin:.1f}% (Consider increasing prices or negotiating better costs)")
         elif profit_margin > 40:
-            st.success(f"✅ Excellent Expected Profit Margin: {profit_margin:.1f}%")
+            st.success(f"Excellent Expected Profit Margin: {profit_margin:.1f}%")
         else:
-            st.info(f"📊 Expected Profit Margin: {profit_margin:.1f}%")
+            st.info(f"Expected Profit Margin: {profit_margin:.1f}%")
     
     # ==============================
     # SHOW PROFIT BREAKDOWN (if available)
     # ==============================
     if profit_details:
         st.markdown("---")
-        st.markdown("## 💰 Expected Profit Breakdown by Product")
+        st.markdown("## Expected Profit Breakdown by Product")
         
         profit_df = pd.DataFrame(profit_details)
         st.dataframe(profit_df, use_container_width=True, hide_index=True)
@@ -212,7 +212,7 @@ def purchases_dashboard():
     # TOP SUPPLIERS
     # ==============================
     st.markdown("---")
-    st.markdown("## 🚚 Supplier Analysis")
+    st.markdown("## Supplier Analysis")
     
     if "supplier" in df.columns:
         # Get total purchases per supplier
@@ -254,7 +254,7 @@ def purchases_dashboard():
     # TOP PRODUCTS
     # ==============================
     st.markdown("---")
-    st.markdown("## 🏆 Top Purchased Products")
+    st.markdown("## Top Purchased Products")
     
     if product_col and qty_col:
         top_products = df.groupby(product_col)[qty_col].sum().sort_values(ascending=False).head(10).reset_index()
@@ -269,7 +269,7 @@ def purchases_dashboard():
     # RECENT PURCHASES
     # ==============================
     st.markdown("---")
-    st.markdown("## 📜 Recent Purchases")
+    st.markdown("## Recent Purchases")
     
     # Select columns for display
     display_cols = []
@@ -320,7 +320,7 @@ def purchases_dashboard():
     # DATA QUALITY TIPS
     # ==============================
     st.markdown("---")
-    st.markdown("## 🔧 Data Quality Tips")
+    st.markdown("## Data Quality Tips")
     
     if expected_profit == 0 and not profit_details:
         st.warning("""
@@ -344,7 +344,7 @@ def purchases_dashboard():
     # EXPORT SECTION
     # ==============================
     st.markdown("---")
-    st.markdown("## 📥 Export Purchases Data")
+    st.markdown("## Export Purchases Data")
     
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(

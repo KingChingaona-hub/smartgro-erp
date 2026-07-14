@@ -20,7 +20,7 @@ from backend.core.db_adapter import (
 # ==============================
 SHIFTS = ["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO"]
 COMPANY_NAME = "AZIEL INVESTMENTS"
-COMPANY_ADDRESS = "Retail Park, Harare"
+COMPANY_ADDRESS = "Retreat Park, Harare"
 COMPANY_PHONE = "+263 78 290 5853"
 COMPANY_EMAIL = "info@azielinvestments.co.zw"
 
@@ -195,7 +195,7 @@ def initialize_shifts():
 def shift_management_page():
     """Main shift management page"""
     
-    st.title("🕐 Shift Management")
+    st.title("Shift Management")
     st.caption("Manage cashier shifts, track performance, and monitor activity")
     
     role = st.session_state.get("role", "cashier")
@@ -227,11 +227,11 @@ def shift_management_page():
     # ==============================
     # SIDEBAR - Shift Controls
     # ==============================
-    st.sidebar.header("🔄 Shift Controls")
+    st.sidebar.header("Shift Controls")
     
     # Only owner/manager can manage shifts
     if role in ["owner", "manager"]:
-        st.sidebar.subheader("📌 Start New Shift")
+        st.sidebar.subheader("Start New Shift")
         
         with st.sidebar.form("start_shift_form"):
             # Select shift from predefined list
@@ -242,7 +242,7 @@ def shift_management_page():
             manager_username = st.text_input("Manager Username", value=st.session_state.get("username", ""))
             opening_cash = st.number_input("Opening Cash ($)", min_value=0.0, value=0.0, step=10.0)
             
-            submitted = st.form_submit_button("🚀 Start Shift", use_container_width=True)
+            submitted = st.form_submit_button("Start Shift", use_container_width=True)
             
             if submitted:
                 if not st.session_state.button_clicked:
@@ -261,15 +261,15 @@ def shift_management_page():
                             shift_name
                         )
                         if success:
-                            st.sidebar.success(f"✅ Shift started! ID: {result}")
+                            st.sidebar.success(f"Shift started! ID: {result}")
                             st.session_state.button_clicked = False
                             st.rerun()
                         else:
-                            st.sidebar.error(f"❌ {result}")
+                            st.sidebar.error(f"{result}")
                             st.session_state.button_clicked = False
         
         # Shift Management (Add/Remove)
-        with st.sidebar.expander("⚙️ Manage Shifts", expanded=False):
+        with st.sidebar.expander("Manage Shifts", expanded=False):
             st.markdown("### Manage Available Shifts")
             
             # Display current shifts
@@ -277,14 +277,14 @@ def shift_management_page():
             st.write("**Current Shifts:**")
             for s in current_shifts:
                 if s and s in SHIFTS:
-                    st.write(f"✅ {s}")
+                    st.write(f"{s}")
             
             st.markdown("---")
             
             # Add new shift
-            st.markdown("#### ➕ Add New Shift")
+            st.markdown("#### Add New Shift")
             new_shift = st.text_input("Shift Name", placeholder="e.g., FOXTROT")
-            if st.button("➕ Add Shift", use_container_width=True):
+            if st.button("Add Shift", use_container_width=True):
                 if new_shift and new_shift not in SHIFTS:
                     # Add to SHIFTS list and initialize
                     SHIFTS.append(new_shift)
@@ -310,35 +310,35 @@ def shift_management_page():
                     }])
                     shifts_df = pd.concat([shifts_df, new_shift_record], ignore_index=True)
                     save_shifts(shifts_df)
-                    st.success(f"✅ Shift '{new_shift}' added successfully!")
+                    st.success(f"Shift '{new_shift}' added successfully!")
                     st.rerun()
                 elif new_shift in SHIFTS:
-                    st.warning(f"⚠️ Shift '{new_shift}' already exists")
+                    st.warning(f"Shift '{new_shift}' already exists")
                 else:
                     st.error("Please enter a shift name")
             
             st.markdown("---")
             
             # Remove shift
-            st.markdown("#### 🗑️ Remove Shift")
+            st.markdown("#### Remove Shift")
             shifts_to_remove = [s for s in SHIFTS if s not in ["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO"]]
             if shifts_to_remove:
                 remove_shift = st.selectbox("Select Shift to Remove", shifts_to_remove)
-                if st.button("🗑️ Remove Shift", use_container_width=True):
+                if st.button("Remove Shift", use_container_width=True):
                     if remove_shift in SHIFTS:
                         SHIFTS.remove(remove_shift)
                         # Mark shift as inactive in database
                         if not shifts_df.empty:
                             shifts_df.loc[shifts_df["shift_name"] == remove_shift, "status"] = "REMOVED"
                             save_shifts(shifts_df)
-                        st.success(f"✅ Shift '{remove_shift}' removed successfully!")
+                        st.success(f"Shift '{remove_shift}' removed successfully!")
                         st.rerun()
             else:
                 st.info("No additional shifts to remove (only core shifts remain)")
     
     # Active shifts display in sidebar
     if not active_shifts.empty:
-        st.sidebar.subheader("🟢 Active Shifts")
+        st.sidebar.subheader("Active Shifts")
         for _, shift in active_shifts.iterrows():
             start_time_str = safe_format_time(shift['start_time'])
             
@@ -355,17 +355,17 @@ def shift_management_page():
     # MAIN CONTENT - Tabs
     # ==============================
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Active Shifts",
-        "📈 Shift History",
-        "💰 Shift Summary",
-        "📋 Shift Performance"
+        "Active Shifts",
+        "Shift History",
+        "Shift Summary",
+        "Shift Performance"
     ])
     
     # ==============================
     # TAB 1: ACTIVE SHIFTS
     # ==============================
     with tab1:
-        st.markdown("## 🟢 Active Shifts")
+        st.markdown("## Active Shifts")
         
         if active_shifts.empty:
             st.info("No active shifts at the moment")
@@ -397,26 +397,26 @@ def shift_management_page():
                     start_time_str = safe_format_time(shift_data['start_time'])
                     
                     with col1:
-                        st.metric("🧑‍💼 Cashier", shift_data['cashier_name'])
-                        st.metric("🆔 Shift ID", shift_data['shift_id'])
+                        st.metric("Cashier", shift_data['cashier_name'])
+                        st.metric("Shift ID", shift_data['shift_id'])
                     
                     with col2:
-                        st.metric("⏰ Started", start_time_str)
-                        st.metric("💰 Opening Cash", f"${shift_data['opening_cash']:.2f}")
+                        st.metric("Started", start_time_str)
+                        st.metric("Opening Cash", f"${shift_data['opening_cash']:.2f}")
                     
                     with col3:
-                        st.metric("📊 Status", f"🟢 {shift_data['status']}")
+                        st.metric("Status", f"{shift_data['status']}")
                         
-                        if st.button("🛑 End This Shift", type="primary", use_container_width=True):
+                        if st.button("End This Shift", type="primary", use_container_width=True):
                             if not st.session_state.button_clicked:
                                 st.session_state.button_clicked = True
                                 st.session_state.end_shift_id = shift_id
                                 st.session_state.show_end_shift = True
-                                st.rerun()
+                                #st.rerun()
                     
                     # End Shift Dialog - FIXED
                     if st.session_state.get("show_end_shift", False) and st.session_state.get("end_shift_id") == shift_id:
-                        with st.expander("📝 End Shift", expanded=True):
+                        with st.expander("End Shift", expanded=True):
                             col1, col2 = st.columns(2)
                             
                             with col1:
@@ -442,9 +442,9 @@ def shift_management_page():
                                     debt_payments = 0
                                     expenses = 0
                                 
-                                st.metric("💰 Total Sales", f"${total_sales:,.2f}")
-                                st.metric("📈 Total Profit", f"${total_profit:,.2f}")
-                                st.metric("📊 Transactions", f"{total_transactions}")
+                                st.metric("Total Sales", f"${total_sales:,.2f}")
+                                st.metric("Total Profit", f"${total_profit:,.2f}")
+                                st.metric("Transactions", f"{total_transactions}")
                             
                             with col2:
                                 closing_cash = st.number_input(
@@ -456,7 +456,7 @@ def shift_management_page():
                                 
                                 notes = st.text_area("Shift Notes", placeholder="Any issues or comments about this shift...")
                                 
-                                if st.button("✅ Confirm End Shift", type="primary", use_container_width=True):
+                                if st.button("Confirm End Shift", type="primary", use_container_width=True):
                                     if not st.session_state.button_clicked:
                                         st.session_state.button_clicked = True
                                         
@@ -493,7 +493,7 @@ def shift_management_page():
                                             
                                             # Send WhatsApp notification
                                             whatsapp_message = f"""
-                                            ✅ SHIFT ENDED - {COMPANY_NAME}
+                                            SHIFT ENDED - {COMPANY_NAME}
                                             
                                             Shift: {shift_data.get('shift_id')}
                                             Cashier: {shift_data.get('cashier_name')}
@@ -507,7 +507,7 @@ def shift_management_page():
                                             
                                             whatsapp_link = send_whatsapp_message(WHATSAPP_NUMBER, whatsapp_message)
                                             if whatsapp_link:
-                                                st.success(f"📱 WhatsApp notification ready: [Click to send]({whatsapp_link})")
+                                                st.success(f"WhatsApp notification ready: [Click to send]({whatsapp_link})")
                                             
                                             # Send email
                                             email_body = f"""
@@ -517,13 +517,13 @@ def shift_management_page():
                                             """
                                             email_sent = send_email_notification(EMAIL_NOTIFICATION, f"Shift Report - {shift_data.get('shift_id')}", email_body)
                                             if email_sent:
-                                                st.success(f"📧 Email sent to {EMAIL_NOTIFICATION}")
+                                                st.success(f"Email sent to {EMAIL_NOTIFICATION}")
                                             
                                             st.balloons()
-                                            st.success(f"✅ {message}")
+                                            st.success(f"{message}")
                                             
                                             # Show report
-                                            with st.expander("📄 View Shift Report", expanded=True):
+                                            with st.expander("View Shift Report", expanded=True):
                                                 st.text(report)
                                             
                                             # Reset session state
@@ -532,33 +532,33 @@ def shift_management_page():
                                             st.session_state.shift_ended = True
                                             st.session_state.button_clicked = False
                                             
-                                            st.rerun()
+                                            #st.rerun()
                                         else:
-                                            st.error(f"❌ {message}")
+                                            st.error(f"{message}")
                                             st.session_state.button_clicked = False
             
             # Quick stats
             if not active_shifts.empty:
-                st.markdown("### 📊 Active Shifts Summary")
+                st.markdown("### Active Shifts Summary")
                 
                 total_cashiers = len(active_shifts)
                 total_opening = active_shifts["opening_cash"].sum()
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("👥 Active Cashiers", total_cashiers)
+                    st.metric("Active Cashiers", total_cashiers)
                 with col2:
-                    st.metric("💰 Total Opening Cash", f"${total_opening:,.2f}")
+                    st.metric("Total Opening Cash", f"${total_opening:,.2f}")
                 with col3:
                     oldest_time = min(active_shifts['start_time'])
                     oldest_time_str = safe_format_time(oldest_time)
-                    st.metric("⏰ Oldest Shift", oldest_time_str)
+                    st.metric("Oldest Shift", oldest_time_str)
     
     # ==============================
     # TAB 2: SHIFT HISTORY
     # ==============================
     with tab2:
-        st.markdown("## 📈 Shift History")
+        st.markdown("## Shift History")
         
         col1, col2, col3 = st.columns(3)
         
@@ -638,7 +638,7 @@ def shift_management_page():
                     }
                 )
                 
-                st.markdown("### 📊 History Summary")
+                st.markdown("### History Summary")
                 
                 total_shifts = len(filtered_shifts)
                 total_revenue = filtered_shifts["total_revenue"].sum() if "total_revenue" in filtered_shifts.columns else 0
@@ -647,13 +647,13 @@ def shift_management_page():
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("📊 Total Shifts", total_shifts)
+                    st.metric("Total Shifts", total_shifts)
                 with col2:
-                    st.metric("💰 Total Revenue", f"${total_revenue:,.2f}")
+                    st.metric("Total Revenue", f"${total_revenue:,.2f}")
                 with col3:
-                    st.metric("📈 Total Profit", f"${total_profit:,.2f}")
+                    st.metric("Total Profit", f"${total_profit:,.2f}")
                 with col4:
-                    st.metric("🛒 Transactions", f"{total_transactions:,.0f}")
+                    st.metric("Transactions", f"{total_transactions:,.0f}")
             else:
                 st.info("No shifts found matching the filters")
         else:
@@ -663,7 +663,7 @@ def shift_management_page():
     # TAB 3: SHIFT SUMMARY
     # ==============================
     with tab3:
-        st.markdown("## 💰 Shift Summary")
+        st.markdown("## Shift Summary")
         
         cash_summary = get_cash_summary()
         
@@ -671,26 +671,26 @@ def shift_management_page():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("💰 Opening Cash", f"${cash_summary.get('opening_cash', 0):,.2f}")
+                st.metric("Opening Cash", f"${cash_summary.get('opening_cash', 0):,.2f}")
             with col2:
-                st.metric("💵 Cash Sales", f"${cash_summary.get('cash_sales', 0):,.2f}")
+                st.metric("Cash Sales", f"${cash_summary.get('cash_sales', 0):,.2f}")
             with col3:
-                st.metric("💳 Credit Sales", f"${cash_summary.get('credit_sales', 0):,.2f}")
+                st.metric("Credit Sales", f"${cash_summary.get('credit_sales', 0):,.2f}")
             with col4:
-                st.metric("📊 Total Revenue", f"${cash_summary.get('total_revenue', 0):,.2f}")
+                st.metric("Total Revenue", f"${cash_summary.get('total_revenue', 0):,.2f}")
             
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("💸 Expenses", f"${cash_summary.get('expenses', 0):,.2f}")
+                st.metric("Expenses", f"${cash_summary.get('expenses', 0):,.2f}")
             with col2:
-                st.metric("🏦 Deposits", f"${cash_summary.get('deposits', 0):,.2f}")
+                st.metric("Deposits", f"${cash_summary.get('deposits', 0):,.2f}")
             with col3:
-                st.metric("📋 Transactions", cash_summary.get('transactions_count', 0))
+                st.metric("Transactions", cash_summary.get('transactions_count', 0))
             with col4:
-                st.metric("📊 Variance", f"${cash_summary.get('variance', 0):,.2f}")
+                st.metric("Variance", f"${cash_summary.get('variance', 0):,.2f}")
         
-        st.markdown("### 📈 Daily Shift Performance")
+        st.markdown("### Daily Shift Performance")
         
         if not shifts_df.empty:
             shifts_copy = shifts_df.copy()
@@ -716,7 +716,7 @@ def shift_management_page():
     # TAB 4: SHIFT PERFORMANCE
     # ==============================
     with tab4:
-        st.markdown("## 📋 Shift Performance")
+        st.markdown("## Shift Performance")
         
         if not shifts_df.empty and "cashier_name" in shifts_df.columns:
             cashier_performance = shifts_df.groupby("cashier_name").agg({
@@ -732,7 +732,7 @@ def shift_management_page():
             
             cashier_performance = cashier_performance.sort_values("Total Revenue", ascending=False)
             
-            st.markdown("### 🏆 Cashier Performance Ranking")
+            st.markdown("### Cashier Performance Ranking")
             
             st.dataframe(
                 cashier_performance,
