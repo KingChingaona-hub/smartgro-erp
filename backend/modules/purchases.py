@@ -336,8 +336,8 @@ def purchases_page():
         st.session_state.stock_updated = False
     if "last_received_po" not in st.session_state:
         st.session_state.last_received_po = None
-    if "button_clicked" not in st.session_state:
-        st.session_state.button_clicked = False
+    if "action_processed" not in st.session_state:
+        st.session_state.action_processed = False
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -429,7 +429,9 @@ def purchases_page():
             with col3:
                 if selected_product is not None:
                     add_button = st.button("Add to Order", key="add_to_po", use_container_width=True)
-                    if add_button:
+                    if add_button and not st.session_state.action_processed:
+                        st.session_state.action_processed = True
+                        
                         existing = False
                         barcode_str = str(selected_product["barcode"])
                         for item in st.session_state.po_cart:
@@ -455,7 +457,8 @@ def purchases_page():
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
-                if clear_button:
+                if clear_button and not st.session_state.action_processed:
+                    st.session_state.action_processed = True
                     st.session_state.po_cart = []
                     st.rerun()
         
@@ -479,7 +482,9 @@ def purchases_page():
                 add_manual_button = st.form_submit_button("Add Manual Item", use_container_width=True)
         
         # Process manual item outside the form
-        if add_manual_button:
+        if add_manual_button and not st.session_state.action_processed:
+            st.session_state.action_processed = True
+            
             if manual_item_name and manual_item_name.strip():
                 # Check if item already exists in cart - match by name AND cost
                 existing = False
@@ -504,9 +509,10 @@ def purchases_page():
                 else:
                     st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                 
-                st.rerun()
+                #st.rerun()
             else:
                 st.error("Please enter an item name")
+                st.session_state.action_processed = False
         
         # Display PO Cart
         st.markdown("---")
@@ -532,17 +538,22 @@ def purchases_page():
             
             with col1:
                 clear_all_button = st.button("Clear All Items", key="clear_all_items_btn", use_container_width=True)
-                if clear_all_button:
+                if clear_all_button and not st.session_state.action_processed:
+                    st.session_state.action_processed = True
                     st.session_state.po_cart = []
                     st.rerun()
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
-                if create_po_button:
+                if create_po_button and not st.session_state.action_processed:
+                    st.session_state.action_processed = True
+                    
                     if not supplier_name or not supplier_name.strip():
                         st.error("Please enter a supplier name")
+                        st.session_state.action_processed = False
                     elif not st.session_state.po_cart:
                         st.error("Cart is empty. Add products to create a purchase order.")
+                        st.session_state.action_processed = False
                     else:
                         # Get current cart items before clearing
                         cart_items = st.session_state.po_cart.copy()
@@ -557,6 +568,7 @@ def purchases_page():
                         
                         if error:
                             st.error(error)
+                            st.session_state.action_processed = False
                         else:
                             existing_df = load_purchases()
                             
@@ -628,6 +640,10 @@ Contact: +263 78 290 5853
                             st.rerun()
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
+        
+        # Reset action_processed after successful rerun
+        if st.session_state.action_processed:
+            st.session_state.action_processed = False
     
     # ==============================
     # TAB 2: RECEIVE STOCK
@@ -720,9 +736,12 @@ Contact: +263 78 290 5853
                         
                         with col1:
                             confirm_button = st.button("Confirm Receipt and Update Stock", type="primary", use_container_width=True)
-                            if confirm_button:
+                            if confirm_button and not st.session_state.action_processed:
+                                st.session_state.action_processed = True
+                                
                                 if not invoice_no:
                                     st.error("Please enter supplier invoice number")
+                                    st.session_state.action_processed = False
                                 else:
                                     success, updated_products, new_products = receive_purchase_order(
                                         selected_po, received_items, invoice_no
@@ -748,7 +767,8 @@ Contact: +263 78 290 5853
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
-                            if refresh_button:
+                            if refresh_button and not st.session_state.action_processed:
+                                st.session_state.action_processed = True
                                 st.rerun()
     
     # ==============================
