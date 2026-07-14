@@ -436,7 +436,8 @@ def purchases_page():
                         barcode_str = str(selected_product["barcode"])
                         for item in st.session_state.po_cart:
                             if str(item["barcode"]) == barcode_str:
-                                item["quantity"] += po_qty
+                                # Update quantity - ADD to existing
+                                item["quantity"] = item["quantity"] + po_qty
                                 item["total"] = item["quantity"] * item["cost"]
                                 existing = True
                                 break
@@ -463,11 +464,10 @@ def purchases_page():
                     st.session_state.button_clicked = False
                     st.rerun()
         
-        # Manual item entry - FIXED VERSION
+        # Manual item entry
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
-        # Use a form for manual entry to prevent premature reruns
         with st.form(key="manual_item_form"):
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
             
@@ -486,11 +486,12 @@ def purchases_page():
         # Process manual item outside the form
         if add_manual_button:
             if manual_item_name and manual_item_name.strip():
-                # Check if item already exists in cart
+                # Check if item already exists in cart - match by name AND cost
                 existing = False
                 for item in st.session_state.po_cart:
                     if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                        item["quantity"] += int(manual_item_qty)
+                        # Update quantity - ADD to existing
+                        item["quantity"] = item["quantity"] + int(manual_item_qty)
                         item["total"] = item["quantity"] * item["cost"]
                         existing = True
                         break
