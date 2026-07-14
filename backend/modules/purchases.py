@@ -509,7 +509,7 @@ def purchases_page():
                 else:
                     st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                 
-                #st.rerun()
+                st.rerun()
             else:
                 st.error("Please enter an item name")
                 st.session_state.action_processed = False
