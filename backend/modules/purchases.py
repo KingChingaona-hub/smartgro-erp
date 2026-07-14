@@ -340,10 +340,18 @@ def purchases_page():
         st.session_state.button_clicked = False
     if "cart_updated" not in st.session_state:
         st.session_state.cart_updated = False
+    if "clear_cart" not in st.session_state:
+        st.session_state.clear_cart = False
     
     # Handle cart update flag
     if st.session_state.cart_updated:
         st.session_state.cart_updated = False
+        st.rerun()
+    
+    # Handle clear cart flag
+    if st.session_state.clear_cart:
+        st.session_state.clear_cart = False
+        st.session_state.po_cart = []
         st.rerun()
     
     # Display success messages
@@ -467,9 +475,8 @@ def purchases_page():
                 clear_button = st.button("Clear Cart", use_container_width=True)
                 if clear_button and not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
-                    st.session_state.po_cart = []
+                    st.session_state.clear_cart = True
                     st.session_state.button_clicked = False
-                    st.session_state.cart_updated = True
         
         # Manual item entry
         st.markdown("### Manual Item Entry")
@@ -543,15 +550,14 @@ def purchases_page():
             col1, col2 = st.columns(2)
             
             with col1:
-                clear_all_button = st.button("Clear All Items", use_container_width=True)
+                clear_all_button = st.button("Clear All Items", key="clear_all_items_btn", use_container_width=True)
                 if clear_all_button and not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
-                    st.session_state.po_cart = []
+                    st.session_state.clear_cart = True
                     st.session_state.button_clicked = False
-                    st.session_state.cart_updated = True
             
             with col2:
-                create_po_button = st.button("Create Purchase Order", type="primary", use_container_width=True)
+                create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
                 if create_po_button and not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     
