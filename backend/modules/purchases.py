@@ -486,7 +486,7 @@ def purchases_page():
                             })
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
-                        st.rerun()  # <-- ADDED: Refresh to show updated cart
+                        #st.rerun()  # <-- ADDED: Refresh to show updated cart
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
@@ -537,7 +537,7 @@ def purchases_page():
                 else:
                     st.error("Please enter an item name")
                 
-                st.rerun()  # <-- ADDED: Refresh to show updated cart
+                #st.rerun()  # <-- ADDED: Refresh to show updated cart
         
         # Display PO Cart
         st.markdown("---")
