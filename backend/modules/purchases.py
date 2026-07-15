@@ -711,18 +711,18 @@ Contact: +263 78 290 5853
                         col1, col2, col3 = st.columns([1, 1, 2])
                         
                         with col1:
-                            decline_button = st.button("❌ Decline PO", key="decline_po_btn", use_container_width=True)
+                            decline_button = st.button("Decline PO", key="decline_po_btn", use_container_width=True)
                             if decline_button:
                                 success, message = delete_purchase_order(selected_po)
                                 if success:
                                     st.session_state.po_deleted = True
                                     st.success(message)
-                                    st.rerun()
+                                    #st.rerun()
                                 else:
                                     st.error(message)
                         
                         with col2:
-                            refresh_button = st.button("🔄 Refresh", key="refresh_po_btn", use_container_width=True)
+                            refresh_button = st.button("Refresh", key="refresh_po_btn", use_container_width=True)
                             if refresh_button:
                                 st.rerun()
                         
