@@ -1898,9 +1898,15 @@ def save_purchases(df, branch_id=None):
         branch_id = get_current_branch()
     
     # DEBUG: Print what we're about to save
-    print(f"Saving {len(df)} purchase items to branch {branch_id}")
-    if not df.empty:
-        print(df[["po_number", "product_name", "quantity_ordered", "status"]].to_string())
+    print(f"SAVING {len(df)} purchase items to branch {branch_id}")
+    
+    if df.empty:
+        print("DataFrame is empty - nothing to save")
+        return False
+    
+    # Print the data being saved
+    print("Data to save:")
+    print(df[["po_number", "product_name", "quantity_ordered", "status"]].to_string())
     
     try:
         with get_db_cursor() as (cur, conn):
@@ -1911,45 +1917,52 @@ def save_purchases(df, branch_id=None):
             saved_count = 0
             
             for idx, row in df.iterrows():
-                # Get or generate line_item_id
-                line_item_id = row.get("line_item_id")
-                if not line_item_id:
-                    line_item_id = f"{row['po_number']}_{idx+1:04d}"
-                
-                # Insert with all fields
-                cur.execute("""
-                    INSERT INTO purchases (
-                        branch_id, po_number, date_ordered, supplier,
-                        product_name, barcode, quantity_ordered, quantity_received,
-                        cost_price, total_cost, expected_date, status, payment_status, invoice_no,
-                        line_item_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    branch_id, 
-                    str(row["po_number"]), 
-                    str(row["date_ordered"]), 
-                    str(row["supplier"]),
-                    str(row["product_name"]), 
-                    str(row["barcode"]), 
-                    int(row["quantity_ordered"]),
-                    int(row.get("quantity_received", 0)), 
-                    float(row["cost_price"]), 
-                    float(row["total_cost"]),
-                    str(row["expected_date"]), 
-                    str(row["status"]), 
-                    str(row.get("payment_status", "UNPAID")),
-                    str(row.get("invoice_no", "")), 
-                    str(line_item_id)
-                ))
-                saved_count += 1
-                print(f"Saved item {saved_count}: {row['product_name']}")
+                try:
+                    # Get or generate line_item_id
+                    line_item_id = row.get("line_item_id")
+                    if not line_item_id or pd.isna(line_item_id):
+                        line_item_id = f"{row['po_number']}_{idx+1:04d}"
+                    
+                    print(f"  Inserting: {row['product_name']} | Qty: {row['quantity_ordered']} | line_item_id: {line_item_id}")
+                    
+                    # Insert with all fields
+                    cur.execute("""
+                        INSERT INTO purchases (
+                            branch_id, po_number, date_ordered, supplier,
+                            product_name, barcode, quantity_ordered, quantity_received,
+                            cost_price, total_cost, expected_date, status, payment_status, invoice_no,
+                            line_item_id
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        branch_id, 
+                        str(row["po_number"]), 
+                        str(row["date_ordered"]), 
+                        str(row["supplier"]),
+                        str(row["product_name"]), 
+                        str(row.get("barcode", "")), 
+                        int(row["quantity_ordered"]),
+                        int(row.get("quantity_received", 0)), 
+                        float(row["cost_price"]), 
+                        float(row["total_cost"]),
+                        str(row["expected_date"]), 
+                        str(row["status"]), 
+                        str(row.get("payment_status", "UNPAID")),
+                        str(row.get("invoice_no", "")), 
+                        str(line_item_id)
+                    ))
+                    saved_count += 1
+                    print(f"Saved item {saved_count}: {row['product_name']}")
+                    
+                except Exception as e:
+                    print(f"  Error saving item {idx}: {e}")
+                    print(f"     Row data: {row.to_dict()}")
             
             conn.commit()
             print(f"Successfully saved {saved_count} purchase items")
             return True
             
     except Exception as e:
-        print(f"Error saving purchases: {e}")
+        print(f"Error in save_purchases: {e}")
         import traceback
         traceback.print_exc()
         return False

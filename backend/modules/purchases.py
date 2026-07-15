@@ -486,14 +486,14 @@ def purchases_page():
                             })
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
-                        #st.rerun()  # <-- ADDED: Refresh to show updated cart
+                        st.rerun()
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
                 if clear_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    st.rerun()  # <-- ADDED: Refresh to show empty cart
+                    st.rerun()
         
         # Manual item entry
         st.markdown("### Manual Item Entry")
@@ -537,7 +537,7 @@ def purchases_page():
                 else:
                     st.error("Please enter an item name")
                 
-                #st.rerun()  # <-- ADDED: Refresh to show updated cart
+                st.rerun()
         
         # Display PO Cart
         st.markdown("---")
@@ -569,7 +569,7 @@ def purchases_page():
                 if clear_all_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    st.rerun()  # <-- ADDED: Refresh to show empty cart
+                    st.rerun()
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
@@ -658,7 +658,7 @@ Contact: +263 78 290 5853
                                 use_container_width=True
                             )
                             
-                            st.rerun()  # <-- ADDED: Refresh to show empty cart after PO creation
+                            #st.rerun()
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
     
@@ -724,7 +724,7 @@ Contact: +263 78 290 5853
                         with col2:
                             refresh_button = st.button("Refresh", key="refresh_po_btn", use_container_width=True)
                             if refresh_button:
-                                st.rerun()
+                                #st.rerun()
                         
                         st.markdown("---")
                         
@@ -803,7 +803,7 @@ Contact: +263 78 290 5853
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
                                         
-                                        st.rerun()
+                                        #st.rerun()
     
     # ==============================
     # TAB 3: SUPPLIER PERFORMANCE
