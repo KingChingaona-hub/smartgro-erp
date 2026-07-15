@@ -486,12 +486,14 @@ def purchases_page():
                             })
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
+                        st.rerun()  # <-- ADDED: Refresh to show updated cart
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
                 if clear_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
+                    st.rerun()  # <-- ADDED: Refresh to show empty cart
         
         # Manual item entry
         st.markdown("### Manual Item Entry")
@@ -534,6 +536,8 @@ def purchases_page():
                         st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                 else:
                     st.error("Please enter an item name")
+                
+                st.rerun()  # <-- ADDED: Refresh to show updated cart
         
         # Display PO Cart
         st.markdown("---")
@@ -541,6 +545,9 @@ def purchases_page():
         
         if st.session_state.po_cart:
             po_cart_df = pd.DataFrame(st.session_state.po_cart)
+            
+            # Show number of items in cart
+            st.info(f"**{len(po_cart_df)} items in cart**")
             
             st.dataframe(
                 po_cart_df[["name", "quantity", "cost", "total"]],
@@ -562,6 +569,7 @@ def purchases_page():
                 if clear_all_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
+                    st.rerun()  # <-- ADDED: Refresh to show empty cart
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
@@ -649,6 +657,8 @@ Contact: +263 78 290 5853
                                 mime="text/plain",
                                 use_container_width=True
                             )
+                            
+                            st.rerun()  # <-- ADDED: Refresh to show empty cart after PO creation
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
     
