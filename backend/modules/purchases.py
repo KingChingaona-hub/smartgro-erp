@@ -534,7 +534,7 @@ def purchases_page():
                 else:
                     st.error("Please enter an item name")
                 
-                st.rerun()
+                #st.rerun()
         
         # Display PO Cart
         st.markdown("---")
@@ -565,7 +565,7 @@ def purchases_page():
                 if clear_all_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    st.rerun()
+                    #st.rerun()
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
@@ -653,7 +653,7 @@ Contact: +263 78 290 5853
                                 use_container_width=True
                             )
                             
-                            st.rerun()
+                            #st.rerun()
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
     
