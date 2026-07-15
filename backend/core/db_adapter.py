@@ -1869,7 +1869,15 @@ def load_purchases(branch_id=None):
         with get_db_cursor() as (cur, conn):
             if cur is None:
                 return pd.DataFrame()
-            cur.execute("SELECT * FROM purchases WHERE branch_id = %s ORDER BY date_ordered DESC", (branch_id,))
+            cur.execute("""
+                SELECT id, branch_id, po_number, date_ordered, supplier,
+                       product_name, barcode, quantity_ordered, quantity_received,
+                       cost_price, total_cost, expected_date, status, payment_status, invoice_no,
+                       line_item_id
+                FROM purchases 
+                WHERE branch_id = %s 
+                ORDER BY date_ordered DESC
+            """, (branch_id,))
             rows = cur.fetchall()
             if rows:
                 return pd.DataFrame(rows)
@@ -1878,9 +1886,6 @@ def load_purchases(branch_id=None):
         print(f"Error loading purchases: {e}")
         return pd.DataFrame()
 
-# In db_adapter.py, replace the save_purchases function with this:
-
-# In backend/core/db_adapter.py, replace the save_purchases function with this:
 
 def save_purchases(df, branch_id=None):
     """Save purchases to database with validation - Allow multiple items per PO"""
@@ -1939,47 +1944,31 @@ def save_purchases(df, branch_id=None):
                 if not line_item_id:
                     line_item_id = f"{row['po_number']}_{idx+1:04d}"
                 
-                # First check if this PO and line_item_id already exists
+                # SIMPLE INSERT - NO ON CONFLICT since id is the primary key
                 cur.execute("""
-                    SELECT COUNT(*) FROM purchases 
-                    WHERE po_number = %s AND line_item_id = %s
-                """, (row["po_number"], line_item_id))
-                exists = cur.fetchone()[0] > 0
-                
-                if exists:
-                    # Update existing record
-                    cur.execute("""
-                        UPDATE purchases SET
-                            supplier = %s,
-                            product_name = %s,
-                            barcode = %s,
-                            quantity_ordered = %s,
-                            quantity_received = %s,
-                            cost_price = %s,
-                            total_cost = %s,
-                            expected_date = %s,
-                            status = %s,
-                            payment_status = %s,
-                            invoice_no = %s
-                        WHERE po_number = %s AND line_item_id = %s
-                    """, (row["supplier"], row["product_name"], row["barcode"], 
-                          row["quantity_ordered"], row.get("quantity_received", 0), 
-                          row["cost_price"], row["total_cost"], row["expected_date"],
-                          row["status"], row.get("payment_status", "UNPAID"),
-                          row.get("invoice_no", ""), row["po_number"], line_item_id))
-                else:
-                    # Insert new record
-                    cur.execute("""
-                        INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
-                            product_name, barcode, quantity_ordered, quantity_received,
-                            cost_price, total_cost, expected_date, status, payment_status, invoice_no,
-                            line_item_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (branch_id, row["po_number"], row["date_ordered"], row["supplier"],
-                          row["product_name"], row["barcode"], row["quantity_ordered"],
-                          row.get("quantity_received", 0), row["cost_price"], row["total_cost"],
-                          row["expected_date"], row["status"], row.get("payment_status", "UNPAID"),
-                          row.get("invoice_no", ""), line_item_id))
+                    INSERT INTO purchases (
+                        branch_id, po_number, date_ordered, supplier,
+                        product_name, barcode, quantity_ordered, quantity_received,
+                        cost_price, total_cost, expected_date, status, payment_status, invoice_no,
+                        line_item_id
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    branch_id, 
+                    row["po_number"], 
+                    row["date_ordered"], 
+                    row["supplier"],
+                    row["product_name"], 
+                    row["barcode"], 
+                    row["quantity_ordered"],
+                    row.get("quantity_received", 0), 
+                    row["cost_price"], 
+                    row["total_cost"],
+                    row["expected_date"], 
+                    row["status"], 
+                    row.get("payment_status", "UNPAID"),
+                    row.get("invoice_no", ""), 
+                    line_item_id
+                ))
                 
                 saved_count += 1
             
