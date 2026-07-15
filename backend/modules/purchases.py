@@ -361,12 +361,12 @@ def purchases_page():
                 clear_button = st.button("Clear Cart", use_container_width=True)
                 if clear_button:
                     st.session_state.po_cart = []
-                    st.rerun()
+                    #st.rerun()
         
         # ==============================
         # MANUAL ITEM ENTRY - FIXED
         # ==============================
-        st.markdown("### ➕ Manual Item Entry")
+        st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
@@ -407,7 +407,7 @@ def purchases_page():
                         })
                         st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
                     
-                    st.rerun()
+                    #st.rerun()
                 else:
                     st.error("Please enter an item name")
         
@@ -466,7 +466,7 @@ def purchases_page():
                 clear_all_button = st.button("Clear All Items", use_container_width=True)
                 if clear_all_button:
                     st.session_state.po_cart = []
-                    st.rerun()
+                    #st.rerun()
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", use_container_width=True)
@@ -549,7 +549,7 @@ Contact: +263 78 290 5853
                                 use_container_width=True
                             )
                             
-                            st.rerun()
+                            #st.rerun()
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
     
@@ -668,7 +668,7 @@ Contact: +263 78 290 5853
                                             for p in new_products:
                                                 st.write(f"   • {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
                                         
-                                        st.rerun()
+                                        #st.rerun()
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
