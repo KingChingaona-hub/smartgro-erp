@@ -244,8 +244,8 @@ def purchases_page():
         st.session_state.stock_updated = False
     if "last_received_po" not in st.session_state:
         st.session_state.last_received_po = None
-    if "button_clicked" not in st.session_state:
-        st.session_state.button_clicked = False
+    if "selected_product" not in st.session_state:
+        st.session_state.selected_product = None
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -314,58 +314,58 @@ def purchases_page():
                     selected_display = st.selectbox("Select Product", product_display, key="po_product_select")
                     if selected_display:
                         selected_product_name = selected_display.split(" - ")[0].split(" ", 1)[-1] if " - " in selected_display else selected_display
-                        selected_product = filtered_products[filtered_products["name"] == selected_product_name].iloc[0]
+                        st.session_state.selected_product = filtered_products[filtered_products["name"] == selected_product_name].iloc[0]
                     else:
-                        selected_product = None
+                        st.session_state.selected_product = None
                 else:
-                    selected_product = None
+                    st.session_state.selected_product = None
                     st.info("No products found matching your search")
             
             with col2:
-                if selected_product is not None:
+                if st.session_state.selected_product is not None:
                     po_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="po_qty")
-                    st.caption(f"Current stock: {selected_product['stock']}")
-                    st.caption(f"Cost: ${selected_product['cost']:.2f}")
+                    st.caption(f"Current stock: {st.session_state.selected_product['stock']}")
+                    st.caption(f"Cost: ${st.session_state.selected_product['cost']:.2f}")
                 else:
                     po_qty = 1
             
             with col3:
-                if selected_product is not None:
-                    add_button = st.button("➕ Add to Order", key="add_to_po", use_container_width=True)
-                    if add_button and not st.session_state.button_clicked:
-                        st.session_state.button_clicked = True
-                        
+                add_button = st.button("➕ Add to Order", key="add_to_po", use_container_width=True)
+                if add_button:
+                    if st.session_state.selected_product is not None:
+                        # Check if product already exists in cart
                         existing = False
                         for item in st.session_state.po_cart:
-                            if item["barcode"] == selected_product["barcode"]:
+                            if item["barcode"] == st.session_state.selected_product["barcode"]:
                                 item["quantity"] += po_qty
                                 item["total"] = item["quantity"] * item["cost"]
                                 existing = True
                                 break
                         
                         if not existing:
-                            cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
+                            cost_val = float(st.session_state.selected_product["cost"]) if st.session_state.selected_product["cost"] > 0 else 0
                             st.session_state.po_cart.append({
-                                "barcode": selected_product["barcode"],
-                                "name": selected_product["name"],
+                                "barcode": st.session_state.selected_product["barcode"],
+                                "name": st.session_state.selected_product["name"],
                                 "quantity": po_qty,
                                 "cost": cost_val,
                                 "total": cost_val * po_qty
                             })
                         
-                        st.success(f"Added {po_qty} x {selected_product['name']} to order")
-                        st.session_state.button_clicked = False
+                        st.success(f"Added {po_qty} x {st.session_state.selected_product['name']} to order")
                         st.rerun()
+                    else:
+                        st.error("Please select a product first")
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
-                if clear_button and not st.session_state.button_clicked:
-                    st.session_state.button_clicked = True
+                if clear_button:
                     st.session_state.po_cart = []
-                    st.session_state.button_clicked = False
                     st.rerun()
         
-        # Manual item entry
+        # ==============================
+        # MANUAL ITEM ENTRY - FIXED
+        # ==============================
         st.markdown("### ➕ Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
@@ -382,19 +382,21 @@ def purchases_page():
         
         with col4:
             add_manual_button = st.button("➕ Add Manual Item", key="add_manual", use_container_width=True)
-            if add_manual_button and not st.session_state.button_clicked:
-                st.session_state.button_clicked = True
-                
+            if add_manual_button:
                 if manual_item_name:
+                    # Check if item already exists in cart (by name and cost)
                     existing = False
                     for item in st.session_state.po_cart:
-                        if item["name"].lower() == manual_item_name.lower() and item["cost"] == float(manual_item_cost):
+                        # Check if same name and same cost (case insensitive)
+                        if item["name"].lower() == manual_item_name.lower() and abs(item["cost"] - float(manual_item_cost)) < 0.01:
                             item["quantity"] += manual_item_qty
                             item["total"] = item["quantity"] * item["cost"]
                             existing = True
+                            st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                             break
                     
                     if not existing:
+                        # Generate a unique barcode for manual item
                         unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
                         st.session_state.po_cart.append({
                             "barcode": unique_barcode,
@@ -403,13 +405,11 @@ def purchases_page():
                             "cost": float(manual_item_cost),
                             "total": float(manual_item_cost) * manual_item_qty
                         })
+                        st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
                     
-                    st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
+                    st.rerun()
                 else:
                     st.error("Please enter an item name")
-                
-                st.session_state.button_clicked = False
-                #st.rerun()
         
         # Display PO Cart
         if st.session_state.po_cart:
@@ -418,15 +418,44 @@ def purchases_page():
             
             po_cart_df = pd.DataFrame(st.session_state.po_cart)
             
+            # Display cart with remove buttons
+            st.markdown("#### Current Items in Cart")
+            
+            # Create a display dataframe
+            display_df = po_cart_df[["name", "quantity", "cost", "total"]].copy()
+            display_df.columns = ["Product", "Qty", "Unit Cost ($)", "Total ($)"]
+            
             st.dataframe(
-                po_cart_df[["name", "quantity", "cost", "total"]],
+                display_df,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
-                    "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
+                    "Unit Cost ($)": st.column_config.NumberColumn(format="$%.2f"),
+                    "Total ($)": st.column_config.NumberColumn(format="$%.2f")
                 }
             )
+            
+            # Add remove item functionality
+            st.markdown("#### Remove Items from Cart")
+            
+            # Create a list of items with their indices for removal
+            item_options = [f"{i+1}. {item['name']} (Qty: {item['quantity']})" for i, item in enumerate(st.session_state.po_cart)]
+            
+            if item_options:
+                item_to_remove = st.selectbox(
+                    "Select item to remove",
+                    options=item_options,
+                    key="remove_item_select"
+                )
+                
+                remove_button = st.button("🗑️ Remove Selected Item", use_container_width=True)
+                if remove_button:
+                    # Extract the index from the selected option
+                    idx = int(item_to_remove.split(".")[0]) - 1
+                    removed_item = st.session_state.po_cart[idx]
+                    st.session_state.po_cart.pop(idx)
+                    st.success(f"Removed '{removed_item['name']}' from cart")
+                    st.rerun()
             
             po_total = po_cart_df["total"].sum()
             st.info(f"**Total Order Value: ${po_total:,.2f}**")
@@ -435,17 +464,13 @@ def purchases_page():
             
             with col1:
                 clear_all_button = st.button("Clear All Items", use_container_width=True)
-                if clear_all_button and not st.session_state.button_clicked:
-                    st.session_state.button_clicked = True
+                if clear_all_button:
                     st.session_state.po_cart = []
-                    st.session_state.button_clicked = False
                     st.rerun()
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", use_container_width=True)
-                if create_po_button and not st.session_state.button_clicked:
-                    st.session_state.button_clicked = True
-                    
+                if create_po_button:
                     if not supplier_name or not supplier_name.strip():
                         st.error("Please enter a supplier name")
                     elif not st.session_state.po_cart:
@@ -525,8 +550,6 @@ Contact: +263 78 290 5853
                             )
                             
                             st.rerun()
-                    
-                    st.session_state.button_clicked = False
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
     
@@ -621,9 +644,7 @@ Contact: +263 78 290 5853
                         
                         with col1:
                             confirm_button = st.button("Confirm Receipt & Update Stock", type="primary", use_container_width=True)
-                            if confirm_button and not st.session_state.button_clicked:
-                                st.session_state.button_clicked = True
-                                
+                            if confirm_button:
                                 if not invoice_no:
                                     st.error("Please enter supplier invoice number")
                                 else:
@@ -648,12 +669,10 @@ Contact: +263 78 290 5853
                                                 st.write(f"   • {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
                                         
                                         st.rerun()
-                                
-                                st.session_state.button_clicked = False
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
-                            if refresh_button and not st.session_state.button_clicked:
+                            if refresh_button:
                                 st.rerun()
     
     # ==============================
