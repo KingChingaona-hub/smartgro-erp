@@ -309,44 +309,10 @@ def get_po_details(po_number):
 
 
 # ==============================
-# SUPPLIER PERFORMANCE
-# ==============================
-def get_supplier_performance():
-    """Calculate supplier performance metrics from purchase history"""
-    purchases_df = load_all_purchases()
-    
-    if purchases_df.empty:
-        return pd.DataFrame()
-    
-    if "quantity_received" not in purchases_df.columns:
-        purchases_df["quantity_received"] = purchases_df.get("quantity_ordered", 0)
-    
-    if "total_cost" not in purchases_df.columns:
-        purchases_df["total_cost"] = purchases_df.get("quantity_ordered", 0) * purchases_df.get("cost_price", 0)
-    
-    supplier_stats = purchases_df.groupby("supplier").agg({
-        "po_number": "nunique",
-        "total_cost": "sum",
-        "quantity_ordered": "sum",
-        "quantity_received": "sum"
-    }).reset_index()
-    
-    supplier_stats.columns = ["Supplier", "Orders", "Total Spent", "Units Ordered", "Units Received"]
-    
-    supplier_stats["Fulfillment Rate"] = supplier_stats.apply(
-        lambda x: (x["Units Received"] / x["Units Ordered"] * 100) if x["Units Ordered"] > 0 else 0, 
-        axis=1
-    )
-    supplier_stats = supplier_stats.sort_values("Total Spent", ascending=False)
-    
-    return supplier_stats
-
-
-# ==============================
-# PURCHASES PAGE - NEW SIMPLIFIED APPROACH
+# PURCHASES PAGE - SINGLE PAGE (NO TABS)
 # ==============================
 def purchases_page():
-    """Enhanced Purchases Management Page with Simplified Receive System"""
+    """Purchases Management - Create and Receive on One Page"""
     
     st.title("Purchases and Suppliers Management")
     
@@ -363,8 +329,6 @@ def purchases_page():
         st.session_state.last_received_po = None
     if "po_deleted" not in st.session_state:
         st.session_state.po_deleted = False
-    if "selected_po" not in st.session_state:
-        st.session_state.selected_po = None
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -381,16 +345,15 @@ def purchases_page():
         st.info("Purchase Order has been declined and removed.")
         st.session_state.po_deleted = False
     
-    # Load all purchases
+    # Load data
+    products_df = load_products()
     all_purchases = load_all_purchases()
     
     # ==============================
     # SECTION 1: CREATE PURCHASE ORDER
     # ==============================
-    st.markdown("---")
     st.markdown("## Create Purchase Order")
-    
-    products_df = load_products()
+    st.caption("Add products to cart and create a purchase order")
     
     if products_df.empty:
         st.warning("No products in inventory. You can still add manual items below.")
@@ -650,11 +613,11 @@ Contact: +263 78 290 5853
         st.info("Cart is empty. Add products above to create a purchase order.")
     
     # ==============================
-    # SECTION 2: RECEIVE PURCHASE ORDER (SIMPLIFIED)
+    # SECTION 2: RECEIVE PURCHASE ORDER (SAME PAGE)
     # ==============================
     st.markdown("---")
     st.markdown("## Receive Purchase Order")
-    st.caption("Select a pending purchase order to receive stock")
+    st.caption("Select a pending purchase order and confirm receipt of stock")
     
     # Reload purchases to get latest
     purchases_df = load_all_purchases()
@@ -663,32 +626,33 @@ Contact: +263 78 290 5853
         st.info("No purchase orders found. Create a PO first.")
     else:
         # Show all POs with their status
-        po_summary = purchases_df.groupby(["po_number", "supplier", "status"]).agg({
-            "product_name": lambda x: list(x),
-            "quantity_ordered": "sum",
+        po_summary = purchases_df.groupby(["po_number", "supplier", "status", "date_ordered"]).agg({
+            "product_name": lambda x: len(list(x)),
             "total_cost": "sum"
         }).reset_index()
+        po_summary.columns = ["PO Number", "Supplier", "Status", "Date", "Items", "Total"]
+        po_summary = po_summary.sort_values("Date", ascending=False)
         
         # Show summary table
         st.dataframe(
-            po_summary[["po_number", "supplier", "status", "quantity_ordered", "total_cost"]],
+            po_summary[["PO Number", "Supplier", "Status", "Items", "Total"]],
             use_container_width=True,
             hide_index=True,
             column_config={
-                "total_cost": st.column_config.NumberColumn("Total ($)", format="$%.2f"),
-                "quantity_ordered": "Items"
+                "Total": st.column_config.NumberColumn("Total ($)", format="$%.2f"),
+                "Status": st.column_config.TextColumn("Status")
             }
         )
         
         # Filter for pending POs
-        pending_pos = po_summary[po_summary["status"] == "PENDING"]["po_number"].tolist()
+        pending_po_numbers = po_summary[po_summary["Status"] == "PENDING"]["PO Number"].tolist()
         
-        if not pending_pos:
-            st.info("No pending purchase orders to receive. All orders have been completed.")
+        if not pending_po_numbers:
+            st.info("No pending purchase orders to receive. All orders have been completed or received.")
         else:
             st.markdown("---")
             
-            selected_po = st.selectbox("Select Purchase Order to Receive", pending_pos, key="receive_po_select")
+            selected_po = st.selectbox("Select Purchase Order to Receive", pending_po_numbers, key="receive_po_select")
             
             if selected_po:
                 po_details = get_po_details(selected_po)
@@ -735,7 +699,6 @@ Contact: +263 78 290 5853
                             st.rerun()
                     
                     with col3:
-                        # Show if PO is ready to receive
                         st.info("Ready to receive")
                     
                     st.markdown("---")
@@ -832,6 +795,7 @@ Contact: +263 78 290 5853
             "total_cost": "sum"
         }).reset_index()
         history_summary.columns = ["PO Number", "Supplier", "Date", "Status", "Items", "Total"]
+        history_summary = history_summary.sort_values("Date", ascending=False)
         
         st.dataframe(
             history_summary,
