@@ -1,4 +1,3 @@
-# backend/modules/purchases.py
 """
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
@@ -11,8 +10,7 @@ from backend.core.db_adapter import (
     load_products,
     load_purchases,
     save_purchases,
-    save_products,
-    get_db_cursor
+    save_products
 )
 
 
@@ -36,8 +34,7 @@ def load_all_purchases():
             """)
             rows = cur.fetchall()
             if rows:
-                df = pd.DataFrame(rows)
-                return df
+                return pd.DataFrame(rows)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading all purchases: {e}")
@@ -144,11 +141,10 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         row = purchases_df.loc[idx]
         barcode = str(row.get("barcode", "")).strip()
         product_name = str(row.get("product_name", "")).strip()
-        line_item_id = str(row.get("line_item_id", "")).strip()
         
         key = barcode if barcode else product_name
         if key:
-            po_items_mapping[key] = {"idx": idx, "line_item_id": line_item_id}
+            po_items_mapping[key] = idx
     
     for item in received_items:
         if item["received_qty"] <= 0:
@@ -162,21 +158,15 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         matching_idx = None
         
         if barcode:
-            for key, value in po_items_mapping.items():
+            for key, idx in po_items_mapping.items():
                 if key == barcode:
-                    matching_idx = value["idx"]
+                    matching_idx = idx
                     break
         
         if matching_idx is None and product_name:
-            for key, value in po_items_mapping.items():
+            for key, idx in po_items_mapping.items():
                 if key.lower() == product_name.lower():
-                    matching_idx = value["idx"]
-                    break
-        
-        if matching_idx is None:
-            for key, value in po_items_mapping.items():
-                if product_name and key and (product_name.lower() in key.lower() or key.lower() in product_name.lower()):
-                    matching_idx = value["idx"]
+                    matching_idx = idx
                     break
         
         if matching_idx is not None:
@@ -219,32 +209,6 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 })
         else:
             st.warning(f"Item '{product_name}' not found in purchase order. Adding as new item.")
-            
-            new_line_item_id = f"{po_number}_{len(po_items_indices)+1:04d}"
-            
-            new_row = {
-                "po_number": po_number,
-                "line_item_id": new_line_item_id,
-                "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "supplier": purchases_df[purchases_df["po_number"] == po_number].iloc[0].get("supplier", "Unknown"),
-                "product_name": product_name,
-                "barcode": barcode,
-                "quantity_ordered": received_qty,
-                "cost_price": cost_price,
-                "total_cost": received_qty * cost_price,
-                "expected_date": datetime.now().strftime("%Y-%m-%d"),
-                "date_received": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "quantity_received": received_qty,
-                "status": "RECEIVED",
-                "payment_status": "UNPAID",
-                "invoice_no": invoice_no
-            }
-            
-            for col in purchases_df.columns:
-                if col not in new_row:
-                    new_row[col] = ""
-            
-            purchases_df = pd.concat([purchases_df, pd.DataFrame([new_row])], ignore_index=True)
     
     po_items = purchases_df[purchases_df["po_number"] == po_number]
     all_received = True
@@ -309,7 +273,7 @@ def get_po_details(po_number):
 
 
 # ==============================
-# PURCHASES PAGE - SINGLE PAGE (NO TABS)
+# PURCHASES PAGE
 # ==============================
 def purchases_page():
     """Purchases Management - Create and Receive on One Page"""
@@ -347,13 +311,11 @@ def purchases_page():
     
     # Load data
     products_df = load_products()
-    all_purchases = load_all_purchases()
     
     # ==============================
     # SECTION 1: CREATE PURCHASE ORDER
     # ==============================
     st.markdown("## Create Purchase Order")
-    st.caption("Add products to cart and create a purchase order")
     
     if products_df.empty:
         st.warning("No products in inventory. You can still add manual items below.")
@@ -361,8 +323,7 @@ def purchases_page():
     col1, col2 = st.columns(2)
     
     with col1:
-        supplier_name = st.text_input("Supplier Name *", key="po_supplier", 
-                                     placeholder="e.g., National Foods, Olivine, Delta")
+        supplier_name = st.text_input("Supplier Name *", key="po_supplier")
     
     with col2:
         expected_date = st.date_input("Expected Delivery Date *", 
@@ -372,14 +333,11 @@ def purchases_page():
     
     st.markdown("### Add Products to Order")
     
-    # Product search and add
     if not products_df.empty:
         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
         with col1:
-            search = st.text_input("Search Product", key="po_search", 
-                                  placeholder="Type product name or barcode")
-            
+            search = st.text_input("Search Product", key="po_search")
             filtered_products = products_df.copy()
             if search:
                 filtered_products = products_df[
@@ -388,303 +346,165 @@ def purchases_page():
                 ]
             
             if not filtered_products.empty:
-                product_display = []
-                for _, p in filtered_products.iterrows():
-                    stock_status = "In Stock" if p["stock"] > p["reorder_level"] else ("Low Stock" if p["stock"] > 0 else "Out of Stock")
-                    display_text = f"{stock_status} - {p['name']} - Stock: {p['stock']} - Price: ${p['price']:.2f}"
-                    product_display.append(display_text)
-                
-                selected_display = st.selectbox("Select Product", product_display, key="po_product_select")
-                if selected_display:
-                    parts = selected_display.split(" - ")
-                    if len(parts) >= 2:
-                        selected_product_name = parts[1]
-                    else:
-                        selected_product_name = selected_display
-                    selected_product = filtered_products[filtered_products["name"] == selected_product_name].iloc[0]
+                selected_product = st.selectbox("Select Product", filtered_products["name"].tolist(), key="po_product_select")
+                if selected_product:
+                    selected_product = filtered_products[filtered_products["name"] == selected_product].iloc[0]
                 else:
                     selected_product = None
             else:
                 selected_product = None
-                st.info("No products found matching your search")
+                st.info("No products found")
         
         with col2:
             if selected_product is not None:
                 po_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="po_qty")
-                st.caption(f"Current stock: {selected_product['stock']}")
-                st.caption(f"Cost: ${selected_product['cost']:.2f}")
+                st.caption(f"Stock: {selected_product['stock']}")
             else:
                 po_qty = 1
         
         with col3:
             if selected_product is not None:
-                add_button = st.button("Add to Order", key="add_to_po", use_container_width=True)
-                if add_button:
+                if st.button("Add to Order", key="add_to_po", use_container_width=True):
                     existing = False
-                    barcode_str = str(selected_product["barcode"])
                     for item in st.session_state.po_cart:
-                        if str(item["barcode"]) == barcode_str:
-                            item["quantity"] = item["quantity"] + po_qty
+                        if item["barcode"] == selected_product["barcode"]:
+                            item["quantity"] += po_qty
                             item["total"] = item["quantity"] * item["cost"]
                             existing = True
                             break
                     
                     if not existing:
-                        cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
                         st.session_state.po_cart.append({
-                            "barcode": str(selected_product["barcode"]),
-                            "name": str(selected_product["name"]),
+                            "barcode": selected_product["barcode"],
+                            "name": selected_product["name"],
                             "quantity": int(po_qty),
-                            "cost": cost_val,
-                            "total": cost_val * int(po_qty)
+                            "cost": float(selected_product["cost"]),
+                            "total": float(selected_product["cost"]) * int(po_qty)
                         })
                     
-                    st.success(f"Added {po_qty} x {selected_product['name']} to order")
+                    st.success(f"Added {po_qty} x {selected_product['name']}")
                     st.rerun()
         
         with col4:
-            clear_button = st.button("Clear Cart", use_container_width=True)
-            if clear_button:
+            if st.button("Clear Cart", key="clear_cart", use_container_width=True):
                 st.session_state.po_cart = []
-                st.success("Cart cleared!")
-                #st.rerun()
+                st.rerun()
     
     # Manual item entry
     st.markdown("### Manual Item Entry")
-    st.caption("Add items not in inventory (new products, services, fees)")
     
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     
     with col1:
-        manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
+        manual_item_name = st.text_input("Item Name", key="manual_item_name")
     
     with col2:
-        manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
+        manual_item_cost = st.number_input("Cost ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
     
     with col3:
         manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
     
     with col4:
-        add_manual_button = st.button("Add Manual Item", key="add_manual", use_container_width=True)
-        if add_manual_button:
-            if manual_item_name and manual_item_name.strip():
-                existing = False
-                for item in st.session_state.po_cart:
-                    if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                        item["quantity"] = item["quantity"] + int(manual_item_qty)
-                        item["total"] = item["quantity"] * item["cost"]
-                        existing = True
-                        break
-                
-                if not existing:
-                    unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-                    st.session_state.po_cart.append({
-                        "barcode": unique_barcode,
-                        "name": str(manual_item_name).strip(),
-                        "quantity": int(manual_item_qty),
-                        "cost": float(manual_item_cost),
-                        "total": float(manual_item_cost) * int(manual_item_qty)
-                    })
-                    st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
-                else:
-                    st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
+        if st.button("Add Manual Item", key="add_manual", use_container_width=True):
+            if manual_item_name:
+                st.session_state.po_cart.append({
+                    "barcode": f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+                    "name": manual_item_name,
+                    "quantity": int(manual_item_qty),
+                    "cost": float(manual_item_cost),
+                    "total": float(manual_item_cost) * int(manual_item_qty)
+                })
+                st.success(f"Added {manual_item_qty} x {manual_item_name}")
+                st.rerun()
             else:
                 st.error("Please enter an item name")
-            
-            #st.rerun()
     
-    # Display PO Cart
+    # Display Cart
     st.markdown("---")
     st.markdown("### Purchase Order Cart")
     
     if st.session_state.po_cart:
         po_cart_df = pd.DataFrame(st.session_state.po_cart)
-        
-        st.info(f"**{len(po_cart_df)} items in cart**")
-        
-        st.dataframe(
-            po_cart_df[["name", "quantity", "cost", "total"]],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
-                "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
-            }
-        )
+        st.dataframe(po_cart_df[["name", "quantity", "cost", "total"]], use_container_width=True, hide_index=True)
         
         po_total = po_cart_df["total"].sum()
-        st.info(f"**Total Order Value: ${po_total:,.2f}**")
+        st.info(f"Total Order Value: ${po_total:,.2f}")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            clear_all_button = st.button("Clear All Items", key="clear_all_items_btn", use_container_width=True)
-            if clear_all_button:
+            if st.button("Clear All Items", key="clear_all", use_container_width=True):
                 st.session_state.po_cart = []
-                st.success("Cart cleared!")
                 st.rerun()
         
         with col2:
-            create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
-            if create_po_button:
-                if not supplier_name or not supplier_name.strip():
+            if st.button("Create Purchase Order", type="primary", key="create_po", use_container_width=True):
+                if not supplier_name:
                     st.error("Please enter a supplier name")
                 elif not st.session_state.po_cart:
-                    st.error("Cart is empty. Add products to create a purchase order.")
+                    st.error("Cart is empty")
                 else:
-                    cart_items = st.session_state.po_cart.copy()
-                    po_cart_df = pd.DataFrame(cart_items)
-                    po_total = po_cart_df["total"].sum()
-                    
                     po_number, po_df, error = create_purchase_order(
                         supplier=supplier_name,
-                        items=cart_items,
+                        items=st.session_state.po_cart,
                         expected_date=expected_date
                     )
                     
                     if error:
                         st.error(error)
                     else:
-                        existing_df = load_all_purchases()
-                        
-                        for col in po_df.columns:
-                            if col not in existing_df.columns:
-                                existing_df[col] = ""
-                        
-                        updated_df = pd.concat([existing_df, po_df], ignore_index=True)
-                        save_purchases(updated_df)
-                        
+                        save_purchases(po_df)
                         st.session_state.po_cart = []
                         st.session_state.po_created = True
                         st.session_state.last_po_number = po_number
-                        
-                        st.success(f"Purchase Order {po_number} created successfully with {len(po_df)} items!")
-                        
-                        st.info(f"""
-                        Purchase Order Summary:
-                        - PO Number: {po_number}
-                        - Supplier: {supplier_name}
-                        - Items: {len(po_df)}
-                        - Total Value: ${po_total:,.2f}
-                        - Expected Date: {expected_date}
-                        """)
-                        
-                        po_text = f"""
-{'='*50}
-AZIEL INVESTMENTS - PURCHASE ORDER
-{'='*50}
-
-PO Number: {po_number}
-Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Supplier: {supplier_name}
-Expected Delivery: {expected_date}
-
-{'─'*40}
-ITEMS ORDERED
-{'─'*40}
-"""
-                        for _, item in po_cart_df.iterrows():
-                            po_text += f"{item['name']:<30} {item['quantity']:>5} x ${item['cost']:.2f} = ${item['total']:.2f}\n"
-                        
-                        po_text += f"""
-{'─'*40}
-TOTAL: ${po_total:,.2f}
-{'─'*40}
-
-Terms: Payment due upon receipt
-Order Status: PENDING - Awaiting delivery
-
-{'='*50}
-Aziel Investments - Retreat Park, Harare
-Contact: +263 78 290 5853
-{'='*50}
-"""
-                        
-                        st.download_button(
-                            label="Download PO (TXT)",
-                            data=po_text,
-                            file_name=f"{po_number}.txt",
-                            mime="text/plain",
-                            use_container_width=True
-                        )
-                        
-                        #st.rerun()
+                        st.rerun()
     else:
-        st.info("Cart is empty. Add products above to create a purchase order.")
+        st.info("Cart is empty")
     
     # ==============================
-    # SECTION 2: RECEIVE PURCHASE ORDER (SAME PAGE)
+    # SECTION 2: RECEIVE PURCHASE ORDER
     # ==============================
     st.markdown("---")
     st.markdown("## Receive Purchase Order")
-    st.caption("Select a pending purchase order and confirm receipt of stock")
     
-    # Reload purchases to get latest
     purchases_df = load_all_purchases()
     
     if purchases_df.empty:
-        st.info("No purchase orders found. Create a PO first.")
+        st.info("No purchase orders found")
     else:
-        # Show all POs with their status
-        po_summary = purchases_df.groupby(["po_number", "supplier", "status", "date_ordered"]).agg({
+        # Show all POs
+        po_summary = purchases_df.groupby(["po_number", "supplier", "status"]).agg({
             "product_name": lambda x: len(list(x)),
             "total_cost": "sum"
         }).reset_index()
-        po_summary.columns = ["PO Number", "Supplier", "Status", "Date", "Items", "Total"]
-        po_summary = po_summary.sort_values("Date", ascending=False)
+        po_summary.columns = ["PO Number", "Supplier", "Status", "Items", "Total"]
         
-        # Show summary table
-        st.dataframe(
-            po_summary[["PO Number", "Supplier", "Status", "Items", "Total"]],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Total": st.column_config.NumberColumn("Total ($)", format="$%.2f"),
-                "Status": st.column_config.TextColumn("Status")
-            }
-        )
+        st.dataframe(po_summary, use_container_width=True, hide_index=True)
         
-        # Filter for pending POs
-        pending_po_numbers = po_summary[po_summary["Status"] == "PENDING"]["PO Number"].tolist()
+        pending_pos = po_summary[po_summary["Status"] == "PENDING"]["PO Number"].tolist()
         
-        if not pending_po_numbers:
-            st.info("No pending purchase orders to receive. All orders have been completed or received.")
+        if not pending_pos:
+            st.info("No pending POs to receive")
         else:
-            st.markdown("---")
-            
-            selected_po = st.selectbox("Select Purchase Order to Receive", pending_po_numbers, key="receive_po_select")
+            selected_po = st.selectbox("Select PO to Receive", pending_pos, key="receive_po")
             
             if selected_po:
                 po_details = get_po_details(selected_po)
                 
                 if po_details:
-                    st.markdown(f"### Purchase Order: {selected_po}")
-                    st.markdown(f"**Supplier:** {po_details['supplier']}")
-                    st.markdown(f"**Order Date:** {po_details['date_ordered']}")
-                    st.markdown(f"**Expected Date:** {po_details['expected_date']}")
+                    st.markdown(f"### PO: {selected_po}")
+                    st.markdown(f"Supplier: {po_details['supplier']}")
                     
-                    # Display items
                     items_df = pd.DataFrame(po_details['items'])
-                    st.markdown("#### Items Ordered")
-                    st.dataframe(
-                        items_df[["product_name", "quantity_ordered", "cost_price", "total_cost"]],
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "cost_price": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
-                            "total_cost": st.column_config.NumberColumn("Total ($)", format="$%.2f")
-                        }
-                    )
+                    st.dataframe(items_df[["product_name", "quantity_ordered", "cost_price", "total_cost"]], 
+                                use_container_width=True, hide_index=True)
                     
-                    po_total = po_details['total_value']
-                    st.info(f"PO Total: ${po_total:,.2f}")
+                    st.info(f"PO Total: ${po_details['total_value']:,.2f}")
                     
-                    # Action buttons
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns(2)
                     
                     with col1:
-                        decline_button = st.button("Decline / Delete PO", key="decline_po_btn", use_container_width=True)
-                        if decline_button:
+                        if st.button("Decline PO", key="decline_po", use_container_width=True):
                             success, message = delete_purchase_order(selected_po)
                             if success:
                                 st.session_state.po_deleted = True
@@ -694,25 +514,17 @@ Contact: +263 78 290 5853
                                 st.error(message)
                     
                     with col2:
-                        refresh_button = st.button("Refresh List", key="refresh_po_list", use_container_width=True)
-                        if refresh_button:
+                        if st.button("Refresh", key="refresh_receive", use_container_width=True):
                             st.rerun()
-                    
-                    with col3:
-                        st.info("Ready to receive")
                     
                     st.markdown("---")
                     
-                    # Receive section
-                    st.markdown("### Receive Stock")
-                    st.info("Enter the supplier invoice number and confirm quantities received.")
+                    invoice_no = st.text_input("Invoice Number *", key="invoice_no")
                     
-                    invoice_no = st.text_input("Supplier Invoice Number *", key="invoice_no_input")
-                    
-                    st.markdown("#### Enter Received Quantities")
+                    st.markdown("### Enter Received Quantities")
                     
                     received_items = []
-                    total_received_value = 0
+                    total_received = 0
                     
                     for idx, item in enumerate(po_details['items']):
                         col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
@@ -724,13 +536,12 @@ Contact: +263 78 290 5853
                             st.caption(f"Ordered: {qty_ordered}")
                         
                         with col2:
-                            barcode_val = str(item.get("barcode", f"item_{idx}"))
                             received_qty = st.number_input(
-                                "Qty Received",
+                                "Qty",
                                 min_value=0,
                                 max_value=int(qty_ordered),
                                 value=int(qty_ordered),
-                                key=f"rec_qty_{barcode_val}_{idx}",
+                                key=f"rec_qty_{idx}",
                                 step=1,
                                 label_visibility="collapsed"
                             )
@@ -741,7 +552,7 @@ Contact: +263 78 290 5853
                         
                         with col4:
                             item_total = received_qty * cost_price
-                            total_received_value += item_total
+                            total_received += item_total
                             st.write(f"Total: ${item_total:.2f}")
                         
                         received_items.append({
@@ -751,31 +562,20 @@ Contact: +263 78 290 5853
                             "name": product_name
                         })
                     
-                    st.markdown(f"**Total Received Value: ${total_received_value:,.2f}**")
+                    st.info(f"Total Received Value: ${total_received:,.2f}")
                     
-                    confirm_button = st.button("Confirm Receipt and Update Stock", type="primary", use_container_width=True)
-                    if confirm_button:
+                    if st.button("Confirm Receipt", type="primary", use_container_width=True):
                         if not invoice_no:
-                            st.error("Please enter supplier invoice number")
+                            st.error("Please enter invoice number")
                         else:
-                            success, updated_products, new_products = receive_purchase_order(
+                            success, updated, new_items = receive_purchase_order(
                                 selected_po, received_items, invoice_no
                             )
                             
                             if success:
                                 st.session_state.stock_updated = True
                                 st.session_state.last_received_po = selected_po
-                                
-                                if updated_products:
-                                    st.success(f"Stock updated for {len(updated_products)} existing products!")
-                                    for p in updated_products[:5]:
-                                        st.write(f"   - {p['name']}: {p['old_stock']} -> {p['new_stock']} (+{p['added']})")
-                                    if len(updated_products) > 5:
-                                        st.write(f"   ... and {len(updated_products) - 5} more")
-                                
-                                if new_products:
-                                    st.info(f"Created {len(new_products)} new products in inventory!")
-                                
+                                st.success("Stock received successfully!")
                                 st.rerun()
     
     # ==============================
@@ -787,9 +587,8 @@ Contact: +263 78 290 5853
     history_df = load_all_purchases()
     
     if history_df.empty:
-        st.info("No purchase records found.")
+        st.info("No purchase records")
     else:
-        # Summary by PO
         history_summary = history_df.groupby(["po_number", "supplier", "date_ordered", "status"]).agg({
             "product_name": lambda x: len(list(x)),
             "total_cost": "sum"
@@ -797,19 +596,11 @@ Contact: +263 78 290 5853
         history_summary.columns = ["PO Number", "Supplier", "Date", "Status", "Items", "Total"]
         history_summary = history_summary.sort_values("Date", ascending=False)
         
-        st.dataframe(
-            history_summary,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
-            }
-        )
+        st.dataframe(history_summary, use_container_width=True, hide_index=True)
         
-        # Download button
         csv = history_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download Purchase History (CSV)",
+            label="Download CSV",
             data=csv,
             file_name=f"purchase_history_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
