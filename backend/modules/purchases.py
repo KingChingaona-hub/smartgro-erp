@@ -370,14 +370,14 @@ def purchases_page():
                                 st.success(f"Added {po_qty} x {selected_product['name']} to cart")
                             
                             # Force rerun to update display
-                            st.rerun()
+                            #st.rerun()
                         else:
                             st.error("Please select a product first")
         
         # ==============================
         # MANUAL ITEM ENTRY
         # ==============================
-        st.markdown("### ➕ Manual Item Entry")
+        st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
         with st.form(key="add_manual_form"):
@@ -421,7 +421,7 @@ def purchases_page():
                             })
                             st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
                         
-                        st.rerun()
+                        #st.rerun()
                     else:
                         st.error("Please enter an item name")
         
@@ -492,7 +492,7 @@ def purchases_page():
                 if clear_all:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    st.rerun()
+                    #st.rerun()
             
             with col2:
                 create_po = st.button("Create Purchase Order", type="primary", use_container_width=True)
