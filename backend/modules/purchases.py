@@ -11,7 +11,8 @@ from backend.core.db_adapter import (
     load_products,
     load_purchases,
     save_purchases,
-    save_products
+    save_products,
+    get_db_cursor
 )
 
 
@@ -29,7 +30,7 @@ def generate_po_number():
 def delete_purchase_order(po_number):
     """Delete a purchase order completely"""
     try:
-        purchases_df = load_purchases()
+        purchases_df = load_all_purchases()
         
         # Check if PO exists
         if purchases_df.empty or po_number not in purchases_df["po_number"].values:
@@ -133,7 +134,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
     
     # Load current data
-    purchases_df = load_all_purchases()  # Use the new function
+    purchases_df = load_all_purchases()
     products_df = load_products()
     
     # Ensure required columns exist
@@ -303,7 +304,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
 def get_supplier_performance():
     """Calculate supplier performance metrics from purchase history"""
     
-    purchases_df = load_all_purchases()  # Use the new function
+    purchases_df = load_all_purchases()
     
     if purchases_df.empty:
         return pd.DataFrame()
@@ -337,7 +338,7 @@ def get_supplier_performance():
 # ==============================
 def get_po_details(po_number):
     """Get complete details for a specific purchase order"""
-    purchases_df = load_all_purchases()  # Use the new function
+    purchases_df = load_all_purchases()
     po_items = purchases_df[purchases_df["po_number"] == po_number]
     
     if po_items.empty:
@@ -521,7 +522,7 @@ def purchases_page():
                 if clear_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    st.rerun()
+                    #st.rerun()
         
         # Manual item entry
         st.markdown("### Manual Item Entry")
@@ -594,7 +595,7 @@ def purchases_page():
                 if clear_all_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    #st.rerun()
+                    st.rerun()
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
@@ -754,14 +755,14 @@ Contact: +263 78 290 5853
                                 if success:
                                     st.session_state.po_deleted = True
                                     st.success(message)
-                                    #st.rerun()
+                                    st.rerun()
                                 else:
                                     st.error(message)
                         
                         with col2:
                             refresh_button = st.button("Refresh", key="refresh_po_btn", use_container_width=True)
                             if refresh_button:
-                                #st.rerun()
+                                st.rerun()
                         
                         st.markdown("---")
                         
@@ -879,7 +880,7 @@ Contact: +263 78 290 5853
     with tab4:
         st.markdown("## Purchase History")
         
-        purchases_df = load_all_purchases()  # Use the new function
+        purchases_df = load_all_purchases()
         
         if purchases_df.empty:
             st.info("No purchase records found.")
