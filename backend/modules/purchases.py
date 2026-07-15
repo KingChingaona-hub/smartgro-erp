@@ -495,7 +495,7 @@ def purchases_page():
                     st.rerun()
             
             with col2:
-                create_po = st.button("📄 Create Purchase Order", type="primary", use_container_width=True)
+                create_po = st.button("Create Purchase Order", type="primary", use_container_width=True)
                 if create_po:
                     if not supplier_name or not supplier_name.strip():
                         st.error("Please enter a supplier name")
@@ -525,7 +525,7 @@ def purchases_page():
                             st.session_state.po_created = True
                             st.session_state.last_po_number = po_number
                             
-                            st.success(f"✅ Purchase Order {po_number} created successfully!")
+                            st.success(f"Purchase Order {po_number} created successfully!")
                             st.info(f"""
                             **PO Summary:**
                             - PO Number: {po_number}
@@ -568,15 +568,15 @@ Contact: +263 78 290 5853
 """
                             
                             st.download_button(
-                                label="📥 Download PO (TXT)",
+                                label="Download PO (TXT)",
                                 data=po_text,
                                 file_name=f"{po_number}.txt",
                                 mime="text/plain"
                             )
                             
-                            st.rerun()
+                            #st.rerun()
         else:
-            st.info("🛒 Cart is empty. Add products or manual items above.")
+            st.info("Cart is empty. Add products or manual items above.")
     
     # ==============================
     # TAB 2: RECEIVE STOCK
