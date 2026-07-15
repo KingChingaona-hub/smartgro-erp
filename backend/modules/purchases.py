@@ -1,4 +1,4 @@
-# backend/purchases/purchases.py
+# backend/modules/purchases.py
 """
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
@@ -447,7 +447,7 @@ def purchases_page():
             if clear_button:
                 st.session_state.po_cart = []
                 st.success("Cart cleared!")
-                st.rerun()
+                #st.rerun()
     
     # Manual item entry
     st.markdown("### Manual Item Entry")
@@ -491,7 +491,7 @@ def purchases_page():
             else:
                 st.error("Please enter an item name")
             
-            st.rerun()
+            #st.rerun()
     
     # Display PO Cart
     st.markdown("---")
@@ -608,7 +608,7 @@ Contact: +263 78 290 5853
                             use_container_width=True
                         )
                         
-                        st.rerun()
+                        #st.rerun()
     else:
         st.info("Cart is empty. Add products above to create a purchase order.")
     
