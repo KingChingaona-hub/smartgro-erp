@@ -1888,88 +1888,51 @@ def save_purchases(df, branch_id=None):
             if cur is None or conn is None:
                 return False
             
-            validation_errors = []
-            saved_count = 0
+            print(f"Saving {len(df)} rows to database")
             
             for idx, row in df.iterrows():
-                # Validate supplier name
-                if 'supplier' in row:
-                    valid, msg = validate_supplier_name(row["supplier"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid supplier - {msg}")
-                        continue
-                
-                # Validate barcode
-                if 'barcode' in row:
-                    valid, msg = validate_barcode(row["barcode"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid barcode - {msg}")
-                        continue
-                
-                # Validate quantity
-                if 'quantity_ordered' in row:
-                    valid, qty, msg = validate_quantity(row["quantity_ordered"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid quantity - {msg}")
-                        continue
-                    row["quantity_ordered"] = qty
-                
-                # Validate cost price
-                if 'cost_price' in row:
-                    valid, amount, msg = validate_amount(row["cost_price"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid cost price - {msg}")
-                        continue
-                    row["cost_price"] = amount
-                
-                # Validate total cost
-                if 'total_cost' in row:
-                    valid, amount, msg = validate_amount(row["total_cost"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid total cost - {msg}")
-                        continue
-                    row["total_cost"] = amount
+                print(f"Row {idx}: {row.get('product_name', 'Unknown')} - {row.get('barcode', 'No barcode')}")
                 
                 try:
-                    # REMOVED ON CONFLICT - Just insert all items
+                    # Print the actual SQL we're executing
+                    print(f"Inserting: PO={row['po_number']}, Barcode={row['barcode']}, Product={row['product_name']}")
+                    
                     cur.execute("""
-                        INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
+                        INSERT INTO purchases (
+                            branch_id, po_number, date_ordered, supplier,
                             product_name, barcode, quantity_ordered, quantity_received,
-                            cost_price, total_cost, expected_date, status, payment_status, invoice_no)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            cost_price, total_cost, expected_date, status, 
+                            payment_status, invoice_no
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
-                        branch_id, 
-                        row["po_number"], 
-                        row["date_ordered"], 
-                        row["supplier"],
-                        row["product_name"], 
-                        row["barcode"], 
-                        row["quantity_ordered"],
-                        row.get("quantity_received", 0), 
-                        row["cost_price"], 
-                        row["total_cost"],
-                        row["expected_date"], 
-                        row["status"], 
-                        row.get("payment_status", "UNPAID"),
-                        row.get("invoice_no", "")
+                        branch_id,
+                        str(row["po_number"]),
+                        row["date_ordered"],
+                        str(row["supplier"]),
+                        str(row["product_name"]),
+                        str(row["barcode"]),
+                        int(row["quantity_ordered"]),
+                        int(row.get("quantity_received", 0)),
+                        float(row["cost_price"]),
+                        float(row["total_cost"]),
+                        str(row["expected_date"]),
+                        str(row.get("status", "PENDING")),
+                        str(row.get("payment_status", "UNPAID")),
+                        str(row.get("invoice_no", ""))
                     ))
-                    saved_count += 1
                 except Exception as e:
-                    # Print the actual error
-                    print(f"Error inserting row {idx}: {e}")
+                    # This will show the actual database error
+                    st.error(f"Database error on row {idx}: {str(e)}")
+                    print(f"ERROR on row {idx}: {e}")
                     print(f"Row data: {row.to_dict()}")
-                    validation_errors.append(f"Row {idx}: Database error - {str(e)}")
-                    # Rollback this transaction
                     conn.rollback()
                     return False
             
-            if validation_errors:
-                print(f"Validation errors: {validation_errors}")
-            
             conn.commit()
-            print(f"Saved {saved_count} purchase items successfully")
+            print("Save successful!")
             return True
     except Exception as e:
+        st.error(f"Error saving purchases: {str(e)}")
         print(f"Error saving purchases: {e}")
         return False
     
