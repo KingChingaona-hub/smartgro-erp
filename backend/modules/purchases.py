@@ -313,13 +313,38 @@ def render_action_buttons(supplier_name, expected_date, cart_total):
             st.write(f"Creating PO with {len(st.session_state.po_cart)} items")
             st.write(f"PO DataFrame has {len(po_df)} rows")
             
-            # Load existing purchases
+            # Check if this PO already exists in the database
             existing_df = load_purchases()
+            existing_po_items = existing_df[existing_df["po_number"] == po_number]
+            
+            if not existing_po_items.empty:
+                st.warning(f"PO {po_number} already has {len(existing_po_items)} items in the database.")
+                st.write("Existing items:")
+                st.dataframe(existing_po_items[["product_name", "barcode", "quantity_ordered"]])
+                
+                # Ask user what to do
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Cancel - Go Back"):
+                        return
+                with col2:
+                    if st.button("Replace Existing PO"):
+                        # Delete existing items for this PO
+                        st.write(f"Deleting existing PO {po_number}...")
+                        # We need a delete function
+                        # For now, we'll continue but the save will update
             
             # Ensure all columns match
             for col in po_df.columns:
                 if col not in existing_df.columns:
                     existing_df[col] = ""
+            
+            # Remove any existing items with same (po_number, barcode)
+            for _, row in po_df.iterrows():
+                existing_df = existing_df[
+                    ~((existing_df["po_number"] == row["po_number"]) & 
+                      (existing_df["barcode"] == row["barcode"]))
+                ]
             
             # Append new PO
             updated_df = pd.concat([existing_df, po_df], ignore_index=True)

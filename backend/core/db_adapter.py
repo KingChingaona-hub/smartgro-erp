@@ -1883,7 +1883,7 @@ def load_purchases(branch_id=None):
         return pd.DataFrame()
 
 def save_purchases(df, branch_id=None):
-    """Save purchases to database"""
+    """Save purchases to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1904,32 +1904,75 @@ def save_purchases(df, branch_id=None):
                     if pd.isna(value):
                         row_dict[key] = None
                 
-                print(f"Row {idx}: {row_dict.get('product_name', 'Unknown')}")
+                po_number = row_dict.get("po_number", "")
+                barcode = row_dict.get("barcode", "")
                 
-                # Insert without ON CONFLICT - we want all items
+                print(f"Row {idx}: {row_dict.get('product_name', 'Unknown')} - {barcode}")
+                
+                # Check if this (po_number, barcode) already exists
                 cur.execute("""
-                    INSERT INTO purchases (
-                        branch_id, po_number, date_ordered, supplier,
-                        product_name, barcode, quantity_ordered, quantity_received,
-                        cost_price, total_cost, expected_date, status, 
-                        payment_status, invoice_no
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    branch_id,
-                    row_dict.get("po_number", ""),
-                    row_dict.get("date_ordered"),
-                    row_dict.get("supplier", ""),
-                    row_dict.get("product_name", ""),
-                    row_dict.get("barcode", ""),
-                    int(row_dict.get("quantity_ordered", 0)),
-                    int(row_dict.get("quantity_received", 0)),
-                    float(row_dict.get("cost_price", 0)),
-                    float(row_dict.get("total_cost", 0)),
-                    row_dict.get("expected_date"),
-                    row_dict.get("status", "PENDING"),
-                    row_dict.get("payment_status", "UNPAID"),
-                    row_dict.get("invoice_no", "")
-                ))
+                    SELECT COUNT(*) FROM purchases 
+                    WHERE po_number = %s AND barcode = %s
+                """, (po_number, barcode))
+                
+                exists = cur.fetchone()[0] > 0
+                
+                if exists:
+                    print(f"  ⚠️ Row {idx} already exists, updating instead...")
+                    # Update existing row
+                    cur.execute("""
+                        UPDATE purchases SET
+                            supplier = %s,
+                            product_name = %s,
+                            quantity_ordered = %s,
+                            quantity_received = %s,
+                            cost_price = %s,
+                            total_cost = %s,
+                            expected_date = %s,
+                            status = %s,
+                            payment_status = %s,
+                            invoice_no = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE po_number = %s AND barcode = %s
+                    """, (
+                        row_dict.get("supplier", ""),
+                        row_dict.get("product_name", ""),
+                        int(row_dict.get("quantity_ordered", 0)),
+                        int(row_dict.get("quantity_received", 0)),
+                        float(row_dict.get("cost_price", 0)),
+                        float(row_dict.get("total_cost", 0)),
+                        row_dict.get("expected_date"),
+                        row_dict.get("status", "PENDING"),
+                        row_dict.get("payment_status", "UNPAID"),
+                        row_dict.get("invoice_no", ""),
+                        po_number,
+                        barcode
+                    ))
+                else:
+                    # Insert new row
+                    cur.execute("""
+                        INSERT INTO purchases (
+                            branch_id, po_number, date_ordered, supplier,
+                            product_name, barcode, quantity_ordered, quantity_received,
+                            cost_price, total_cost, expected_date, status, 
+                            payment_status, invoice_no
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        branch_id,
+                        po_number,
+                        row_dict.get("date_ordered"),
+                        row_dict.get("supplier", ""),
+                        row_dict.get("product_name", ""),
+                        barcode,
+                        int(row_dict.get("quantity_ordered", 0)),
+                        int(row_dict.get("quantity_received", 0)),
+                        float(row_dict.get("cost_price", 0)),
+                        float(row_dict.get("total_cost", 0)),
+                        row_dict.get("expected_date"),
+                        row_dict.get("status", "PENDING"),
+                        row_dict.get("payment_status", "UNPAID"),
+                        row_dict.get("invoice_no", "")
+                    ))
             
             conn.commit()
             print(f"Successfully saved {len(df)} rows")
