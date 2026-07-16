@@ -331,7 +331,7 @@ def purchases_page():
             
             with col3:
                 if selected_product is not None:
-                    add_button = st.button("➕ Add to Order", key="add_to_po", use_container_width=True)
+                    add_button = st.button("Add to Order", key="add_to_po", use_container_width=True)
                     if add_button and not st.session_state.button_clicked:
                         st.session_state.button_clicked = True
                         
@@ -366,7 +366,7 @@ def purchases_page():
                     st.rerun()
         
         # Manual item entry
-        st.markdown("### ➕ Manual Item Entry")
+        st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
         col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
@@ -381,7 +381,7 @@ def purchases_page():
             manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
         
         with col4:
-            add_manual_button = st.button("➕ Add Manual Item", key="add_manual", use_container_width=True)
+            add_manual_button = st.button("Add Manual Item", key="add_manual", use_container_width=True)
             if add_manual_button and not st.session_state.button_clicked:
                 st.session_state.button_clicked = True
                 
@@ -439,7 +439,7 @@ def purchases_page():
                     st.session_state.button_clicked = True
                     st.session_state.po_cart = []
                     st.session_state.button_clicked = False
-                    st.rerun()
+                    #st.rerun()
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", use_container_width=True)
@@ -511,7 +511,7 @@ Terms: Payment due upon receipt
 Order Status: PENDING - Awaiting delivery
 
 {'='*50}
-Aziel Investments - Retail Park, Harare
+Aziel Investments - Retreat Park, Harare
 Contact: +263 78 290 5853
 {'='*50}
 """
@@ -524,7 +524,7 @@ Contact: +263 78 290 5853
                                 use_container_width=True
                             )
                             
-                            st.rerun()
+                            #st.rerun()
                     
                     st.session_state.button_clicked = False
         else:
@@ -647,7 +647,7 @@ Contact: +263 78 290 5853
                                             for p in new_products:
                                                 st.write(f"   • {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
                                         
-                                        st.rerun()
+                                        #st.rerun()
                                 
                                 st.session_state.button_clicked = False
                         
