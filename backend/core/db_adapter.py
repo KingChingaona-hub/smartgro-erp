@@ -1869,7 +1869,11 @@ def load_purchases(branch_id=None):
         with get_db_cursor() as (cur, conn):
             if cur is None:
                 return pd.DataFrame()
-            cur.execute("SELECT * FROM purchases WHERE branch_id = %s ORDER BY date_ordered DESC", (branch_id,))
+            cur.execute("""
+                SELECT * FROM purchases 
+                WHERE branch_id = %s 
+                ORDER BY date_ordered DESC
+            """, (branch_id,))
             rows = cur.fetchall()
             if rows:
                 return pd.DataFrame(rows)
@@ -1879,7 +1883,7 @@ def load_purchases(branch_id=None):
         return pd.DataFrame()
 
 def save_purchases(df, branch_id=None):
-    """Save purchases to database with validation"""
+    """Save purchases to database"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1895,15 +1899,14 @@ def save_purchases(df, branch_id=None):
             print(f"Saving {len(df)} rows to database")
             
             for idx, row in df.iterrows():
-                # Convert row to dict and handle None values
                 row_dict = row.to_dict()
                 for key, value in row_dict.items():
                     if pd.isna(value):
                         row_dict[key] = None
                 
-                print(f"Row {idx}: {row_dict.get('product_name', 'Unknown')} - {row_dict.get('barcode', 'No barcode')}")
+                print(f"Row {idx}: {row_dict.get('product_name', 'Unknown')}")
                 
-                # INSERT without ON CONFLICT - we want all items
+                # Insert without ON CONFLICT - we want all items
                 cur.execute("""
                     INSERT INTO purchases (
                         branch_id, po_number, date_ordered, supplier,
