@@ -1903,7 +1903,7 @@ def save_purchases(df, branch_id=None):
                 
                 print(f"Row {idx}: {row_dict.get('product_name', 'Unknown')} - {row_dict.get('barcode', 'No barcode')}")
                 
-                # Insert without line_item_id
+                # INSERT without ON CONFLICT - we want all items
                 cur.execute("""
                     INSERT INTO purchases (
                         branch_id, po_number, date_ordered, supplier,
@@ -1933,11 +1933,9 @@ def save_purchases(df, branch_id=None):
             return True
     except Exception as e:
         print(f"Error saving purchases: {e}")
-        # Log the full error for debugging
         import traceback
         traceback.print_exc()
         return False
-    
     
 # ==============================
 # CASH REGISTER FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)
