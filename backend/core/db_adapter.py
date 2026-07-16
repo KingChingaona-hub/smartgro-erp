@@ -1883,58 +1883,61 @@ def save_purchases(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
+    # Clean the DataFrame
+    df = df.where(pd.notnull(df), None)
+    
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
+                print("No database connection")
                 return False
             
             print(f"Saving {len(df)} rows to database")
             
             for idx, row in df.iterrows():
-                print(f"Row {idx}: {row.get('product_name', 'Unknown')} - {row.get('barcode', 'No barcode')}")
+                # Convert row to dict and handle None values
+                row_dict = row.to_dict()
+                for key, value in row_dict.items():
+                    if pd.isna(value):
+                        row_dict[key] = None
                 
-                try:
-                    # Print the actual SQL we're executing
-                    print(f"Inserting: PO={row['po_number']}, Barcode={row['barcode']}, Product={row['product_name']}")
-                    
-                    cur.execute("""
-                        INSERT INTO purchases (
-                            branch_id, po_number, date_ordered, supplier,
-                            product_name, barcode, quantity_ordered, quantity_received,
-                            cost_price, total_cost, expected_date, status, 
-                            payment_status, invoice_no
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        branch_id,
-                        str(row["po_number"]),
-                        row["date_ordered"],
-                        str(row["supplier"]),
-                        str(row["product_name"]),
-                        str(row["barcode"]),
-                        int(row["quantity_ordered"]),
-                        int(row.get("quantity_received", 0)),
-                        float(row["cost_price"]),
-                        float(row["total_cost"]),
-                        str(row["expected_date"]),
-                        str(row.get("status", "PENDING")),
-                        str(row.get("payment_status", "UNPAID")),
-                        str(row.get("invoice_no", ""))
-                    ))
-                except Exception as e:
-                    # This will show the actual database error
-                    st.error(f"Database error on row {idx}: {str(e)}")
-                    print(f"ERROR on row {idx}: {e}")
-                    print(f"Row data: {row.to_dict()}")
-                    conn.rollback()
-                    return False
+                print(f"Row {idx}: {row_dict.get('product_name', 'Unknown')} - {row_dict.get('barcode', 'No barcode')}")
+                
+                # Insert without line_item_id
+                cur.execute("""
+                    INSERT INTO purchases (
+                        branch_id, po_number, date_ordered, supplier,
+                        product_name, barcode, quantity_ordered, quantity_received,
+                        cost_price, total_cost, expected_date, status, 
+                        payment_status, invoice_no
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    branch_id,
+                    row_dict.get("po_number", ""),
+                    row_dict.get("date_ordered"),
+                    row_dict.get("supplier", ""),
+                    row_dict.get("product_name", ""),
+                    row_dict.get("barcode", ""),
+                    int(row_dict.get("quantity_ordered", 0)),
+                    int(row_dict.get("quantity_received", 0)),
+                    float(row_dict.get("cost_price", 0)),
+                    float(row_dict.get("total_cost", 0)),
+                    row_dict.get("expected_date"),
+                    row_dict.get("status", "PENDING"),
+                    row_dict.get("payment_status", "UNPAID"),
+                    row_dict.get("invoice_no", "")
+                ))
             
             conn.commit()
-            print("Save successful!")
+            print(f"Successfully saved {len(df)} rows")
             return True
     except Exception as e:
-        st.error(f"Error saving purchases: {str(e)}")
         print(f"Error saving purchases: {e}")
+        # Log the full error for debugging
+        import traceback
+        traceback.print_exc()
         return False
+    
     
 # ==============================
 # CASH REGISTER FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)

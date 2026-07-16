@@ -507,27 +507,32 @@ def purchases_page():
                             # Show what's being saved
                             st.write(f"Saving {len(updated_df)} total rows to database")
                             
-                            # Save to database
-                            save_success = save_purchases(updated_df)
-                            
-                            if save_success:
-                                st.session_state.po_cart = []
-                                st.session_state.po_created = True
-                                st.session_state.last_po_number = po_number
+                            # Save to database with error handling
+                            try:
+                                save_success = save_purchases(updated_df)
                                 
-                                st.success(f"Purchase Order {po_number} created successfully with {len(po_df)} items!")
-                                
-                                # Show PO summary
-                                st.info(f"""
-                                **PO Summary:**
-                                - PO Number: {po_number}
-                                - Supplier: {supplier_name}
-                                - Items: {len(po_df)}
-                                - Total Value: ${cart_total:,.2f}
-                                - Expected Date: {expected_date}
-                                """)
-                            else:
-                                st.error("Failed to save purchase order to database")
+                                if save_success:
+                                    st.session_state.po_cart = []
+                                    st.session_state.po_created = True
+                                    st.session_state.last_po_number = po_number
+                                    
+                                    st.success(f"Purchase Order {po_number} created successfully with {len(po_df)} items!")
+                                    
+                                    # Show PO summary
+                                    st.info(f"""
+                                    **PO Summary:**
+                                    - PO Number: {po_number}
+                                    - Supplier: {supplier_name}
+                                    - Items: {len(po_df)}
+                                    - Total Value: ${cart_total:,.2f}
+                                    - Expected Date: {expected_date}
+                                    """)
+                                    
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to save purchase order to database. Please check the logs for details.")
+                            except Exception as e:
+                                st.error(f"Error saving purchase order: {str(e)}")
         else:
             st.info("Cart is empty. Add products or manual items above.")
     
@@ -648,6 +653,8 @@ def purchases_page():
                                             st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
+                                        
+                                        st.rerun()
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
