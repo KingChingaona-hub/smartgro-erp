@@ -139,6 +139,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "stock": received_qty,
                     "cost": cost_price
                 })
+        else:
+            print(f"Warning: No match found for barcode {barcode} in PO {po_number}")
     
     # Save all changes
     save_products(products_df)
@@ -316,7 +318,7 @@ def purchases_page():
                             # Extract product name from display
                             parts = selected_display.split(" - ")
                             if len(parts) >= 3:
-                                selected_product_name = parts[1]  # The name is the second part
+                                selected_product_name = parts[1]
                                 selected_product = filtered_products[filtered_products["name"] == selected_product_name].iloc[0]
                             else:
                                 selected_product = None
@@ -358,8 +360,6 @@ def purchases_page():
                                     "total": cost_val * po_qty
                                 })
                                 st.success(f"Added {po_qty} x {selected_product['name']} to cart")
-                            
-                            st.rerun()
                         else:
                             st.error("Please select a product first")
         
@@ -405,8 +405,6 @@ def purchases_page():
                                 "total": float(manual_item_cost) * manual_item_qty
                             })
                             st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
-                        
-                        st.rerun()
                     else:
                         st.error("Please enter an item name")
         
@@ -415,6 +413,7 @@ def purchases_page():
         st.markdown("### Purchase Order Cart")
         
         if st.session_state.po_cart:
+            # Create DataFrame from cart
             cart_df = pd.DataFrame(st.session_state.po_cart)
             
             st.markdown(f"**Total Items in Cart: {len(cart_df)}**")
@@ -476,6 +475,11 @@ def purchases_page():
                     if not supplier_name or not supplier_name.strip():
                         st.error("Please enter a supplier name")
                     else:
+                        # Log cart contents
+                        st.write(f"Creating PO with {len(st.session_state.po_cart)} items:")
+                        for item in st.session_state.po_cart:
+                            st.write(f"  - {item['name']} x {item['quantity']}")
+                        
                         po_number, po_df, error = create_purchase_order(
                             supplier=supplier_name,
                             items=st.session_state.po_cart,
@@ -485,6 +489,10 @@ def purchases_page():
                         if error:
                             st.error(error)
                         else:
+                            # Show what we're about to save
+                            st.write(f"PO DataFrame has {len(po_df)} rows:")
+                            st.dataframe(po_df[["product_name", "barcode", "quantity_ordered"]])
+                            
                             # Load existing purchases
                             existing_df = load_purchases()
                             
@@ -495,6 +503,9 @@ def purchases_page():
                             
                             # Append new PO to existing
                             updated_df = pd.concat([existing_df, po_df], ignore_index=True)
+                            
+                            # Show what's being saved
+                            st.write(f"Saving {len(updated_df)} total rows to database")
                             
                             # Save to database
                             save_success = save_purchases(updated_df)
@@ -515,8 +526,6 @@ def purchases_page():
                                 - Total Value: ${cart_total:,.2f}
                                 - Expected Date: {expected_date}
                                 """)
-                                
-                                st.rerun()
                             else:
                                 st.error("Failed to save purchase order to database")
         else:
@@ -639,8 +648,6 @@ def purchases_page():
                                             st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
-                                        
-                                        st.rerun()
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
