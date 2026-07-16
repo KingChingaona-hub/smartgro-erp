@@ -1930,29 +1930,38 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
                 
-                # REMOVED ON CONFLICT - Just insert all items
-                cur.execute("""
-                    INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
-                        product_name, barcode, quantity_ordered, quantity_received,
-                        cost_price, total_cost, expected_date, status, payment_status, invoice_no)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    branch_id, 
-                    row["po_number"], 
-                    row["date_ordered"], 
-                    row["supplier"],
-                    row["product_name"], 
-                    row["barcode"], 
-                    row["quantity_ordered"],
-                    row.get("quantity_received", 0), 
-                    row["cost_price"], 
-                    row["total_cost"],
-                    row["expected_date"], 
-                    row["status"], 
-                    row.get("payment_status", "UNPAID"),
-                    row.get("invoice_no", "")
-                ))
-                saved_count += 1
+                try:
+                    # REMOVED ON CONFLICT - Just insert all items
+                    cur.execute("""
+                        INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
+                            product_name, barcode, quantity_ordered, quantity_received,
+                            cost_price, total_cost, expected_date, status, payment_status, invoice_no)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        branch_id, 
+                        row["po_number"], 
+                        row["date_ordered"], 
+                        row["supplier"],
+                        row["product_name"], 
+                        row["barcode"], 
+                        row["quantity_ordered"],
+                        row.get("quantity_received", 0), 
+                        row["cost_price"], 
+                        row["total_cost"],
+                        row["expected_date"], 
+                        row["status"], 
+                        row.get("payment_status", "UNPAID"),
+                        row.get("invoice_no", "")
+                    ))
+                    saved_count += 1
+                except Exception as e:
+                    # Print the actual error
+                    print(f"Error inserting row {idx}: {e}")
+                    print(f"Row data: {row.to_dict()}")
+                    validation_errors.append(f"Row {idx}: Database error - {str(e)}")
+                    # Rollback this transaction
+                    conn.rollback()
+                    return False
             
             if validation_errors:
                 print(f"Validation errors: {validation_errors}")
@@ -1963,6 +1972,7 @@ def save_purchases(df, branch_id=None):
     except Exception as e:
         print(f"Error saving purchases: {e}")
         return False
+    
 # ==============================
 # CASH REGISTER FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)
 # ==============================
