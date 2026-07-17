@@ -546,10 +546,10 @@ def purchases_page():
         
         # Use a form to prevent reruns on input changes
         with st.form(key="add_manual_form", clear_on_submit=True):
-            col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+            col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1, 1, 1])
             
             with col1:
-                manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
+                manual_item_name = st.text_input("Item Name *", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
             
             with col2:
                 manual_item_category = st.text_input("Category", key="manual_item_category", placeholder="e.g., Drinks, Rice, Sugar")
