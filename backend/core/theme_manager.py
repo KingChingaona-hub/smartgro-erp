@@ -1,4 +1,7 @@
-# backend/core/theme.py
+"""
+Theme Manager for SmartGro ERP
+Uses Streamlit's native theming system - no custom CSS
+"""
 
 import streamlit as st
 import json
@@ -11,7 +14,7 @@ from datetime import datetime
 THEME_FILE = Path("data/user_theme.json")
 
 # ==============================
-# AVAILABLE THEMES - FOR REFERENCE ONLY
+# AVAILABLE THEMES
 # ==============================
 AVAILABLE_THEMES = {
     "light": {
@@ -66,23 +69,68 @@ def set_theme(theme_name):
         return True
     return False
 
+def get_auto_theme():
+    """Get theme based on time of day"""
+    current_hour = datetime.now().hour
+    if current_hour >= 18 or current_hour < 6:
+        return "dark"
+    else:
+        return "light"
+
 # ==============================
-# THEME SELECTOR - Uses Streamlit Native Theming
+# THEME APPLICATION - Uses Streamlit Native Theming
+# ==============================
+def apply_theme(colors=None):
+    """
+    Apply NO custom CSS - use Streamlit defaults.
+    Streamlit's native theming handles everything.
+    """
+    pass  # Streamlit handles theming natively
+
+def apply_no_theme():
+    """Apply NO theme - use Streamlit defaults"""
+    pass  # Streamlit handles theming natively
+
+def apply_page_theme(page_name):
+    """Apply NO theme - use Streamlit defaults"""
+    pass
+
+def apply_login_theme():
+    """Apply NO theme to login page - use Streamlit defaults"""
+    pass
+
+def apply_branch_selection_theme():
+    """Apply NO theme to branch selection page - use Streamlit defaults"""
+    pass
+
+def get_page_theme(page_name):
+    """Return default theme - use Streamlit defaults"""
+    return {}  # Return empty dict, use Streamlit defaults
+
+# ==============================
+# THEME SELECTOR
 # ==============================
 def theme_selector():
-    """Theme selector using Streamlit's native theming"""
+    """
+    Theme selector using Streamlit's native theming.
+    This allows users to choose their theme preference.
+    """
     st.sidebar.markdown("### Theme Settings")
     st.sidebar.caption("Choose your preferred theme")
     
     current_theme = get_current_theme()
     
+    # Get theme options
     theme_options = list(AVAILABLE_THEMES.keys())
     theme_labels = [AVAILABLE_THEMES[t]['name'] for t in theme_options]
     
+    # Create a mapping from label to key
     label_to_key = {AVAILABLE_THEMES[t]['name']: t for t in theme_options}
     
+    # Get current theme label
     current_label = AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']
     
+    # Theme selector
     selected_label = st.sidebar.selectbox(
         "Select Theme",
         options=theme_labels,
@@ -90,6 +138,7 @@ def theme_selector():
         help="Choose your preferred theme. This controls how the app looks."
     )
     
+    # If theme changed, update it
     if selected_label:
         selected_key = label_to_key[selected_label]
         if selected_key != current_theme:
@@ -97,35 +146,6 @@ def theme_selector():
             st.sidebar.success(f"Theme set to: {selected_label}")
             st.rerun()
     
+    # Show current theme info
     st.sidebar.caption(f"Current: {AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']}")
     st.sidebar.info("Theme applies using Streamlit's native theming.")
-    
-# ==============================
-# NO THEME APPLICATION - Use Streamlit Defaults
-# ==============================
-def apply_no_theme():
-    """
-    Apply NO custom CSS - use Streamlit defaults.
-    Streamlit's native theming handles everything.
-    """
-    pass  # Streamlit handles theming natively
-
-def apply_theme(colors):
-    """Apply NO theme - use Streamlit defaults"""
-    pass
-
-def apply_page_theme(page_name):
-    """Apply NO theme - use Streamlit defaults"""
-    pass
-
-def apply_login_theme():
-    """Apply NO theme - use Streamlit defaults"""
-    pass
-
-def apply_branch_selection_theme():
-    """Apply NO theme - use Streamlit defaults"""
-    pass
-
-def get_page_theme(page_name):
-    """Return default theme colors"""
-    return AVAILABLE_THEMES["light"]["colors"] if "colors" in AVAILABLE_THEMES["light"] else {}
