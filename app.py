@@ -43,7 +43,9 @@ from backend.core.theme_manager import (
     theme_selector,
     AVAILABLE_THEMES,
     load_theme_preference,
-    get_auto_theme
+    get_auto_theme,
+    apply_no_theme,
+    apply_page_theme
 )
 from backend.core.animations import (
     init_animations,
@@ -744,23 +746,18 @@ def main_app():
         return
     
     # ==============================
-    # APPLY THEME - UPDATED TO USE STREAMLIT NATIVE THEMING
+    # APPLY THEME
     # ==============================
-    # Only apply theme if auto_switch is enabled, otherwise use Streamlit defaults
     if st.session_state.get("auto_switch_theme", False):
         auto_theme = get_auto_theme()
         if auto_theme != st.session_state.get("current_theme"):
             st.session_state.current_theme = auto_theme
-        # Apply theme colors only if we have a theme
-        if st.session_state.get("current_theme") and st.session_state.current_theme in AVAILABLE_THEMES:
-            colors = AVAILABLE_THEMES[st.session_state.current_theme]["colors"]
-            apply_theme(colors)
+        apply_page_theme(page)
     else:
-        # Use Streamlit's native theming - no custom CSS
-        # Only set the theme preference without applying CSS
         if st.session_state.get("current_theme") and st.session_state.current_theme in AVAILABLE_THEMES:
-            # Store the theme preference but don't apply custom CSS
-            pass
+            apply_page_theme(page)
+        else:
+            apply_no_theme()
     
     init_animations()
     
