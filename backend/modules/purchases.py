@@ -561,7 +561,7 @@ def purchases_page():
                 manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
             
             with col5:
-                add_manual_button = st.form_submit_button("Add Item", use_container_width=True)
+                add_manual_button = st.form_submit_button("Add Manual Item", use_container_width=True)
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
