@@ -526,6 +526,13 @@ def save_products(df, branch_id=None):
             if cur is None or conn is None:
                 return False
             
+            # If DataFrame is empty, delete all products for this branch
+            if df.empty:
+                cur.execute("DELETE FROM products WHERE branch_id = %s", (branch_id,))
+                conn.commit()
+                print(f"All products deleted for branch: {branch_id}")
+                return True
+            
             validation_errors = []
             for idx, row in df.iterrows():
                 # Validate each row
@@ -559,7 +566,6 @@ def save_products(df, branch_id=None):
     except Exception as e:
         print(f"Error saving products: {e}")
         return False
-
 # ==============================
 # SALES FUNCTIONS WITH VALIDATION
 # ==============================
@@ -3629,7 +3635,7 @@ def load_users():
                 "two_factor_enabled", "session_token"
             ])
     except Exception as e:
-        print(f"❌ Error loading users: {e}")
+        print(f"Error loading users: {e}")
         return pd.DataFrame(columns=[
             "username", "password", "role", "branch_id", "full_name", 
             "phone", "active", "mobile_enabled", "whatsapp", "receive_alerts",

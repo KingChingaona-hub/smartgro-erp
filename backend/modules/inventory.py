@@ -182,20 +182,15 @@ def inventory_page():
             
             if st.button("Delete Product", type="secondary", use_container_width=True):
                 if confirm_delete:
-                    # Remove the product from DataFrame
-                    df_before = len(df)
-                    df = df[df["name"] != selected_product].copy()
-                    df_after = len(df)
+                    # Remove product from DataFrame
+                    df = df[df["name"] != selected_product].reset_index(drop=True)
                     
-                    if df_after < df_before:
-                        # Save the updated DataFrame to database
-                        if save_products(df):
-                            st.success(f"Product '{selected_product}' deleted successfully!")
-                            st.rerun()
-                        else:
-                            st.error("Failed to delete product. Please try again.")
+                    # Save to database
+                    if save_products(df):
+                        st.success(f"Product '{selected_product}' deleted successfully!")
+                        st.rerun()
                     else:
-                        st.error("Product not found for deletion.")
+                        st.error("Failed to delete product. Please try again.")
                 else:
                     st.error("Please confirm deletion by checking the box above.")
     else:
@@ -233,24 +228,18 @@ def inventory_page():
                 elif not admin_password:
                     st.error("Please enter your admin password.")
                 else:
-                    # Verify admin credentials using check_login
+                    # Verify admin credentials
                     username = st.session_state.get("username", "")
-                    
-                    # Use check_login to verify credentials
                     login_success, role = check_login(username, admin_password)
                     
                     if login_success and role in ["owner", "admin"]:
-                        # Password verified - proceed with deletion
                         if df.empty:
                             st.info("No products to delete.")
                         else:
-                            # Get columns before clearing
-                            columns = df.columns.tolist()
-                            
                             # Create empty DataFrame with same columns
-                            empty_df = pd.DataFrame(columns=columns)
+                            empty_df = pd.DataFrame(columns=df.columns.tolist())
                             
-                            # Save empty DataFrame to database
+                            # Save empty DataFrame to delete all products
                             if save_products(empty_df):
                                 st.success(f"Successfully deleted ALL {product_count} products!")
                                 st.rerun()
