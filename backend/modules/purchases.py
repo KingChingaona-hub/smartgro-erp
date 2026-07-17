@@ -62,7 +62,8 @@ def create_purchase_order(supplier, items, expected_date):
             "quantity_received": 0,
             "status": "PENDING",
             "payment_status": "UNPAID",
-            "invoice_no": ""
+            "invoice_no": "",
+            "category": str(item.get("category", "New Purchase"))
         })
     
     if not po_data:
@@ -182,6 +183,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         product_name = str(item.get("name", "")).strip()
         received_qty = int(item["received_qty"])
         cost_price = float(item["cost"])
+        category = str(item.get("category", "New Purchase")).strip()
         
         # Find the matching PO item
         matching_idx = None
@@ -223,20 +225,24 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 new_stock = current_stock + received_qty
                 products_df.loc[product_idx[0], "stock"] = new_stock
                 products_df.loc[product_idx[0], "cost"] = cost_price
+                # Update category if provided
+                if category and category != "New Purchase":
+                    products_df.loc[product_idx[0], "category"] = category
                 
                 updated_products.append({
                     "name": product_name,
                     "old_stock": current_stock,
                     "added": received_qty,
                     "new_stock": new_stock,
-                    "cost": cost_price
+                    "cost": cost_price,
+                    "category": category
                 })
             else:
-                # Product doesn't exist - CREATE new product in inventory
+                # Product doesn't exist - CREATE new product in inventory with category
                 new_product = pd.DataFrame([{
                     "barcode": barcode,
                     "name": product_name,
-                    "category": "New Purchase",
+                    "category": category if category and category != "New Purchase" else "New Purchase",
                     "price": cost_price * 1.3,
                     "cost": cost_price,
                     "stock": received_qty,
@@ -247,7 +253,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 new_products.append({
                     "name": product_name,
                     "stock": received_qty,
-                    "cost": cost_price
+                    "cost": cost_price,
+                    "category": category if category and category != "New Purchase" else "New Purchase"
                 })
         else:
             # Item not found in PO - add as new item to the PO
@@ -268,7 +275,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 "quantity_received": received_qty,
                 "status": "RECEIVED",
                 "payment_status": "UNPAID",
-                "invoice_no": invoice_no
+                "invoice_no": invoice_no,
+                "category": category if category and category != "New Purchase" else "New Purchase"
             }
             
             # Ensure all columns exist
@@ -518,7 +526,8 @@ def purchases_page():
                                 "name": str(selected_product["name"]),
                                 "quantity": int(po_qty),
                                 "cost": cost_val,
-                                "total": cost_val * int(po_qty)
+                                "total": cost_val * int(po_qty),
+                                "category": str(selected_product.get("category", "New Purchase"))
                             })
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
@@ -529,47 +538,63 @@ def purchases_page():
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
         
-        # Manual item entry
+        # ==============================
+        # MANUAL ITEM ENTRY - WITH FORM TO PREVENT RERUNS
+        # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
-        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-        
-        with col1:
-            manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
-        
-        with col2:
-            manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
-        
-        with col3:
-            manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
-        
-        with col4:
-            add_manual_button = st.button("Add Manual Item", key="add_manual", use_container_width=True)
-            if add_manual_button:
-                if manual_item_name and manual_item_name.strip():
-                    existing = False
-                    for item in st.session_state.po_cart:
-                        if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                            item["quantity"] = item["quantity"] + int(manual_item_qty)
-                            item["total"] = item["quantity"] * item["cost"]
-                            existing = True
-                            break
-                    
-                    if not existing:
-                        unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-                        st.session_state.po_cart.append({
-                            "barcode": unique_barcode,
-                            "name": str(manual_item_name).strip(),
-                            "quantity": int(manual_item_qty),
-                            "cost": float(manual_item_cost),
-                            "total": float(manual_item_cost) * int(manual_item_qty)
-                        })
-                        st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
+        # Use a form to prevent reruns on input changes
+        with st.form(key="add_manual_form", clear_on_submit=True):
+            col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+            
+            with col1:
+                manual_item_name = st.text_input("Item Name", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
+            
+            with col2:
+                manual_item_category = st.text_input("Category", key="manual_item_category", placeholder="e.g., Drinks, Rice, Sugar")
+            
+            with col3:
+                manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
+            
+            with col4:
+                manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
+            
+            with col5:
+                add_manual_button = st.form_submit_button("Add Manual Item", use_container_width=True)
+                
+                if add_manual_button:
+                    if manual_item_name and manual_item_name.strip():
+                        category = manual_item_category.strip() if manual_item_category.strip() else "New Purchase"
+                        
+                        # Check if item already exists in cart - match by name AND cost
+                        existing = False
+                        for item in st.session_state.po_cart:
+                            if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
+                                # Update quantity - ADD to existing
+                                item["quantity"] = item["quantity"] + int(manual_item_qty)
+                                item["total"] = item["quantity"] * item["cost"]
+                                # Update category if provided
+                                if category != "New Purchase":
+                                    item["category"] = category
+                                existing = True
+                                break
+                        
+                        if not existing:
+                            unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+                            st.session_state.po_cart.append({
+                                "barcode": unique_barcode,
+                                "name": str(manual_item_name).strip(),
+                                "quantity": int(manual_item_qty),
+                                "cost": float(manual_item_cost),
+                                "total": float(manual_item_cost) * int(manual_item_qty),
+                                "category": category
+                            })
+                            st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
+                        else:
+                            st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
                     else:
-                        st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
-                else:
-                    st.error("Please enter an item name")
+                        st.error("Please enter an item name")
         
         # Display PO Cart
         st.markdown("---")
@@ -578,8 +603,13 @@ def purchases_page():
         if st.session_state.po_cart:
             po_cart_df = pd.DataFrame(st.session_state.po_cart)
             
+            # Show category column if it exists
+            display_cols = ["name", "quantity", "cost", "total"]
+            if "category" in po_cart_df.columns:
+                display_cols.insert(1, "category")
+            
             st.dataframe(
-                po_cart_df[["name", "quantity", "cost", "total"]],
+                po_cart_df[display_cols],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -628,8 +658,12 @@ def purchases_page():
             st.markdown(f"**Supplier:** {preview['supplier']}")
             st.markdown(f"**Expected Date:** {preview['expected_date']}")
             
+            display_cols = ["name", "quantity", "cost", "total"]
+            if "category" in preview['po_cart_df'].columns:
+                display_cols.insert(1, "category")
+            
             st.dataframe(
-                preview['po_cart_df'][["name", "quantity", "cost", "total"]],
+                preview['po_cart_df'][display_cols],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -692,7 +726,8 @@ ITEMS ORDERED
 {'─'*40}
 """
                             for _, item in preview['po_cart_df'].iterrows():
-                                po_text += f"{item['name']:<30} {item['quantity']:>5} x ${item['cost']:.2f} = ${item['total']:.2f}\n"
+                                category_info = f" - Category: {item.get('category', 'New Purchase')}" if item.get('category') else ""
+                                po_text += f"{item['name']}{category_info:<30} {item['quantity']:>5} x ${item['cost']:.2f} = ${item['total']:.2f}\n"
                             
                             po_text += f"""
 {'─'*40}
@@ -890,8 +925,9 @@ Contact: +263 78 290 5853
                                 qty_ordered = item.get("quantity_ordered", 0)
                                 qty_received = item.get("quantity_received", 0)
                                 remaining = qty_ordered - qty_received
+                                category = item.get("category", "New Purchase")
                                 st.write(f"**{product_name}**")
-                                st.caption(f"Ordered: {qty_ordered} | Received: {qty_received} | Remaining: {remaining}")
+                                st.caption(f"Category: {category} | Ordered: {qty_ordered} | Received: {qty_received} | Remaining: {remaining}")
                             with col2:
                                 barcode_val = str(item.get("barcode", f"item_{idx}"))
                                 max_qty = int(remaining)
@@ -916,7 +952,8 @@ Contact: +263 78 290 5853
                                 "barcode": str(item.get("barcode", "")),
                                 "received_qty": received_qty,
                                 "cost": float(cost_price),
-                                "name": product_name
+                                "name": product_name,
+                                "category": category
                             })
                         
                         st.markdown(f"**Total Received Value: ${total_received_value:,.2f}**")
@@ -940,14 +977,14 @@ Contact: +263 78 290 5853
                                         if updated_products:
                                             st.success(f"Stock updated for {len(updated_products)} existing products!")
                                             for p in updated_products[:5]:
-                                                st.write(f"   - {p['name']}: {p['old_stock']} -> {p['new_stock']} (+{p['added']})")
+                                                st.write(f"   - {p['name']}: {p['old_stock']} -> {p['new_stock']} (+{p['added']}) - Category: {p.get('category', 'New Purchase')}")
                                             if len(updated_products) > 5:
                                                 st.write(f"   ... and {len(updated_products) - 5} more")
                                         
                                         if new_products:
                                             st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
-                                                st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
+                                                st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f} - Category: {p.get('category', 'New Purchase')}")
                                         
                                         st.rerun()
                         
@@ -1052,7 +1089,7 @@ Contact: +263 78 290 5853
             st.markdown("---")
             
             with st.expander("View Detailed Purchase Records"):
-                display_cols = ["po_number", "date_ordered", "supplier", "product_name", "quantity_ordered", "quantity_received", "cost_price", "total_cost", "status"]
+                display_cols = ["po_number", "date_ordered", "supplier", "product_name", "category", "quantity_ordered", "quantity_received", "cost_price", "total_cost", "status"]
                 available_cols = [col for col in display_cols if col in purchases_df.columns]
                 
                 if "date_ordered" in purchases_df.columns:
