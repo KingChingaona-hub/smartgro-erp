@@ -80,19 +80,59 @@ def delete_purchase_order(po_number):
     try:
         purchases_df = load_purchases()
         
+        if purchases_df.empty:
+            return False, "No purchase orders found"
+        
         # Check if PO exists
         if purchases_df[purchases_df["po_number"] == po_number].empty:
             return False, f"Purchase Order {po_number} not found"
+        
+        # Count items before deletion
+        item_count = len(purchases_df[purchases_df["po_number"] == po_number])
         
         # Delete all items with this PO number
         purchases_df = purchases_df[purchases_df["po_number"] != po_number]
         
         # Save changes
-        save_purchases(purchases_df)
+        save_success = save_purchases(purchases_df)
         
-        return True, f"Purchase Order {po_number} deleted successfully"
+        if save_success:
+            return True, f"Purchase Order {po_number} deleted successfully. Removed {item_count} item(s)."
+        else:
+            return False, "Failed to save changes to database"
+            
     except Exception as e:
         return False, f"Error deleting PO: {str(e)}"
+
+
+# ==============================
+# DELETE ALL PURCHASE ORDERS
+# ==============================
+def delete_all_purchase_orders():
+    """Delete ALL purchase orders"""
+    try:
+        purchases_df = load_purchases()
+        
+        if purchases_df.empty:
+            return False, "No purchase orders found to delete"
+        
+        # Count total items
+        total_items = len(purchases_df)
+        unique_pos = purchases_df["po_number"].nunique()
+        
+        # Clear all data
+        purchases_df = purchases_df.iloc[0:0]
+        
+        # Save changes
+        save_success = save_purchases(purchases_df)
+        
+        if save_success:
+            return True, f"All {unique_pos} purchase orders ({total_items} items) deleted successfully."
+        else:
+            return False, "Failed to save changes to database"
+            
+    except Exception as e:
+        return False, f"Error deleting all POs: {str(e)}"
 
 
 # ==============================
@@ -347,7 +387,7 @@ def purchases_page():
     
     products_df = load_products()
     
-    # Initialize session state - LIKE POS
+    # Initialize session state
     if "po_cart" not in st.session_state:
         st.session_state.po_cart = []
     if "po_created" not in st.session_state:
@@ -362,6 +402,10 @@ def purchases_page():
         st.session_state.po_deleted = False
     if "deleted_po_number" not in st.session_state:
         st.session_state.deleted_po_number = None
+    if "show_preview" not in st.session_state:
+        st.session_state.show_preview = False
+    if "preview_data" not in st.session_state:
+        st.session_state.preview_data = None
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -382,7 +426,7 @@ def purchases_page():
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
         "Create Purchase Order",
-        "Receive Stock (Auto-Update)",
+        "Receive Stock",
         "Supplier Performance",
         "Purchase History"
     ])
@@ -434,7 +478,6 @@ def purchases_page():
                     
                     selected_display = st.selectbox("Select Product", product_display, key="po_product_select")
                     if selected_display:
-                        # Extract product name from display text
                         parts = selected_display.split(" - ")
                         if len(parts) >= 2:
                             selected_product_name = parts[1]
@@ -463,7 +506,6 @@ def purchases_page():
                         barcode_str = str(selected_product["barcode"])
                         for item in st.session_state.po_cart:
                             if str(item["barcode"]) == barcode_str:
-                                # Update quantity - ADD to existing
                                 item["quantity"] = item["quantity"] + po_qty
                                 item["total"] = item["quantity"] * item["cost"]
                                 existing = True
@@ -506,11 +548,9 @@ def purchases_page():
             add_manual_button = st.button("Add Manual Item", key="add_manual", use_container_width=True)
             if add_manual_button:
                 if manual_item_name and manual_item_name.strip():
-                    # Check if item already exists in cart - match by name AND cost
                     existing = False
                     for item in st.session_state.po_cart:
                         if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                            # Update quantity - ADD to existing
                             item["quantity"] = item["quantity"] + int(manual_item_qty)
                             item["total"] = item["quantity"] * item["cost"]
                             existing = True
@@ -560,55 +600,83 @@ def purchases_page():
                     st.success("Cart cleared!")
             
             with col2:
-                create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
-                if create_po_button:
+                preview_button = st.button("Preview Purchase Order", key="preview_po_btn", use_container_width=True)
+                if preview_button:
                     if not supplier_name or not supplier_name.strip():
                         st.error("Please enter a supplier name")
                     elif not st.session_state.po_cart:
                         st.error("Cart is empty. Add products to create a purchase order.")
                     else:
-                        # Get current cart items before clearing
                         cart_items = st.session_state.po_cart.copy()
                         po_cart_df = pd.DataFrame(cart_items)
-                        po_total = po_cart_df["total"].sum()
                         
-                        po_number, po_df, error = create_purchase_order(
-                            supplier=supplier_name,
-                            items=cart_items,
-                            expected_date=expected_date
-                        )
+                        st.session_state.preview_data = {
+                            "supplier": supplier_name,
+                            "items": cart_items,
+                            "expected_date": expected_date,
+                            "po_cart_df": po_cart_df,
+                            "po_total": po_cart_df["total"].sum()
+                        }
+                        st.session_state.show_preview = True
+        
+        # Show Preview
+        if st.session_state.show_preview and st.session_state.preview_data:
+            preview = st.session_state.preview_data
+            
+            st.markdown("---")
+            st.markdown("### Purchase Order Preview")
+            st.markdown(f"**Supplier:** {preview['supplier']}")
+            st.markdown(f"**Expected Date:** {preview['expected_date']}")
+            
+            st.dataframe(
+                preview['po_cart_df'][["name", "quantity", "cost", "total"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
+                    "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
+                }
+            )
+            
+            st.info(f"**Total Order Value: ${preview['po_total']:,.2f}**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Edit Order", use_container_width=True):
+                    st.session_state.show_preview = False
+                    st.session_state.preview_data = None
+                    st.rerun()
+            
+            with col2:
+                if st.button("Confirm and Create PO", type="primary", use_container_width=True):
+                    po_number, po_df, error = create_purchase_order(
+                        supplier=preview['supplier'],
+                        items=preview['items'],
+                        expected_date=preview['expected_date']
+                    )
+                    
+                    if error:
+                        st.error(error)
+                    else:
+                        existing_df = load_purchases()
                         
-                        if error:
-                            st.error(error)
-                        else:
-                            existing_df = load_purchases()
-                            
-                            # Ensure all columns match
-                            for col in po_df.columns:
-                                if col not in existing_df.columns:
-                                    existing_df[col] = ""
-                            
-                            updated_df = pd.concat([existing_df, po_df], ignore_index=True)
-                            save_purchases(updated_df)
-                            
+                        for col in po_df.columns:
+                            if col not in existing_df.columns:
+                                existing_df[col] = ""
+                        
+                        updated_df = pd.concat([existing_df, po_df], ignore_index=True)
+                        save_success = save_purchases(updated_df)
+                        
+                        if save_success:
                             st.session_state.po_cart = []
                             st.session_state.po_created = True
                             st.session_state.last_po_number = po_number
+                            st.session_state.show_preview = False
+                            st.session_state.preview_data = None
                             
                             st.success(f"Purchase Order {po_number} created successfully with {len(po_df)} items!")
                             
-                            st.info(f"""
-                            Purchase Order Summary:
-                            - PO Number: {po_number}
-                            - Supplier: {supplier_name}
-                            - Items: {len(po_df)}
-                            - Total Value: ${po_total:,.2f}
-                            - Expected Date: {expected_date}
-                            
-                            Important: Stock will be added to inventory when you RECEIVE this order in the Receive Stock tab.
-                            """)
-                            
-                            # Generate PO text for download
                             po_text = f"""
 {'='*50}
 AZIEL INVESTMENTS - PURCHASE ORDER
@@ -616,19 +684,19 @@ AZIEL INVESTMENTS - PURCHASE ORDER
 
 PO Number: {po_number}
 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Supplier: {supplier_name}
-Expected Delivery: {expected_date}
+Supplier: {preview['supplier']}
+Expected Delivery: {preview['expected_date']}
 
 {'─'*40}
 ITEMS ORDERED
 {'─'*40}
 """
-                            for _, item in po_cart_df.iterrows():
+                            for _, item in preview['po_cart_df'].iterrows():
                                 po_text += f"{item['name']:<30} {item['quantity']:>5} x ${item['cost']:.2f} = ${item['total']:.2f}\n"
                             
                             po_text += f"""
 {'─'*40}
-TOTAL: ${po_total:,.2f}
+TOTAL: ${preview['po_total']:,.2f}
 {'─'*40}
 
 Terms: Payment due upon receipt
@@ -647,8 +715,67 @@ Contact: +263 78 290 5853
                                 mime="text/plain",
                                 use_container_width=True
                             )
-        else:
-            st.info("Cart is empty. Add products above to create a purchase order.")
+                            
+                            st.rerun()
+                        else:
+                            st.error("Failed to save purchase order. Please try again.")
+        
+        # Quick create option
+        if not st.session_state.show_preview and st.session_state.po_cart:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.empty()
+            
+            with col2:
+                quick_create = st.button("Create PO (No Preview)", key="quick_create_po", use_container_width=True)
+                if quick_create:
+                    if not supplier_name or not supplier_name.strip():
+                        st.error("Please enter a supplier name")
+                    elif not st.session_state.po_cart:
+                        st.error("Cart is empty. Add products to create a purchase order.")
+                    else:
+                        cart_items = st.session_state.po_cart.copy()
+                        po_cart_df = pd.DataFrame(cart_items)
+                        po_total = po_cart_df["total"].sum()
+                        
+                        po_number, po_df, error = create_purchase_order(
+                            supplier=supplier_name,
+                            items=cart_items,
+                            expected_date=expected_date
+                        )
+                        
+                        if error:
+                            st.error(error)
+                        else:
+                            existing_df = load_purchases()
+                            
+                            for col in po_df.columns:
+                                if col not in existing_df.columns:
+                                    existing_df[col] = ""
+                            
+                            updated_df = pd.concat([existing_df, po_df], ignore_index=True)
+                            save_success = save_purchases(updated_df)
+                            
+                            if save_success:
+                                st.session_state.po_cart = []
+                                st.session_state.po_created = True
+                                st.session_state.last_po_number = po_number
+                                
+                                st.success(f"Purchase Order {po_number} created successfully with {len(po_df)} items!")
+                                st.info(f"""
+                                Purchase Order Summary:
+                                - PO Number: {po_number}
+                                - Supplier: {supplier_name}
+                                - Items: {len(po_df)}
+                                - Total Value: ${po_total:,.2f}
+                                - Expected Date: {expected_date}
+                                """)
+                                st.rerun()
+                            else:
+                                st.error("Failed to save purchase order.")
+        elif st.session_state.show_preview:
+            st.info("Review the preview above and click 'Confirm and Create PO' to save.")
     
     # ==============================
     # TAB 2: RECEIVE STOCK
@@ -665,19 +792,13 @@ Contact: +263 78 290 5853
             if "status" not in purchases_df.columns:
                 purchases_df["status"] = "PENDING"
             
-            # Show ALL pending orders
             pending_pos = purchases_df[purchases_df["status"] == "PENDING"]["po_number"].unique().tolist()
-            
-            # Also show partially received orders if any
             partial_pos = purchases_df[purchases_df["status"] == "PARTIALLY_RECEIVED"]["po_number"].unique().tolist()
-            
-            # Combine both lists
             all_receivable = list(set(pending_pos + partial_pos))
             
             if not all_receivable:
                 st.info("No pending or partially received purchase orders. All orders have been completed.")
             else:
-                # Show count of pending orders
                 st.info(f"Found {len(all_receivable)} orders ready for receiving")
                 
                 selected_po = st.selectbox("Select Purchase Order to Receive", all_receivable, key="receive_po")
@@ -686,9 +807,8 @@ Contact: +263 78 290 5853
                     po_details = get_po_details(selected_po)
                     
                     if po_details:
-                        # Display PO status
-                        status_color = "🟡" if po_details['status'] == "PENDING" else "🟠"
-                        st.markdown(f"### PO: {selected_po} {status_color} {po_details['status']}")
+                        status_label = "PENDING" if po_details['status'] == "PENDING" else "PARTIALLY RECEIVED"
+                        st.markdown(f"### PO: {selected_po} - {status_label}")
                         st.markdown(f"**Supplier:** {po_details['supplier']}")
                         st.markdown(f"**Order Date:** {po_details['date_ordered']}")
                         st.markdown(f"**Expected Date:** {po_details['expected_date']}")
@@ -698,11 +818,10 @@ Contact: +263 78 290 5853
                         display_cols = ["product_name", "quantity_ordered", "quantity_received", "cost_price", "total_cost"]
                         available_cols = [col for col in display_cols if col in items_df.columns]
                         
-                        # Add status indicator for each item
                         if "quantity_received" in items_df.columns:
                             items_df["received_status"] = items_df.apply(
-                                lambda row: "✅ Received" if row["quantity_received"] >= row["quantity_ordered"] 
-                                else f"📦 {row['quantity_received']}/{row['quantity_ordered']} received",
+                                lambda row: "Received" if row["quantity_received"] >= row["quantity_ordered"] 
+                                else f"{row['quantity_received']}/{row['quantity_ordered']} received",
                                 axis=1
                             )
                             display_cols = ["product_name", "quantity_ordered", "received_status", "cost_price", "total_cost"]
@@ -712,17 +831,17 @@ Contact: +263 78 290 5853
                         po_total = po_details['total_value']
                         st.info(f"PO Total: ${po_total:,.2f}")
                         
-                        # Add Delete button for pending orders
+                        # Delete buttons
                         if po_details['status'] == "PENDING":
                             st.markdown("---")
                             st.markdown("### Delete Purchase Order")
-                            st.warning("⚠️ This will permanently delete this purchase order and all its items.")
+                            st.warning("This will permanently delete this purchase order and all its items.")
                             
-                            col1, col2 = st.columns([3, 1])
+                            col1, col2, col3 = st.columns([2, 1, 1])
                             with col1:
-                                confirm_delete = st.checkbox(f"I understand this will delete PO {selected_po} permanently")
+                                confirm_delete = st.checkbox(f"Confirm delete PO {selected_po}")
                             with col2:
-                                delete_button = st.button("🗑️ Delete PO", type="secondary", use_container_width=True)
+                                delete_button = st.button("Delete PO", type="secondary", use_container_width=True)
                                 if delete_button and confirm_delete:
                                     success, message = delete_purchase_order(selected_po)
                                     if success:
@@ -734,6 +853,23 @@ Contact: +263 78 290 5853
                                         st.error(message)
                                 elif delete_button and not confirm_delete:
                                     st.error("Please confirm deletion by checking the box")
+                            
+                            # Delete All button
+                            with col3:
+                                delete_all_button = st.button("Delete All POs", type="secondary", use_container_width=True)
+                                if delete_all_button:
+                                    confirm_all = st.checkbox("Confirm delete ALL purchase orders")
+                                    if confirm_all:
+                                        success, message = delete_all_purchase_orders()
+                                        if success:
+                                            st.session_state.po_deleted = True
+                                            st.session_state.deleted_po_number = "ALL"
+                                            st.success(message)
+                                            st.rerun()
+                                        else:
+                                            st.error(message)
+                                    else:
+                                        st.error("Please confirm deletion by checking the box")
                         
                         st.markdown("---")
                         st.markdown("### Receiving Details")
