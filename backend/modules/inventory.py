@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_products, save_products
+from backend.core.auth import check_login
 
 
 # ==============================
@@ -171,25 +172,21 @@ def inventory_page():
                             st.error("Failed to update product.")
                 
                 with col_btn2:
-                    # FIX: Delete button outside form or with proper confirmation
                     pass  # We'll handle delete separately
             
-            # FIX: Delete section outside the form
+            # Delete section outside the form
             st.markdown("### Delete Product")
             st.warning("This will permanently delete the selected product.")
             
-            # Confirmation checkbox
             confirm_delete = st.checkbox(f"Confirm delete '{selected_product}'", key="confirm_delete")
             
-            # Delete button outside the form
             if st.button("Delete Product", type="secondary", use_container_width=True):
                 if confirm_delete:
-                    # Remove the product
                     df = df[df["name"] != selected_product]
                     
                     if save_products(df):
                         st.success(f"Product '{selected_product}' deleted successfully!")
-                        #st.rerun()
+                        st.rerun()
                     else:
                         st.error("Failed to delete product.")
                 else:
@@ -198,11 +195,72 @@ def inventory_page():
         st.info("No products in inventory. Add your first product above.")
     
     # ==============================
-    # REFRESH BUTTON - Manual only
+    # DELETE ALL PRODUCTS - ADMIN ONLY
+    # ==============================
+    st.markdown("---")
+    st.markdown("## Danger Zone")
+    st.warning("This section is for administrators only. Proceed with caution.")
+    
+    # Check if user is admin
+    user_role = st.session_state.get("role", "")
+    is_admin = user_role in ["owner", "admin"]
+    
+    if is_admin:
+        with st.expander("Delete All Products (Admin Only)", expanded=False):
+            st.error("DANGER: This action will permanently delete ALL products from inventory!")
+            
+            # Count products
+            product_count = len(df) if not df.empty else 0
+            st.warning(f"You are about to delete {product_count} products. This action CANNOT be undone.")
+            
+            # Step 1: Confirm action
+            confirm_action = st.checkbox("I understand this will delete ALL products", key="confirm_delete_all")
+            
+            # Step 2: Enter admin password
+            admin_password = st.text_input("Enter Admin Password to Confirm", type="password", key="admin_password_delete_all")
+            
+            # Step 3: Delete button
+            if st.button("DELETE ALL PRODUCTS", type="secondary", use_container_width=True):
+                if not confirm_action:
+                    st.error("Please confirm that you understand this action.")
+                elif not admin_password:
+                    st.error("Please enter your admin password.")
+                else:
+                    # Verify admin credentials
+                    if user_role in ["owner", "admin"]:
+                        # For security, verify password against stored credentials
+                        # Get stored password from auth system
+                        from backend.core.auth import verify_password, get_user
+                        
+                        username = st.session_state.get("username", "")
+                        user_data = get_user(username)
+                        
+                        if user_data and verify_password(admin_password, user_data.get("password", "")):
+                            # Password verified - proceed with deletion
+                            if df.empty:
+                                st.info("No products to delete.")
+                            else:
+                                # Create empty DataFrame with same columns
+                                empty_df = pd.DataFrame(columns=df.columns)
+                                
+                                if save_products(empty_df):
+                                    st.success(f"Successfully deleted ALL {product_count} products!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete products. Please try again.")
+                        else:
+                            st.error("Invalid admin password. Deletion cancelled.")
+                    else:
+                        st.error("You do not have admin privileges.")
+    else:
+        st.info("Only administrators can delete all products. Contact your system administrator.")
+    
+    # ==============================
+    # REFRESH BUTTON
     # ==============================
     st.markdown("---")
     st.caption("After adding/updating/deleting, the page will refresh automatically.")
     
     if st.button("Manual Refresh", use_container_width=True):
         st.cache_data.clear()
-        #st.rerun()
+        st.rerun()
