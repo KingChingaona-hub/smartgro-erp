@@ -189,7 +189,7 @@ def inventory_page():
                     
                     if save_products(df):
                         st.success(f"Product '{selected_product}' deleted successfully!")
-                        st.rerun()
+                        #st.rerun()
                     else:
                         st.error("Failed to delete product.")
                 else:
