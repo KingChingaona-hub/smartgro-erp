@@ -1889,6 +1889,8 @@ def save_purchases(df, branch_id=None):
                 return False
             
             validation_errors = []
+            saved_count = 0
+            
             for idx, row in df.iterrows():
                 # Validate supplier name
                 if 'supplier' in row:
@@ -1928,15 +1930,15 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
                 
+                # FIX: Use composite key (po_number, barcode) instead of just po_number
                 cur.execute("""
                     INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
                         product_name, barcode, quantity_ordered, quantity_received,
                         cost_price, total_cost, expected_date, status, payment_status, invoice_no)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (po_number) DO UPDATE SET
+                    ON CONFLICT (po_number, barcode) DO UPDATE SET
                         supplier = EXCLUDED.supplier,
                         product_name = EXCLUDED.product_name,
-                        barcode = EXCLUDED.barcode,
                         quantity_ordered = EXCLUDED.quantity_ordered,
                         quantity_received = EXCLUDED.quantity_received,
                         cost_price = EXCLUDED.cost_price,
@@ -1945,21 +1947,34 @@ def save_purchases(df, branch_id=None):
                         status = EXCLUDED.status,
                         payment_status = EXCLUDED.payment_status,
                         invoice_no = EXCLUDED.invoice_no
-                """, (branch_id, row["po_number"], row["date_ordered"], row["supplier"],
-                      row["product_name"], row["barcode"], row["quantity_ordered"],
-                      row.get("quantity_received", 0), row["cost_price"], row["total_cost"],
-                      row["expected_date"], row["status"], row.get("payment_status", "UNPAID"),
-                      row.get("invoice_no", "")))
+                """, (
+                    branch_id, 
+                    row["po_number"], 
+                    row["date_ordered"], 
+                    row["supplier"],
+                    row["product_name"], 
+                    row["barcode"], 
+                    row["quantity_ordered"],
+                    row.get("quantity_received", 0), 
+                    row["cost_price"], 
+                    row["total_cost"],
+                    row["expected_date"], 
+                    row["status"], 
+                    row.get("payment_status", "UNPAID"),
+                    row.get("invoice_no", "")
+                ))
+                saved_count += 1
             
             if validation_errors:
                 print(f"Validation errors: {validation_errors}")
             
             conn.commit()
+            print(f"Saved {saved_count} purchase items successfully")
             return True
     except Exception as e:
         print(f"Error saving purchases: {e}")
         return False
-
+    
 # ==============================
 # CASH REGISTER FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)
 # ==============================
