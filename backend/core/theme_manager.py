@@ -148,4 +148,4 @@ def theme_selector():
     
     # Show current theme info
     st.sidebar.caption(f"Current: {AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']}")
-    st.sidebar.info("Theme applies using Streamlit's native theming.")
+    #st.sidebar.info("Theme applies using Streamlit's native theming.")

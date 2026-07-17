@@ -704,7 +704,7 @@ def main_app():
         st.session_state.last_activity = datetime.now()
     
     idle_time = (datetime.now() - st.session_state.last_activity).seconds
-    if idle_time > 1800:
+    if idle_time > 3600:
         keys_to_keep = ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
                         "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme", "welcome_seen"]
         for key in list(st.session_state.keys()):
@@ -798,14 +798,6 @@ def main_app():
             all_items.append(item)
     
     all_items = sorted(all_items)
-    
-    # DEBUG: Show all items in sidebar expander
-    with st.sidebar.expander("Menu Items (Debug)", expanded=False):
-        st.write(f"Total items: {len(all_items)}")
-        for item in all_items:
-            st.write(f"• {item}")
-    
-    st.sidebar.markdown("---")
     
     for item in all_items:
         button_key = f"nav_{item.replace(' ', '_').replace('&', '').replace('/', '_').replace('-', '_')}"

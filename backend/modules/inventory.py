@@ -254,7 +254,7 @@ def inventory_page():
     # REFRESH BUTTON
     # ==============================
     st.markdown("---")
-    st.caption("After adding/updating/deleting, the page will refresh automatically.")
+    #st.caption("After adding/updating/deleting, the page will refresh automatically.")
     
     if st.button("Manual Refresh", use_container_width=True):
         st.cache_data.clear()
