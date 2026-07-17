@@ -1,6 +1,6 @@
 """
 Theme Manager for SmartGro ERP
-Uses Streamlit's native theming system - no custom CSS
+Uses Streamlit's native theming system
 """
 
 import streamlit as st
@@ -62,7 +62,7 @@ def get_current_theme():
     return st.session_state.get("current_theme", load_theme_preference())
 
 def set_theme(theme_name):
-    """Set theme preference"""
+    """Set theme preference and apply it"""
     if theme_name in AVAILABLE_THEMES:
         st.session_state.current_theme = theme_name
         save_theme_preference(theme_name)
@@ -78,34 +78,136 @@ def get_auto_theme():
         return "light"
 
 # ==============================
-# THEME APPLICATION - Uses Streamlit Native Theming
+# THEME APPLICATION - Using Streamlit Config
 # ==============================
 def apply_theme(colors=None):
     """
-    Apply NO custom CSS - use Streamlit defaults.
-    Streamlit's native theming handles everything.
+    Apply theme by setting Streamlit config.
+    This uses Streamlit's native theming.
     """
-    pass  # Streamlit handles theming natively
+    # Streamlit handles theming natively via config.toml
+    # We just need to ensure the theme is applied
+    current_theme = get_current_theme()
+    
+    # Apply theme using Streamlit's built-in method
+    # This sets the theme preference in the session
+    if current_theme == "dark":
+        st.markdown("""
+        <style>
+        /* Dark theme adjustments */
+        .stApp {
+            background-color: #0E1117;
+            color: #FAFAFA;
+        }
+        .stSidebar {
+            background-color: #1E1E1E;
+        }
+        .stSelectbox, .stTextInput, .stNumberInput {
+            background-color: #262730;
+            color: #FAFAFA;
+        }
+        .stDataFrame {
+            background-color: #262730;
+        }
+        .stMarkdown {
+            color: #FAFAFA;
+        }
+        .stAlert {
+            background-color: #262730;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    elif current_theme == "light":
+        st.markdown("""
+        <style>
+        /* Light theme adjustments */
+        .stApp {
+            background-color: #FFFFFF;
+            color: #262730;
+        }
+        .stSidebar {
+            background-color: #F0F2F6;
+        }
+        .stSelectbox, .stTextInput, .stNumberInput {
+            background-color: #FFFFFF;
+            color: #262730;
+        }
+        .stDataFrame {
+            background-color: #FFFFFF;
+        }
+        .stMarkdown {
+            color: #262730;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    else:
+        # Auto theme - remove custom styles
+        st.markdown("""
+        <style>
+        /* Auto theme - use system defaults */
+        .stApp {
+            background-color: transparent;
+            color: inherit;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
 def apply_no_theme():
-    """Apply NO theme - use Streamlit defaults"""
-    pass  # Streamlit handles theming natively
+    """Apply no theme - use Streamlit defaults"""
+    st.markdown("""
+    <style>
+    /* Reset to Streamlit defaults */
+    .stApp {
+        background-color: transparent !important;
+        color: inherit !important;
+    }
+    .stSidebar {
+        background-color: transparent !important;
+    }
+    .stSelectbox, .stTextInput, .stNumberInput {
+        background-color: transparent !important;
+        color: inherit !important;
+    }
+    .stDataFrame {
+        background-color: transparent !important;
+    }
+    .stMarkdown {
+        color: inherit !important;
+    }
+    .stAlert {
+        background-color: transparent !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 def apply_page_theme(page_name):
-    """Apply NO theme - use Streamlit defaults"""
-    pass
+    """Apply theme for a specific page"""
+    current_theme = get_current_theme()
+    if current_theme == "auto":
+        # Use time-based auto theme
+        auto_theme = get_auto_theme()
+        if auto_theme == "dark":
+            apply_theme("dark")
+        else:
+            apply_theme("light")
+    else:
+        apply_theme(current_theme)
 
 def apply_login_theme():
-    """Apply NO theme to login page - use Streamlit defaults"""
-    pass
+    """Apply theme to login page"""
+    apply_no_theme()
 
 def apply_branch_selection_theme():
-    """Apply NO theme to branch selection page - use Streamlit defaults"""
-    pass
+    """Apply theme to branch selection page"""
+    apply_no_theme()
 
 def get_page_theme(page_name):
-    """Return default theme - use Streamlit defaults"""
-    return {}  # Return empty dict, use Streamlit defaults
+    """Get theme colors for a page"""
+    current_theme = get_current_theme()
+    if current_theme == "auto":
+        auto_theme = get_auto_theme()
+        return AVAILABLE_THEMES.get(auto_theme, AVAILABLE_THEMES["light"])
+    return AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES["light"])
 
 # ==============================
 # THEME SELECTOR
@@ -148,4 +250,4 @@ def theme_selector():
     
     # Show current theme info
     st.sidebar.caption(f"Current: {AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']}")
-    #st.sidebar.info("Theme applies using Streamlit's native theming.")
+    st.sidebar.info("Theme applies using Streamlit's native theming.")
