@@ -1,5 +1,3 @@
-
-# backend/modules/purchases.py
 """
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
@@ -72,6 +70,29 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_df = pd.DataFrame(po_data)
     return po_number, po_df, None
+
+
+# ==============================
+# DELETE PURCHASE ORDER
+# ==============================
+def delete_purchase_order(po_number):
+    """Delete a purchase order and all its items"""
+    try:
+        purchases_df = load_purchases()
+        
+        # Check if PO exists
+        if purchases_df[purchases_df["po_number"] == po_number].empty:
+            return False, f"Purchase Order {po_number} not found"
+        
+        # Delete all items with this PO number
+        purchases_df = purchases_df[purchases_df["po_number"] != po_number]
+        
+        # Save changes
+        save_purchases(purchases_df)
+        
+        return True, f"Purchase Order {po_number} deleted successfully"
+    except Exception as e:
+        return False, f"Error deleting PO: {str(e)}"
 
 
 # ==============================
@@ -337,6 +358,10 @@ def purchases_page():
         st.session_state.stock_updated = False
     if "last_received_po" not in st.session_state:
         st.session_state.last_received_po = None
+    if "po_deleted" not in st.session_state:
+        st.session_state.po_deleted = False
+    if "deleted_po_number" not in st.session_state:
+        st.session_state.deleted_po_number = None
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -348,6 +373,11 @@ def purchases_page():
         st.success(f"Stock for PO {st.session_state.last_received_po} has been added to inventory!")
         st.balloons()
         st.session_state.stock_updated = False
+    
+    if st.session_state.po_deleted and st.session_state.deleted_po_number:
+        st.success(f"Purchase Order {st.session_state.deleted_po_number} deleted successfully!")
+        st.session_state.po_deleted = False
+        st.session_state.deleted_po_number = None
     
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -450,14 +480,12 @@ def purchases_page():
                             })
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order")
-                        # NO rerun() - let Streamlit handle it naturally
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
                 if clear_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    # NO rerun() - let Streamlit handle it naturally
         
         # Manual item entry
         st.markdown("### Manual Item Entry")
@@ -500,7 +528,6 @@ def purchases_page():
                         st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each)")
                     else:
                         st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
-                    # NO rerun() - let Streamlit handle it naturally
                 else:
                     st.error("Please enter an item name")
         
@@ -531,7 +558,6 @@ def purchases_page():
                 if clear_all_button:
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
-                    # NO rerun() - let Streamlit handle it naturally
             
             with col2:
                 create_po_button = st.button("Create Purchase Order", type="primary", key="create_po_btn", use_container_width=True)
@@ -621,8 +647,6 @@ Contact: +263 78 290 5853
                                 mime="text/plain",
                                 use_container_width=True
                             )
-                            
-                            # DO NOT call st.rerun() - let Streamlit handle it
         else:
             st.info("Cart is empty. Add products above to create a purchase order.")
     
@@ -641,30 +665,75 @@ Contact: +263 78 290 5853
             if "status" not in purchases_df.columns:
                 purchases_df["status"] = "PENDING"
             
+            # Show ALL pending orders
             pending_pos = purchases_df[purchases_df["status"] == "PENDING"]["po_number"].unique().tolist()
             
-            if not pending_pos:
-                st.info("No pending purchase orders. All orders have been received.")
+            # Also show partially received orders if any
+            partial_pos = purchases_df[purchases_df["status"] == "PARTIALLY_RECEIVED"]["po_number"].unique().tolist()
+            
+            # Combine both lists
+            all_receivable = list(set(pending_pos + partial_pos))
+            
+            if not all_receivable:
+                st.info("No pending or partially received purchase orders. All orders have been completed.")
             else:
-                selected_po = st.selectbox("Select Purchase Order to Receive", pending_pos, key="receive_po")
+                # Show count of pending orders
+                st.info(f"Found {len(all_receivable)} orders ready for receiving")
+                
+                selected_po = st.selectbox("Select Purchase Order to Receive", all_receivable, key="receive_po")
                 
                 if selected_po:
                     po_details = get_po_details(selected_po)
                     
                     if po_details:
-                        st.markdown(f"### PO: {selected_po}")
+                        # Display PO status
+                        status_color = "🟡" if po_details['status'] == "PENDING" else "🟠"
+                        st.markdown(f"### PO: {selected_po} {status_color} {po_details['status']}")
                         st.markdown(f"**Supplier:** {po_details['supplier']}")
                         st.markdown(f"**Order Date:** {po_details['date_ordered']}")
                         st.markdown(f"**Expected Date:** {po_details['expected_date']}")
                         
                         st.markdown("### Items Ordered")
                         items_df = pd.DataFrame(po_details['items'])
-                        display_cols = ["product_name", "quantity_ordered", "cost_price", "total_cost"]
+                        display_cols = ["product_name", "quantity_ordered", "quantity_received", "cost_price", "total_cost"]
                         available_cols = [col for col in display_cols if col in items_df.columns]
-                        st.dataframe(items_df[available_cols], use_container_width=True, hide_index=True)
+                        
+                        # Add status indicator for each item
+                        if "quantity_received" in items_df.columns:
+                            items_df["received_status"] = items_df.apply(
+                                lambda row: "✅ Received" if row["quantity_received"] >= row["quantity_ordered"] 
+                                else f"📦 {row['quantity_received']}/{row['quantity_ordered']} received",
+                                axis=1
+                            )
+                            display_cols = ["product_name", "quantity_ordered", "received_status", "cost_price", "total_cost"]
+                        
+                        st.dataframe(items_df[display_cols], use_container_width=True, hide_index=True)
                         
                         po_total = po_details['total_value']
                         st.info(f"PO Total: ${po_total:,.2f}")
+                        
+                        # Add Delete button for pending orders
+                        if po_details['status'] == "PENDING":
+                            st.markdown("---")
+                            st.markdown("### Delete Purchase Order")
+                            st.warning("⚠️ This will permanently delete this purchase order and all its items.")
+                            
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                confirm_delete = st.checkbox(f"I understand this will delete PO {selected_po} permanently")
+                            with col2:
+                                delete_button = st.button("🗑️ Delete PO", type="secondary", use_container_width=True)
+                                if delete_button and confirm_delete:
+                                    success, message = delete_purchase_order(selected_po)
+                                    if success:
+                                        st.session_state.po_deleted = True
+                                        st.session_state.deleted_po_number = selected_po
+                                        st.success(message)
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
+                                elif delete_button and not confirm_delete:
+                                    st.error("Please confirm deletion by checking the box")
                         
                         st.markdown("---")
                         st.markdown("### Receiving Details")
@@ -683,15 +752,18 @@ Contact: +263 78 290 5853
                             with col1:
                                 product_name = item.get("product_name", "Unknown")
                                 qty_ordered = item.get("quantity_ordered", 0)
+                                qty_received = item.get("quantity_received", 0)
+                                remaining = qty_ordered - qty_received
                                 st.write(f"**{product_name}**")
-                                st.caption(f"Ordered: {qty_ordered}")
+                                st.caption(f"Ordered: {qty_ordered} | Received: {qty_received} | Remaining: {remaining}")
                             with col2:
                                 barcode_val = str(item.get("barcode", f"item_{idx}"))
+                                max_qty = int(remaining)
                                 received_qty = st.number_input(
                                     "Qty Received",
                                     min_value=0,
-                                    max_value=int(qty_ordered),
-                                    value=int(qty_ordered),
+                                    max_value=max_qty,
+                                    value=max_qty,
                                     key=f"rec_qty_{barcode_val}_{idx}",
                                     step=1,
                                     label_visibility="collapsed"
@@ -740,6 +812,8 @@ Contact: +263 78 290 5853
                                             st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f}")
+                                        
+                                        st.rerun()
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
@@ -865,4 +939,3 @@ Contact: +263 78 290 5853
 # ==============================
 if __name__ == "__main__":
     purchases_page()
-
