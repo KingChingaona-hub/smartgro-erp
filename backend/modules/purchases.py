@@ -1,5 +1,5 @@
-purchases.py
-# backend/purchases/purchases.py
+
+# backend/modules/purchases.py
 """
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
