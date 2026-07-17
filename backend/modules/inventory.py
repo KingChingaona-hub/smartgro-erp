@@ -205,4 +205,4 @@ def inventory_page():
     
     if st.button("Manual Refresh", use_container_width=True):
         st.cache_data.clear()
-        st.rerun()
+        #st.rerun()
