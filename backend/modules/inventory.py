@@ -116,7 +116,7 @@ def inventory_page():
                     
                     if save_products(df):
                         st.success(f"Product '{name}' added successfully!")
-                        st.info("Scroll down to see the updated list")
+                        st.rerun()
                     else:
                         st.error("Failed to save product.")
             else:
@@ -166,25 +166,34 @@ def inventory_page():
                         
                         if save_products(df):
                             st.success(f"Product '{update_name}' updated successfully!")
-                            st.info("Scroll down to see the updated list")
+                            st.rerun()
                         else:
                             st.error("Failed to update product.")
                 
                 with col_btn2:
-                    delete_clicked = st.form_submit_button("Delete Product", use_container_width=True)
+                    # FIX: Delete button outside form or with proper confirmation
+                    pass  # We'll handle delete separately
+            
+            # FIX: Delete section outside the form
+            st.markdown("### Delete Product")
+            st.warning("This will permanently delete the selected product.")
+            
+            # Confirmation checkbox
+            confirm_delete = st.checkbox(f"Confirm delete '{selected_product}'", key="confirm_delete")
+            
+            # Delete button outside the form
+            if st.button("Delete Product", type="secondary", use_container_width=True):
+                if confirm_delete:
+                    # Remove the product
+                    df = df[df["name"] != selected_product]
                     
-                    if delete_clicked:
-                        st.warning("Check the box below to confirm deletion")
-                        confirm = st.checkbox("I understand this action CANNOT be undone", key="delete_confirm")
-                        
-                        if confirm:
-                            df = df[df["name"] != selected_product]
-                            
-                            if save_products(df):
-                                st.success(f"Product '{selected_product}' deleted successfully!")
-                                st.info("Scroll down to see the updated list")
-                            else:
-                                st.error("Failed to delete product.")
+                    if save_products(df):
+                        st.success(f"Product '{selected_product}' deleted successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete product.")
+                else:
+                    st.error("Please confirm deletion by checking the box above.")
     else:
         st.info("No products in inventory. Add your first product above.")
     
@@ -192,9 +201,8 @@ def inventory_page():
     # REFRESH BUTTON - Manual only
     # ==============================
     st.markdown("---")
-    st.caption("After adding/updating/deleting, scroll down to see changes. Use the refresh button below if needed.")
+    st.caption("After adding/updating/deleting, the page will refresh automatically.")
     
-    if st.button("Refresh Page", use_container_width=True):
+    if st.button("Manual Refresh", use_container_width=True):
         st.cache_data.clear()
-        # No rerun - user must click again or use browser refresh
-        st.info("Cache cleared. Click the button again or refresh your browser to see changes.")
+        st.rerun()
