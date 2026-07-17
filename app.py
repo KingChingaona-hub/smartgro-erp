@@ -45,7 +45,6 @@ from backend.core.theme_manager import (
     load_theme_preference,
     get_auto_theme
 )
-# from backend.core.global_styles import get_global_styles  # DISABLED - Using theme_manager only
 from backend.core.animations import (
     init_animations,
     show_toast,
@@ -303,7 +302,7 @@ if "logged_in" not in st.session_state:
     st.session_state.branch_authenticated = False
     st.session_state.current_page = "Stock Dashboard"
     st.session_state.last_activity = datetime.now()
-    st.session_state.modules_debug = False  # Debug flag
+    st.session_state.modules_debug = False
 
 if "current_theme" not in st.session_state:
     st.session_state.current_theme = load_theme_preference()
@@ -745,26 +744,23 @@ def main_app():
         return
     
     # ==============================
-    # APPLY THEME
+    # APPLY THEME - UPDATED TO USE STREAMLIT NATIVE THEMING
     # ==============================
+    # Only apply theme if auto_switch is enabled, otherwise use Streamlit defaults
     if st.session_state.get("auto_switch_theme", False):
         auto_theme = get_auto_theme()
         if auto_theme != st.session_state.get("current_theme"):
             st.session_state.current_theme = auto_theme
-        colors = AVAILABLE_THEMES[st.session_state.current_theme]["colors"]
-        apply_theme(colors)
-    else:
+        # Apply theme colors only if we have a theme
         if st.session_state.get("current_theme") and st.session_state.current_theme in AVAILABLE_THEMES:
             colors = AVAILABLE_THEMES[st.session_state.current_theme]["colors"]
             apply_theme(colors)
-        else:
-            theme = get_page_theme(page)
-            apply_theme(theme)
-    
-    # ==============================
-    # GLOBAL STYLES - DISABLED
-    # ==============================
-    # st.markdown(get_global_styles(), unsafe_allow_html=True)
+    else:
+        # Use Streamlit's native theming - no custom CSS
+        # Only set the theme preference without applying CSS
+        if st.session_state.get("current_theme") and st.session_state.current_theme in AVAILABLE_THEMES:
+            # Store the theme preference but don't apply custom CSS
+            pass
     
     init_animations()
     
@@ -782,6 +778,9 @@ def main_app():
     
     st.sidebar.markdown("---")
     
+    # ==============================
+    # THEME SELECTOR - Uses Streamlit Native Theming
+    # ==============================
     theme_selector()
     
     st.sidebar.markdown("---")
@@ -801,7 +800,7 @@ def main_app():
     all_items = sorted(all_items)
     
     # DEBUG: Show all items in sidebar expander
-    with st.sidebar.expander("📋 Menu Items (Debug)", expanded=False):
+    with st.sidebar.expander("Menu Items (Debug)", expanded=False):
         st.write(f"Total items: {len(all_items)}")
         for item in all_items:
             st.write(f"• {item}")
@@ -819,13 +818,13 @@ def main_app():
     # ==============================
     # USER INFO & CONTROLS
     # ==============================
-    st.sidebar.markdown(f"**👤 {username}**")
+    st.sidebar.markdown(f"**{username}**")
     st.sidebar.markdown(f"**Role:** {role.upper()}")
     
     if role == "cashier" and st.session_state.get("active_shift_id"):
         st.sidebar.info(f"Shift Active\nID: {st.session_state.active_shift_id[:8]}...")
     
-    if st.sidebar.button("🔄 Switch Branch", key="switch_branch_sidebar", use_container_width=True):
+    if st.sidebar.button("Switch Branch", key="switch_branch_sidebar", use_container_width=True):
         st.session_state.branch_selected = False
         st.session_state.branch_authenticated = False
         st.session_state.logged_in = False
@@ -836,7 +835,7 @@ def main_app():
     st.sidebar.caption("AZIEL INVESTMENTS ERP")
     st.sidebar.caption("2026 All Rights Reserved")
     
-    if st.sidebar.button("🚪 Logout", key="logout_sidebar", use_container_width=True):
+    if st.sidebar.button("Logout", key="logout_sidebar", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key not in ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
                            "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]:

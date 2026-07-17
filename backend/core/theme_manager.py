@@ -1,3 +1,5 @@
+# backend/core/theme.py
+
 import streamlit as st
 import json
 from pathlib import Path
@@ -9,64 +11,28 @@ from datetime import datetime
 THEME_FILE = Path("data/user_theme.json")
 
 # ==============================
-# AVAILABLE THEMES - KEPT FOR REFERENCE ONLY
+# AVAILABLE THEMES - FOR REFERENCE ONLY
 # ==============================
 AVAILABLE_THEMES = {
     "light": {
         "name": "Light Mode",
-        "icon": "☀️",
-        "description": "Light background with dark text",
-        "colors": {
-            "background_color": "#FFFFFF",
-            "text_color": "#000000",
-            "border_color": "#CCCCCC",
-            "card_bg": "#FFFFFF",
-            "sidebar_bg": "#F0F0F0",
-            "secondary_bg": "#F5F5F5",
-            "text_secondary": "#555555",
-            "primary_color": "#F2E1E1",
-            "primary_hover": "#F12AE4",
-            "input_bg": "#FFFFFF",
-            "input_text": "#000000",
-            "success": "#14EA8A",
-            "warning": "#B5E312",
-            "error": "#F71111",
-            "info": "#1888EB"
-        }
+        "description": "Light background with dark text"
     },
     "dark": {
         "name": "Dark Mode",
-        "icon": "🌙",
-        "description": "Dark background with light text",
-        "colors": {
-            "background_color": "#0D0D0D",
-            "text_color": "#FFFFFF",
-            "border_color": "#444444",
-            "card_bg": "#7222D4",
-            "sidebar_bg": "#1A1A1A",
-            "secondary_bg": "#C7AEAE",
-            "text_secondary": "#AAAAAA",
-            "primary_color": "#FFFFFF",
-            "primary_hover": "#CCCCCC",
-            "input_bg": "#FFFFFF",
-            "input_text": "#BAB1B1",
-            "success": "#FFFFFF",
-            "warning": "#FFFFFF",
-            "error": "#FFFFFF",
-            "info": "#FFFFFF"
-        }
+        "description": "Dark background with light text"
+    },
+    "auto": {
+        "name": "Auto (System)",
+        "description": "Follows your system preference"
     }
 }
-
-# ==============================
-# PAGE-SPECIFIC THEMES - DISABLED
-# ==============================
-PAGE_THEMES = {}
 
 # ==============================
 # THEME PERSISTENCE
 # ==============================
 def save_theme_preference(theme_name):
+    """Save theme preference to file"""
     try:
         THEME_FILE.parent.mkdir(exist_ok=True)
         with open(THEME_FILE, "w") as f:
@@ -76,122 +42,90 @@ def save_theme_preference(theme_name):
         print(f"Error saving theme: {e}")
         return False
 
-
 def load_theme_preference():
+    """Load theme preference from file"""
     if THEME_FILE.exists():
         try:
             with open(THEME_FILE, "r") as f:
                 data = json.load(f)
-                theme = data.get("theme", "light")
-                if theme in AVAILABLE_THEMES:
-                    return theme
+                theme = data.get("theme", "auto")
+                return theme
         except:
             pass
-    return "light"
-
-
-def get_auto_theme():
-    current_hour = datetime.now().hour
-    if current_hour >= 18 or current_hour < 6:
-        return "dark"
-    else:
-        return "light"
-
-# ==============================
-# THEME APPLICATION - DISABLED, USE STREAMLIT DEFAULTS
-# ==============================
-def apply_theme(colors):
-    """Apply NO theme - use Streamlit defaults"""
-    pass  # Do nothing, use Streamlit defaults
-
-
-def apply_no_theme():
-    """Apply NO theme - use Streamlit defaults"""
-    css = """
-    <style>
-        /* Reset all custom styling - use Streamlit defaults */
-        .stApp {
-            background-color: transparent !important;
-        }
-        .main .block-container {
-            background-color: transparent !important;
-        }
-        /* Remove all custom overrides */
-        .stSelectbox div[data-baseweb="select"] > div {
-            background-color: transparent !important;
-            color: inherit !important;
-        }
-        .stSelectbox div[data-baseweb="select"] ul {
-            background-color: transparent !important;
-        }
-        .stSelectbox div[data-baseweb="select"] ul li {
-            background-color: transparent !important;
-            color: inherit !important;
-        }
-        .stTabs [data-baseweb="tab"] {
-            background-color: transparent !important;
-            color: inherit !important;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: transparent !important;
-            color: inherit !important;
-        }
-        .stButton > button {
-            background-color: transparent !important;
-            color: inherit !important;
-            border: 1px solid #ddd !important;
-        }
-        .stForm button[type="submit"] {
-            background-color: transparent !important;
-            color: inherit !important;
-            border: 1px solid #ddd !important;
-        }
-    </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
-
-
-def get_page_theme(page_name):
-    """Return default theme - DISABLED"""
-    return AVAILABLE_THEMES["light"]["colors"]
-
-
-def apply_page_theme(page_name):
-    """Apply NO theme - use Streamlit defaults"""
-    apply_no_theme()
-
-
-def apply_login_theme():
-    """Apply NO theme to login page - use Streamlit defaults"""
-    apply_no_theme()
-
-
-def apply_branch_selection_theme():
-    """Apply NO theme to branch selection page - use Streamlit defaults"""
-    apply_no_theme()
-
-
-def theme_selector():
-    """Theme selector - DISABLED, show message only"""
-    st.sidebar.markdown("### Theme Settings")
-    st.sidebar.info("Themes are temporarily disabled. Using default Streamlit styling.")
-    
-    # Still keep the theme preference for future use
-    current_theme = st.session_state.get("current_theme", load_theme_preference())
-    
-    # Show current theme but don't allow changes
-    st.sidebar.markdown(f"Current preference: **{AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['light'])['name']}**")
-    st.sidebar.caption("Theme system will be re-enabled with fixed styling soon.")
-
+    return "auto"
 
 def get_current_theme():
+    """Get current theme preference"""
     return st.session_state.get("current_theme", load_theme_preference())
 
-
 def set_theme(theme_name):
-    """Set theme - DISABLED"""
+    """Set theme preference"""
     if theme_name in AVAILABLE_THEMES:
         st.session_state.current_theme = theme_name
         save_theme_preference(theme_name)
         return True
     return False
+
+# ==============================
+# THEME SELECTOR - Uses Streamlit Native Theming
+# ==============================
+def theme_selector():
+    """Theme selector using Streamlit's native theming"""
+    st.sidebar.markdown("### Theme Settings")
+    st.sidebar.caption("Choose your preferred theme")
+    
+    current_theme = get_current_theme()
+    
+    theme_options = list(AVAILABLE_THEMES.keys())
+    theme_labels = [AVAILABLE_THEMES[t]['name'] for t in theme_options]
+    
+    label_to_key = {AVAILABLE_THEMES[t]['name']: t for t in theme_options}
+    
+    current_label = AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']
+    
+    selected_label = st.sidebar.selectbox(
+        "Select Theme",
+        options=theme_labels,
+        index=theme_labels.index(current_label) if current_label in theme_labels else 0,
+        help="Choose your preferred theme. This controls how the app looks."
+    )
+    
+    if selected_label:
+        selected_key = label_to_key[selected_label]
+        if selected_key != current_theme:
+            set_theme(selected_key)
+            st.sidebar.success(f"Theme set to: {selected_label}")
+            st.rerun()
+    
+    st.sidebar.caption(f"Current: {AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']}")
+    st.sidebar.info("Theme applies using Streamlit's native theming.")
+    
+# ==============================
+# NO THEME APPLICATION - Use Streamlit Defaults
+# ==============================
+def apply_no_theme():
+    """
+    Apply NO custom CSS - use Streamlit defaults.
+    Streamlit's native theming handles everything.
+    """
+    pass  # Streamlit handles theming natively
+
+def apply_theme(colors):
+    """Apply NO theme - use Streamlit defaults"""
+    pass
+
+def apply_page_theme(page_name):
+    """Apply NO theme - use Streamlit defaults"""
+    pass
+
+def apply_login_theme():
+    """Apply NO theme - use Streamlit defaults"""
+    pass
+
+def apply_branch_selection_theme():
+    """Apply NO theme - use Streamlit defaults"""
+    pass
+
+def get_page_theme(page_name):
+    """Return default theme colors"""
+    return AVAILABLE_THEMES["light"]["colors"] if "colors" in AVAILABLE_THEMES["light"] else {}
