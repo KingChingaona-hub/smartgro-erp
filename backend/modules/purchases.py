@@ -555,13 +555,13 @@ def purchases_page():
                 manual_item_category = st.text_input("Category", key="manual_item_category", placeholder="e.g., Drinks, Rice, Sugar")
             
             with col3:
-                manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=10.0, step=5.0, key="manual_item_cost")
+                manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=0.00, step=5.0, key="manual_item_cost")
             
             with col4:
                 manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
             
             with col5:
-                add_manual_button = st.form_submit_button("Add Manual Item", use_container_width=True)
+                add_manual_button = st.form_submit_button("Add Item", use_container_width=True)
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
