@@ -226,32 +226,27 @@ def inventory_page():
                 elif not admin_password:
                     st.error("Please enter your admin password.")
                 else:
-                    # Verify admin credentials
-                    if user_role in ["owner", "admin"]:
-                        # For security, verify password against stored credentials
-                        # Get stored password from auth system
-                        from backend.core.auth import verify_password, get_user
-                        
-                        username = st.session_state.get("username", "")
-                        user_data = get_user(username)
-                        
-                        if user_data and verify_password(admin_password, user_data.get("password", "")):
-                            # Password verified - proceed with deletion
-                            if df.empty:
-                                st.info("No products to delete.")
-                            else:
-                                # Create empty DataFrame with same columns
-                                empty_df = pd.DataFrame(columns=df.columns)
-                                
-                                if save_products(empty_df):
-                                    st.success(f"Successfully deleted ALL {product_count} products!")
-                                    st.rerun()
-                                else:
-                                    st.error("Failed to delete products. Please try again.")
+                    # Verify admin credentials using check_login
+                    username = st.session_state.get("username", "")
+                    
+                    # Use check_login to verify credentials
+                    login_success, role = check_login(username, admin_password)
+                    
+                    if login_success and role in ["owner", "admin"]:
+                        # Password verified - proceed with deletion
+                        if df.empty:
+                            st.info("No products to delete.")
                         else:
-                            st.error("Invalid admin password. Deletion cancelled.")
+                            # Create empty DataFrame with same columns
+                            empty_df = pd.DataFrame(columns=df.columns)
+                            
+                            if save_products(empty_df):
+                                st.success(f"Successfully deleted ALL {product_count} products!")
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete products. Please try again.")
                     else:
-                        st.error("You do not have admin privileges.")
+                        st.error("Invalid admin password. Deletion cancelled.")
     else:
         st.info("Only administrators can delete all products. Contact your system administrator.")
     
