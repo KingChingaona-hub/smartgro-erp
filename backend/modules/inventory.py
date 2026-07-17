@@ -172,7 +172,7 @@ def inventory_page():
                             st.error("Failed to update product.")
                 
                 with col_btn2:
-                    pass  # We'll handle delete separately
+                    pass
             
             # Delete section outside the form
             st.markdown("### Delete Product")
@@ -182,13 +182,20 @@ def inventory_page():
             
             if st.button("Delete Product", type="secondary", use_container_width=True):
                 if confirm_delete:
-                    df = df[df["name"] != selected_product]
+                    # Remove the product from DataFrame
+                    df_before = len(df)
+                    df = df[df["name"] != selected_product].copy()
+                    df_after = len(df)
                     
-                    if save_products(df):
-                        st.success(f"Product '{selected_product}' deleted successfully!")
-                        st.rerun()
+                    if df_after < df_before:
+                        # Save the updated DataFrame to database
+                        if save_products(df):
+                            st.success(f"Product '{selected_product}' deleted successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete product. Please try again.")
                     else:
-                        st.error("Failed to delete product.")
+                        st.error("Product not found for deletion.")
                 else:
                     st.error("Please confirm deletion by checking the box above.")
     else:
@@ -237,12 +244,16 @@ def inventory_page():
                         if df.empty:
                             st.info("No products to delete.")
                         else:
-                            # Create empty DataFrame with same columns
-                            empty_df = pd.DataFrame(columns=df.columns)
+                            # Get columns before clearing
+                            columns = df.columns.tolist()
                             
+                            # Create empty DataFrame with same columns
+                            empty_df = pd.DataFrame(columns=columns)
+                            
+                            # Save empty DataFrame to database
                             if save_products(empty_df):
                                 st.success(f"Successfully deleted ALL {product_count} products!")
-                                #st.rerun()
+                                st.rerun()
                             else:
                                 st.error("Failed to delete products. Please try again.")
                     else:
@@ -258,4 +269,4 @@ def inventory_page():
     
     if st.button("Manual Refresh", use_container_width=True):
         st.cache_data.clear()
-        #st.rerun()
+        st.rerun()
