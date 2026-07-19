@@ -1,0 +1,117 @@
+96dd192 2026-07-17 Fix: Theme application with proper indentation and imports
+9ebd418 2026-07-17 Fix: Theme application with proper indentation and imports
+64b722e 2026-07-17 Fix: Theme application with proper indentation and imports
+b5799d5 2026-07-17 Fix : simple corrections
+b1e544f 2026-07-17 Fix: Handle empty DataFrame in save_products to properly delete all products
+3af9aa7 2026-07-17 Fix: Properly delete products from database using save_products with empty DataFrame
+8de52ee 2026-07-17 Fix: Use check_login for admin password verification instead of missing functions
+df0d974 2026-07-17 Fix: Use check_login for admin password verification instead of missing functions
+670206e 2026-07-17 Fix: Use check_login for admin password verification instead of missing functions
+43cb93a 2026-07-17 Feature: Add admin-only delete all products with password confirmation (no emojis)
+ec22e11 2026-07-17 Fix: Set default cost price to 0.01 to match min_value
+3b1537f 2026-07-17 Fix: Add category field to manual item entry with form submission
+99c7b23 2026-07-17 Fix: Add category field to manual item entry with form submission
+bf20bf4 2026-07-17 Fix: Add category field to manual item entry with form submission
+c4d8dd5 2026-07-17 Fix: Manual item entry with form to prevent reruns on input, add category support
+52a4cc8 2026-07-17 Fix: Inventory delete functionality - moved delete outside form with proper confirmation
+c3f50f1 2026-07-17 Fix: Inventory delete functionality - moved delete outside form with proper confirmation
+eb0e24f 2026-07-17 Fix: Inventory delete functionality - moved delete outside form with proper confirmation
+1d12b3a 2026-07-17 Fix: Complete theme_manager with all required functions
+86e34ea 2026-07-17 Fix: Themes updation
+fbfdca5 2026-07-17 Fix: Save purchases with composite key (po_number, barcode) to support multiple items per PO
+e6ae418 2026-07-17 Fix: Add PO preview, delete all functionality, remove emojis
+5e49288 2026-07-17 Fix: Show pending orders in receive tab and add delete PO functionality
+6570b1f 2026-07-17 Fix: Purchases saving issues
+c00fd0b 2026-07-17 Fix: Correction of purchases loading and saving
+e44115d 2026-07-16 Fix: purchase fixes in the database
+3a824db 2026-07-16 Fix: all purchases to be correctly recorded
+b2f1f58 2026-07-16 Fix: purchases issues configurations
+f01337e 2026-07-16 Fix: purchases and load, save purchases
+216e87c 2026-07-16 Fix: Simplified purchases
+cde77b9 2026-07-16 Fix: purchases and db_dapter reconciliation
+4f8dac0 2026-07-16 Fix returning to the old purchases
+7b6ec6d 2026-07-16 Fix purchases
+3da9192 2026-07-16 Fix: the purchses loading and saving issues
+4c9d3a3 2026-07-16 Fix : multiple items to cart after purchases issues
+4066c05 2026-07-16 Fix: saving and loading purchases properly
+87687e4 2026-07-16 Fix load and save purchases
+5cd9b9f 2026-07-16 Fix: Loading purchases errors
+90296f7 2026-07-16 Fix: one item shown upon receiving purchases
+eda7dc6 2026-07-16 Fix: save purchases in the db_adapter
+e06cde1 2026-07-15 Fixes
+b5883ea 2026-07-15 Fixes
+4bf135f 2026-07-15 fixes
+9da0fb9 2026-07-15 Fix
+2f44ece 2026-07-15 Purchases issues
+589c6fe 2026-07-15 Fix: Purchases issue
+2e83487 2026-07-15 Fix: returning to db_adapter
+0055653 2026-07-15 Fix returned to old purchase.py
+e8954c6 2026-07-15 Fix : purchases issues
+e85e995 2026-07-15 Fix : load and saving purchases issues
+43f5cb6 2026-07-15 Fix : commenting out reruns on purchases
+04c2034 2026-07-15 Fix: making creating and adding into one tab
+d1b6263 2026-07-15 fix: Complete redesign of purchases module with simplified single-page receive system
+0eb0124 2026-07-15 fix: Add load_all_purchases function to bypass branch filter for receive tab
+8f8dd90 2026-07-15 fix: Add load_all_purchases function to bypass branch filter for receive tab
+89ce9a6 2026-07-15 Fix: no data is shown at the moment purchases
+cab9e69 2026-07-15 Fix: purchases loading issues
+7efc572 2026-07-15 Fix : issues of saving purchases orders
+b115f3a 2026-07-15 Fix : purchase order not showing up
+8b56971 2026-07-15 Fix: adding load purchases
+03713aa 2026-07-15 Fix: fixing load or save purchases issues
+adf19cd 2026-07-15 Fix: Purchases issues
+d5619f8 2026-07-15 Fix: Purchases failing
+b6ed400 2026-07-15 Fix: purchases failing to add the cart
+7802f8e 2026-07-15 Fix : purchases failures
+dfd10c3 2026-07-15 Fix: purchases failure
+1c474e2 2026-07-15 Fix : purchases issues, not triggering well
+4c855e9 2026-07-15 Fix:purchases issues
+aec046a 2026-07-14 fix: Remove all rerun calls from purchases module following POS pattern
+2291fa2 2026-07-14 fix: Uncomment rerun calls and fix cart display for multiple items
+64131c1 2026-07-14 fix: Prevent duplication by adding action_processed flag to guard button actions
+d015be9 2026-07-14 Fix : purchases
+a635e28 2026-07-14 Fix: purchases buttons
+654d634 2026-07-14 Fix: purchases failing
+3efd6da 2026-07-14 Fix : Purchases issues
+afaf0af 2026-07-14 Fix: Fixing purchases issues
+b93de35 2026-07-14 Fix: Purchase orders not found issue
+bf926e5 2026-07-14 Fix: Purchases to the cart
+efebe61 2026-07-14 Fix: Purchase order fixing
+7917c84 2026-07-14 Fix: Purchase orders corrections
+6fcc83e 2026-07-14 Fix: purchase orders issues
+25ca50e 2026-07-14 Add: Making all purchases in the purchase order recorded successfully, no override
+e138a44 2026-07-14 Fix: unpacking all icons
+6fe007e 2026-07-11 fix: Resolve DuplicateWidgetID error in recommendation engine
+3089a6a 2026-07-11 Fix : correction of anomaly detection module
+7edf37d 2026-07-11 fix: Complete rewrite to eliminate all pandas quantile operations
+bd689d7 2026-07-11 fix: Complete Decimal type handling in anomaly detection
+c49026b 2026-07-11 fix: Resolve Decimal type error in anomaly detection
+af35698 2026-07-11 Fix: anomaly detection decimal issues
+d964df5 2026-07-11 fix: add robust Decimal to float conversion for anomaly detection quantile calculations
+4a7fb88 2026-07-11 fix: convert Decimal to float for quantile calculations in anomaly detection
+d112006 2026-07-11 fix: call _get_permission_key as standalone function, not as class method
+db014ed 2026-07-11 fix: add debug expander and ensure all modules are visible in navigation
+e63370a 2026-07-11 fix: add permission mappings for new data science modules
+94f2dab 2026-07-11 fix: add 5 new data science modules to navigation with proper handlers
+3e568e6 2026-07-11 feat: integrate 5 new data science modules into navigation
+18cf7cd 2026-07-11 feat: integrate 5 new data science modules
+2d81edb 2026-07-11 fix: set branch_name in session state on login and branch selection
+6bac39d 2026-07-11 fix: move footer content below links, fix Terms and Privacy Policy display
+49c0326 2026-07-11 fix: move footer content below links, fix Terms and Privacy Policy display
+ad8f9f4 2026-07-11 fix: move footer content below links, fix Terms and Privacy Policy display
+f5a3966 2026-07-11 fix: footer links now properly show content on the welcome page
+1cf54d5 2026-07-11 feat: add interactive footer links with detailed content for About, Features, Support, Privacy Policy, and Terms
+79f710a 2026-07-10 feat: add interactive footer links with detailed content for About, Features, Support, Privacy Policy, and Terms
+da604dc 2026-07-10 feat: enhance welcome page with professional design and dynamic content
+43c17d0 2026-07-10 feat: add welcome page after login before showing dashboard
+de20aa4 2026-07-10 Fix: app.py updation to meet defaults
+f851d10 2026-07-10 fix: completely disable all themes, use Streamlit defaults for everything
+1ad891a 2026-07-10 fix: remove custom dropdown and tab styling, use Streamlit defaults
+a98d487 2026-07-10 fix: remove theme styling from login and branch selection pages, use Streamlit defaults
+d355fba 2026-07-10 fix: remove theme styling from login and branch selection pages, use Streamlit defaults
+cf44794 2026-07-10 fix: increase button visibility with bolder styling and better contrast
+8857f1b 2026-07-10 Fix: app.py fixing
+70e8c24 2026-07-10 Fix: fixing app.py
+b3cfed0 2026-07-10 fix: correct button text color to use bg_color for proper contrast
+c2c6818 2026-07-10 fix: disable global styles, use theme_manager only for all styling
+38bd579 2026-07-10 fix: disable global styles, use theme_
