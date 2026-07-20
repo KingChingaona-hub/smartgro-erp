@@ -228,60 +228,62 @@ def welcome_page():
         
         .section-title {
             text-align: center;
-            font-size: 2.2rem;
-            font-weight: 700;
+            font-size: 2.5rem;
+            font-weight: 800;
             color: #1a1a2e;
-            margin: 40px 0 25px 0;
+            margin: 50px 0 20px 0;
             letter-spacing: -0.5px;
         }
         
-        .section-title span {
+        .section-title .highlight-text {
             background: linear-gradient(135deg, #FFD700, #FF6B35);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
         .section-divider {
-            width: 80px;
-            height: 4px;
+            width: 100px;
+            height: 5px;
             background: linear-gradient(90deg, #FFD700, #FF6B35);
-            margin: 0 auto 30px auto;
-            border-radius: 2px;
+            margin: 0 auto 35px auto;
+            border-radius: 3px;
         }
         
         .about-section {
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            padding: 40px;
-            border-radius: 16px;
-            margin-bottom: 30px;
-            border: 1px solid #e5e7eb;
+            padding: 45px 50px;
+            border-radius: 20px;
+            margin-bottom: 40px;
+            border: 2px solid #e5e7eb;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         }
         
         .about-section p {
             color: #1a1a2e;
-            font-size: 1.05rem;
-            line-height: 1.8;
+            font-size: 1.1rem;
+            line-height: 1.9;
             margin: 0;
         }
         
         .about-section .highlight {
             color: #FF6B35;
-            font-weight: 600;
+            font-weight: 700;
         }
         
         .feature-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            margin: 25px 0 30px 0;
+            gap: 25px;
+            margin: 30px 0 40px 0;
         }
         
         .feature-card {
             background: white;
-            padding: 28px 20px;
-            border-radius: 16px;
+            padding: 30px 25px;
+            border-radius: 18px;
             text-align: center;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 15px rgba(0,0,0,0.06);
             border: 1px solid #f0f0f0;
             transition: all 0.3s ease;
             position: relative;
@@ -294,15 +296,15 @@ def welcome_page():
             top: 0;
             left: 0;
             right: 0;
-            height: 3px;
+            height: 4px;
             background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493);
             transform: scaleX(0);
             transition: transform 0.3s ease;
         }
         
         .feature-card:hover {
-            transform: translateY(-6px);
-            box-shadow: 0 12px 35px rgba(0,0,0,0.1);
+            transform: translateY(-8px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.12);
         }
         
         .feature-card:hover::before {
@@ -310,31 +312,31 @@ def welcome_page():
         }
         
         .feature-card .icon {
-            font-size: 2.8rem;
-            margin-bottom: 15px;
+            font-size: 3rem;
+            margin-bottom: 18px;
             display: block;
         }
         
         .feature-card h4 {
             color: #1a1a2e;
-            font-size: 1.05rem;
-            font-weight: 600;
-            margin-bottom: 8px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 10px;
         }
         
         .feature-card p {
             color: #6B7280;
-            font-size: 0.85rem;
-            line-height: 1.6;
+            font-size: 0.9rem;
+            line-height: 1.7;
             margin: 0;
         }
         
         .get-started-section {
             text-align: center;
             background: linear-gradient(135deg, #1a1a2e 0%, #302b63 100%);
-            padding: 40px;
+            padding: 45px 40px;
             border-radius: 20px;
-            margin-top: 30px;
+            margin-top: 40px;
             position: relative;
             overflow: hidden;
         }
@@ -352,11 +354,11 @@ def welcome_page():
         
         .get-started-section h3 {
             color: white;
-            font-size: 1.6rem;
+            font-size: 1.8rem;
             font-weight: 700;
             position: relative;
             z-index: 1;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
         
         .get-started-section p {
@@ -364,28 +366,28 @@ def welcome_page():
             position: relative;
             z-index: 1;
             margin-bottom: 25px;
-            font-size: 1rem;
+            font-size: 1.05rem;
         }
         
         .footer-content {
             background: white;
-            padding: 30px;
-            border-radius: 16px;
-            margin-top: 20px;
+            padding: 35px 40px;
+            border-radius: 18px;
+            margin-top: 25px;
             border: 1px solid #e5e7eb;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 15px rgba(0,0,0,0.05);
         }
         
         .footer-content h3 {
             color: #1a1a2e;
-            font-size: 1.3rem;
+            font-size: 1.4rem;
             font-weight: 700;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
         
         .footer-content p, .footer-content li {
             color: #4a5568;
-            line-height: 1.8;
+            line-height: 1.9;
         }
         
         .footer-content ul {
@@ -394,7 +396,7 @@ def welcome_page():
         }
         
         .footer-content ul li {
-            padding: 8px 0;
+            padding: 10px 0;
             border-bottom: 1px solid #f0f0f0;
         }
         
@@ -483,7 +485,10 @@ def welcome_page():
                 gap: 15px;
             }
             .about-section {
-                padding: 25px;
+                padding: 25px 20px;
+            }
+            .section-title {
+                font-size: 1.8rem;
             }
         }
         
@@ -508,10 +513,13 @@ def welcome_page():
                 gap: 5px;
             }
             .about-section {
-                padding: 20px;
+                padding: 20px 15px;
             }
             .about-section p {
                 font-size: 0.95rem;
+            }
+            .feature-card {
+                padding: 20px 15px;
             }
         }
     </style>
@@ -558,101 +566,121 @@ def welcome_page():
     """, unsafe_allow_html=True)
     
     # ====================
-    # ABOUT SECTION - ALWAYS VISIBLE
+    # ABOUT SECTION - ALWAYS VISIBLE WITH CLEAR HEADING
     # ====================
     st.markdown("""
-    <div class="section-title">About <span>SmartGro ERP</span></div>
-    <div class="section-divider"></div>
+    <div style="text-align: center; margin: 50px 0 20px 0;">
+        <h2 style="font-size: 2.5rem; font-weight: 800; color: #1a1a2e; margin-bottom: 10px;">
+            About <span style="background: linear-gradient(135deg, #FFD700, #FF6B35); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">SmartGro ERP</span>
+        </h2>
+        <div style="width: 100px; height: 5px; background: linear-gradient(90deg, #FFD700, #FF6B35); margin: 0 auto 35px auto; border-radius: 3px;"></div>
+    </div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    <div class="about-section">
-        <p>
+    <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 45px 50px; border-radius: 20px; margin-bottom: 40px; border: 2px solid #e5e7eb; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+        <p style="color: #1a1a2e; font-size: 1.1rem; line-height: 1.9; margin: 0;">
             <strong>SmartGro ERP</strong> is a comprehensive Enterprise Resource Planning system 
-            designed specifically for <span class="highlight">retail and distribution businesses</span>. 
+            designed specifically for <span style="color: #FF6B35; font-weight: 700;">retail and distribution businesses</span>. 
             It provides a unified platform to manage all aspects of your business operations efficiently, 
             from inventory and sales to customer relationships and financial reporting.
         </p>
-        <p style="margin-top: 10px;">
-            Built with <span class="highlight">modern technology</span> and a user-centric approach, 
+        <p style="color: #1a1a2e; font-size: 1.1rem; line-height: 1.9; margin-top: 15px;">
+            Built with <span style="color: #FF6B35; font-weight: 700;">modern technology</span> and a user-centric approach, 
             SmartGro ERP empowers your team to make data-driven decisions and streamline daily operations.
         </p>
-        <p style="margin-top: 10px;">
-            <span class="highlight">Version 3.0</span> brings enhanced performance, new features, 
+        <p style="color: #1a1a2e; font-size: 1.1rem; line-height: 1.9; margin-top: 15px;">
+            <span style="color: #FF6B35; font-weight: 700;">Version 3.0</span> brings enhanced performance, new features, 
             and improved user experience to help your business grow and succeed.
         </p>
     </div>
     """, unsafe_allow_html=True)
     
     # ====================
-    # KEY FEATURES SECTION - ALWAYS VISIBLE
+    # KEY FEATURES SECTION - ALWAYS VISIBLE WITH CLEAR HEADING
     # ====================
     st.markdown("""
-    <div class="section-title">✨ Key <span>Features</span></div>
-    <div class="section-divider"></div>
+    <div style="text-align: center; margin: 50px 0 20px 0;">
+        <h2 style="font-size: 2.5rem; font-weight: 800; color: #1a1a2e; margin-bottom: 10px;">
+            ✨ Key <span style="background: linear-gradient(135deg, #FFD700, #FF6B35); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Features</span>
+        </h2>
+        <div style="width: 100px; height: 5px; background: linear-gradient(90deg, #FFD700, #FF6B35); margin: 0 auto 35px auto; border-radius: 3px;"></div>
+    </div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    <div class="feature-grid">
-        <div class="feature-card">
-            <span class="icon">📦</span>
-            <h4>Inventory Management</h4>
-            <p>Track stock levels, manage products, get low stock alerts, and optimize inventory in real-time.</p>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin: 30px 0 40px 0;">
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📦</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Inventory Management</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Track stock levels, manage products, get low stock alerts, and optimize inventory in real-time.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">💳</span>
-            <h4>Point of Sale (POS)</h4>
-            <p>Process sales quickly with barcode scanning, customer management, and seamless checkout.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">💳</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Point of Sale (POS)</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Process sales quickly with barcode scanning, customer management, and seamless checkout.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">📊</span>
-            <h4>Analytics & Reports</h4>
-            <p>Get deep insights with sales dashboards, profit analysis, and comprehensive business intelligence.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📊</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Analytics & Reports</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Get deep insights with sales dashboards, profit analysis, and comprehensive business intelligence.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">👥</span>
-            <h4>Customer Management</h4>
-            <p>Track customer history, manage loyalty programs, and implement effective retention strategies.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">👥</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Customer Management</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Track customer history, manage loyalty programs, and implement effective retention strategies.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">💰</span>
-            <h4>Cash & Finance</h4>
-            <p>Manage income, expenses, purchases, and cash flow with powerful financial tools.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">💰</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Cash & Finance</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Manage income, expenses, purchases, and cash flow with powerful financial tools.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">🔐</span>
-            <h4>Multi-Branch Support</h4>
-            <p>Manage multiple branches with centralized control, role-based access, and comprehensive reporting.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🔐</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Multi-Branch Support</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Manage multiple branches with centralized control, role-based access, and comprehensive reporting.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">📱</span>
-            <h4>Mobile Dashboard</h4>
-            <p>Access your business data and insights from anywhere with mobile-optimized dashboards.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📱</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Mobile Dashboard</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Access your business data and insights from anywhere with mobile-optimized dashboards.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">🔔</span>
-            <h4>Auto Notifications</h4>
-            <p>Get real-time alerts for low stock, expiring products, and important business events.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🔔</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Auto Notifications</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Get real-time alerts for low stock, expiring products, and important business events.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">📄</span>
-            <h4>Document Generation</h4>
-            <p>Generate professional invoices, delivery notes, credit notes, purchase orders, and more.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📄</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Document Generation</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Generate professional invoices, delivery notes, credit notes, purchase orders, and more.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">🔮</span>
-            <h4>Predictive Analytics</h4>
-            <p>Leverage AI-powered insights for demand forecasting, churn prediction, and business optimization.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🔮</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Predictive Analytics</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Leverage AI-powered insights for demand forecasting, churn prediction, and business optimization.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">🛒</span>
-            <h4>Smart Replenishment</h4>
-            <p>Automate stock replenishment with intelligent algorithms that optimize inventory levels.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🛒</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Smart Replenishment</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Automate stock replenishment with intelligent algorithms that optimize inventory levels.</p>
         </div>
-        <div class="feature-card">
-            <span class="icon">🤖</span>
-            <h4>Automated Insights</h4>
-            <p>Get automatically generated business insights and recommendations for better decision-making.</p>
+        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
+            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🤖</div>
+            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Automated Insights</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Get automatically generated business insights and recommendations for better decision-making.</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
