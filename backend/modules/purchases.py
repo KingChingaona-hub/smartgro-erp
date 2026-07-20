@@ -48,7 +48,6 @@ def create_purchase_order(supplier, items, expected_date):
         quantity = int(item.get("quantity", 1))
         
         # Get category - preserve exactly what the user entered
-        # If user entered a category, use it. Only fallback to "New Purchase" if truly empty
         category = str(item.get("category", "")).strip()
         
         # Only set to "New Purchase" if the user didn't provide any category
@@ -71,7 +70,7 @@ def create_purchase_order(supplier, items, expected_date):
             "status": "PENDING",
             "payment_status": "UNPAID",
             "invoice_no": "",
-            "category": category  # This will be the user's input, not "New Purchase"
+            "category": category
         })
     
     if not po_data:
@@ -79,6 +78,8 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_df = pd.DataFrame(po_data)
     return po_number, po_df, None
+
+
 # ==============================
 # DELETE PURCHASE ORDER
 # ==============================
@@ -598,8 +599,14 @@ def purchases_page():
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
-                        # Get category - preserve exactly what user typed
-                        category = manual_item_category.strip() if manual_item_category.strip() else "New Purchase"
+                        # CRITICAL: Get category exactly as typed by the user
+                        category_input = manual_item_category.strip()
+                        
+                        # Only use "New Purchase" if user left it completely empty
+                        if category_input:
+                            category = category_input
+                        else:
+                            category = "New Purchase"
                         
                         existing = False
                         for item in st.session_state.po_cart:
@@ -607,7 +614,7 @@ def purchases_page():
                                 item["quantity"] = item["quantity"] + int(manual_item_qty)
                                 item["total"] = item["quantity"] * item["cost"]
                                 # Update category if user provided one
-                                if category != "New Purchase" and category:
+                                if category != "New Purchase":
                                     item["category"] = category
                                 existing = True
                                 break
@@ -620,7 +627,7 @@ def purchases_page():
                                 "quantity": int(manual_item_qty),
                                 "cost": float(manual_item_cost),
                                 "total": float(manual_item_cost) * int(manual_item_qty),
-                                "category": category  # This now preserves the exact input
+                                "category": category
                             })
                             st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
                         else:
