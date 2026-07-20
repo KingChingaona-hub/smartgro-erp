@@ -473,7 +473,7 @@ def login_page():
                     # ===== FIX: Proper error handling for check_login =====
                     if not username or not password:
                         st.error("Please enter both username and password")
-                        continue
+                        pass
                     
                     # Call check_login with error handling
                     try:
