@@ -473,10 +473,6 @@ def welcome_page():
             margin-bottom: 10px;
         }
         
-        .section-heading h2 .heading-about {
-            color: #1a1a2e;
-        }
-        
         .section-heading h2 .heading-highlight {
             background: linear-gradient(135deg, #FFD700, #FF6B35);
             -webkit-background-clip: text;
@@ -597,12 +593,11 @@ def welcome_page():
     """, unsafe_allow_html=True)
     
     # ====================
-    # ABOUT SECTION - FIXED: "About" is now clearly visible in black/dark color
+    # ABOUT SECTION - "About" removed, only "SmartGro ERP" shown
     # ====================
     st.markdown("""
     <div class="section-heading">
         <h2>
-            <span class="heading-about">About</span>
             <span class="heading-highlight">SmartGro ERP</span>
         </h2>
         <div class="divider"></div>
@@ -629,12 +624,12 @@ def welcome_page():
     """, unsafe_allow_html=True)
     
     # ====================
-    # KEY FEATURES SECTION - FIXED: "Key" is now clearly visible in black/dark color
+    # KEY FEATURES SECTION - "Key" removed, only "Features" shown
     # ====================
     st.markdown("""
     <div class="section-heading">
         <h2>
-            <span style="color: #1a1a2e;">✨ Key</span>
+            <span style="color: #1a1a2e;">✨</span>
             <span class="heading-highlight">Features</span>
         </h2>
         <div class="divider"></div>
