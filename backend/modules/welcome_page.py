@@ -461,6 +461,37 @@ def welcome_page():
             z-index: 1;
         }
         
+        .section-heading {
+            text-align: center;
+            margin: 50px 0 20px 0;
+        }
+        
+        .section-heading h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #1a1a2e;
+            margin-bottom: 10px;
+        }
+        
+        .section-heading h2 .heading-about {
+            color: #1a1a2e;
+        }
+        
+        .section-heading h2 .heading-highlight {
+            background: linear-gradient(135deg, #FFD700, #FF6B35);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .section-heading .divider {
+            width: 100px;
+            height: 5px;
+            background: linear-gradient(90deg, #FFD700, #FF6B35);
+            margin: 0 auto 35px auto;
+            border-radius: 3px;
+        }
+        
         @media (max-width: 768px) {
             .quick-stats {
                 grid-template-columns: repeat(2, 1fr);
@@ -487,7 +518,7 @@ def welcome_page():
             .about-section {
                 padding: 25px 20px;
             }
-            .section-title {
+            .section-heading h2 {
                 font-size: 1.8rem;
             }
         }
@@ -505,7 +536,7 @@ def welcome_page():
             .welcome-header .greeting {
                 font-size: 1.1rem;
             }
-            .section-title {
+            .section-heading h2 {
                 font-size: 1.5rem;
             }
             .welcome-footer .footer-links {
@@ -566,121 +597,111 @@ def welcome_page():
     """, unsafe_allow_html=True)
     
     # ====================
-    # ABOUT SECTION - ALWAYS VISIBLE WITH CLEAR HEADING
+    # ABOUT SECTION - FIXED: "About" is now clearly visible in black/dark color
     # ====================
     st.markdown("""
-    <div style="text-align: center; margin: 50px 0 20px 0;">
-        <h2 style="font-size: 2.5rem; font-weight: 800; color: #1a1a2e; margin-bottom: 10px;">
-            About <span style="background: linear-gradient(135deg, #FFD700, #FF6B35); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">SmartGro ERP</span>
+    <div class="section-heading">
+        <h2>
+            <span class="heading-about">About</span>
+            <span class="heading-highlight">SmartGro ERP</span>
         </h2>
-        <div style="width: 100px; height: 5px; background: linear-gradient(90deg, #FFD700, #FF6B35); margin: 0 auto 35px auto; border-radius: 3px;"></div>
+        <div class="divider"></div>
     </div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 45px 50px; border-radius: 20px; margin-bottom: 40px; border: 2px solid #e5e7eb; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-        <p style="color: #1a1a2e; font-size: 1.1rem; line-height: 1.9; margin: 0;">
+    <div class="about-section">
+        <p>
             <strong>SmartGro ERP</strong> is a comprehensive Enterprise Resource Planning system 
-            designed specifically for <span style="color: #FF6B35; font-weight: 700;">retail and distribution businesses</span>. 
+            designed specifically for <span class="highlight">retail and distribution businesses</span>. 
             It provides a unified platform to manage all aspects of your business operations efficiently, 
             from inventory and sales to customer relationships and financial reporting.
         </p>
-        <p style="color: #1a1a2e; font-size: 1.1rem; line-height: 1.9; margin-top: 15px;">
-            Built with <span style="color: #FF6B35; font-weight: 700;">modern technology</span> and a user-centric approach, 
+        <p style="margin-top: 15px;">
+            Built with <span class="highlight">modern technology</span> and a user-centric approach, 
             SmartGro ERP empowers your team to make data-driven decisions and streamline daily operations.
         </p>
-        <p style="color: #1a1a2e; font-size: 1.1rem; line-height: 1.9; margin-top: 15px;">
-            <span style="color: #FF6B35; font-weight: 700;">Version 3.0</span> brings enhanced performance, new features, 
+        <p style="margin-top: 15px;">
+            <span class="highlight">Version 3.0</span> brings enhanced performance, new features, 
             and improved user experience to help your business grow and succeed.
         </p>
     </div>
     """, unsafe_allow_html=True)
     
     # ====================
-    # KEY FEATURES SECTION - ALWAYS VISIBLE WITH CLEAR HEADING
+    # KEY FEATURES SECTION - FIXED: "Key" is now clearly visible in black/dark color
     # ====================
     st.markdown("""
-    <div style="text-align: center; margin: 50px 0 20px 0;">
-        <h2 style="font-size: 2.5rem; font-weight: 800; color: #1a1a2e; margin-bottom: 10px;">
-            ✨ Key <span style="background: linear-gradient(135deg, #FFD700, #FF6B35); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Features</span>
+    <div class="section-heading">
+        <h2>
+            <span style="color: #1a1a2e;">✨ Key</span>
+            <span class="heading-highlight">Features</span>
         </h2>
-        <div style="width: 100px; height: 5px; background: linear-gradient(90deg, #FFD700, #FF6B35); margin: 0 auto 35px auto; border-radius: 3px;"></div>
+        <div class="divider"></div>
     </div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin: 30px 0 40px 0;">
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📦</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Inventory Management</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Track stock levels, manage products, get low stock alerts, and optimize inventory in real-time.</p>
+    <div class="feature-grid">
+        <div class="feature-card">
+            <span class="icon">📦</span>
+            <h4>Inventory Management</h4>
+            <p>Track stock levels, manage products, get low stock alerts, and optimize inventory in real-time.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">💳</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Point of Sale (POS)</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Process sales quickly with barcode scanning, customer management, and seamless checkout.</p>
+        <div class="feature-card">
+            <span class="icon">💳</span>
+            <h4>Point of Sale (POS)</h4>
+            <p>Process sales quickly with barcode scanning, customer management, and seamless checkout.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📊</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Analytics & Reports</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Get deep insights with sales dashboards, profit analysis, and comprehensive business intelligence.</p>
+        <div class="feature-card">
+            <span class="icon">📊</span>
+            <h4>Analytics & Reports</h4>
+            <p>Get deep insights with sales dashboards, profit analysis, and comprehensive business intelligence.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">👥</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Customer Management</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Track customer history, manage loyalty programs, and implement effective retention strategies.</p>
+        <div class="feature-card">
+            <span class="icon">👥</span>
+            <h4>Customer Management</h4>
+            <p>Track customer history, manage loyalty programs, and implement effective retention strategies.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">💰</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Cash & Finance</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Manage income, expenses, purchases, and cash flow with powerful financial tools.</p>
+        <div class="feature-card">
+            <span class="icon">💰</span>
+            <h4>Cash & Finance</h4>
+            <p>Manage income, expenses, purchases, and cash flow with powerful financial tools.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🔐</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Multi-Branch Support</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Manage multiple branches with centralized control, role-based access, and comprehensive reporting.</p>
+        <div class="feature-card">
+            <span class="icon">🔐</span>
+            <h4>Multi-Branch Support</h4>
+            <p>Manage multiple branches with centralized control, role-based access, and comprehensive reporting.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📱</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Mobile Dashboard</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Access your business data and insights from anywhere with mobile-optimized dashboards.</p>
+        <div class="feature-card">
+            <span class="icon">📱</span>
+            <h4>Mobile Dashboard</h4>
+            <p>Access your business data and insights from anywhere with mobile-optimized dashboards.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🔔</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Auto Notifications</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Get real-time alerts for low stock, expiring products, and important business events.</p>
+        <div class="feature-card">
+            <span class="icon">🔔</span>
+            <h4>Auto Notifications</h4>
+            <p>Get real-time alerts for low stock, expiring products, and important business events.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">📄</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Document Generation</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Generate professional invoices, delivery notes, credit notes, purchase orders, and more.</p>
+        <div class="feature-card">
+            <span class="icon">📄</span>
+            <h4>Document Generation</h4>
+            <p>Generate professional invoices, delivery notes, credit notes, purchase orders, and more.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🔮</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Predictive Analytics</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Leverage AI-powered insights for demand forecasting, churn prediction, and business optimization.</p>
+        <div class="feature-card">
+            <span class="icon">🔮</span>
+            <h4>Predictive Analytics</h4>
+            <p>Leverage AI-powered insights for demand forecasting, churn prediction, and business optimization.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🛒</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Smart Replenishment</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Automate stock replenishment with intelligent algorithms that optimize inventory levels.</p>
+        <div class="feature-card">
+            <span class="icon">🛒</span>
+            <h4>Smart Replenishment</h4>
+            <p>Automate stock replenishment with intelligent algorithms that optimize inventory levels.</p>
         </div>
-        <div style="background: white; padding: 30px 25px; border-radius: 18px; text-align: center; box-shadow: 0 2px 15px rgba(0,0,0,0.06); border: 1px solid #f0f0f0; transition: all 0.3s ease; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #FFD700, #FF6B35, #FF1493); transform: scaleX(0); transition: transform 0.3s ease;"></div>
-            <div style="font-size: 3rem; margin-bottom: 18px; display: block;">🤖</div>
-            <h4 style="color: #1a1a2e; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;">Automated Insights</h4>
-            <p style="color: #6B7280; font-size: 0.9rem; line-height: 1.7; margin: 0;">Get automatically generated business insights and recommendations for better decision-making.</p>
+        <div class="feature-card">
+            <span class="icon">🤖</span>
+            <h4>Automated Insights</h4>
+            <p>Get automatically generated business insights and recommendations for better decision-making.</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
