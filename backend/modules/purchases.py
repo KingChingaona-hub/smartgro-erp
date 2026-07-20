@@ -68,7 +68,7 @@ def create_purchase_order(supplier, items, expected_date):
             "status": "PENDING",
             "payment_status": "UNPAID",
             "invoice_no": "",
-            "category": category  # Now using the actual category
+            "category": category
         })
     
     if not po_data:
@@ -142,7 +142,7 @@ def delete_all_purchase_orders():
 
 
 # ==============================
-# RECEIVE PURCHASE ORDER
+# RECEIVE PURCHASE ORDER - FIXED
 # ==============================
 def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
@@ -223,18 +223,25 @@ def receive_purchase_order(po_number, received_items, invoice_no):
             purchases_df.loc[matching_idx, "status"] = "RECEIVED"
             purchases_df.loc[matching_idx, "invoice_no"] = invoice_no
             
-            # Update product stock in inventory
+            # ===== UPDATE PRODUCT STOCK IN INVENTORY =====
+            # Try to find product by barcode first
             product_idx = products_df[products_df["barcode"] == barcode].index
+            
+            # If not found by barcode, try by name
+            if len(product_idx) == 0 and product_name:
+                product_idx = products_df[products_df["name"].str.lower() == product_name.lower()].index
             
             if len(product_idx) > 0:
                 # Product exists - UPDATE existing stock
-                current_stock = float(products_df.loc[product_idx[0], "stock"])
+                current_stock = float(products_df.loc[product_idx[0], "stock"]) if "stock" in products_df.columns else 0
                 new_stock = current_stock + received_qty
                 products_df.loc[product_idx[0], "stock"] = new_stock
                 products_df.loc[product_idx[0], "cost"] = cost_price
-                # Update category if provided and not default
-                if category and category != "New Purchase" and category != "nan":
+                # Update category if provided
+                if category and category != "New Purchase":
                     products_df.loc[product_idx[0], "category"] = category
+                # Update price if needed (selling price = cost * 1.3)
+                products_df.loc[product_idx[0], "price"] = cost_price * 1.3
                 
                 updated_products.append({
                     "name": product_name,
@@ -245,11 +252,11 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "category": category
                 })
             else:
-                # Product doesn't exist - CREATE new product in inventory with category
+                # Product doesn't exist - CREATE new product in inventory
                 new_product = pd.DataFrame([{
                     "barcode": barcode,
                     "name": product_name,
-                    "category": category if category and category != "New Purchase" and category != "nan" else "New Purchase",
+                    "category": category if category and category != "New Purchase" else "New Purchase",
                     "price": cost_price * 1.3,
                     "cost": cost_price,
                     "stock": received_qty,
@@ -261,7 +268,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "name": product_name,
                     "stock": received_qty,
                     "cost": cost_price,
-                    "category": category if category and category != "New Purchase" and category != "nan" else "New Purchase"
+                    "category": category if category and category != "New Purchase" else "New Purchase"
                 })
         else:
             # Item not found in PO - add as new item to the PO
@@ -283,7 +290,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 "status": "RECEIVED",
                 "payment_status": "UNPAID",
                 "invoice_no": invoice_no,
-                "category": category if category and category != "New Purchase" and category != "nan" else "New Purchase"
+                "category": category if category and category != "New Purchase" else "New Purchase"
             }
             
             # Ensure all columns exist
@@ -292,6 +299,27 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     new_row[col] = ""
             
             purchases_df = pd.concat([purchases_df, pd.DataFrame([new_row])], ignore_index=True)
+            
+            # Also create the product in inventory
+            product_idx = products_df[products_df["barcode"] == barcode].index
+            if len(product_idx) == 0:
+                new_product = pd.DataFrame([{
+                    "barcode": barcode,
+                    "name": product_name,
+                    "category": category if category and category != "New Purchase" else "New Purchase",
+                    "price": cost_price * 1.3,
+                    "cost": cost_price,
+                    "stock": received_qty,
+                    "reorder_level": 5
+                }])
+                products_df = pd.concat([products_df, new_product], ignore_index=True)
+                
+                new_products.append({
+                    "name": product_name,
+                    "stock": received_qty,
+                    "cost": cost_price,
+                    "category": category if category and category != "New Purchase" else "New Purchase"
+                })
     
     # Check if all items in PO have been received
     po_items = purchases_df[purchases_df["po_number"] == po_number]
@@ -310,10 +338,13 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "PARTIALLY_RECEIVED"
     
     # Save all changes
-    save_products(products_df)
-    save_purchases(purchases_df)
-    
-    return True, updated_products, new_products
+    try:
+        save_products(products_df)
+        save_purchases(purchases_df)
+        return True, updated_products, new_products
+    except Exception as e:
+        print(f"Error saving: {e}")
+        return False, [], []
 
 
 # ==============================
@@ -539,7 +570,7 @@ def purchases_page():
                                 "quantity": int(po_qty),
                                 "cost": cost_val,
                                 "total": cost_val * int(po_qty),
-                                "category": category_val  # Now using actual category
+                                "category": category_val
                             })
                         
                         st.success(f"Added {po_qty} x {selected_product['name']} to order - Category: {category_val}")
@@ -551,12 +582,11 @@ def purchases_page():
                     st.success("Cart cleared!")
         
         # ==============================
-        # MANUAL ITEM ENTRY - WITH FORM TO PREVENT RERUNS
+        # MANUAL ITEM ENTRY
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
-        # Use a form to prevent reruns on input changes
         with st.form(key="add_manual_form", clear_on_submit=True):
             col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1, 1, 1])
             
@@ -577,17 +607,13 @@ def purchases_page():
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
-                        # Get category from input - preserve exactly as entered
                         category = manual_item_category.strip() if manual_item_category.strip() else "New Purchase"
                         
-                        # Check if item already exists in cart - match by name AND cost
                         existing = False
                         for item in st.session_state.po_cart:
                             if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                                # Update quantity - ADD to existing
                                 item["quantity"] = item["quantity"] + int(manual_item_qty)
                                 item["total"] = item["quantity"] * item["cost"]
-                                # Update category if provided and not "New Purchase"
                                 if category != "New Purchase" and category:
                                     item["category"] = category
                                 existing = True
@@ -601,7 +627,7 @@ def purchases_page():
                                 "quantity": int(manual_item_qty),
                                 "cost": float(manual_item_cost),
                                 "total": float(manual_item_cost) * int(manual_item_qty),
-                                "category": category  # Now using the actual category entered
+                                "category": category
                             })
                             st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
                         else:
@@ -616,7 +642,6 @@ def purchases_page():
         if st.session_state.po_cart:
             po_cart_df = pd.DataFrame(st.session_state.po_cart)
             
-            # Show category column if it exists
             display_cols = ["name", "quantity", "cost", "total"]
             if "category" in po_cart_df.columns:
                 display_cols.insert(1, "category")
