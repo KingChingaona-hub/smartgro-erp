@@ -19,14 +19,14 @@ def welcome_page():
     
     # Get current time for greeting
     current_hour = datetime.now().hour
-    if current_hour < 12:
+    if current_hour < 10:
         greeting = "Good Morning"
-    elif current_hour < 17:
+    elif current_hour < 15:
         greeting = "Good Afternoon"
     else:
         greeting = "Good Evening"
     
-    # Random motivational quote
+    # Random motivational quote - 35+ quotes
     quotes = [
         "Success is not final, failure is not fatal: it is the courage to continue that counts.",
         "The only way to do great work is to love what you do.",
@@ -35,7 +35,39 @@ def welcome_page():
         "It does not matter how slowly you go as long as you do not stop.",
         "The best time to start was yesterday. The next best time is now.",
         "Your limitation—it's only your imagination.",
-        "Push yourself, because no one else is going to do it for you."
+        "Push yourself, because no one else is going to do it for you.",
+        "Great things never come from comfort zones.",
+        "Dream big. Work hard. Stay focused.",
+        "Success starts with self-discipline.",
+        "The secret of getting ahead is getting started.",
+        "Don't watch the clock; do what it does. Keep going.",
+        "The only impossible journey is the one you never begin.",
+        "Believe you can and you're halfway there.",
+        "It's not about being the best. It's about being better than you were yesterday.",
+        "Success is walking from failure to failure with no loss of enthusiasm.",
+        "The harder you work for something, the greater you'll feel when you achieve it.",
+        "Don't be afraid to give up the good to go for the great.",
+        "The way to get started is to quit talking and begin doing.",
+        "Your time is limited, don't waste it living someone else's life.",
+        "If you can dream it, you can achieve it.",
+        "The only limit to our realization of tomorrow is our doubts of today.",
+        "Act as if what you do makes a difference. It does.",
+        "What you get by achieving your goals is not as important as what you become.",
+        "The best revenge is massive success.",
+        "Opportunities don't happen. You create them.",
+        "It always seems impossible until it's done.",
+        "Success is not how high you have climbed, but how you make a positive difference.",
+        "The key to success is to focus on goals, not obstacles.",
+        "You don't have to be extreme, just consistent.",
+        "Small daily improvements over time lead to stunning results.",
+        "Success is the sum of small efforts repeated day in and day out.",
+        "The expert in anything was once a beginner.",
+        "Don't let yesterday take up too much of today.",
+        "It's not whether you get knocked down, it's whether you get up.",
+        "The only way to predict the future is to create it.",
+        "Start where you are. Use what you have. Do what you can.",
+        "The secret to getting ahead is getting started.",
+        "Success usually comes to those who are too busy to be looking for it."
     ]
     quote = random.choice(quotes)
     
@@ -45,7 +77,7 @@ def welcome_page():
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         
         .welcome-container {
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
             font-family: 'Inter', sans-serif;
@@ -53,7 +85,7 @@ def welcome_page():
         
         .welcome-header {
             text-align: center;
-            padding: 40px 30px;
+            padding: 50px 30px;
             background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
             border-radius: 20px;
             margin-bottom: 35px;
@@ -80,7 +112,7 @@ def welcome_page():
         }
         
         .welcome-header h1 {
-            font-size: 3.2rem;
+            font-size: 3.5rem;
             font-weight: 800;
             margin-bottom: 8px;
             background: linear-gradient(135deg, #FFD700 0%, #FF6B35 50%, #FF1493 100%);
@@ -89,6 +121,16 @@ def welcome_page():
             position: relative;
             z-index: 1;
             letter-spacing: -1px;
+        }
+        
+        .welcome-header .version {
+            font-size: 0.9rem;
+            color: #FFD700;
+            position: relative;
+            z-index: 1;
+            margin-top: 5px;
+            font-weight: 600;
+            letter-spacing: 2px;
         }
         
         .welcome-header .subtitle {
@@ -186,10 +228,10 @@ def welcome_page():
         
         .section-title {
             text-align: center;
-            font-size: 2rem;
+            font-size: 2.2rem;
             font-weight: 700;
             color: #1a1a2e;
-            margin: 40px 0 20px 0;
+            margin: 40px 0 25px 0;
             letter-spacing: -0.5px;
         }
         
@@ -199,9 +241,17 @@ def welcome_page():
             -webkit-text-fill-color: transparent;
         }
         
+        .section-divider {
+            width: 80px;
+            height: 4px;
+            background: linear-gradient(90deg, #FFD700, #FF6B35);
+            margin: 0 auto 30px auto;
+            border-radius: 2px;
+        }
+        
         .about-section {
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            padding: 30px;
+            padding: 40px;
             border-radius: 16px;
             margin-bottom: 30px;
             border: 1px solid #e5e7eb;
@@ -319,7 +369,7 @@ def welcome_page():
         
         .footer-content {
             background: white;
-            padding: 25px;
+            padding: 30px;
             border-radius: 16px;
             margin-top: 20px;
             border: 1px solid #e5e7eb;
@@ -396,6 +446,19 @@ def welcome_page():
             border-bottom: 2px solid #FF6B35;
         }
         
+        .version-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #FFD700, #FF6B35);
+            color: white;
+            padding: 4px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-top: 10px;
+            position: relative;
+            z-index: 1;
+        }
+        
         @media (max-width: 768px) {
             .quick-stats {
                 grid-template-columns: repeat(2, 1fr);
@@ -419,6 +482,9 @@ def welcome_page():
             .welcome-footer .footer-links {
                 gap: 15px;
             }
+            .about-section {
+                padding: 25px;
+            }
         }
         
         @media (max-width: 480px) {
@@ -441,6 +507,12 @@ def welcome_page():
                 flex-direction: column;
                 gap: 5px;
             }
+            .about-section {
+                padding: 20px;
+            }
+            .about-section p {
+                font-size: 0.95rem;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
@@ -451,6 +523,7 @@ def welcome_page():
     st.markdown(f"""
     <div class="welcome-header">
         <h1>SmartGro ERP</h1>
+        <div class="version">Version 3.0</div>
         <div class="subtitle">Enterprise Resource Planning</div>
         <div class="greeting">{greeting}, {username}! 👋</div>
         <div class="user-info">
@@ -484,9 +557,12 @@ def welcome_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # About Section (always visible)
+    # ====================
+    # ABOUT SECTION - ALWAYS VISIBLE
+    # ====================
     st.markdown("""
     <div class="section-title">About <span>SmartGro ERP</span></div>
+    <div class="section-divider"></div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
@@ -501,12 +577,19 @@ def welcome_page():
             Built with <span class="highlight">modern technology</span> and a user-centric approach, 
             SmartGro ERP empowers your team to make data-driven decisions and streamline daily operations.
         </p>
+        <p style="margin-top: 10px;">
+            <span class="highlight">Version 3.0</span> brings enhanced performance, new features, 
+            and improved user experience to help your business grow and succeed.
+        </p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Features
+    # ====================
+    # KEY FEATURES SECTION - ALWAYS VISIBLE
+    # ====================
     st.markdown("""
     <div class="section-title">✨ Key <span>Features</span></div>
+    <div class="section-divider"></div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
@@ -514,32 +597,62 @@ def welcome_page():
         <div class="feature-card">
             <span class="icon">📦</span>
             <h4>Inventory Management</h4>
-            <p>Track stock levels, manage products, and get low stock alerts in real-time.</p>
+            <p>Track stock levels, manage products, get low stock alerts, and optimize inventory in real-time.</p>
         </div>
         <div class="feature-card">
             <span class="icon">💳</span>
             <h4>Point of Sale (POS)</h4>
-            <p>Process sales quickly with barcode scanning and customer management.</p>
+            <p>Process sales quickly with barcode scanning, customer management, and seamless checkout.</p>
         </div>
         <div class="feature-card">
             <span class="icon">📊</span>
             <h4>Analytics & Reports</h4>
-            <p>Get insights with sales dashboards, profit analysis, and business intelligence.</p>
+            <p>Get deep insights with sales dashboards, profit analysis, and comprehensive business intelligence.</p>
         </div>
         <div class="feature-card">
             <span class="icon">👥</span>
             <h4>Customer Management</h4>
-            <p>Track customer history, manage loyalty programs, and improve retention.</p>
+            <p>Track customer history, manage loyalty programs, and implement effective retention strategies.</p>
         </div>
         <div class="feature-card">
             <span class="icon">💰</span>
             <h4>Cash & Finance</h4>
-            <p>Manage income, expenses, purchases, and cash flow with ease.</p>
+            <p>Manage income, expenses, purchases, and cash flow with powerful financial tools.</p>
         </div>
         <div class="feature-card">
             <span class="icon">🔐</span>
             <h4>Multi-Branch Support</h4>
-            <p>Manage multiple branches with centralized control and reporting.</p>
+            <p>Manage multiple branches with centralized control, role-based access, and comprehensive reporting.</p>
+        </div>
+        <div class="feature-card">
+            <span class="icon">📱</span>
+            <h4>Mobile Dashboard</h4>
+            <p>Access your business data and insights from anywhere with mobile-optimized dashboards.</p>
+        </div>
+        <div class="feature-card">
+            <span class="icon">🔔</span>
+            <h4>Auto Notifications</h4>
+            <p>Get real-time alerts for low stock, expiring products, and important business events.</p>
+        </div>
+        <div class="feature-card">
+            <span class="icon">📄</span>
+            <h4>Document Generation</h4>
+            <p>Generate professional invoices, delivery notes, credit notes, purchase orders, and more.</p>
+        </div>
+        <div class="feature-card">
+            <span class="icon">🔮</span>
+            <h4>Predictive Analytics</h4>
+            <p>Leverage AI-powered insights for demand forecasting, churn prediction, and business optimization.</p>
+        </div>
+        <div class="feature-card">
+            <span class="icon">🛒</span>
+            <h4>Smart Replenishment</h4>
+            <p>Automate stock replenishment with intelligent algorithms that optimize inventory levels.</p>
+        </div>
+        <div class="feature-card">
+            <span class="icon">🤖</span>
+            <h4>Automated Insights</h4>
+            <p>Get automatically generated business insights and recommendations for better decision-making.</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -548,7 +661,7 @@ def welcome_page():
     st.markdown("""
     <div class="get-started-section">
         <h3>Ready to take control of your business?</h3>
-        <p>Start managing your operations with SmartGro ERP today.</p>
+        <p>Start managing your operations with SmartGro ERP Version 3.0 today.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -602,7 +715,7 @@ def welcome_page():
         """, unsafe_allow_html=True)
     
     st.markdown(f"""
-    <p style="margin-top: 20px;">SmartGro ERP v2.0 • © {datetime.now().year} All Rights Reserved</p>
+    <p style="margin-top: 20px;">SmartGro ERP v3.0 • © {datetime.now().year} All Rights Reserved</p>
     <p style="font-size: 0.7rem; margin-top: 5px;">
         Logged in as: <strong>{username}</strong> • Role: <strong>{role.upper()}</strong> • Branch: <strong>{branch_name}</strong>
     </p>
@@ -631,6 +744,17 @@ def get_footer_content(section):
             <li><strong>Reliability</strong> - Built for businesses that depend on us</li>
             <li><strong>Simplicity</strong> - Easy to use, powerful in execution</li>
             <li><strong>Growth</strong> - Helping businesses scale and succeed</li>
+            <li><strong>Security</strong> - Protecting your data with enterprise-grade security</li>
+        </ul>
+        <br>
+        <p><strong>Version 3.0 Highlights:</strong></p>
+        <ul>
+            <li>🚀 Enhanced performance and faster load times</li>
+            <li>🎨 Improved user interface and experience</li>
+            <li>📊 Advanced analytics and reporting capabilities</li>
+            <li>🤖 AI-powered predictive features</li>
+            <li>📱 Better mobile responsiveness</li>
+            <li>🔒 Enhanced security features</li>
         </ul>
         """,
         
@@ -648,6 +772,21 @@ def get_footer_content(section):
             <li><strong>📱 Mobile Dashboard</strong> - Access your business from anywhere</li>
             <li><strong>🔔 Auto Notifications</strong> - Low stock alerts and important updates</li>
             <li><strong>📄 Document Generation</strong> - Invoices, delivery notes, credit notes, and more</li>
+            <li><strong>🔮 Predictive Analytics</strong> - AI-powered demand forecasting and churn prediction</li>
+            <li><strong>🛒 Smart Replenishment</strong> - Automated inventory optimization</li>
+            <li><strong>🤖 Automated Insights</strong> - Intelligent business recommendations</li>
+            <li><strong>📈 Profit Center Analysis</strong> - Detailed profitability tracking</li>
+            <li><strong>🔔 Anomaly Detection</strong> - Identify unusual patterns and prevent issues</li>
+            <li><strong>📋 Workflow Approvals</strong> - Streamlined approval processes</li>
+        </ul>
+        <br>
+        <p><strong>New in Version 3.0:</strong></p>
+        <ul>
+            <li>⚡ 50% faster performance</li>
+            <li>🎨 Modern, intuitive interface</li>
+            <li>🤖 AI and machine learning capabilities</li>
+            <li>📊 Advanced reporting and dashboards</li>
+            <li>🔒 Enhanced security and data protection</li>
         </ul>
         """,
         
@@ -665,9 +804,17 @@ def get_footer_content(section):
             <li><strong>🎥 Video Tutorials</strong> - Step-by-step guides</li>
             <li><strong>💬 Community Forum</strong> - Connect with other users</li>
             <li><strong>🐛 Bug Report</strong> - Report issues or suggest improvements</li>
+            <li><strong>📝 Knowledge Base</strong> - FAQs and troubleshooting guides</li>
         </ul>
         <br>
-        <p><em>Response time: Within 48 hours for all support requests.</em></p>
+        <p><strong>Response Times:</strong></p>
+        <ul>
+            <li>Critical issues: Within 4 hours</li>
+            <li>Standard issues: Within 24 hours</li>
+            <li>Feature requests: Within 48 hours</li>
+        </ul>
+        <br>
+        <p><em>We're committed to providing the best support experience for our users.</em></p>
         """,
         
         "privacy": """
@@ -680,6 +827,10 @@ def get_footer_content(section):
         <p><strong>Data Access:</strong> Only authorized personnel with specific roles can access data based on their permissions.</p>
         <p><strong>Data Retention:</strong> Data is retained for as long as your account is active and as required by law.</p>
         <p><strong>Your Rights:</strong> You have the right to access, modify, or delete your data at any time.</p>
+        <p><strong>Security Measures:</strong> We use industry-standard encryption, firewalls, and security protocols to protect your data.</p>
+        <br>
+        <p><strong>Cookies:</strong> We use essential cookies to maintain your session and preferences.</p>
+        <p><strong>Third-Party Services:</strong> We use trusted third-party services for hosting, email, and analytics that comply with data protection standards.</p>
         <br>
         <p><em>Last updated: """ + datetime.now().strftime('%B %d, %Y') + """</em></p>
         """,
@@ -696,6 +847,18 @@ def get_footer_content(section):
         <p><strong>6. Termination:</strong> Either party may terminate the service at any time with notice.</p>
         <p><strong>7. Liability:</strong> We are not liable for indirect, incidental, or consequential damages.</p>
         <p><strong>8. Governing Law:</strong> These terms are governed by the laws of Zimbabwe.</p>
+        <p><strong>9. Support:</strong> Support is provided during business hours and is subject to fair use policy.</p>
+        <p><strong>10. Data Protection:</strong> We comply with applicable data protection laws and regulations.</p>
+        <br>
+        <p><strong>User Responsibilities:</strong></p>
+        <ul>
+            <li>Maintain accurate and up-to-date information</li>
+            <li>Use the service in compliance with all applicable laws</li>
+            <li>Not misuse or attempt to harm the service</li>
+            <li>Report any security vulnerabilities promptly</li>
+        </ul>
+        <br>
+        <p><strong>Refund Policy:</strong> Refunds are handled on a case-by-case basis and are subject to review.</p>
         <br>
         <p><em>Last updated: """ + datetime.now().strftime('%B %d, %Y') + """</em></p>
         """
