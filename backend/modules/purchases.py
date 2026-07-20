@@ -47,6 +47,11 @@ def create_purchase_order(supplier, items, expected_date):
         cost = float(item.get("cost", 0))
         quantity = int(item.get("quantity", 1))
         
+        # Get category - ensure it's properly captured
+        category = str(item.get("category", "New Purchase")).strip()
+        if not category or category == "nan" or category == "None":
+            category = "New Purchase"
+        
         # Append each item as a separate row
         po_data.append({
             "po_number": po_number,
@@ -63,7 +68,7 @@ def create_purchase_order(supplier, items, expected_date):
             "status": "PENDING",
             "payment_status": "UNPAID",
             "invoice_no": "",
-            "category": str(item.get("category", "New Purchase"))
+            "category": category  # Now using the actual category
         })
     
     if not po_data:
@@ -184,6 +189,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         received_qty = int(item["received_qty"])
         cost_price = float(item["cost"])
         category = str(item.get("category", "New Purchase")).strip()
+        if not category or category == "nan" or category == "None":
+            category = "New Purchase"
         
         # Find the matching PO item
         matching_idx = None
@@ -225,8 +232,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 new_stock = current_stock + received_qty
                 products_df.loc[product_idx[0], "stock"] = new_stock
                 products_df.loc[product_idx[0], "cost"] = cost_price
-                # Update category if provided
-                if category and category != "New Purchase":
+                # Update category if provided and not default
+                if category and category != "New Purchase" and category != "nan":
                     products_df.loc[product_idx[0], "category"] = category
                 
                 updated_products.append({
@@ -242,7 +249,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 new_product = pd.DataFrame([{
                     "barcode": barcode,
                     "name": product_name,
-                    "category": category if category and category != "New Purchase" else "New Purchase",
+                    "category": category if category and category != "New Purchase" and category != "nan" else "New Purchase",
                     "price": cost_price * 1.3,
                     "cost": cost_price,
                     "stock": received_qty,
@@ -254,7 +261,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "name": product_name,
                     "stock": received_qty,
                     "cost": cost_price,
-                    "category": category if category and category != "New Purchase" else "New Purchase"
+                    "category": category if category and category != "New Purchase" and category != "nan" else "New Purchase"
                 })
         else:
             # Item not found in PO - add as new item to the PO
@@ -276,7 +283,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 "status": "RECEIVED",
                 "payment_status": "UNPAID",
                 "invoice_no": invoice_no,
-                "category": category if category and category != "New Purchase" else "New Purchase"
+                "category": category if category and category != "New Purchase" and category != "nan" else "New Purchase"
             }
             
             # Ensure all columns exist
@@ -521,16 +528,21 @@ def purchases_page():
                         
                         if not existing:
                             cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
+                            # Get category from product
+                            category_val = str(selected_product.get("category", "")).strip()
+                            if not category_val or category_val == "nan" or category_val == "None":
+                                category_val = "New Purchase"
+                            
                             st.session_state.po_cart.append({
                                 "barcode": str(selected_product["barcode"]),
                                 "name": str(selected_product["name"]),
                                 "quantity": int(po_qty),
                                 "cost": cost_val,
                                 "total": cost_val * int(po_qty),
-                                "category": str(selected_product.get("category", "New Purchase"))
+                                "category": category_val  # Now using actual category
                             })
                         
-                        st.success(f"Added {po_qty} x {selected_product['name']} to order")
+                        st.success(f"Added {po_qty} x {selected_product['name']} to order - Category: {category_val}")
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
@@ -565,6 +577,7 @@ def purchases_page():
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
+                        # Get category from input - preserve exactly as entered
                         category = manual_item_category.strip() if manual_item_category.strip() else "New Purchase"
                         
                         # Check if item already exists in cart - match by name AND cost
@@ -574,8 +587,8 @@ def purchases_page():
                                 # Update quantity - ADD to existing
                                 item["quantity"] = item["quantity"] + int(manual_item_qty)
                                 item["total"] = item["quantity"] * item["cost"]
-                                # Update category if provided
-                                if category != "New Purchase":
+                                # Update category if provided and not "New Purchase"
+                                if category != "New Purchase" and category:
                                     item["category"] = category
                                 existing = True
                                 break
@@ -588,7 +601,7 @@ def purchases_page():
                                 "quantity": int(manual_item_qty),
                                 "cost": float(manual_item_cost),
                                 "total": float(manual_item_cost) * int(manual_item_qty),
-                                "category": category
+                                "category": category  # Now using the actual category entered
                             })
                             st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
                         else:
