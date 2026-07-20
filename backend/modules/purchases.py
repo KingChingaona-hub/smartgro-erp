@@ -47,9 +47,9 @@ def create_purchase_order(supplier, items, expected_date):
         cost = float(item.get("cost", 0))
         quantity = int(item.get("quantity", 1))
         
-        # Get category - ensure it's properly captured
+        # Get category - preserve exactly what was entered
         category = str(item.get("category", "New Purchase")).strip()
-        if not category or category == "nan" or category == "None":
+        if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
         
         # Append each item as a separate row
@@ -142,7 +142,7 @@ def delete_all_purchase_orders():
 
 
 # ==============================
-# RECEIVE PURCHASE ORDER - FIXED
+# RECEIVE PURCHASE ORDER
 # ==============================
 def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
@@ -223,13 +223,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
             purchases_df.loc[matching_idx, "status"] = "RECEIVED"
             purchases_df.loc[matching_idx, "invoice_no"] = invoice_no
             
-            # ===== UPDATE PRODUCT STOCK IN INVENTORY =====
-            # Try to find product by barcode first
+            # Update product stock in inventory
             product_idx = products_df[products_df["barcode"] == barcode].index
-            
-            # If not found by barcode, try by name
-            if len(product_idx) == 0 and product_name:
-                product_idx = products_df[products_df["name"].str.lower() == product_name.lower()].index
             
             if len(product_idx) > 0:
                 # Product exists - UPDATE existing stock
@@ -237,10 +232,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 new_stock = current_stock + received_qty
                 products_df.loc[product_idx[0], "stock"] = new_stock
                 products_df.loc[product_idx[0], "cost"] = cost_price
-                # Update category if provided
                 if category and category != "New Purchase":
                     products_df.loc[product_idx[0], "category"] = category
-                # Update price if needed (selling price = cost * 1.3)
                 products_df.loc[product_idx[0], "price"] = cost_price * 1.3
                 
                 updated_products.append({
@@ -293,14 +286,12 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                 "category": category if category and category != "New Purchase" else "New Purchase"
             }
             
-            # Ensure all columns exist
             for col in purchases_df.columns:
                 if col not in new_row:
                     new_row[col] = ""
             
             purchases_df = pd.concat([purchases_df, pd.DataFrame([new_row])], ignore_index=True)
             
-            # Also create the product in inventory
             product_idx = products_df[products_df["barcode"] == barcode].index
             if len(product_idx) == 0:
                 new_product = pd.DataFrame([{
@@ -559,9 +550,8 @@ def purchases_page():
                         
                         if not existing:
                             cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
-                            # Get category from product
                             category_val = str(selected_product.get("category", "")).strip()
-                            if not category_val or category_val == "nan" or category_val == "None":
+                            if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
                                 category_val = "New Purchase"
                             
                             st.session_state.po_cart.append({
@@ -573,7 +563,7 @@ def purchases_page():
                                 "category": category_val
                             })
                         
-                        st.success(f"Added {po_qty} x {selected_product['name']} to order - Category: {category_val}")
+                        st.success(f"Added {po_qty} x {selected_product['name']} to order")
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
@@ -582,7 +572,7 @@ def purchases_page():
                     st.success("Cart cleared!")
         
         # ==============================
-        # MANUAL ITEM ENTRY
+        # MANUAL ITEM ENTRY - FIXED
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
@@ -607,6 +597,7 @@ def purchases_page():
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
+                        # Get category - preserve exactly what user typed
                         category = manual_item_category.strip() if manual_item_category.strip() else "New Purchase"
                         
                         existing = False
@@ -614,6 +605,7 @@ def purchases_page():
                             if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
                                 item["quantity"] = item["quantity"] + int(manual_item_qty)
                                 item["total"] = item["quantity"] * item["cost"]
+                                # Update category if user provided one
                                 if category != "New Purchase" and category:
                                     item["category"] = category
                                 existing = True
@@ -627,7 +619,7 @@ def purchases_page():
                                 "quantity": int(manual_item_qty),
                                 "cost": float(manual_item_cost),
                                 "total": float(manual_item_cost) * int(manual_item_qty),
-                                "category": category
+                                "category": category  # This now preserves the exact input
                             })
                             st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
                         else:
