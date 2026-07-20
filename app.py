@@ -11,7 +11,7 @@ def safe_execute(func, *args, **kwargs):
         return func(*args, **kwargs)
     except Exception as e:
         error_msg = f"Error in {func.__name__}: {str(e)}"
-        st.error(f"❌ {error_msg}")
+        st.error(f"{error_msg}")
         print(f"ERROR: {error_msg}")
         print(traceback.format_exc())
         return None
@@ -236,7 +236,7 @@ st.markdown("""
     });
     
     let lastActivity = Date.now();
-    const TIMEOUT = 30 * 60 * 1000;
+    const TIMEOUT = 120 * 60 * 1000;
     
     function updateActivity() {
         lastActivity = Date.now();
@@ -838,7 +838,7 @@ def main_app():
         st.session_state.last_activity = datetime.now()
     
     idle_time = (datetime.now() - st.session_state.last_activity).seconds
-    if idle_time > 3600:
+    if idle_time > 7200:
         try:
             keys_to_keep = ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
                             "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme", "welcome_seen"]
