@@ -47,8 +47,11 @@ def create_purchase_order(supplier, items, expected_date):
         cost = float(item.get("cost", 0))
         quantity = int(item.get("quantity", 1))
         
-        # Get category - preserve exactly what was entered
-        category = str(item.get("category", "New Purchase")).strip()
+        # Get category - preserve exactly what the user entered
+        # If user entered a category, use it. Only fallback to "New Purchase" if truly empty
+        category = str(item.get("category", "")).strip()
+        
+        # Only set to "New Purchase" if the user didn't provide any category
         if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
         
@@ -68,7 +71,7 @@ def create_purchase_order(supplier, items, expected_date):
             "status": "PENDING",
             "payment_status": "UNPAID",
             "invoice_no": "",
-            "category": category
+            "category": category  # This will be the user's input, not "New Purchase"
         })
     
     if not po_data:
@@ -76,8 +79,6 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_df = pd.DataFrame(po_data)
     return po_number, po_df, None
-
-
 # ==============================
 # DELETE PURCHASE ORDER
 # ==============================
