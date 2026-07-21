@@ -844,7 +844,7 @@ Contact: +263 78 290 5853
                                 - Total Value: ${po_total:,.2f}
                                 - Expected Date: {expected_date}
                                 """)
-                                st.rerun()
+                                #st.rerun()
                             else:
                                 st.error("Failed to save purchase order.")
         elif st.session_state.show_preview:
@@ -1024,7 +1024,7 @@ Contact: +263 78 290 5853
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f} - Category: {p.get('category', 'New Purchase')}")
                                         
-                                        st.rerun()
+                                        #st.rerun()
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
