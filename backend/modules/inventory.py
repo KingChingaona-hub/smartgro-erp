@@ -126,7 +126,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # UPDATE PRODUCT
+    # UPDATE PRODUCT - FIXED
     # ==============================
     st.markdown("## Update Product")
     
@@ -137,11 +137,14 @@ def inventory_page():
         if selected_product:
             product_data = df[df["name"] == selected_product].iloc[0]
             
+            # Get the index of the selected product
+            product_index = df[df["name"] == selected_product].index[0]
+            
             with st.form("update_product_form", clear_on_submit=False):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    update_barcode = st.text_input("Barcode", value=product_data["barcode"], key="update_barcode")
+                    update_barcode = st.text_input("Barcode", value=str(product_data["barcode"]), key="update_barcode")
                     update_name = st.text_input("Product Name", value=product_data["name"], key="update_name")
                     update_category = st.text_input("Category", value=product_data.get("category", ""), key="update_category")
                     update_price = st.number_input("Price ($)", value=float(product_data["price"]), step=0.5, key="update_price")
@@ -151,28 +154,28 @@ def inventory_page():
                     update_stock = st.number_input("Stock", value=int(product_data["stock"]), step=1, key="update_stock")
                     update_reorder = st.number_input("Reorder Level", value=int(product_data["reorder_level"]), step=1, key="update_reorder")
                 
-                col_btn1, col_btn2 = st.columns(2)
+                # Save button inside the form
+                save_changes = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
                 
-                with col_btn1:
-                    if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
-                        idx = df[df["name"] == selected_product].index[0]
+                if save_changes:
+                    try:
+                        # Update the DataFrame using the stored index
+                        df.at[product_index, "barcode"] = update_barcode.strip()
+                        df.at[product_index, "name"] = update_name
+                        df.at[product_index, "category"] = update_category if update_category else "Uncategorized"
+                        df.at[product_index, "price"] = update_price
+                        df.at[product_index, "cost"] = update_cost
+                        df.at[product_index, "stock"] = update_stock
+                        df.at[product_index, "reorder_level"] = update_reorder
                         
-                        df.at[idx, "barcode"] = update_barcode.strip()
-                        df.at[idx, "name"] = update_name
-                        df.at[idx, "category"] = update_category if update_category else "Uncategorized"
-                        df.at[idx, "price"] = update_price
-                        df.at[idx, "cost"] = update_cost
-                        df.at[idx, "stock"] = update_stock
-                        df.at[idx, "reorder_level"] = update_reorder
-                        
+                        # Save to database
                         if save_products(df):
                             st.success(f"Product '{update_name}' updated successfully!")
-                            st.rerun()
+                            # st.rerun() - REMOVED to prevent constant reloading
                         else:
-                            st.error("Failed to update product.")
-                
-                with col_btn2:
-                    pass
+                            st.error("Failed to save product changes. Please try again.")
+                    except Exception as e:
+                        st.error(f"Error updating product: {str(e)}")
             
             # Delete section outside the form
             st.markdown("### Delete Product")
@@ -188,7 +191,7 @@ def inventory_page():
                     # Save to database
                     if save_products(df):
                         st.success(f"Product '{selected_product}' deleted successfully!")
-                        st.rerun()
+                        # st.rerun() - REMOVED to prevent constant reloading
                     else:
                         st.error("Failed to delete product. Please try again.")
                 else:
@@ -242,7 +245,7 @@ def inventory_page():
                             # Save empty DataFrame to delete all products
                             if save_products(empty_df):
                                 st.success(f"Successfully deleted ALL {product_count} products!")
-                                st.rerun()
+                                # st.rerun() - REMOVED to prevent constant reloading
                             else:
                                 st.error("Failed to delete products. Please try again.")
                     else:
@@ -254,8 +257,15 @@ def inventory_page():
     # REFRESH BUTTON
     # ==============================
     st.markdown("---")
-    #st.caption("After adding/updating/deleting, the page will refresh automatically.")
+    st.caption("Click the button below to refresh the inventory list and see latest changes.")
     
-    if st.button("Manual Refresh", use_container_width=True):
+    if st.button("Refresh Inventory", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+
+
+# ==============================
+# MAIN GUARD
+# ==============================
+if __name__ == "__main__":
+    inventory_page()
