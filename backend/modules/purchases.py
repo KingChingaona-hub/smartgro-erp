@@ -574,7 +574,7 @@ def purchases_page():
                     st.success("Cart cleared!")
         
         # ==============================
-        # MANUAL ITEM ENTRY
+        # MANUAL ITEM ENTRY - FIXED
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
@@ -599,7 +599,7 @@ def purchases_page():
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
-                        # Get category exactly as typed by the user
+                        # CRITICAL: Get category exactly as typed by the user
                         category_input = manual_item_category.strip()
                         
                         # Only use "New Purchase" if user left it completely empty
@@ -613,6 +613,7 @@ def purchases_page():
                             if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
                                 item["quantity"] = item["quantity"] + int(manual_item_qty)
                                 item["total"] = item["quantity"] * item["cost"]
+                                # Update category if user provided one
                                 if category != "New Purchase":
                                     item["category"] = category
                                 existing = True
@@ -717,7 +718,7 @@ def purchases_page():
                 if st.button("Edit Order", use_container_width=True):
                     st.session_state.show_preview = False
                     st.session_state.preview_data = None
-                    # st.rerun() - REMOVED to prevent constant reloading
+                    st.rerun()
             
             with col2:
                 if st.button("Confirm and Create PO", type="primary", use_container_width=True):
@@ -788,7 +789,7 @@ Contact: +263 78 290 5853
                                 use_container_width=True
                             )
                             
-                            # st.rerun() - REMOVED to prevent constant reloading
+                            st.rerun()
                         else:
                             st.error("Failed to save purchase order. Please try again.")
         
@@ -843,7 +844,7 @@ Contact: +263 78 290 5853
                                 - Total Value: ${po_total:,.2f}
                                 - Expected Date: {expected_date}
                                 """)
-                                # st.rerun() - REMOVED to prevent constant reloading
+                                st.rerun()
                             else:
                                 st.error("Failed to save purchase order.")
         elif st.session_state.show_preview:
@@ -920,7 +921,7 @@ Contact: +263 78 290 5853
                                         st.session_state.po_deleted = True
                                         st.session_state.deleted_po_number = selected_po
                                         st.success(message)
-                                        # st.rerun() - REMOVED
+                                        st.rerun()
                                     else:
                                         st.error(message)
                                 elif delete_button and not confirm_delete:
@@ -937,7 +938,7 @@ Contact: +263 78 290 5853
                                             st.session_state.po_deleted = True
                                             st.session_state.deleted_po_number = "ALL"
                                             st.success(message)
-                                            # st.rerun() - REMOVED
+                                            st.rerun()
                                         else:
                                             st.error(message)
                                     else:
@@ -1023,7 +1024,7 @@ Contact: +263 78 290 5853
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f} - Category: {p.get('category', 'New Purchase')}")
                                         
-                                        # st.rerun() - REMOVED
+                                        st.rerun()
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
