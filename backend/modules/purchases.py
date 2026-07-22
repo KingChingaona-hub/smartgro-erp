@@ -23,6 +23,30 @@ def generate_po_number():
 
 
 # ==============================
+# HELPER: CHECK IF PRODUCT SUPPORTS DECIMAL
+# ==============================
+def supports_decimal(product_name, category=""):
+    """Check if a product supports decimal quantities"""
+    if not product_name:
+        return False
+    
+    name_lower = str(product_name).lower()
+    category_lower = str(category).lower()
+    
+    decimal_keywords = [
+        "gas", "kg", "bread", "loaf", "flour", "sugar", 
+        "rice", "maize meal", "cooking oil", "milk", 
+        "liquid", "weight", "kg"
+    ]
+    
+    for keyword in decimal_keywords:
+        if keyword in name_lower or keyword in category_lower:
+            return True
+    
+    return False
+
+
+# ==============================
 # CREATE PURCHASE ORDER
 # ==============================
 def create_purchase_order(supplier, items, expected_date):
@@ -45,7 +69,7 @@ def create_purchase_order(supplier, items, expected_date):
             continue
         
         cost = float(item.get("cost", 0))
-        quantity = int(item.get("quantity", 1))
+        quantity = float(item.get("quantity", 1))  # Allow decimal quantities
         
         # Get category - preserve exactly what the user entered
         category = str(item.get("category", "")).strip()
@@ -188,7 +212,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         
         barcode = str(item.get("barcode", "")).strip()
         product_name = str(item.get("name", "")).strip()
-        received_qty = int(item["received_qty"])
+        received_qty = float(item["received_qty"])  # Allow decimal
         cost_price = float(item["cost"])
         category = str(item.get("category", "New Purchase")).strip()
         if not category or category == "nan" or category == "None":
@@ -318,8 +342,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
     po_items = purchases_df[purchases_df["po_number"] == po_number]
     all_received = True
     for idx in po_items.index:
-        qty_ordered = int(po_items.loc[idx].get("quantity_ordered", 0))
-        qty_received = int(po_items.loc[idx].get("quantity_received", 0))
+        qty_ordered = float(po_items.loc[idx].get("quantity_ordered", 0))
+        qty_received = float(po_items.loc[idx].get("quantity_received", 0))
         if qty_received < qty_ordered:
             all_received = False
             break
@@ -531,8 +555,30 @@ def purchases_page():
             
             with col2:
                 if selected_product is not None:
-                    po_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="po_qty")
-                    st.caption(f"Current stock: {selected_product['stock']}")
+                    # Check if product supports decimal quantities
+                    is_decimal = supports_decimal(selected_product["name"], selected_product.get("category", ""))
+                    
+                    # Quantity input with decimal support
+                    if is_decimal:
+                        po_qty = st.number_input(
+                            "Quantity", 
+                            min_value=0.0, 
+                            value=1.0, 
+                            step=0.5, 
+                            format="%.2f", 
+                            key="po_qty"
+                        )
+                        st.caption("🔢 Decimal quantities supported (e.g., 0.5, 1.5)")
+                    else:
+                        po_qty = st.number_input(
+                            "Quantity", 
+                            min_value=1, 
+                            value=1, 
+                            step=1, 
+                            key="po_qty"
+                        )
+                    
+                    st.caption(f"Current stock: {selected_product['stock']:.2f}")
                     st.caption(f"Cost: ${selected_product['cost']:.2f}")
                 else:
                     po_qty = 1
@@ -545,7 +591,11 @@ def purchases_page():
                         barcode_str = str(selected_product["barcode"])
                         for item in st.session_state.po_cart:
                             if str(item["barcode"]) == barcode_str:
-                                item["quantity"] = item["quantity"] + po_qty
+                                # Handle decimal quantities
+                                if isinstance(po_qty, float):
+                                    item["quantity"] = float(item["quantity"]) + po_qty
+                                else:
+                                    item["quantity"] = int(item["quantity"]) + int(po_qty)
                                 item["total"] = item["quantity"] * item["cost"]
                                 existing = True
                                 break
@@ -556,16 +606,25 @@ def purchases_page():
                             if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
                                 category_val = "New Purchase"
                             
+                            # Store quantity as float to support decimals
+                            if isinstance(po_qty, float):
+                                quantity_val = float(po_qty)
+                            else:
+                                quantity_val = int(po_qty)
+                            
                             st.session_state.po_cart.append({
                                 "barcode": str(selected_product["barcode"]),
                                 "name": str(selected_product["name"]),
-                                "quantity": int(po_qty),
+                                "quantity": quantity_val,
                                 "cost": cost_val,
-                                "total": cost_val * int(po_qty),
+                                "total": cost_val * quantity_val,
                                 "category": category_val
                             })
                         
-                        st.success(f"Added {po_qty} x {selected_product['name']} to order")
+                        if isinstance(po_qty, float) and po_qty % 1 != 0:
+                            st.success(f"Added {po_qty:.2f} x {selected_product['name']} to order")
+                        else:
+                            st.success(f"Added {int(po_qty)} x {selected_product['name']} to order")
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
@@ -574,7 +633,7 @@ def purchases_page():
                     st.success("Cart cleared!")
         
         # ==============================
-        # MANUAL ITEM ENTRY - FIXED
+        # MANUAL ITEM ENTRY - WITH DECIMAL SUPPORT
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
@@ -592,17 +651,36 @@ def purchases_page():
                 manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=0.01, step=5.0, key="manual_item_cost")
             
             with col4:
-                manual_item_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
+                # Check if manual item name suggests decimal support
+                is_decimal_manual = supports_decimal(manual_item_name, manual_item_category)
+                
+                if is_decimal_manual:
+                    manual_item_qty = st.number_input(
+                        "Quantity", 
+                        min_value=0.0, 
+                        value=1.0, 
+                        step=0.5, 
+                        format="%.2f", 
+                        key="manual_item_qty"
+                    )
+                    st.caption("🔢 Decimal quantities supported for this product")
+                else:
+                    manual_item_qty = st.number_input(
+                        "Quantity", 
+                        min_value=1, 
+                        value=1, 
+                        step=1, 
+                        key="manual_item_qty"
+                    )
             
             with col5:
                 add_manual_button = st.form_submit_button("Add Item", use_container_width=True)
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
-                        # CRITICAL: Get category exactly as typed by the user
+                        # Get category exactly as typed
                         category_input = manual_item_category.strip()
                         
-                        # Only use "New Purchase" if user left it completely empty
                         if category_input:
                             category = category_input
                         else:
@@ -611,9 +689,12 @@ def purchases_page():
                         existing = False
                         for item in st.session_state.po_cart:
                             if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                                item["quantity"] = item["quantity"] + int(manual_item_qty)
+                                # Add to existing quantity
+                                if isinstance(manual_item_qty, float):
+                                    item["quantity"] = float(item["quantity"]) + manual_item_qty
+                                else:
+                                    item["quantity"] = int(item["quantity"]) + int(manual_item_qty)
                                 item["total"] = item["quantity"] * item["cost"]
-                                # Update category if user provided one
                                 if category != "New Purchase":
                                     item["category"] = category
                                 existing = True
@@ -621,17 +702,27 @@ def purchases_page():
                         
                         if not existing:
                             unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+                            # Store quantity as float to support decimals
+                            if isinstance(manual_item_qty, float):
+                                qty_val = float(manual_item_qty)
+                            else:
+                                qty_val = int(manual_item_qty)
+                            
                             st.session_state.po_cart.append({
                                 "barcode": unique_barcode,
                                 "name": str(manual_item_name).strip(),
-                                "quantity": int(manual_item_qty),
+                                "quantity": qty_val,
                                 "cost": float(manual_item_cost),
-                                "total": float(manual_item_cost) * int(manual_item_qty),
+                                "total": float(manual_item_cost) * qty_val,
                                 "category": category
                             })
-                            st.success(f"Added {manual_item_qty} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
+                            
+                            if isinstance(manual_item_qty, float) and manual_item_qty % 1 != 0:
+                                st.success(f"Added {manual_item_qty:.2f} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
+                            else:
+                                st.success(f"Added {int(manual_item_qty)} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
                         else:
-                            st.success(f"Updated {manual_item_name} quantity to {item['quantity']}")
+                            st.success(f"Updated {manual_item_name} quantity")
                     else:
                         st.error("Please enter an item name")
         
@@ -651,6 +742,7 @@ def purchases_page():
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "quantity": st.column_config.NumberColumn("Quantity", format="%.2f"),
                     "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
                     "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
                 }
@@ -705,6 +797,7 @@ def purchases_page():
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "quantity": st.column_config.NumberColumn("Quantity", format="%.2f"),
                     "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
                     "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
                 }
@@ -765,7 +858,12 @@ ITEMS ORDERED
 """
                             for _, item in preview['po_cart_df'].iterrows():
                                 category_info = f" - Category: {item.get('category', 'New Purchase')}" if item.get('category') else ""
-                                po_text += f"{item['name']}{category_info:<30} {item['quantity']:>5} x ${item['cost']:.2f} = ${item['total']:.2f}\n"
+                                qty = item.get('quantity', 0)
+                                if isinstance(qty, float) and qty % 1 != 0:
+                                    qty_str = f"{qty:.2f}"
+                                else:
+                                    qty_str = f"{int(qty)}"
+                                po_text += f"{item['name']}{category_info:<30} {qty_str:>5} x ${item['cost']:.2f} = ${item['total']:.2f}\n"
                             
                             po_text += f"""
 {'─'*40}
@@ -893,13 +991,23 @@ Contact: +263 78 290 5853
                         
                         if "quantity_received" in items_df.columns:
                             items_df["received_status"] = items_df.apply(
-                                lambda row: "Received" if row["quantity_received"] >= row["quantity_ordered"] 
+                                lambda row: "Received" if float(row["quantity_received"]) >= float(row["quantity_ordered"]) 
                                 else f"{row['quantity_received']}/{row['quantity_ordered']} received",
                                 axis=1
                             )
                             display_cols = ["product_name", "quantity_ordered", "received_status", "cost_price", "total_cost"]
                         
-                        st.dataframe(items_df[display_cols], use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            items_df[display_cols], 
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "quantity_ordered": st.column_config.NumberColumn("Ordered", format="%.2f"),
+                                "quantity_received": st.column_config.NumberColumn("Received", format="%.2f"),
+                                "cost_price": st.column_config.NumberColumn("Cost", format="$%.2f"),
+                                "total_cost": st.column_config.NumberColumn("Total", format="$%.2f")
+                            }
+                        )
                         
                         po_total = po_details['total_value']
                         st.info(f"PO Total: ${po_total:,.2f}")
@@ -960,27 +1068,31 @@ Contact: +263 78 290 5853
                             col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
                             with col1:
                                 product_name = item.get("product_name", "Unknown")
-                                qty_ordered = item.get("quantity_ordered", 0)
-                                qty_received = item.get("quantity_received", 0)
+                                qty_ordered = float(item.get("quantity_ordered", 0))
+                                qty_received = float(item.get("quantity_received", 0))
                                 remaining = qty_ordered - qty_received
                                 category = item.get("category", "New Purchase")
                                 st.write(f"**{product_name}**")
-                                st.caption(f"Category: {category} | Ordered: {qty_ordered} | Received: {qty_received} | Remaining: {remaining}")
+                                st.caption(f"Category: {category} | Ordered: {qty_ordered:.2f} | Received: {qty_received:.2f} | Remaining: {remaining:.2f}")
+                            
                             with col2:
                                 barcode_val = str(item.get("barcode", f"item_{idx}"))
-                                max_qty = int(remaining)
+                                # Allow decimal received quantity
                                 received_qty = st.number_input(
                                     "Qty Received",
-                                    min_value=0,
-                                    max_value=max_qty,
-                                    value=max_qty,
+                                    min_value=0.0,
+                                    max_value=float(remaining),
+                                    value=float(remaining),
+                                    step=0.5,
+                                    format="%.2f",
                                     key=f"rec_qty_{barcode_val}_{idx}",
-                                    step=1,
                                     label_visibility="collapsed"
                                 )
+                            
                             with col3:
                                 cost_price = item.get("cost_price", 0)
                                 st.write(f"Cost: ${cost_price:.2f}")
+                            
                             with col4:
                                 item_total = received_qty * cost_price
                                 total_received_value += item_total
@@ -988,7 +1100,7 @@ Contact: +263 78 290 5853
                             
                             received_items.append({
                                 "barcode": str(item.get("barcode", "")),
-                                "received_qty": received_qty,
+                                "received_qty": float(received_qty),
                                 "cost": float(cost_price),
                                 "name": product_name,
                                 "category": category
@@ -1015,14 +1127,14 @@ Contact: +263 78 290 5853
                                         if updated_products:
                                             st.success(f"Stock updated for {len(updated_products)} existing products!")
                                             for p in updated_products[:5]:
-                                                st.write(f"   - {p['name']}: {p['old_stock']} -> {p['new_stock']} (+{p['added']}) - Category: {p.get('category', 'New Purchase')}")
+                                                st.write(f"   - {p['name']}: {p['old_stock']:.2f} -> {p['new_stock']:.2f} (+{p['added']:.2f}) - Category: {p.get('category', 'New Purchase')}")
                                             if len(updated_products) > 5:
                                                 st.write(f"   ... and {len(updated_products) - 5} more")
                                         
                                         if new_products:
                                             st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
-                                                st.write(f"   - {p['name']}: Added {p['stock']} units at ${p['cost']:.2f} - Category: {p.get('category', 'New Purchase')}")
+                                                st.write(f"   - {p['name']}: Added {p['stock']:.2f} units at ${p['cost']:.2f} - Category: {p.get('category', 'New Purchase')}")
                                         
                                         #st.rerun()
                         
@@ -1055,7 +1167,17 @@ Contact: +263 78 290 5853
             st.markdown("---")
             
             st.markdown("### Supplier Performance Metrics")
-            st.dataframe(supplier_perf, use_container_width=True, hide_index=True)
+            st.dataframe(
+                supplier_perf, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "Units Ordered": st.column_config.NumberColumn("Units Ordered", format="%.2f"),
+                    "Units Received": st.column_config.NumberColumn("Units Received", format="%.2f"),
+                    "Total Spent": st.column_config.NumberColumn("Total Spent", format="$%.2f"),
+                    "Fulfillment Rate": st.column_config.NumberColumn("Fulfillment Rate", format="%.1f%%")
+                }
+            )
             
             low_fulfillment = supplier_perf[supplier_perf["Fulfillment Rate"] < 80]
             if not low_fulfillment.empty:
@@ -1099,7 +1221,7 @@ Contact: +263 78 290 5853
             with col1:
                 st.metric("Total Purchases", f"${total_purchases:,.2f}")
             with col2:
-                st.metric("Total Items Ordered", f"{int(total_items):,}")
+                st.metric("Total Items Ordered", f"{total_items:.2f}")
             with col3:
                 unique_pos = purchases_df["po_number"].nunique() if "po_number" in purchases_df.columns else len(purchases_df)
                 st.metric("Orders", unique_pos)
@@ -1120,6 +1242,7 @@ Contact: +263 78 290 5853
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "quantity_ordered": st.column_config.NumberColumn("Total Qty", format="%.2f"),
                     "total_cost": st.column_config.NumberColumn("Total ($)", format="$%.2f")
                 }
             )
@@ -1133,7 +1256,17 @@ Contact: +263 78 290 5853
                 if "date_ordered" in purchases_df.columns:
                     purchases_df = purchases_df.sort_values("date_ordered", ascending=False)
                 
-                st.dataframe(purchases_df[available_cols].head(100), use_container_width=True, hide_index=True)
+                st.dataframe(
+                    purchases_df[available_cols].head(100), 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "quantity_ordered": st.column_config.NumberColumn("Ordered", format="%.2f"),
+                        "quantity_received": st.column_config.NumberColumn("Received", format="%.2f"),
+                        "cost_price": st.column_config.NumberColumn("Unit Cost", format="$%.2f"),
+                        "total_cost": st.column_config.NumberColumn("Total", format="$%.2f")
+                    }
+                )
             
             csv = purchases_df.to_csv(index=False).encode("utf-8")
             st.download_button(

@@ -29,7 +29,7 @@ def generate_receipt(
     change=0,
     final_total=0
 ):
-    """Generate professional receipt with proper alignment"""
+    """Generate professional receipt with proper alignment and decimal support"""
     
     receipt = []
     
@@ -55,17 +55,22 @@ def generate_receipt(
     receipt.append("-" * 48)
     
     # ==============================
-    # ITEMS SECTION (Proper alignment)
+    # ITEMS SECTION (Proper alignment with decimal support)
     # ==============================
     for item in cart:
         name = item['name'][:28]  # Truncate long names
-        qty = int(item['qty'])
+        qty = float(item['qty'])  # Support decimal quantities
         price = float(item['price'])
         total = float(item['total'])
         
+        # Format quantity with 2 decimal places if it's a decimal
+        if qty % 1 == 0:
+            qty_str = f"{int(qty):<4}"
+        else:
+            qty_str = f"{qty:<4.2f}"
+        
         # Format with proper spacing
-        # Column widths: QTY(4) + ITEM(28) + PRICE(8) + TOTAL(8) = 48
-        receipt.append(f"{qty:<4} {name:<28} ${price:>7.2f} ${total:>7.2f}")
+        receipt.append(f"{qty_str} {name:<28} ${price:>7.2f} ${total:>7.2f}")
     
     receipt.append("-" * 48)
     
@@ -121,7 +126,7 @@ def generate_premium_receipt(
     loyalty_points_earned=0,
     loyalty_points_used=0
 ):
-    """Generate premium receipt with loyalty and branding"""
+    """Generate premium receipt with loyalty, branding, and decimal support"""
     
     receipt = []
     
@@ -148,7 +153,7 @@ def generate_premium_receipt(
     receipt.append("╠════════════════════════════════════════════════════╣")
     
     # ==============================
-    # ITEMS TABLE
+    # ITEMS TABLE WITH DECIMAL SUPPORT
     # ==============================
     receipt.append("║                                                    ║")
     receipt.append("║  QTY  ITEM                     PRICE      TOTAL   ║")
@@ -156,11 +161,17 @@ def generate_premium_receipt(
     
     for item in cart:
         name = item['name'][:24]
-        qty = int(item['qty'])
+        qty = float(item['qty'])  # Support decimal quantities
         price = float(item['price'])
         total = float(item['total'])
         
-        receipt.append(f"║  {qty:<3}  {name:<24} ${price:>6.2f}   ${total:>7.2f} ║")
+        # Format quantity with 2 decimal places if it's a decimal
+        if qty % 1 == 0:
+            qty_str = f"{int(qty):<3}"
+        else:
+            qty_str = f"{qty:<5.2f}"
+        
+        receipt.append(f"║  {qty_str} {name:<24} ${price:>6.2f}   ${total:>7.2f} ║")
     
     receipt.append("║  ──────────────────────────────────────────────── ║")
     
@@ -229,7 +240,7 @@ def generate_thermal_receipt(
     customer_name="Walk-in",
     final_total=0
 ):
-    """Generate receipt optimized for 58mm thermal printers"""
+    """Generate receipt optimized for 58mm thermal printers with decimal support"""
     
     receipt = []
     
@@ -244,14 +255,21 @@ def generate_thermal_receipt(
     receipt.append(f" Customer: {customer_name[:20]}")
     receipt.append("-" * 32)
     
-    # Items
+    # Items with decimal support
     receipt.append(" QTY ITEM          PRICE")
     for item in cart:
         name = item['name'][:12]
-        qty = int(item['qty'])
+        qty = float(item['qty'])  # Support decimal quantities
         price = float(item['price'])
         total = float(item['total'])
-        receipt.append(f" {qty:>2}  {name:<12} ${price:>5.2f}")
+        
+        # Format quantity
+        if qty % 1 == 0:
+            qty_str = f"{int(qty):>2}"
+        else:
+            qty_str = f"{qty:>4.1f}"
+        
+        receipt.append(f" {qty_str}  {name:<12} ${price:>5.2f}")
         receipt.append(f"                   ${total:>7.2f}")
     
     receipt.append("-" * 32)
@@ -342,7 +360,7 @@ def generate_receipt_pdf(receipt_text):
 
 
 # ==============================
-# HTML RECEIPT FOR PRINTING
+# HTML RECEIPT FOR PRINTING (with decimal support)
 # ==============================
 def generate_html_receipt(
     cart,
@@ -356,13 +374,20 @@ def generate_html_receipt(
     cash_received=0,
     change=0
 ):
-    """Generate HTML receipt for browser printing"""
+    """Generate HTML receipt for browser printing with decimal support"""
     
     items_html = ""
     for item in cart:
+        qty = float(item['qty'])  # Support decimal quantities
+        # Format quantity
+        if qty % 1 == 0:
+            qty_str = f"{int(qty)}"
+        else:
+            qty_str = f"{qty:.2f}"
+            
         items_html += f"""
         <tr>
-            <td style="text-align:center">{item['qty']}</td>
+            <td style="text-align:center">{qty_str}</td>
             <td>{item['name'][:30]}</td>
             <td style="text-align:right">${item['price']:.2f}</td>
             <td style="text-align:right">${item['total']:.2f}</td>
