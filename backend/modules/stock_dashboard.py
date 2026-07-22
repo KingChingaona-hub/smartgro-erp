@@ -18,17 +18,24 @@ def dashboard_page():
     
     # Handle decimal stock values
     if not df.empty and "stock" in df.columns:
+        # Ensure stock is numeric
+        df["stock"] = pd.to_numeric(df["stock"], errors="coerce").fillna(0)
         total_stock = df["stock"].sum()
     else:
         total_stock = 0
 
     if not df.empty and "stock" in df.columns and "price" in df.columns:
+        # Ensure price is numeric
+        df["price"] = pd.to_numeric(df["price"], errors="coerce").fillna(0)
+        # Create stock_value as numeric
         df["stock_value"] = df["stock"] * df["price"]
         total_value = df["stock_value"].sum()
     else:
         total_value = 0
 
     if not df.empty and "stock" in df.columns and "reorder_level" in df.columns:
+        # Ensure reorder_level is numeric
+        df["reorder_level"] = pd.to_numeric(df["reorder_level"], errors="coerce").fillna(0)
         low_stock = df[df["stock"] <= df["reorder_level"]]
     else:
         low_stock = pd.DataFrame()
@@ -78,9 +85,19 @@ def dashboard_page():
     st.subheader("Inventory Overview")
     
     if not df.empty:
+        # Ensure all numeric columns are properly typed
+        numeric_cols = ["price", "stock", "reorder_level", "cost"]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        
+        # Create stock_value if it doesn't exist
+        if "stock_value" not in df.columns:
+            df["stock_value"] = df["stock"] * df["price"]
+        
         # Display with decimal formatting for stock
         display_cols = []
-        available_cols = ["barcode", "name", "category", "price", "stock", "reorder_level", "cost"]
+        available_cols = ["barcode", "name", "category", "price", "stock", "reorder_level", "cost", "stock_value"]
         for col in available_cols:
             if col in df.columns:
                 display_cols.append(col)
@@ -111,6 +128,9 @@ def dashboard_page():
     st.subheader("Stock by Category")
     
     if not df.empty and "category" in df.columns and "stock" in df.columns:
+        # Ensure stock is numeric
+        df["stock"] = pd.to_numeric(df["stock"], errors="coerce").fillna(0)
+        
         # Group by category with decimal support
         category_summary = df.groupby("category")["stock"].sum().reset_index()
         category_summary = category_summary.sort_values("stock", ascending=False)
@@ -149,6 +169,8 @@ def dashboard_page():
             with col1:
                 # Most valuable products (by stock value)
                 if "stock_value" in df.columns:
+                    # Ensure stock_value is numeric
+                    df["stock_value"] = pd.to_numeric(df["stock_value"], errors="coerce").fillna(0)
                     st.markdown("**Top 5 Most Valuable Products**")
                     top_value = df.nlargest(5, "stock_value")[["name", "stock_value"]]
                     st.dataframe(
@@ -162,6 +184,8 @@ def dashboard_page():
             with col2:
                 # Top 5 products with highest stock
                 st.markdown("**Top 5 Products by Stock**")
+                # Ensure stock is numeric
+                df["stock"] = pd.to_numeric(df["stock"], errors="coerce").fillna(0)
                 top_stock = df.nlargest(5, "stock")[["name", "stock"]]
                 st.dataframe(
                     top_stock,
