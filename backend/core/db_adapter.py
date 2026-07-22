@@ -27,8 +27,6 @@ from backend.core.validation import (
 # ==============================
 # COMPATIBILITY CONSTANTS
 # ==============================
-# These are dummy paths for compatibility with old CSV-based code
-# PostgreSQL stores data in the database, not in files
 USERS_FILE = Path("data/users.csv")
 DATA_DIR = Path("data")
 BRANCH_DATA_DIR = Path("branch_data")
@@ -115,18 +113,13 @@ def get_default_config():
 def load_db_config():
     """Load database configuration from environment or file"""
     try:
-        # Check for environment variable first (for Streamlit Cloud)
         database_url = os.environ.get("POSTGRESQL_URL") or os.environ.get("DATABASE_URL")
         
         if database_url:
             print("Using database URL from environment")
             parsed = urlparse(database_url)
-            
-            # Extract sslmode from URL query params
             query_params = parse_qs(parsed.query)
             sslmode = query_params.get('sslmode', ['require'])[0]
-            
-            print(f"Using sslmode: {sslmode}")
             
             return {
                 "host": parsed.hostname,
@@ -140,9 +133,7 @@ def load_db_config():
                 "sslmode": sslmode
             }
         
-        # Try local config file
         if CONFIG_FILE.exists():
-            print("Using database config from local file")
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
                 config.setdefault("connect_timeout", 30)
@@ -152,30 +143,27 @@ def load_db_config():
     except Exception as e:
         print(f"Error loading database config: {e}")
     
-    print("Using default database config")
     config = get_default_config()
     config["sslmode"] = "require"
     return config
 
 def save_db_config(config):
-    """Save database configuration"""
     CONFIG_FILE.parent.mkdir(exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
 
 # ==============================
-# CONNECTION POOL - SIMPLIFIED
+# CONNECTION POOL
 # ==============================
 _connection_pool = None
 
 def get_connection_pool():
-    """Get or create connection pool - SIMPLIFIED for reliability"""
     global _connection_pool
     
     if _connection_pool is None:
         config = load_db_config()
         try:
-            print(f"🔌 Connecting to database at {config['host']}:{config['port']}...")
+            print(f"Connecting to database at {config['host']}:{config['port']}...")
             
             _connection_pool = psycopg2.pool.SimpleConnectionPool(
                 config["pool_min_conn"],
@@ -189,7 +177,6 @@ def get_connection_pool():
                 sslmode=config.get("sslmode", "disable")
             )
             
-            # Test the connection immediately
             test_conn = _connection_pool.getconn()
             if test_conn:
                 cur = test_conn.cursor()
@@ -208,7 +195,6 @@ def get_connection_pool():
 
 @contextmanager
 def get_db_connection():
-    """Context manager for database connections"""
     pool = get_connection_pool()
     if pool is None:
         print("Connection pool not available")
@@ -231,11 +217,10 @@ def get_db_connection():
 
 @contextmanager
 def get_db_cursor():
-    """Context manager for database cursors"""
     try:
         with get_db_connection() as conn:
             if conn is None:
-                print("⚠️ No database connection - returning None cursor")
+                print("No database connection - returning None cursor")
                 yield None, None
                 return
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -248,7 +233,6 @@ def get_db_cursor():
         yield None, None
 
 def test_connection():
-    """Test database connection"""
     try:
         with get_db_connection() as conn:
             if conn is None:
@@ -260,7 +244,6 @@ def test_connection():
         return False, f"Connection failed: {str(e)}"
 
 def reset_connection_pool():
-    """Reset the connection pool"""
     global _connection_pool
     if _connection_pool:
         try:
@@ -271,14 +254,12 @@ def reset_connection_pool():
         print("Connection pool reset")
 
 def init_database():
-    """Initialize the database schema if not exists"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
                 print("No database connection - skipping initialization")
                 return False
             
-            # Check if tables exist
             cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'branches')")
             result = cur.fetchone()
             if result:
@@ -290,7 +271,6 @@ def init_database():
                 print("Database schema not found. Please run the schema.sql script.")
                 return False
             
-            # Check if branches exist
             cur.execute("SELECT COUNT(*) as count FROM branches")
             result = cur.fetchone()
             if result:
@@ -316,13 +296,9 @@ def init_database():
         return False
 
 # ==============================
-# HELPER FUNCTION FOR DECIMAL CONVERSION
+# HELPER FUNCTION
 # ==============================
 def to_float(value):
-    """
-    Safely convert a value to float.
-    Handles Decimal, int, str, and None types.
-    """
     if value is None:
         return 0.0
     if isinstance(value, Decimal):
@@ -335,25 +311,19 @@ def to_float(value):
         return 0.0
 
 # ==============================
-# GET ACTIVE SHIFT ID - BRANCH LEVEL (FIXED)
+# GET ACTIVE SHIFT ID
 # ==============================
 def get_active_shift_id(branch_id=None):
-    """
-    Get the current active shift ID for a branch from session state or database.
-    """
     try:
         import streamlit as st
         
-        # If branch_id not provided, get from session
         if branch_id is None:
             branch_id = st.session_state.get("user_branch", "HO")
         
-        # Check session state first
         shift_id = st.session_state.get("active_shift_id", "")
         if shift_id:
             return shift_id
         
-        # If not in session, check database for active shift in this branch
         shifts_df = load_shifts(branch_id=branch_id, status="OPEN")
         if not shifts_df.empty:
             return shifts_df.iloc[0]["shift_id"]
@@ -366,7 +336,6 @@ def get_active_shift_id(branch_id=None):
 # BRANCH FUNCTIONS
 # ==============================
 def get_current_branch():
-    """Get current branch"""
     try:
         import streamlit as st
         return st.session_state.get("user_branch", "HO")
@@ -374,7 +343,6 @@ def get_current_branch():
         return "HO"
 
 def set_current_branch(branch_id):
-    """Set current branch in session state"""
     try:
         import streamlit as st
         st.session_state.user_branch = branch_id
@@ -382,7 +350,6 @@ def set_current_branch(branch_id):
         pass
 
 def load_branches():
-    """Load all branches"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -397,17 +364,14 @@ def load_branches():
         return pd.DataFrame()
 
 def load_all_branches():
-    """Alias for load_branches"""
     return load_branches()
 
 def save_branches(df):
-    """Save branches to database"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
                 return False
             for _, row in df.iterrows():
-                # Validate branch data
                 if 'branch_id' in row:
                     valid, msg = validate_branch_code(str(row["branch_id"]))
                     if not valid:
@@ -430,32 +394,26 @@ def save_branches(df):
         return False
 
 # ==============================
-# PRODUCT FUNCTIONS WITH VALIDATION
+# PRODUCT FUNCTIONS
 # ==============================
-
 def validate_product_data(data):
-    """Validate product data before saving"""
     errors = {}
     
-    # Validate barcode
     if 'barcode' in data:
         valid, msg = validate_barcode(data['barcode'])
         if not valid:
             errors['barcode'] = msg
     
-    # Validate product name
     if 'name' in data:
         valid, msg = validate_product_name(data['name'])
         if not valid:
             errors['name'] = msg
     
-    # Validate category
     if 'category' in data:
         valid, msg = validate_category(data['category'])
         if not valid:
             errors['category'] = msg
     
-    # Validate price
     if 'price' in data:
         valid, amount, msg = validate_amount(data['price'])
         if not valid:
@@ -463,7 +421,6 @@ def validate_product_data(data):
         else:
             data['price'] = amount
     
-    # Validate cost
     if 'cost' in data:
         valid, amount, msg = validate_amount(data['cost'])
         if not valid:
@@ -471,7 +428,6 @@ def validate_product_data(data):
         else:
             data['cost'] = amount
     
-    # Validate stock
     if 'stock' in data:
         valid, qty, msg = validate_quantity(data['stock'])
         if not valid:
@@ -479,7 +435,6 @@ def validate_product_data(data):
         else:
             data['stock'] = qty
     
-    # Validate reorder level
     if 'reorder_level' in data:
         valid, qty, msg = validate_quantity(data['reorder_level'])
         if not valid:
@@ -490,7 +445,6 @@ def validate_product_data(data):
     return len(errors) == 0, errors, data
 
 def load_products(branch_id=None):
-    """Load products for a specific branch"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -515,9 +469,6 @@ def load_products(branch_id=None):
                                      "price", "cost", "stock", "reorder_level"])
 
 def save_products(df, branch_id=None):
-    """
-    Save products to database with validation
-    """
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -526,7 +477,6 @@ def save_products(df, branch_id=None):
             if cur is None or conn is None:
                 return False
             
-            # If DataFrame is empty, delete all products for this branch
             if df.empty:
                 cur.execute("DELETE FROM products WHERE branch_id = %s", (branch_id,))
                 conn.commit()
@@ -535,7 +485,6 @@ def save_products(df, branch_id=None):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate each row
                 data = row.to_dict()
                 is_valid, errors, clean_data = validate_product_data(data)
                 
@@ -566,33 +515,28 @@ def save_products(df, branch_id=None):
     except Exception as e:
         print(f"Error saving products: {e}")
         return False
-# ==============================
-# SALES FUNCTIONS WITH VALIDATION
-# ==============================
 
+# ==============================
+# SALES FUNCTIONS
+# ==============================
 def validate_sale_data(data):
-    """Validate sale data before saving"""
     errors = {}
     
-    # Validate receipt number
     if 'receipt_no' in data:
         valid, msg = validate_receipt_no(data['receipt_no'])
         if not valid:
             errors['receipt_no'] = msg
     
-    # Validate barcode
     if 'barcode' in data:
         valid, msg = validate_barcode(data['barcode'])
         if not valid:
             errors['barcode'] = msg
     
-    # Validate product name
     if 'name' in data:
         valid, msg = validate_product_name(data['name'])
         if not valid:
             errors['name'] = msg
     
-    # Validate items quantity
     if 'items' in data:
         valid, qty, msg = validate_quantity(data['items'])
         if not valid:
@@ -600,7 +544,6 @@ def validate_sale_data(data):
         else:
             data['items'] = qty
     
-    # Validate total amount
     if 'total' in data:
         valid, amount, msg = validate_amount(data['total'])
         if not valid:
@@ -608,7 +551,6 @@ def validate_sale_data(data):
         else:
             data['total'] = amount
     
-    # Validate profit
     if 'profit' in data:
         valid, amount, msg = validate_amount(data['profit'])
         if not valid:
@@ -616,7 +558,6 @@ def validate_sale_data(data):
         else:
             data['profit'] = amount
     
-    # Validate final total
     if 'final_total' in data:
         valid, amount, msg = validate_amount(data['final_total'])
         if not valid:
@@ -624,13 +565,11 @@ def validate_sale_data(data):
         else:
             data['final_total'] = amount
     
-    # Validate customer name if present
     if 'customer' in data and data['customer']:
         valid, msg = validate_customer_name(data['customer'])
         if not valid:
             errors['customer'] = msg
     
-    # Validate customer phone if present
     if 'customer_phone' in data and data['customer_phone']:
         valid, msg = validate_phone(data['customer_phone'])
         if not valid:
@@ -641,7 +580,6 @@ def validate_sale_data(data):
     return len(errors) == 0, errors, data
 
 def load_sales(branch_id=None, date_from=None, date_to=None):
-    """Load sales for a specific branch and date range"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -665,7 +603,6 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
             rows = cur.fetchall()
             if rows:
                 df = pd.DataFrame(rows)
-                # Ensure receipt_no is string for consistent searching
                 if "receipt_no" in df.columns:
                     df["receipt_no"] = df["receipt_no"].astype(str).str.strip()
                 return df
@@ -675,35 +612,27 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
         return pd.DataFrame()
     
 def save_sales(df, branch_id=None):
-    """
-    Save sales to database with validation
-    """
     if branch_id is None:
         branch_id = get_current_branch()
     
-    # Clean the DataFrame before processing
     df = df.copy()
     
-    # Ensure date column is properly formatted
     if 'date' in df.columns:
         df['date'] = df['date'].apply(lambda x: datetime.now() if pd.isna(x) else x)
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df['date'] = df['date'].fillna(datetime.now())
     
-    # Replace NaN values with defaults for numeric columns
     numeric_cols = ['items', 'total', 'profit', 'final_total']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = df[col].fillna(0)
     
-    # Replace NaN values with empty string for string columns
     string_cols = ['receipt_no', 'barcode', 'name', 'payment_method', 'customer', 
                    'customer_phone', 'shift_id', 'cashier']
     for col in string_cols:
         if col in df.columns:
             df[col] = df[col].fillna('')
     
-    # Get active shift ID - BRANCH LEVEL
     active_shift_id = get_active_shift_id(branch_id)
     
     try:
@@ -713,7 +642,6 @@ def save_sales(df, branch_id=None):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate sale data
                 data = row.to_dict()
                 is_valid, errors, clean_data = validate_sale_data(data)
                 
@@ -721,7 +649,6 @@ def save_sales(df, branch_id=None):
                     validation_errors.append(f"Row {idx}: {errors}")
                     continue
                 
-                # Convert date to proper format for PostgreSQL
                 sale_date = clean_data.get('date')
                 if isinstance(sale_date, pd.Timestamp):
                     sale_date = sale_date.to_pydatetime()
@@ -733,7 +660,6 @@ def save_sales(df, branch_id=None):
                     except:
                         sale_date = datetime.now()
                 
-                # Get shift_id - use branch shift ID
                 shift_id = str(clean_data.get('shift_id', ''))
                 if not shift_id and active_shift_id:
                     shift_id = str(active_shift_id)
@@ -770,24 +696,19 @@ def save_sales(df, branch_id=None):
         return False
 
 def generate_receipt_number():
-    """Generate a unique receipt number"""
     return datetime.now().strftime("%Y%m%d%H%M%S")
 
 # ==============================
-# CUSTOMER FUNCTIONS WITH VALIDATION
+# CUSTOMER FUNCTIONS
 # ==============================
-
 def validate_customer_data(data):
-    """Validate customer data before saving"""
     errors = {}
     
-    # Validate customer name
     if 'customer_name' in data:
         valid, msg = validate_customer_name(data['customer_name'])
         if not valid:
             errors['customer_name'] = msg
     
-    # Validate phone
     if 'phone' in data:
         valid, msg = validate_phone(data['phone'])
         if not valid:
@@ -795,7 +716,6 @@ def validate_customer_data(data):
         else:
             data['phone'] = msg
     
-    # Validate total orders
     if 'total_orders' in data:
         valid, qty, msg = validate_quantity(data['total_orders'])
         if not valid:
@@ -803,7 +723,6 @@ def validate_customer_data(data):
         else:
             data['total_orders'] = qty
     
-    # Validate total spent
     if 'total_spent' in data:
         valid, amount, msg = validate_amount(data['total_spent'])
         if not valid:
@@ -814,7 +733,6 @@ def validate_customer_data(data):
     return len(errors) == 0, errors, data
 
 def load_customers(branch_id=None):
-    """Load customers for a specific branch"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -832,9 +750,6 @@ def load_customers(branch_id=None):
         return pd.DataFrame()
 
 def save_customers(df, branch_id=None):
-    """
-    Save customers to database with validation
-    """
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -879,15 +794,10 @@ def save_customers(df, branch_id=None):
 # ==============================
 # CUSTOMER PURCHASE FUNCTIONS
 # ==============================
-
 def record_customer_purchase(customer_name, phone, cart, total, receipt_no, branch_id=None):
-    """
-    Record a customer purchase with validation
-    """
     if branch_id is None:
         branch_id = get_current_branch()
     
-    # Validate input data
     valid, msg = validate_customer_name(customer_name)
     if not valid:
         print(f"Invalid customer name: {msg}")
@@ -906,19 +816,15 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
             if cur is None or conn is None:
                 return False
             
-            # Check if customer exists
             cur.execute("SELECT * FROM customers WHERE branch_id = %s AND phone = %s", (branch_id, phone))
             existing = cur.fetchone()
             
-            # Get favorite product from cart
             products = [item.get("name", "") for item in cart if item.get("name")]
             favorite = pd.Series(products).mode()[0] if products else ""
             
-            # Calculate total spent
             total_spent = float(total)
             
             if existing:
-                # Update existing customer
                 cur.execute("""
                     UPDATE customers 
                     SET total_orders = total_orders + 1,
@@ -929,7 +835,6 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
                     WHERE branch_id = %s AND phone = %s
                 """, (total_spent, now, favorite, branch_id, phone))
             else:
-                # Create new customer
                 customer_id = f"CUST{datetime.now().strftime('%Y%m%d%H%M%S')}"
                 cur.execute("""
                     INSERT INTO customers (branch_id, customer_id, customer_name, phone, 
@@ -937,9 +842,7 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (branch_id, customer_id, customer_name, phone, 1, total_spent, now, favorite))
             
-            # Record customer transactions with validation
             for item in cart:
-                # Validate each cart item
                 if 'barcode' in item:
                     valid, msg = validate_barcode(item.get("barcode", ""))
                     if not valid:
@@ -965,7 +868,6 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
         return False
 
 def load_customer_transactions(branch_id=None, customer_phone=None):
-    """Load customer transactions"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -998,7 +900,6 @@ def load_customer_transactions(branch_id=None, customer_phone=None):
                                      "quantity", "amount"])
 
 def save_customer_transactions(df, branch_id=None):
-    """Save customer transactions with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1009,14 +910,12 @@ def save_customer_transactions(df, branch_id=None):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate customer name
                 if 'customer_name' in row:
                     valid, msg = validate_customer_name(row["customer_name"])
                     if not valid:
                         validation_errors.append(f"Row {idx}: invalid customer_name - {msg}")
                         continue
                 
-                # Validate phone
                 if 'phone' in row and row["phone"]:
                     valid, msg = validate_phone(row["phone"])
                     if not valid:
@@ -1041,20 +940,16 @@ def save_customer_transactions(df, branch_id=None):
         return False
 
 # ==============================
-# DEBTOR FUNCTIONS WITH VALIDATION
+# DEBTOR FUNCTIONS
 # ==============================
-
 def validate_debtor_data(data):
-    """Validate debtor data before saving"""
     errors = {}
     
-    # Validate customer name
     if 'customer_name' in data:
         valid, msg = validate_customer_name(data['customer_name'])
         if not valid:
             errors['customer_name'] = msg
     
-    # Validate phone
     if 'phone' in data:
         valid, msg = validate_phone(data['phone'])
         if not valid:
@@ -1062,7 +957,6 @@ def validate_debtor_data(data):
         else:
             data['phone'] = msg
     
-    # Validate total amount
     if 'total_amount' in data:
         valid, amount, msg = validate_amount(data['total_amount'])
         if not valid:
@@ -1070,7 +964,6 @@ def validate_debtor_data(data):
         else:
             data['total_amount'] = amount
     
-    # Validate amount paid
     if 'amount_paid' in data:
         valid, amount, msg = validate_amount(data['amount_paid'])
         if not valid:
@@ -1078,7 +971,6 @@ def validate_debtor_data(data):
         else:
             data['amount_paid'] = amount
     
-    # Validate balance
     if 'balance' in data:
         valid, amount, msg = validate_amount(data['balance'])
         if not valid:
@@ -1086,7 +978,6 @@ def validate_debtor_data(data):
         else:
             data['balance'] = amount
     
-    # Validate credit limit
     if 'credit_limit' in data:
         valid, amount, msg = validate_amount(data['credit_limit'])
         if not valid:
@@ -1094,7 +985,6 @@ def validate_debtor_data(data):
         else:
             data['credit_limit'] = amount
     
-    # Validate expected repayment date
     if 'expected_repayment_date' in data:
         valid, date_obj, msg = validate_date(data['expected_repayment_date'])
         if not valid:
@@ -1102,13 +992,11 @@ def validate_debtor_data(data):
         else:
             data['expected_repayment_date'] = date_obj.strftime("%Y-%m-%d")
     
-    # Validate status
     allowed_status = ['NOT PAID', 'PAID', 'PARTIAL', 'OVERDUE', 'WRITTEN_OFF']
     if 'status' in data:
         if data['status'] not in allowed_status:
             errors['status'] = f"Status must be one of: {', '.join(allowed_status)}"
     
-    # Validate risk level
     allowed_risk = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
     if 'risk_level' in data:
         if data['risk_level'] not in allowed_risk:
@@ -1117,7 +1005,6 @@ def validate_debtor_data(data):
     return len(errors) == 0, errors, data
 
 def load_debtors(branch_id=None):
-    """Load debtors for a specific branch"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1135,7 +1022,6 @@ def load_debtors(branch_id=None):
         return pd.DataFrame()
 
 def save_debtors(df, branch_id=None):
-    """Save debtors to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1186,7 +1072,6 @@ def save_debtors(df, branch_id=None):
         return False
 
 def get_overdue_debtors():
-    """Get overdue debtors"""
     df = load_debtors()
     if df.empty:
         return df
@@ -1206,8 +1091,6 @@ def get_overdue_debtors():
     return overdue
 
 def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
-    """Record a debt payment with validation"""
-    # Validate input
     valid, msg = validate_customer_name(customer_name)
     if not valid:
         print(f"Invalid customer name: {msg}")
@@ -1232,18 +1115,15 @@ def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
         old_balance = float(df.at[i, "balance"])
         debt_id = df.at[i, "debt_id"]
         
-        # Prevent overpayment
         if amount > old_balance:
             amount = old_balance
         
         df.at[i, "amount_paid"] += amount
         df.at[i, "balance"] -= amount
         
-        # Payment log
         if receipt_no is None:
             receipt_no = f"PAY-{debt_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
-        # Validate receipt number
         valid, msg = validate_receipt_no(receipt_no)
         if not valid:
             print(f"Invalid receipt number: {msg}")
@@ -1261,7 +1141,6 @@ def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
         
         payments_df = pd.concat([payments_df, new_payment], ignore_index=True)
         
-        # Mark as paid if balance is zero
         if df.at[i, "balance"] <= 0:
             df.at[i, "balance"] = 0
             df.at[i, "status"] = "PAID"
@@ -1276,7 +1155,6 @@ def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
         return False
 
 def load_debtor_payments():
-    """Load debtor payments"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -1291,7 +1169,6 @@ def load_debtor_payments():
         return pd.DataFrame(columns=["id", "date", "debt_id", "customer_name", "amount_paid", "balance_after", "receipt_no", "note"])
 
 def save_debtor_payments(df):
-    """Save debtor payments with validation"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
@@ -1299,14 +1176,12 @@ def save_debtor_payments(df):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate customer name
                 if 'customer_name' in row:
                     valid, msg = validate_customer_name(row["customer_name"])
                     if not valid:
                         validation_errors.append(f"Row {idx}: invalid customer_name - {msg}")
                         continue
                 
-                # Validate amount
                 if 'amount_paid' in row:
                     valid, amount, msg = validate_amount(row["amount_paid"])
                     if not valid:
@@ -1329,7 +1204,6 @@ def save_debtor_payments(df):
         return False
 
 def get_debt_items(debt_id):
-    """Get items for a specific debt"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -1344,7 +1218,6 @@ def get_debt_items(debt_id):
         return pd.DataFrame()
 
 def get_debt_aging():
-    """Get debt aging report"""
     df = load_debtors()
     
     if df.empty:
@@ -1376,32 +1249,26 @@ def get_debt_aging():
     return df
 
 # ==============================
-# EXPENSE FUNCTIONS WITH VALIDATION
+# EXPENSE FUNCTIONS
 # ==============================
-
 def validate_expense_data(data):
-    """Validate expense data before saving"""
     errors = {}
     
-    # Validate expense type
     if 'expense_type' in data:
         if not data['expense_type'] or len(data['expense_type']) < 2:
             errors['expense_type'] = "Expense type is required and must be at least 2 characters"
     
-    # Validate category
     if 'category' in data:
         valid, msg = validate_category(data['category'])
         if not valid:
             errors['category'] = msg
     
-    # Validate description
     if 'description' in data:
         if not data['description'] or len(data['description']) < 3:
             errors['description'] = "Description is required and must be at least 3 characters"
         elif len(data['description']) > 200:
             errors['description'] = "Description cannot exceed 200 characters"
     
-    # Validate amount
     if 'amount' in data:
         valid, amount, msg = validate_amount(data['amount'])
         if not valid:
@@ -1409,13 +1276,11 @@ def validate_expense_data(data):
         else:
             data['amount'] = amount
     
-    # Validate vendor
     if 'vendor' in data and data['vendor']:
         valid, msg = validate_supplier_name(data['vendor'])
         if not valid:
             errors['vendor'] = msg
     
-    # Validate payment method
     allowed_payment_methods = ['CASH', 'BANK', 'MOBILE_MONEY', 'CREDIT', 'DEBIT']
     if 'payment_method' in data:
         if data['payment_method'] not in allowed_payment_methods:
@@ -1424,7 +1289,6 @@ def validate_expense_data(data):
     return len(errors) == 0, errors, data
 
 def load_expenses(branch_id=None, date_from=None, date_to=None):
-    """Load expenses for a specific branch and date range"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1454,7 +1318,6 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
         return pd.DataFrame()
 
 def save_expenses(df, branch_id=None):
-    """Save expenses to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1492,12 +1355,10 @@ def save_expenses(df, branch_id=None):
         return False
 
 def get_total_expenses():
-    """Get total expenses"""
     df = load_expenses()
     return df["amount"].sum() if not df.empty else 0
 
 def load_expense_categories():
-    """Load expense categories"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -1511,7 +1372,6 @@ def load_expense_categories():
         return []
 
 def load_expense_budget(branch_id=None, year=None, month=None):
-    """Load expense budget data"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1539,7 +1399,6 @@ def load_expense_budget(branch_id=None, year=None, month=None):
         return pd.DataFrame()
 
 def save_expense_budget(df, branch_id=None):
-    """Save expense budget data"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1548,7 +1407,6 @@ def save_expense_budget(df, branch_id=None):
             if cur is None or conn is None:
                 return False
             for _, row in df.iterrows():
-                # Validate budget amount
                 if 'budget_amount' in row:
                     valid, amount, msg = validate_amount(row["budget_amount"])
                     if not valid:
@@ -1571,7 +1429,6 @@ def save_expense_budget(df, branch_id=None):
         return False
 
 def get_budget_vs_actual(year=None, month=None):
-    """Get budget vs actual comparison"""
     df = load_expense_budget(year=year, month=month)
     
     if df.empty:
@@ -1586,7 +1443,6 @@ def get_budget_vs_actual(year=None, month=None):
     return df
 
 def load_recurring_expenses(branch_id=None):
-    """Load recurring expenses"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1604,7 +1460,6 @@ def load_recurring_expenses(branch_id=None):
         return pd.DataFrame()
 
 def save_recurring_expenses(df, branch_id=None):
-    """Save recurring expenses with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1615,7 +1470,6 @@ def save_recurring_expenses(df, branch_id=None):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate amount
                 if 'amount' in row:
                     valid, amount, msg = validate_amount(row["amount"])
                     if not valid:
@@ -1623,7 +1477,6 @@ def save_recurring_expenses(df, branch_id=None):
                         continue
                     row["amount"] = amount
                 
-                # Validate category
                 if 'category' in row:
                     valid, msg = validate_category(row["category"])
                     if not valid:
@@ -1662,7 +1515,6 @@ def save_recurring_expenses(df, branch_id=None):
         return False
 
 def get_expenses_by_category(month=None, year=None):
-    """Get expenses grouped by category"""
     df = load_expenses()
     
     if df.empty:
@@ -1679,7 +1531,6 @@ def get_expenses_by_category(month=None, year=None):
     return category_summary
 
 def get_monthly_expenses(month=None, year=None):
-    """Get total expenses for a specific month and year"""
     df = load_expenses()
     
     if df.empty:
@@ -1695,8 +1546,6 @@ def get_monthly_expenses(month=None, year=None):
     return df["amount"].sum()
 
 def record_expense(expense_type, category, description, amount, vendor="", payment_method="CASH", user="System", notes=""):
-    """Record a new expense with validation"""
-    # Validate input
     valid, msg = validate_category(category)
     if not valid:
         print(f"Invalid category: {msg}")
@@ -1730,7 +1579,6 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_expenses(df)
     
-    # Update budget actuals
     try:
         update_budget_actuals(category, float(amount_clean))
     except:
@@ -1739,7 +1587,6 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
     return True
 
 def update_budget_actuals(category, amount):
-    """Update actual expenses in budget"""
     current_year = datetime.now().year
     current_month = datetime.now().month
     
@@ -1759,9 +1606,7 @@ def update_budget_actuals(category, amount):
 # ==============================
 # INCOME FUNCTIONS
 # ==============================
-
 def load_income(branch_id=None, date_from=None, date_to=None):
-    """Load income records"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1791,7 +1636,6 @@ def load_income(branch_id=None, date_from=None, date_to=None):
         return pd.DataFrame()
 
 def save_income(df, branch_id=None):
-    """Save income records to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1802,7 +1646,6 @@ def save_income(df, branch_id=None):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate amount
                 if 'amount' in row:
                     valid, amount, msg = validate_amount(row["amount"])
                     if not valid:
@@ -1825,7 +1668,6 @@ def save_income(df, branch_id=None):
         return False
 
 def get_monthly_income(month=None):
-    """Get total income for a specific month"""
     df = load_income()
     
     if df.empty:
@@ -1840,8 +1682,6 @@ def get_monthly_income(month=None):
     return df["amount"].sum()
 
 def record_income(income_source, description, amount, user="System"):
-    """Record a new income entry with validation"""
-    # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
@@ -1865,9 +1705,7 @@ def record_income(income_source, description, amount, user="System"):
 # ==============================
 # PURCHASE FUNCTIONS
 # ==============================
-
 def load_purchases(branch_id=None):
-    """Load purchases for a specific branch"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1885,7 +1723,6 @@ def load_purchases(branch_id=None):
         return pd.DataFrame()
 
 def save_purchases(df, branch_id=None):
-    """Save purchases to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1898,21 +1735,18 @@ def save_purchases(df, branch_id=None):
             saved_count = 0
             
             for idx, row in df.iterrows():
-                # Validate supplier name
                 if 'supplier' in row:
                     valid, msg = validate_supplier_name(row["supplier"])
                     if not valid:
                         validation_errors.append(f"Row {idx}: invalid supplier - {msg}")
                         continue
                 
-                # Validate barcode
                 if 'barcode' in row:
                     valid, msg = validate_barcode(row["barcode"])
                     if not valid:
                         validation_errors.append(f"Row {idx}: invalid barcode - {msg}")
                         continue
                 
-                # Validate quantity
                 if 'quantity_ordered' in row:
                     valid, qty, msg = validate_quantity(row["quantity_ordered"])
                     if not valid:
@@ -1920,7 +1754,6 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["quantity_ordered"] = qty
                 
-                # Validate cost price
                 if 'cost_price' in row:
                     valid, amount, msg = validate_amount(row["cost_price"])
                     if not valid:
@@ -1928,7 +1761,6 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["cost_price"] = amount
                 
-                # Validate total cost
                 if 'total_cost' in row:
                     valid, amount, msg = validate_amount(row["total_cost"])
                     if not valid:
@@ -1936,7 +1768,6 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
                 
-                # FIX: Use composite key (po_number, barcode) instead of just po_number
                 cur.execute("""
                     INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
                         product_name, barcode, quantity_ordered, quantity_received,
@@ -1980,21 +1811,17 @@ def save_purchases(df, branch_id=None):
     except Exception as e:
         print(f"Error saving purchases: {e}")
         return False
-    
-# ==============================
-# CASH REGISTER FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)
-# ==============================
 
+# ==============================
+# CASH REGISTER FUNCTIONS
+# ==============================
 def validate_cash_data(data):
-    """Validate cash register data"""
     errors = {}
     
-    # Validate shift_id
     if 'shift_id' in data:
         if not data['shift_id']:
             errors['shift_id'] = "Shift ID is required"
     
-    # Validate amount
     if 'amount' in data:
         valid, amount, msg = validate_amount(data['amount'])
         if not valid:
@@ -2002,25 +1829,21 @@ def validate_cash_data(data):
         else:
             data['amount'] = amount
     
-    # Validate receipt number
     if 'receipt_no' in data and data['receipt_no']:
         valid, msg = validate_receipt_no(data['receipt_no'])
         if not valid:
             errors['receipt_no'] = msg
     
-    # Validate customer name
     if 'customer_name' in data and data['customer_name']:
         valid, msg = validate_customer_name(data['customer_name'])
         if not valid:
             errors['customer_name'] = msg
     
-    # Validate payment method
     allowed_payment_methods = ['CASH', 'CREDIT', 'BANK', 'MOBILE_MONEY', 'DEBIT']
     if 'payment_method' in data and data['payment_method']:
         if data['payment_method'] not in allowed_payment_methods:
             errors['payment_method'] = f"Payment method must be one of: {', '.join(allowed_payment_methods)}"
     
-    # Validate cash type
     allowed_types = ['OPENING', 'CLOSING', 'CASH_SALE', 'CREDIT_SALE', 'DEBT_PAYMENT', 'PETTY_CASH', 'DEPOSIT', 'EXPENSE']
     if 'type' in data:
         if data['type'] not in allowed_types:
@@ -2029,7 +1852,6 @@ def validate_cash_data(data):
     return len(errors) == 0, errors, data
 
 def load_cash(branch_id=None, shift_id=None):
-    """Load cash register entries for a branch"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -2056,7 +1878,6 @@ def load_cash(branch_id=None, shift_id=None):
         return pd.DataFrame()
 
 def save_cash(df, branch_id=None):
-    """Save cash register entries to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -2094,8 +1915,6 @@ def save_cash(df, branch_id=None):
         return False
 
 def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", payment_method="CASH", note=""):
-    """Record a cash sale with validation - BRANCH LEVEL"""
-    # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
@@ -2114,7 +1933,6 @@ def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", p
     
     df = load_cash()
     
-    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2135,8 +1953,6 @@ def record_cash_sale(amount, receipt_no, customer_name="Walk-in", shift_id="", p
     return True
 
 def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
-    """Record a credit sale with validation - BRANCH LEVEL"""
-    # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
@@ -2154,7 +1970,6 @@ def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
     
     df = load_cash()
     
-    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2175,8 +1990,6 @@ def record_credit_sale(amount, receipt_no, customer_name, shift_id="", note=""):
     return True
 
 def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", note=""):
-    """Record a debt payment entry in cash register with validation - BRANCH LEVEL"""
-    # Validate input
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
@@ -2194,7 +2007,6 @@ def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", no
     
     df = load_cash()
     
-    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2215,14 +2027,11 @@ def record_debt_payment_entry(amount, receipt_no, customer_name, shift_id="", no
     return True
 
 def set_opening_cash(amount, shift_id=""):
-    """Set opening cash for a shift with validation - BRANCH LEVEL"""
-    # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
         return False
     
-    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2245,14 +2054,11 @@ def set_opening_cash(amount, shift_id=""):
     return True
 
 def record_closing_cash(amount, shift_id=""):
-    """Record closing cash for a shift with validation - BRANCH LEVEL"""
-    # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
         return False
     
-    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2275,20 +2081,16 @@ def record_closing_cash(amount, shift_id=""):
     return True
 
 def record_petty_cash(description, amount, category, shift_id="", approved_by="", notes=""):
-    """Record petty cash expense with validation - BRANCH LEVEL"""
-    # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
         return False
     
-    # Validate category
     valid, msg = validate_category(category)
     if not valid:
         print(f"Invalid category: {msg}")
         return False
     
-    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2311,7 +2113,6 @@ def record_petty_cash(description, amount, category, shift_id="", approved_by=""
     return True
 
 def load_petty_cash():
-    """Load petty cash records"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -2326,14 +2127,11 @@ def load_petty_cash():
         return pd.DataFrame()
 
 def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes=""):
-    """Record bank deposit with validation - BRANCH LEVEL"""
-    # Validate amount
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
         return False
     
-    # If shift_id not provided, get branch active shift
     if not shift_id:
         shift_id = get_active_shift_id()
     
@@ -2356,7 +2154,6 @@ def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes="
     return True
 
 def load_bank_deposits():
-    """Load bank deposits"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -2371,7 +2168,6 @@ def load_bank_deposits():
         return pd.DataFrame()
 
 def get_cash_summary(shift_id=None):
-    """Get cash summary for a shift or all time - BRANCH LEVEL"""
     df = load_cash()
     
     if df.empty:
@@ -2394,7 +2190,6 @@ def get_cash_summary(shift_id=None):
     if shift_id:
         df = df[df["shift_id"] == shift_id]
     
-    # Convert all amounts to float
     df["amount"] = df["amount"].apply(to_float)
     
     opening = df[df["type"] == "OPENING"]["amount"].sum()
@@ -2406,7 +2201,6 @@ def get_cash_summary(shift_id=None):
     expenses = df[df["type"] == "EXPENSE"]["amount"].sum()
     closing = df[df["type"] == "CLOSING"]["amount"].sum()
     
-    # Expected cash = Opening + Cash Sales + Debt Payments + Petty Cash + Deposits + Expenses
     expected_cash = opening + cash_sales + debt_payments + petty_cash + deposits + expenses
     variance = closing - expected_cash if closing != 0 else 0
     
@@ -2427,7 +2221,6 @@ def get_cash_summary(shift_id=None):
     }
 
 def get_daily_report(date=None, branch_id=None):
-    """Get daily cash report for a branch"""
     df = load_cash()
     
     if df.empty:
@@ -2439,7 +2232,6 @@ def get_daily_report(date=None, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    # Filter by date and branch
     df["date_only"] = df["cash_date"].dt.date
     df = df[df["date_only"] == date]
     df = df[df["branch_id"] == branch_id]
@@ -2475,7 +2267,6 @@ def get_daily_report(date=None, branch_id=None):
     }
 
 def get_cash_flow(days=30, branch_id=None):
-    """Get cash flow for last N days for a branch"""
     df = load_cash()
     
     if df.empty:
@@ -2488,7 +2279,6 @@ def get_cash_flow(days=30, branch_id=None):
     df = df[df["cash_date"] >= cutoff]
     df = df[df["branch_id"] == branch_id]
     
-    # Group by date
     df["date_only"] = df["cash_date"].dt.date
     cash_flow = df.groupby("date_only").agg({
         "amount": "sum"
@@ -2498,7 +2288,6 @@ def get_cash_flow(days=30, branch_id=None):
     return cash_flow
 
 def get_cashier_performance(branch_id=None):
-    """Get cashier performance metrics for a branch"""
     df = load_cash()
     
     if df.empty:
@@ -2520,11 +2309,9 @@ def get_cashier_performance(branch_id=None):
     return cashier_stats
 
 # ==============================
-# SHIFT FUNCTIONS WITH VALIDATION - BRANCH LEVEL (FIXED)
+# SHIFT FUNCTIONS
 # ==============================
-
 def load_shifts(branch_id=None, status=None):
-    """Load shifts for a branch"""
     query = "SELECT * FROM shifts WHERE 1=1"
     params = []
     
@@ -2551,9 +2338,6 @@ def load_shifts(branch_id=None, status=None):
         return pd.DataFrame()
 
 def save_shifts(df, branch_id=None):
-    """
-    Save shifts to database with validation - BRANCH LEVEL
-    """
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -2564,20 +2348,17 @@ def save_shifts(df, branch_id=None):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate shift data
                 if 'shift_id' in row and row["shift_id"]:
                     if len(str(row["shift_id"])) < 4:
                         validation_errors.append(f"Row {idx}: shift_id too short")
                         continue
                 
-                # Validate cashier username
                 if 'cashier_username' in row:
                     valid, msg = validate_username(row["cashier_username"])
                     if not valid:
                         validation_errors.append(f"Row {idx}: invalid cashier_username - {msg}")
                         continue
                 
-                # Validate opening cash
                 if 'opening_cash' in row:
                     valid, amount, msg = validate_amount(row["opening_cash"])
                     if not valid:
@@ -2585,7 +2366,6 @@ def save_shifts(df, branch_id=None):
                         continue
                     row["opening_cash"] = amount
                 
-                # Convert empty strings to None for timestamp fields
                 end_time = row.get("end_time")
                 if end_time == "" or pd.isna(end_time):
                     end_time = None
@@ -2594,12 +2374,10 @@ def save_shifts(df, branch_id=None):
                 if start_time == "" or pd.isna(start_time):
                     start_time = None
                 
-                # Convert other empty strings to None
                 notes = row.get("notes")
                 if notes == "" or pd.isna(notes):
                     notes = None
                 
-                # Safely convert numeric values
                 opening_cash = to_float(row.get("opening_cash"))
                 closing_cash = to_float(row.get("closing_cash"))
                 cash_sales = to_float(row.get("cash_sales"))
@@ -2666,8 +2444,6 @@ def save_shifts(df, branch_id=None):
         return False
 
 def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_username, opening_cash=0):
-    """Start a new shift with validation - BRANCH LEVEL (FIXED)"""
-    # Validate input
     valid, msg = validate_username(cashier_username)
     if not valid:
         return False, f"Invalid cashier username: {msg}", ""
@@ -2678,7 +2454,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
     
     df = load_shifts()
     
-    # Check if there's already an ACTIVE shift for this branch
     if "branch_id" in df.columns and "status" in df.columns:
         active_shift = df[(df["branch_id"] == branch_id) & (df["status"] == "OPEN")]
         if not active_shift.empty:
@@ -2686,7 +2461,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
             existing_cashier = active_shift.iloc[0].get("cashier_name", "Unknown")
             return True, shift_id, f"Shift already active in this branch (started by {existing_cashier})"
     
-    # No active shift for this branch - create a new one
     shift_id = datetime.now().strftime("%Y%m%d%H%M%S")
     
     new_shift = {
@@ -2718,8 +2492,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
     return True, shift_id, "Shift started successfully!"
 
 def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes=""):
-    """End a shift with validation - BRANCH LEVEL"""
-    # Validate input
     valid, amount, msg = validate_amount(closing_cash)
     if not valid:
         return False, f"Invalid closing cash: {msg}"
@@ -2744,7 +2516,6 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
     
     i = idx[0]
     
-    # Set end_time
     df.at[i, "end_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     df.at[i, "closing_cash"] = float(amount)
     df.at[i, "total_revenue"] = float(total_sales)
@@ -2752,17 +2523,14 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
     df.at[i, "transactions"] = int(qty)
     df.at[i, "notes"] = sanitize_string(notes, 500) if notes else None
     
-    # Convert all values to float to handle Decimal types from PostgreSQL
     opening_cash = to_float(df.at[i, "opening_cash"])
     cash_sales = to_float(df.at[i, "cash_sales"])
     debt_payments = to_float(df.at[i, "debt_payments"])
     expenses = to_float(df.at[i, "expenses"])
     closing_cash_float = to_float(closing_cash)
     
-    # Calculate expected cash using float values
     expected_cash = opening_cash + cash_sales + debt_payments - expenses
     
-    # Calculate variance using float values
     df.at[i, "variance"] = closing_cash_float - expected_cash
     df.at[i, "status"] = "CLOSED"
     
@@ -2771,8 +2539,6 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
     return True, f"Shift {shift_id} closed"
 
 def can_cashier_login(cashier_username):
-    """Check if a cashier can login - BRANCH LEVEL (FIXED)"""
-    # Get the cashier's branch
     try:
         import streamlit as st
         branch_id = st.session_state.get("user_branch", "HO")
@@ -2786,24 +2552,17 @@ def can_cashier_login(cashier_username):
     return True, active.iloc[0].to_dict()
 
 def get_active_shifts_by_branch(branch_id):
-    """Get active shifts for a branch"""
     df = load_shifts()
     active = df[(df["branch_id"] == branch_id) & (df["status"] == "OPEN")]
     return active
 
 def get_all_active_shifts():
-    """
-    Get all active shifts with proper error handling.
-    Returns a pandas DataFrame with only the columns that exist.
-    """
     try:
         df = load_shifts()
         
-        # Return empty DataFrame if no shifts
         if df.empty:
             return pd.DataFrame()
         
-        # Filter active shifts
         if "status" in df.columns:
             active = df[df["status"] == "OPEN"]
         else:
@@ -2812,7 +2571,6 @@ def get_all_active_shifts():
         if active.empty:
             return pd.DataFrame()
         
-        # Only return columns that actually exist in the DataFrame
         safe_columns = [
             'shift_id', 'branch_id', 'branch_name', 'cashier_name', 
             'cashier_username', 'start_time', 'opening_cash', 'status'
@@ -2829,7 +2587,6 @@ def get_all_active_shifts():
         return pd.DataFrame()
 
 def get_shifts_by_date(date_str):
-    """Get shifts for a specific date"""
     df = load_shifts()
     if df.empty:
         return df
@@ -2840,7 +2597,6 @@ def get_shifts_by_date(date_str):
     return df
 
 def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, expenses=0, transactions=0):
-    """Update shift statistics with validation"""
     df = load_shifts()
     
     idx = df[df["shift_id"] == shift_id].index
@@ -2849,7 +2605,6 @@ def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, 
     
     i = idx[0]
     
-    # Validate and add amounts
     if cash_sales:
         valid, amount, msg = validate_amount(cash_sales)
         if valid:
@@ -2883,9 +2638,7 @@ def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, 
 # ==============================
 # SUPPLIER FUNCTIONS
 # ==============================
-
 def load_suppliers(branch_id=None):
-    """Load suppliers"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -2905,9 +2658,7 @@ def load_suppliers(branch_id=None):
 # ==============================
 # LOYALTY FUNCTIONS
 # ==============================
-
 def load_loyalty(branch_id=None):
-    """Load loyalty records"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -2925,7 +2676,6 @@ def load_loyalty(branch_id=None):
         return pd.DataFrame()
 
 def save_loyalty(df, branch_id=None):
-    """Save loyalty records to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -2936,14 +2686,12 @@ def save_loyalty(df, branch_id=None):
             
             validation_errors = []
             for idx, row in df.iterrows():
-                # Validate customer name
                 if 'customer_name' in row:
                     valid, msg = validate_customer_name(row["customer_name"])
                     if not valid:
                         validation_errors.append(f"Row {idx}: invalid customer_name - {msg}")
                         continue
                 
-                # Validate phone
                 if 'phone' in row:
                     valid, msg = validate_phone(row["phone"])
                     if not valid:
@@ -2951,7 +2699,6 @@ def save_loyalty(df, branch_id=None):
                         continue
                     row["phone"] = msg
                 
-                # Validate points
                 if 'points' in row:
                     valid, qty, msg = validate_quantity(row["points"])
                     if not valid:
@@ -2986,8 +2733,6 @@ def save_loyalty(df, branch_id=None):
         return False
 
 def get_customer_loyalty_info(phone):
-    """Get loyalty info for a customer"""
-    # Validate phone
     valid, msg = validate_phone(phone)
     if not valid:
         print(f"Invalid phone: {msg}")
@@ -3026,7 +2771,6 @@ def get_customer_loyalty_info(phone):
     }
 
 def get_points_to_next_tier(total_spent):
-    """Calculate points needed to reach next tier"""
     if total_spent < 500:
         return 500 - total_spent
     elif total_spent < 2000:
@@ -3037,7 +2781,6 @@ def get_points_to_next_tier(total_spent):
         return 0
 
 def get_tier_benefits(tier):
-    """Get benefits for a tier"""
     benefits = {
         "BRONZE": {"points_multiplier": 1, "discount": 0, "birthday_bonus": 50, "free_delivery": False},
         "SILVER": {"points_multiplier": 1.2, "discount": 5, "birthday_bonus": 100, "free_delivery": False},
@@ -3047,14 +2790,12 @@ def get_tier_benefits(tier):
     return benefits.get(tier, benefits["BRONZE"])
 
 def get_top_loyalty_customers(n=10):
-    """Get top loyalty customers"""
     df = load_loyalty()
     if df.empty:
         return df
     return df.nlargest(n, "points")[["customer_name", "phone", "points", "tier", "total_spent"]]
 
 def get_birthday_customers():
-    """Get customers with birthdays this month"""
     df = load_loyalty()
     if df.empty or "birthday" not in df.columns:
         return pd.DataFrame()
@@ -3066,8 +2807,6 @@ def get_birthday_customers():
     return birthday_customers[["customer_name", "phone", "points", "tier"]]
 
 def add_loyalty_points(customer_name, phone, amount_spent, receipt_no):
-    """Add loyalty points to customer account with validation"""
-    # Validate input
     valid, msg = validate_customer_name(customer_name)
     if not valid:
         print(f"Invalid customer name: {msg}")
@@ -3129,7 +2868,6 @@ def add_loyalty_points(customer_name, phone, amount_spent, receipt_no):
     return points_earned
 
 def get_tier_from_spent(total_spent):
-    """Determine tier based on total spent"""
     if total_spent >= 5000:
         return "PLATINUM"
     elif total_spent >= 2000:
@@ -3140,8 +2878,6 @@ def get_tier_from_spent(total_spent):
         return "BRONZE"
 
 def redeem_points(customer_phone, points_to_redeem, receipt_no):
-    """Redeem loyalty points for discount with validation"""
-    # Validate input
     valid, msg = validate_phone(customer_phone)
     if not valid:
         return False, 0, f"Invalid phone: {msg}"
@@ -3186,7 +2922,6 @@ def redeem_points(customer_phone, points_to_redeem, receipt_no):
     return True, discount, f"Successfully redeemed {points_to_redeem} points for ${discount:.2f} discount"
 
 def load_loyalty_redemptions():
-    """Load loyalty redemptions"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -3203,33 +2938,26 @@ def load_loyalty_redemptions():
 # ==============================
 # ADDITIONAL COMPATIBILITY FUNCTIONS
 # ==============================
-
 def init_data_folder():
-    """Initialize data folder structure for compatibility"""
     print("PostgreSQL database ready (no CSV folders needed)")
     return True
 
 def get_branch_data_path(branch_id, filename):
-    """Get branch data path - for compatibility"""
     return Path(f"branch_data/{branch_id}/{filename}")
 
 def initialize_branch_with_empty_data(branch_id):
-    """Initialize branch with empty data - for compatibility"""
     print(f"PostgreSQL ready for branch: {branch_id}")
     return True
 
 def initialize_branch_data(branch_id):
-    """Alias for initialize_branch_with_empty_data"""
     return initialize_branch_with_empty_data(branch_id)
 
 def initialize_branch_with_defaults(branch_id):
-    """Alias for initialize_branch_with_empty_data"""
     return initialize_branch_with_empty_data(branch_id)
 
 # ==============================
 # BRANCH DATA MANAGER COMPATIBILITY FUNCTIONS
 # ==============================
-
 def load_branch_products(branch_id):
     return load_products(branch_id)
 
@@ -3305,7 +3033,6 @@ def get_branch_customer_transactions_file(branch_id):
 # ==============================
 # PERFORMANCE FUNCTIONS
 # ==============================
-
 def get_branch_performance_summary(branch_id):
     sales_df = load_sales(branch_id)
     products_df = load_products(branch_id)
@@ -3341,7 +3068,6 @@ def get_all_branches_performance():
 # ==============================
 # SYNC FUNCTIONS
 # ==============================
-
 def sync_products_to_all_branches():
     branches_df = load_branches()
     master_products = load_products("HO")
@@ -3363,9 +3089,7 @@ def copy_products_to_branch(source_branch_id, target_branch_id):
 # ==============================
 # CUSTOMER ANALYTICS FUNCTIONS
 # ==============================
-
 def get_customer_retention(days_active=30):
-    """Get customer retention analysis"""
     transactions_df = load_customer_transactions()
     
     if transactions_df.empty:
@@ -3402,7 +3126,6 @@ def get_customer_retention(days_active=30):
     return summary
 
 def get_retention_rate():
-    """Calculate customer retention rate"""
     df = get_customer_retention()
     if df.empty:
         return 0.0
@@ -3413,7 +3136,6 @@ def get_retention_rate():
     return (active / total * 100) if total > 0 else 0.0
 
 def get_repeat_customer_rate():
-    """Calculate repeat customer rate"""
     transactions_df = load_customer_transactions()
     
     if transactions_df.empty:
@@ -3429,7 +3151,6 @@ def get_repeat_customer_rate():
     return 0.0
 
 def get_customer_segments():
-    """Get customer segmentation data"""
     customers_df = load_customers()
     
     if customers_df.empty:
@@ -3461,7 +3182,6 @@ def get_customer_segments():
     return customers_df
 
 def get_segment_summary():
-    """Get summary of customer segments"""
     df = get_customer_segments()
     
     if df.empty:
@@ -3473,7 +3193,6 @@ def get_segment_summary():
     return summary
 
 def get_marketing_targets():
-    """Get marketing target groups"""
     df = get_customer_segments()
     
     if df.empty:
@@ -3490,7 +3209,6 @@ def get_marketing_targets():
     }, df
 
 def get_customer_lifecycle():
-    """Get customer lifecycle stages"""
     customers_df = load_customers()
     
     if customers_df.empty:
@@ -3551,15 +3269,12 @@ def get_customer_lifecycle():
     return customers_df
 
 def get_customer_actions():
-    """Get customer actions based on lifecycle stage"""
     return get_customer_lifecycle()
 
 # ==============================
-# USER FUNCTIONS WITH VALIDATION - FIXED
+# USER FUNCTIONS
 # ==============================
-
 def validate_user_data(data):
-    """Validate user data before saving"""
     errors = {}
     
     if 'username' in data:
@@ -3594,10 +3309,6 @@ def validate_user_data(data):
     return len(errors) == 0, errors, data
 
 def load_users():
-    """
-    Load all users from the database.
-    Returns a pandas DataFrame with user data.
-    """
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -3644,9 +3355,6 @@ def load_users():
         ])
 
 def save_users(df):
-    """
-    Save users to the database with validation.
-    """
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
@@ -3730,136 +3438,8 @@ def save_users(df):
         return False
 
 def init_users():
-    """Initialize default users if none exist"""
     from backend.core.auth import init_users as auth_init_users
     return auth_init_users()
-
-# ==============================
-# LEGACY ALIASES (All functions for backward compatibility)
-# ==============================
-
-# Core functions
-get_current_branch = get_current_branch
-set_current_branch = set_current_branch
-load_branches = load_branches
-load_all_branches = load_all_branches
-save_branches = save_branches
-load_products = load_products
-save_products = save_products
-load_sales = load_sales
-save_sales = save_sales
-load_customers = load_customers
-save_customers = save_customers
-load_debtors = load_debtors
-save_debtors = save_debtors
-load_expenses = load_expenses
-save_expenses = save_expenses
-load_purchases = load_purchases
-save_purchases = save_purchases
-load_cash = load_cash
-save_cash = save_cash
-load_shifts = load_shifts
-save_shifts = save_shifts
-load_suppliers = load_suppliers
-load_loyalty = load_loyalty
-save_loyalty = save_loyalty
-load_income = load_income
-save_income = save_income
-load_expense_budget = load_expense_budget
-save_expense_budget = save_expense_budget
-load_recurring_expenses = load_recurring_expenses
-save_recurring_expenses = save_recurring_expenses
-load_customer_transactions = load_customer_transactions
-save_customer_transactions = save_customer_transactions
-load_debtor_payments = load_debtor_payments
-save_debtor_payments = save_debtor_payments
-load_loyalty_redemptions = load_loyalty_redemptions
-generate_receipt_number = generate_receipt_number
-load_users = load_users
-save_users = save_users
-init_users = init_users
-record_customer_purchase = record_customer_purchase
-record_debt_payment = record_debt_payment
-get_debt_items = get_debt_items
-get_debt_aging = get_debt_aging
-get_overdue_debtors = get_overdue_debtors
-get_total_expenses = get_total_expenses
-load_expense_categories = load_expense_categories
-get_budget_vs_actual = get_budget_vs_actual
-get_expenses_by_category = get_expenses_by_category
-get_monthly_expenses = get_monthly_expenses
-record_expense = record_expense
-get_monthly_income = get_monthly_income
-record_income = record_income
-record_cash_sale = record_cash_sale
-record_credit_sale = record_credit_sale
-record_debt_payment_entry = record_debt_payment_entry
-set_opening_cash = set_opening_cash
-record_closing_cash = record_closing_cash
-record_petty_cash = record_petty_cash
-load_petty_cash = load_petty_cash
-record_bank_deposit = record_bank_deposit
-load_bank_deposits = load_bank_deposits
-get_cash_summary = get_cash_summary
-get_daily_report = get_daily_report
-get_cash_flow = get_cash_flow
-get_cashier_performance = get_cashier_performance
-start_shift = start_shift
-end_shift = end_shift
-can_cashier_login = can_cashier_login
-get_active_shifts_by_branch = get_active_shifts_by_branch
-get_all_active_shifts = get_all_active_shifts
-get_shifts_by_date = get_shifts_by_date
-update_shift_stats = update_shift_stats
-get_customer_loyalty_info = get_customer_loyalty_info
-get_tier_benefits = get_tier_benefits
-get_top_loyalty_customers = get_top_loyalty_customers
-get_birthday_customers = get_birthday_customers
-add_loyalty_points = add_loyalty_points
-redeem_points = redeem_points
-init_data_folder = init_data_folder
-get_branch_data_path = get_branch_data_path
-initialize_branch_with_empty_data = initialize_branch_with_empty_data
-initialize_branch_data = initialize_branch_data
-initialize_branch_with_defaults = initialize_branch_with_defaults
-load_branch_products = load_branch_products
-save_branch_products = save_branch_products
-load_branch_sales = load_branch_sales
-save_branch_sales = save_branch_sales
-load_branch_customers = load_branch_customers
-save_branch_customers = save_branch_customers
-load_branch_debtors = load_branch_debtors
-save_branch_debtors = save_branch_debtors
-load_branch_expenses = load_branch_expenses
-save_branch_expenses = save_branch_expenses
-load_branch_purchases = load_branch_purchases
-save_branch_purchases = save_branch_purchases
-load_branch_cash = load_branch_cash
-save_branch_cash = save_branch_cash
-load_branch_customer_transactions = load_branch_customer_transactions
-save_branch_customer_transactions = save_branch_customer_transactions
-get_branch_products_file = get_branch_products_file
-get_branch_sales_file = get_branch_sales_file
-get_branch_customers_file = get_branch_customers_file
-get_branch_debtors_file = get_branch_debtors_file
-get_branch_expenses_file = get_branch_expenses_file
-get_branch_purchases_file = get_branch_purchases_file
-get_branch_cash_file = get_branch_cash_file
-get_branch_customer_transactions_file = get_branch_customer_transactions_file
-get_branch_performance_summary = get_branch_performance_summary
-get_all_branches_performance = get_all_branches_performance
-sync_products_to_all_branches = sync_products_to_all_branches
-copy_products_to_branch = copy_products_to_branch
-
-# Customer Analytics aliases
-get_customer_retention = get_customer_retention
-get_retention_rate = get_retention_rate
-get_repeat_customer_rate = get_repeat_customer_rate
-get_customer_segments = get_customer_segments
-get_segment_summary = get_segment_summary
-get_marketing_targets = get_marketing_targets
-get_customer_lifecycle = get_customer_lifecycle
-get_customer_actions = get_customer_actions
 
 # ==============================
 # NEW: BATCH CHECKOUT - FASTEST METHOD
@@ -4028,7 +3608,6 @@ def process_checkout_batch(branch_id, checkout_data):
 # EXPORTS
 # ==============================
 __all__ = [
-    # Core functions
     "load_products",
     "save_products",
     "load_sales",
@@ -4053,13 +3632,9 @@ __all__ = [
     "load_branches",
     "load_all_branches",
     "save_branches",
-    
-    # Branch functions
     "get_current_branch",
     "set_current_branch",
     "get_active_shift_id",
-    
-    # Cash register functions
     "record_cash_sale",
     "record_credit_sale",
     "record_debt_payment_entry",
@@ -4073,8 +3648,6 @@ __all__ = [
     "get_daily_report",
     "get_cash_flow",
     "get_cashier_performance",
-    
-    # Shift functions
     "start_shift",
     "end_shift",
     "update_shift_stats",
@@ -4082,29 +3655,21 @@ __all__ = [
     "get_active_shifts_by_branch",
     "get_all_active_shifts",
     "get_shifts_by_date",
-    
-    # Loyalty functions
     "get_customer_loyalty_info",
     "add_loyalty_points",
     "redeem_points",
     "get_tier_benefits",
     "get_top_loyalty_customers",
     "get_birthday_customers",
-    
-    # Customer functions
     "record_customer_purchase",
     "load_customer_transactions",
     "save_customer_transactions",
-    
-    # Debtor functions
     "get_overdue_debtors",
     "record_debt_payment",
     "load_debtor_payments",
     "save_debtor_payments",
     "get_debt_items",
     "get_debt_aging",
-    
-    # Expense functions
     "get_total_expenses",
     "load_expense_categories",
     "load_expense_budget",
@@ -4115,27 +3680,17 @@ __all__ = [
     "get_expenses_by_category",
     "get_monthly_expenses",
     "record_expense",
-    
-    # Income functions
     "get_monthly_income",
     "record_income",
-    
-    # User functions
     "load_users",
     "save_users",
     "init_users",
-    
-    # Batch checkout
-    "process_checkout_batch",
-    
-    # Utility functions
+    "process_checkout_batch",  # FAST CHECKOUT
     "generate_receipt_number",
     "init_data_folder",
     "init_database",
     "test_connection",
     "reset_connection_pool",
-    
-    # Compatibility functions
     "load_branch_products",
     "save_branch_products",
     "load_branch_sales",
@@ -4158,133 +3713,6 @@ __all__ = [
     "get_branch_purchases_file",
     "get_branch_cash_file",
     "get_branch_customer_transactions_file",
-    
-    # Performance functions
-    "get_branch_performance_summary",
-    "get_all_branches_performance",
-    
-    # Sync functions
-    "sync_products_to_all_branches",
-    "copy_products_to_branch",
-    
-    # Customer Analytics
-    "get_customer_retention",
-    "get_retention_rate",
-    "get_repeat_customer_rate",
-    "get_customer_segments",
-    "get_segment_summary",
-    "get_marketing_targets",
-    "get_customer_lifecycle",
-    "get_customer_actions",
-    
-    # Compatibility aliases
-    "get_current_branch",
-    "set_current_branch",
-    "load_branches",
-    "load_all_branches",
-    "save_branches",
-    "load_products",
-    "save_products",
-    "load_sales",
-    "save_sales",
-    "load_customers",
-    "save_customers",
-    "load_debtors",
-    "save_debtors",
-    "load_expenses",
-    "save_expenses",
-    "load_purchases",
-    "save_purchases",
-    "load_cash",
-    "save_cash",
-    "load_shifts",
-    "save_shifts",
-    "load_suppliers",
-    "load_loyalty",
-    "save_loyalty",
-    "load_income",
-    "save_income",
-    "load_expense_budget",
-    "save_expense_budget",
-    "load_recurring_expenses",
-    "save_recurring_expenses",
-    "load_customer_transactions",
-    "save_customer_transactions",
-    "load_debtor_payments",
-    "save_debtor_payments",
-    "load_loyalty_redemptions",
-    "generate_receipt_number",
-    "load_users",
-    "save_users",
-    "init_users",
-    "record_customer_purchase",
-    "record_debt_payment",
-    "get_debt_items",
-    "get_debt_aging",
-    "get_overdue_debtors",
-    "get_total_expenses",
-    "load_expense_categories",
-    "get_budget_vs_actual",
-    "get_expenses_by_category",
-    "get_monthly_expenses",
-    "record_expense",
-    "get_monthly_income",
-    "record_income",
-    "record_cash_sale",
-    "record_credit_sale",
-    "record_debt_payment_entry",
-    "set_opening_cash",
-    "record_closing_cash",
-    "record_petty_cash",
-    "load_petty_cash",
-    "record_bank_deposit",
-    "load_bank_deposits",
-    "get_cash_summary",
-    "get_daily_report",
-    "get_cash_flow",
-    "get_cashier_performance",
-    "start_shift",
-    "end_shift",
-    "can_cashier_login",
-    "get_active_shifts_by_branch",
-    "get_all_active_shifts",
-    "get_shifts_by_date",
-    "update_shift_stats",
-    "get_customer_loyalty_info",
-    "get_tier_benefits",
-    "get_top_loyalty_customers",
-    "get_birthday_customers",
-    "add_loyalty_points",
-    "redeem_points",
-    "init_data_folder",
-    "get_branch_data_path",
-    "initialize_branch_with_empty_data",
-    "initialize_branch_data",
-    "initialize_branch_with_defaults",
-    "load_branch_products",
-    "save_branch_products",
-    "load_branch_sales",
-    "save_branch_sales",
-    "load_branch_customers",
-    "save_branch_customers",
-    "load_branch_debtors",
-    "save_branch_debtors",
-    "load_branch_expenses",
-    "save_branch_expenses",
-    "load_branch_purchases",
-    "save_branch_purchases",
-    "load_branch_cash",
-    "save_branch_cash",
-    "load_branch_customer_transactions",
-    "save_branch_customer_transactions",
-    "get_branch_products_file",
-    "get_branch_sales_file",
-    "get_branch_customers_file",
-    "get_branch_debtors_file",
-    "get_branch_expenses_file",
-    "get_branch_purchases_file",
-    "get_branch_cash_file",
-    "get_branch_customer_transactions_file",
     "get_branch_performance_summary",
     "get_all_branches_performance",
     "sync_products_to_all_branches",
@@ -4296,6 +3724,5 @@ __all__ = [
     "get_segment_summary",
     "get_marketing_targets",
     "get_customer_lifecycle",
-    "get_customer_actions",
-    "process_checkout_batch"  # ADDED - FAST CHECKOUT
+    "get_customer_actions"
 ]
