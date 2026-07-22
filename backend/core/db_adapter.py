@@ -4024,7 +4024,7 @@ def process_checkout_batch(branch_id, checkout_data):
         print(f"Checkout error: {e}")
         return False, str(e)
 
-_# ==============================
+# ==============================
 # EXPORTS
 # ==============================
 __all__ = [
