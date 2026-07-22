@@ -714,8 +714,10 @@ def welcome_page():
     with col2:
         if st.button("Get Started 🚀", type="primary", use_container_width=True):
             st.session_state.welcome_seen = True
-            st.session_state.current_page = "Stock Dashboard"
-            #st.rerun()
+            if st.session_state.get("role") == "cashier":
+                st.session_state.current_page = "POS"
+            else:
+                st.session_state.current_page = "Stock Dashboard"
     
     # Footer with clickable links
     st.markdown('<div class="welcome-footer">', unsafe_allow_html=True)

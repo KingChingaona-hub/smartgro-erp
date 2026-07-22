@@ -489,6 +489,12 @@ def login_page():
                         st.session_state.username = username
                         st.session_state.role = role
                         st.session_state.branch_name = branch_name
+                        
+                        if role == "cashier":
+                            st.session_state.current_page = "POS"
+                        else:
+                            st.session_state.current_page = "Stock Dashboard"
+            
                         try:
                             show_toast(f"Welcome back, {username}!", "success")
                             show_confetti()
