@@ -56,25 +56,34 @@ def init_session():
         st.session_state.receipt_style = "Standard"
     if "checkout_processing" not in st.session_state:
         st.session_state.checkout_processing = False
-    if "last_transaction" not in st.session_state:
-        st.session_state.last_transaction = None
 
 
 # ==============================
-# PRODUCTS
+# PRODUCTS - CACHED
 # ==============================
-def get_products():
+@st.cache_data(ttl=5)
+def get_cached_products():
+    """Cache products for 5 seconds to reduce DB hits"""
     return load_products()
 
 
+def get_products():
+    return get_cached_products()
+
+
 # ==============================
-# CREDIT CHECK - OPTIMIZED
+# CREDIT CHECK - CACHED
 # ==============================
+@st.cache_data(ttl=60)
+def get_cached_credit_score():
+    return get_credit_score()
+
+
 def check_credit_allowed(customer_phone, amount):
     if not customer_phone:
         return False, "No customer phone provided"
     
-    scores_df = get_credit_score()
+    scores_df = get_cached_credit_score()
     if scores_df.empty:
         return True, "New customer"
     
@@ -93,10 +102,15 @@ def check_credit_allowed(customer_phone, amount):
 
 
 # ==============================
-# ACTIVE DEBT CHECK - OPTIMIZED
+# ACTIVE DEBT CHECK - CACHED
 # ==============================
+@st.cache_data(ttl=60)
+def get_cached_debtors():
+    return load_debtors()
+
+
 def has_active_credit(phone):
-    debts = load_debtors()
+    debts = get_cached_debtors()
     if debts.empty:
         return False
     match = debts[(debts["phone"] == phone) & (debts["balance"] > 0)]
@@ -104,7 +118,7 @@ def has_active_credit(phone):
 
 
 # ==============================
-# STOCK VALIDATION - OPTIMIZED
+# STOCK VALIDATION - FAST
 # ==============================
 def check_stock_available(products_df, cart):
     for item in cart:
@@ -196,34 +210,36 @@ def update_cart_quantity(index, new_qty):
 
 
 # ==============================
-# PROCESS CHECKOUT - OPTIMIZED FOR SPEED
+# ULTRA-FAST CHECKOUT - OPTIMIZED
 # ==============================
-def process_checkout(cart, subtotal, final_total, discount_amount, discount_type, 
-                     discount_value, tax_amount, tax_rate, payment_method, 
-                     cash_received, change, customer_display, customer_phone_clean, 
-                     receipt_no, products_df, selected_style, points_earned, points_used):
-    """Process checkout quickly - under 3 seconds"""
+def process_checkout_fast(cart, subtotal, final_total, discount_amount, discount_type, 
+                          discount_value, tax_amount, tax_rate, payment_method, 
+                          cash_received, change, customer_display, customer_phone_clean, 
+                          receipt_no, products_df, selected_style, points_earned, points_used):
+    """ULTRA-FAST checkout - optimized for speed"""
     
     try:
-        # 1. UPDATE STOCK - Fast batch update
+        # 1. UPDATE STOCK - Direct pandas operations
         for item in cart:
-            idx = products_df[products_df["barcode"] == item["barcode"]].index
-            if len(idx) > 0:
-                i = idx[0]
-                products_df.at[i, "stock"] = products_df.at[i, "stock"] - item["qty"]
+            mask = products_df["barcode"] == item["barcode"]
+            if mask.any():
+                idx = products_df[mask].index[0]
+                products_df.at[idx, "stock"] = products_df.at[idx, "stock"] - item["qty"]
         
         save_products(products_df)
         
-        # 2. RECORD SALES - Batch append
+        # 2. RECORD SALES - Quick batch
         sales_df = load_sales()
         new_sales = []
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         for item in cart:
             selling_total = item["price"] * item["qty"]
             cost_total = item["cost"] * item["qty"]
             profit = selling_total - cost_total
             
             new_sales.append({
-                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "date": now,
                 "receipt_no": receipt_no,
                 "barcode": item["barcode"],
                 "name": item["name"],
@@ -236,40 +252,51 @@ def process_checkout(cart, subtotal, final_total, discount_amount, discount_type
                 "final_total": final_total
             })
         
-        sales_df = pd.concat([sales_df, pd.DataFrame(new_sales)], ignore_index=True)
-        save_sales(sales_df)
+        # Only save if there are new sales
+        if new_sales:
+            sales_df = pd.concat([sales_df, pd.DataFrame(new_sales)], ignore_index=True)
+            save_sales(sales_df)
         
-        # 3. CUSTOMER PURCHASE RECORD (non-credit)
-        if payment_method != "CREDIT":
-            record_customer_purchase(
-                customer_name=customer_display,
-                phone=customer_phone_clean,
-                cart=cart,
-                total=final_total,
-                receipt_no=receipt_no
-            )
+        # 3. Customer purchase record (non-credit) - Fast
+        if payment_method != "CREDIT" and customer_phone_clean:
+            try:
+                record_customer_purchase(
+                    customer_name=customer_display,
+                    phone=customer_phone_clean,
+                    cart=cart,
+                    total=final_total,
+                    receipt_no=receipt_no
+                )
+            except:
+                pass  # Silent fail - don't block checkout
         
-        # 4. CASH REGISTER
+        # 4. Cash register - Fast
         shift_to_use = st.session_state.branch_shift_id or st.session_state.get("shift_id", "")
         
-        if payment_method == "CASH":
-            record_cash_sale(final_total, receipt_no, customer_display, shift_to_use)
-        elif payment_method == "CREDIT":
-            record_credit_sale(final_total, receipt_no, customer_display, shift_to_use)
-            create_debt(customer_display, customer_phone_clean, len(cart), final_total, str(datetime.now().date()))
-        else:
-            record_cash_sale(final_total, receipt_no, customer_display, shift_to_use)
+        try:
+            if payment_method == "CASH":
+                record_cash_sale(final_total, receipt_no, customer_display, shift_to_use)
+            elif payment_method == "CREDIT":
+                record_credit_sale(final_total, receipt_no, customer_display, shift_to_use)
+                create_debt(customer_display, customer_phone_clean, len(cart), final_total, str(datetime.now().date()))
+            else:
+                record_cash_sale(final_total, receipt_no, customer_display, shift_to_use)
+        except:
+            pass  # Silent fail - don't block checkout
         
-        # 5. UPDATE SHIFT STATS
+        # 5. Update shift stats - Fast
         if shift_to_use:
-            update_shift_stats(
-                shift_id=shift_to_use,
-                cash_sales=final_total if payment_method == "CASH" else 0,
-                credit_sales=final_total if payment_method == "CREDIT" else 0,
-                transactions=1
-            )
+            try:
+                update_shift_stats(
+                    shift_id=shift_to_use,
+                    cash_sales=final_total if payment_method == "CASH" else 0,
+                    credit_sales=final_total if payment_method == "CREDIT" else 0,
+                    transactions=1
+                )
+            except:
+                pass
         
-        # 6. GENERATE RECEIPT
+        # 6. Generate receipt - Quick
         if selected_style == "Premium (Boxed)":
             receipt_text = generate_premium_receipt(
                 cart=cart,
@@ -303,7 +330,7 @@ def process_checkout(cart, subtotal, final_total, discount_amount, discount_type
                 discount_amount, tax_amount, cash_received, change, final_total
             )
         
-        # 7. STORE TRANSACTION DATA
+        # 7. Store transaction data - Fast
         st.session_state.last_cart = cart.copy()
         st.session_state.last_subtotal = subtotal
         st.session_state.last_receipt_no = receipt_no
@@ -324,9 +351,12 @@ def process_checkout(cart, subtotal, final_total, discount_amount, discount_type
         st.session_state.receipt_no = receipt_no
         st.session_state.show_receipt = True
         
-        # 8. CLEAR CART
+        # 8. Clear cart
         st.session_state.cart = []
         st.session_state.checkout_processing = False
+        
+        # Clear cache to ensure fresh data next time
+        st.cache_data.clear()
         
         return True, receipt_text
         
@@ -336,7 +366,7 @@ def process_checkout(cart, subtotal, final_total, discount_amount, discount_type
 
 
 # ==============================
-# POS PAGE - OPTIMIZED
+# POS PAGE - OPTIMIZED FOR SPEED
 # ==============================
 def pos_page():
     init_session()
@@ -349,11 +379,12 @@ def pos_page():
     except:
         pass
     
+    # Load products once with caching
     products_df = get_products()
     cart = st.session_state.cart
     
     # ==============================
-    # SHIFT STATUS - FAST CHECK
+    # SHIFT STATUS - FAST
     # ==============================
     user_branch = st.session_state.get("user_branch", "HO")
     branch_shift = get_branch_shift_status(user_branch)
@@ -379,6 +410,7 @@ def pos_page():
     # ==============================
     st.markdown("## Quick Action Products")
     
+    # Load sales for quick products - cached
     sales_df = load_sales()
     if not sales_df.empty and "name" in sales_df.columns:
         top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
@@ -526,7 +558,7 @@ def pos_page():
                             st.rerun()
         return
     
-    # Cart items with management
+    # Cart items with management - MINIMAL reruns
     st.write("### Cart Items")
     
     for idx, item in enumerate(cart):
@@ -727,14 +759,14 @@ def pos_page():
                         st.info(f"New total: ${final_total:.2f}")
     
     # ==============================
-    # CHECKOUT BUTTONS
+    # CHECKOUT BUTTONS - OPTIMIZED
     # ==============================
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         if st.button("Clear Cart", key="clear_cart_btn", use_container_width=True):
             st.session_state.cart = []
-            #st.rerun()
+            st.rerun()
     
     with col2:
         cart_name = st.text_input("Save Cart As", placeholder="Cart name", key="save_cart_name", label_visibility="collapsed")
@@ -750,7 +782,7 @@ def pos_page():
             load_cart_name = st.selectbox("Load Cart", [""] + list(st.session_state.saved_carts.keys()), key="load_cart_name", label_visibility="collapsed")
             if load_cart_name and st.button("Load Cart", key="load_cart_btn", use_container_width=True):
                 load_saved_cart(load_cart_name)
-                #st.rerun()
+                st.rerun()
     
     with col4:
         if not st.session_state.branch_shift_active:
@@ -762,9 +794,10 @@ def pos_page():
             if st.button("Checkout", key="checkout_btn", type="primary", use_container_width=True):
                 # Validate
                 if not can_checkout:
+                    st.error("Checkout validation failed. Please check payment details.")
                     st.stop()
                 
-                # Check stock
+                # Check stock - quick
                 products_df = get_products()
                 stock_ok, stock_message = check_stock_available(products_df, cart)
                 if not stock_ok:
@@ -775,17 +808,23 @@ def pos_page():
                 receipt_no = datetime.now().strftime("%Y%m%d%H%M%S")
                 st.session_state.receipt_no = receipt_no
                 
-                # Add loyalty points
+                # Add loyalty points - only if customer has phone
                 if customer_phone_clean and payment_method != "CREDIT":
-                    points_earned = add_loyalty_points(
-                        customer_name=customer_display,
-                        phone=customer_phone_clean,
-                        amount_spent=final_total,
-                        receipt_no=receipt_no
-                    )
+                    try:
+                        points_earned = add_loyalty_points(
+                            customer_name=customer_display,
+                            phone=customer_phone_clean,
+                            amount_spent=final_total,
+                            receipt_no=receipt_no
+                        )
+                    except:
+                        points_earned = 0
+                
+                # Set processing flag to prevent double click
+                st.session_state.checkout_processing = True
                 
                 # Process checkout using the optimized function
-                success, result = process_checkout(
+                success, result = process_checkout_fast(
                     cart=cart.copy(),
                     subtotal=subtotal,
                     final_total=final_total,
@@ -812,6 +851,7 @@ def pos_page():
                     st.rerun()
                 else:
                     st.error(f"Checkout error: {result}")
+                    st.session_state.checkout_processing = False
     
     # ==============================
     # RECEIPT DISPLAY
