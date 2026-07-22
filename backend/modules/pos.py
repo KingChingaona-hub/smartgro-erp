@@ -307,8 +307,8 @@ def pos_page():
                             found = False
                             for item in cart:
                                 if item["barcode"] == product["barcode"]:
-                                    item["qty"] += 1
-                                    item["total"] = item["qty"] * item["price"]
+                                    item["qty"] = float(item["qty"]) + 1.0  # FIX: Keep as float
+                                    item["total"] = float(item["qty"]) * float(item["price"])
                                     found = True
                                     break
                             if not found:
@@ -440,13 +440,13 @@ def pos_page():
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
-                            new_qty = float(item["qty"]) + final_qty
+                            new_qty = float(item["qty"]) + float(final_qty)  # FIX: Keep as float
                             if new_qty > product["stock"]:
                                 st.toast(f"Cart exceeds available stock ({product['stock']:.2f})")
                                 found = True
                                 break
                             item["qty"] = new_qty
-                            item["total"] = new_qty * item["price"]
+                            item["total"] = float(new_qty) * float(item["price"])  # FIX: Keep as float
                             found = True
                             if is_decimal:
                                 st.toast(f"Updated: {product['name']} x{new_qty:.2f}")
@@ -460,8 +460,8 @@ def pos_page():
                             "name": product["name"],
                             "price": float(product["price"]),
                             "cost": float(product["cost"]),
-                            "qty": final_qty,
-                            "total": float(product["price"]) * final_qty
+                            "qty": float(final_qty),  # FIX: Store as float
+                            "total": float(product["price"]) * float(final_qty)  # FIX: Keep as float
                         })
                         if is_decimal:
                             st.toast(f"Added: {product['name']} x{final_qty:.2f}")
