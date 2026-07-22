@@ -8,7 +8,9 @@ from backend.core.db_adapter import (
     save_products,
     load_sales,
     save_sales,
-    record_customer_purchase
+    record_customer_purchase,
+    process_checkout_batch,  # ADD THIS - FAST CHECKOUT
+    get_branch_shift_status  # ADD THIS
 )
 
 from backend.modules.receipt import (
@@ -28,7 +30,7 @@ from backend.analytics.debtors_engine import (
 )
 
 from backend.modules.loyalty import add_loyalty_points, redeem_points, get_customer_loyalty_info
-from backend.modules.shift_manager import update_shift_stats, get_active_shift_for_branch, get_branch_active_shift_id
+from backend.modules.shift_manager import update_shift_stats, get_active_shift_for_branch
 from backend.utils.utils import generate_whatsapp_receipt, get_whatsapp_link
 
 
@@ -162,32 +164,6 @@ def add_recent_customer(name, phone):
 
 
 # ==============================
-# CHECK BRANCH SHIFT STATUS
-# ==============================
-def get_branch_shift_status(branch_id):
-    active_shift = get_active_shift_for_branch(branch_id)
-    
-    if active_shift:
-        return {
-            "active": True,
-            "shift_id": active_shift.get("shift_id"),
-            "started_by": active_shift.get("cashier_name", "Unknown"),
-            "start_time": active_shift.get("start_time"),
-            "opening_cash": active_shift.get("opening_cash", 0),
-            "branch_name": active_shift.get("branch_name", "")
-        }
-    else:
-        return {
-            "active": False,
-            "shift_id": None,
-            "started_by": None,
-            "start_time": None,
-            "opening_cash": 0,
-            "branch_name": ""
-        }
-
-
-# ==============================
 # REMOVE ITEM FROM CART
 # ==============================
 def remove_from_cart(index):
@@ -210,163 +186,7 @@ def update_cart_quantity(index, new_qty):
 
 
 # ==============================
-# ULTRA-FAST CHECKOUT - OPTIMIZED
-# ==============================
-def process_checkout_fast(cart, subtotal, final_total, discount_amount, discount_type, 
-                          discount_value, tax_amount, tax_rate, payment_method, 
-                          cash_received, change, customer_display, customer_phone_clean, 
-                          receipt_no, products_df, selected_style, points_earned, points_used):
-    """ULTRA-FAST checkout - optimized for speed"""
-    
-    try:
-        # 1. UPDATE STOCK - Direct pandas operations
-        for item in cart:
-            mask = products_df["barcode"] == item["barcode"]
-            if mask.any():
-                idx = products_df[mask].index[0]
-                products_df.at[idx, "stock"] = products_df.at[idx, "stock"] - item["qty"]
-        
-        save_products(products_df)
-        
-        # 2. RECORD SALES - Quick batch
-        sales_df = load_sales()
-        new_sales = []
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        for item in cart:
-            selling_total = item["price"] * item["qty"]
-            cost_total = item["cost"] * item["qty"]
-            profit = selling_total - cost_total
-            
-            new_sales.append({
-                "date": now,
-                "receipt_no": receipt_no,
-                "barcode": item["barcode"],
-                "name": item["name"],
-                "items": item["qty"],
-                "total": selling_total,
-                "profit": profit,
-                "payment_method": payment_method,
-                "customer": customer_display,
-                "customer_phone": customer_phone_clean,
-                "final_total": final_total
-            })
-        
-        # Only save if there are new sales
-        if new_sales:
-            sales_df = pd.concat([sales_df, pd.DataFrame(new_sales)], ignore_index=True)
-            save_sales(sales_df)
-        
-        # 3. Customer purchase record (non-credit) - Fast
-        if payment_method != "CREDIT" and customer_phone_clean:
-            try:
-                record_customer_purchase(
-                    customer_name=customer_display,
-                    phone=customer_phone_clean,
-                    cart=cart,
-                    total=final_total,
-                    receipt_no=receipt_no
-                )
-            except:
-                pass  # Silent fail - don't block checkout
-        
-        # 4. Cash register - Fast
-        shift_to_use = st.session_state.branch_shift_id or st.session_state.get("shift_id", "")
-        
-        try:
-            if payment_method == "CASH":
-                record_cash_sale(final_total, receipt_no, customer_display, shift_to_use)
-            elif payment_method == "CREDIT":
-                record_credit_sale(final_total, receipt_no, customer_display, shift_to_use)
-                create_debt(customer_display, customer_phone_clean, len(cart), final_total, str(datetime.now().date()))
-            else:
-                record_cash_sale(final_total, receipt_no, customer_display, shift_to_use)
-        except:
-            pass  # Silent fail - don't block checkout
-        
-        # 5. Update shift stats - Fast
-        if shift_to_use:
-            try:
-                update_shift_stats(
-                    shift_id=shift_to_use,
-                    cash_sales=final_total if payment_method == "CASH" else 0,
-                    credit_sales=final_total if payment_method == "CREDIT" else 0,
-                    transactions=1
-                )
-            except:
-                pass
-        
-        # 6. Generate receipt - Quick
-        if selected_style == "Premium (Boxed)":
-            receipt_text = generate_premium_receipt(
-                cart=cart,
-                total_amount=subtotal,
-                receipt_no=receipt_no,
-                payment_method=payment_method,
-                customer_name=customer_display,
-                customer_phone=customer_phone_clean,
-                discount_amount=discount_amount,
-                discount_percent=discount_value if discount_type == "PERCENT" else 0,
-                tax_amount=tax_amount,
-                tax_percent=tax_rate,
-                cash_received=cash_received,
-                change=change,
-                final_total=final_total,
-                loyalty_points_earned=points_earned,
-                loyalty_points_used=points_used
-            )
-        elif selected_style == "Thermal (58mm)":
-            receipt_text = generate_thermal_receipt(
-                cart=cart,
-                total_amount=subtotal,
-                receipt_no=receipt_no,
-                payment_method=payment_method,
-                customer_name=customer_display,
-                final_total=final_total
-            )
-        else:
-            receipt_text = generate_receipt(
-                cart, subtotal, receipt_no, payment_method, customer_display,
-                discount_amount, tax_amount, cash_received, change, final_total
-            )
-        
-        # 7. Store transaction data - Fast
-        st.session_state.last_cart = cart.copy()
-        st.session_state.last_subtotal = subtotal
-        st.session_state.last_receipt_no = receipt_no
-        st.session_state.last_payment_method = payment_method
-        st.session_state.last_customer_display = customer_display
-        st.session_state.last_customer_phone = customer_phone_clean
-        st.session_state.last_discount_amount = discount_amount
-        st.session_state.last_discount_percent = discount_value if discount_type == "PERCENT" else 0
-        st.session_state.last_tax_amount = tax_amount
-        st.session_state.last_tax_percent = tax_rate
-        st.session_state.last_cash_received = cash_received
-        st.session_state.last_change = change
-        st.session_state.last_final_total = final_total
-        st.session_state.last_points_earned = points_earned
-        st.session_state.last_points_used = points_used
-        st.session_state.receipt = receipt_text
-        st.session_state.last_receipt = receipt_text
-        st.session_state.receipt_no = receipt_no
-        st.session_state.show_receipt = True
-        
-        # 8. Clear cart
-        st.session_state.cart = []
-        st.session_state.checkout_processing = False
-        
-        # Clear cache to ensure fresh data next time
-        st.cache_data.clear()
-        
-        return True, receipt_text
-        
-    except Exception as e:
-        st.session_state.checkout_processing = False
-        return False, str(e)
-
-
-# ==============================
-# POS PAGE - OPTIMIZED FOR SPEED
+# POS PAGE - OPTIMIZED WITH BATCH CHECKOUT
 # ==============================
 def pos_page():
     init_session()
@@ -410,7 +230,6 @@ def pos_page():
     # ==============================
     st.markdown("## Quick Action Products")
     
-    # Load sales for quick products - cached
     sales_df = load_sales()
     if not sales_df.empty and "name" in sales_df.columns:
         top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
@@ -558,7 +377,7 @@ def pos_page():
                             st.rerun()
         return
     
-    # Cart items with management - MINIMAL reruns
+    # Cart items with management
     st.write("### Cart Items")
     
     for idx, item in enumerate(cart):
@@ -759,7 +578,7 @@ def pos_page():
                         st.info(f"New total: ${final_total:.2f}")
     
     # ==============================
-    # CHECKOUT BUTTONS - OPTIMIZED
+    # CHECKOUT BUTTONS - USING BATCH
     # ==============================
     col1, col2, col3, col4 = st.columns(4)
     
@@ -808,7 +627,11 @@ def pos_page():
                 receipt_no = datetime.now().strftime("%Y%m%d%H%M%S")
                 st.session_state.receipt_no = receipt_no
                 
+                # Get shift ID
+                shift_id = st.session_state.branch_shift_id or st.session_state.get("shift_id", "")
+                
                 # Add loyalty points - only if customer has phone
+                points_earned = 0
                 if customer_phone_clean and payment_method != "CREDIT":
                     try:
                         points_earned = add_loyalty_points(
@@ -823,34 +646,88 @@ def pos_page():
                 # Set processing flag to prevent double click
                 st.session_state.checkout_processing = True
                 
-                # Process checkout using the optimized function
-                success, result = process_checkout_fast(
-                    cart=cart.copy(),
-                    subtotal=subtotal,
-                    final_total=final_total,
-                    discount_amount=discount_amount,
-                    discount_type=discount_type,
-                    discount_value=discount_value,
-                    tax_amount=tax_amount,
-                    tax_rate=tax_rate,
-                    payment_method=payment_method,
-                    cash_received=cash_received,
-                    change=change,
-                    customer_display=customer_display,
-                    customer_phone_clean=customer_phone_clean,
-                    receipt_no=receipt_no,
-                    products_df=products_df,
-                    selected_style=receipt_style,
-                    points_earned=points_earned,
-                    points_used=points_used
+                # Prepare checkout data for batch processing
+                checkout_data = {
+                    "cart": cart.copy(),
+                    "receipt_no": receipt_no,
+                    "payment_method": payment_method,
+                    "customer_name": customer_display,
+                    "customer_phone": customer_phone_clean,
+                    "final_total": final_total,
+                    "shift_id": shift_id,
+                    "cashier": st.session_state.get("username", "system")
+                }
+                
+                # ======================================================
+                # USE BATCH CHECKOUT - ONE DATABASE TRANSACTION
+                # ======================================================
+                success, message = process_checkout_batch(
+                    branch_id=st.session_state.get("user_branch", "HO"),
+                    checkout_data=checkout_data
                 )
                 
                 if success:
+                    # Generate receipt
+                    selected_style = st.session_state.get("receipt_style", "Standard")
+                    
+                    if selected_style == "Premium (Boxed)":
+                        receipt_text = generate_premium_receipt(
+                            cart=cart.copy(),
+                            total_amount=subtotal,
+                            receipt_no=receipt_no,
+                            payment_method=payment_method,
+                            customer_name=customer_display,
+                            customer_phone=customer_phone_clean,
+                            discount_amount=discount_amount,
+                            discount_percent=discount_value if discount_type == "PERCENT" else 0,
+                            tax_amount=tax_amount,
+                            tax_percent=tax_rate,
+                            cash_received=cash_received,
+                            change=change,
+                            final_total=final_total,
+                            loyalty_points_earned=points_earned,
+                            loyalty_points_used=points_used
+                        )
+                    elif selected_style == "Thermal (58mm)":
+                        receipt_text = generate_thermal_receipt(
+                            cart=cart.copy(),
+                            total_amount=subtotal,
+                            receipt_no=receipt_no,
+                            payment_method=payment_method,
+                            customer_name=customer_display,
+                            final_total=final_total
+                        )
+                    else:
+                        receipt_text = generate_receipt(
+                            cart.copy(), subtotal, receipt_no, payment_method, customer_display,
+                            discount_amount, tax_amount, cash_received, change, final_total
+                        )
+                    
+                    # Store transaction data
+                    st.session_state.last_cart = cart.copy()
+                    st.session_state.last_subtotal = subtotal
+                    st.session_state.last_receipt_no = receipt_no
+                    st.session_state.last_payment_method = payment_method
+                    st.session_state.last_customer_display = customer_display
+                    st.session_state.last_customer_phone = customer_phone_clean
+                    st.session_state.last_discount_amount = discount_amount
+                    st.session_state.last_tax_amount = tax_amount
+                    st.session_state.last_cash_received = cash_received
+                    st.session_state.last_change = change
+                    st.session_state.last_final_total = final_total
+                    st.session_state.last_points_earned = points_earned
+                    st.session_state.last_points_used = points_used
+                    st.session_state.receipt = receipt_text
+                    st.session_state.last_receipt = receipt_text
+                    st.session_state.show_receipt = True
+                    st.session_state.cart = []
+                    st.session_state.checkout_processing = False
+                    
                     st.success("Transaction completed successfully!")
                     st.balloons()
                     st.rerun()
                 else:
-                    st.error(f"Checkout error: {result}")
+                    st.error(f"Checkout failed: {message}")
                     st.session_state.checkout_processing = False
     
     # ==============================
