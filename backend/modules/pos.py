@@ -119,16 +119,17 @@ def has_active_credit(phone):
 
 
 # ==============================
-# STOCK VALIDATION - FAST
+# STOCK VALIDATION - SUPPORTS DECIMALS
 # ==============================
 def check_stock_available(products_df, cart):
     for item in cart:
         product = products_df[products_df["barcode"] == item["barcode"]]
         if product.empty:
             return False, f"{item['name']} not found"
-        stock = int(product.iloc[0]["stock"])
-        if item["qty"] > stock:
-            return False, f"{item['name']} only has {stock} units available"
+        stock = float(product.iloc[0]["stock"])
+        qty = float(item["qty"])
+        if qty > stock + 0.001:  # Small tolerance for floating point
+            return False, f"{item['name']} only has {stock:.2f} units available"
     return True, "OK"
 
 
@@ -163,7 +164,7 @@ def add_recent_customer(name, phone):
 
 
 # ==============================
-# CHECK BRANCH SHIFT STATUS - ADD THIS FUNCTION
+# CHECK BRANCH SHIFT STATUS
 # ==============================
 def get_branch_shift_status(branch_id):
     """Get the active shift status for a branch"""
@@ -198,21 +199,49 @@ def remove_from_cart(index):
 
 
 # ==============================
-# UPDATE ITEM QUANTITY
+# UPDATE ITEM QUANTITY - SUPPORTS DECIMALS
 # ==============================
 def update_cart_quantity(index, new_qty):
     if index < len(st.session_state.cart):
-        if new_qty <= 0:
-            st.session_state.cart.pop(index)
-        else:
-            st.session_state.cart[index]["qty"] = new_qty
-            st.session_state.cart[index]["total"] = new_qty * st.session_state.cart[index]["price"]
-        return True
+        try:
+            new_qty = float(new_qty)
+            if new_qty <= 0:
+                st.session_state.cart.pop(index)
+            else:
+                st.session_state.cart[index]["qty"] = new_qty
+                st.session_state.cart[index]["total"] = new_qty * st.session_state.cart[index]["price"]
+            return True
+        except ValueError:
+            return False
     return False
 
 
 # ==============================
-# POS PAGE
+# CHECK IF PRODUCT SUPPORTS DECIMAL
+# ==============================
+def supports_decimal_quantity(product_name, category=""):
+    """Check if a product supports decimal quantities"""
+    if not product_name:
+        return False
+    
+    name_lower = product_name.lower()
+    category_lower = str(category).lower()
+    
+    # Products that support decimal quantities
+    decimal_products = [
+        "gas", "kg", "bread", "loaf", "flour", "sugar", "rice", 
+        "maize meal", "cooking oil", "milk", "liquid", "weight"
+    ]
+    
+    for keyword in decimal_products:
+        if keyword in name_lower or keyword in category_lower:
+            return True
+    
+    return False
+
+
+# ==============================
+# POS PAGE - WITH DECIMAL SUPPORT
 # ==============================
 def pos_page():
     init_session()
@@ -288,7 +317,7 @@ def pos_page():
                                     "name": product["name"],
                                     "price": float(product["price"]),
                                     "cost": float(product["cost"]),
-                                    "qty": 1,
+                                    "qty": 1.0,
                                     "total": float(product["price"])
                                 })
                             st.toast(f"Added: {product['name']}")
@@ -298,7 +327,7 @@ def pos_page():
     st.markdown("---")
     
     # ==============================
-    # PRODUCT SEARCH
+    # PRODUCT SEARCH WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Search Products")
     
@@ -309,7 +338,8 @@ def pos_page():
             st.rerun()
         return
     
-    col_search, col_qty = st.columns([3, 1])
+    # Add mode selector for decimal products
+    col_search, col_qty, col_mode = st.columns([3, 1, 1])
     
     with col_search:
         search = st.text_input(
@@ -319,7 +349,23 @@ def pos_page():
         )
     
     with col_qty:
-        quick_qty = st.number_input("Qty", min_value=1, value=1, key="quick_qty")
+        # Allow decimal quantities with step of 0.5
+        quick_qty = st.number_input(
+            "Qty", 
+            min_value=0.0, 
+            value=1.0, 
+            step=0.5,
+            format="%.2f",
+            key="quick_qty"
+        )
+    
+    with col_mode:
+        # Add option to input by amount instead of quantity
+        quick_mode = st.selectbox(
+            "Mode",
+            ["Quantity", "Amount ($)"],
+            key="quick_mode"
+        )
     
     filtered_df = products_df.copy()
     if search:
@@ -338,6 +384,12 @@ def pos_page():
         if selected_product:
             product = filtered_df[filtered_df["name"] == selected_product].iloc[0]
             
+            # Check if this product supports decimal quantities
+            is_decimal = supports_decimal_quantity(
+                product["name"], 
+                product.get("category", "")
+            )
+            
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.write(f"**Price:** ${product['price']:.2f}")
@@ -345,30 +397,61 @@ def pos_page():
                 if product["stock"] <= 0:
                     st.error(f"**Stock:** OUT OF STOCK")
                 elif product["stock"] <= product["reorder_level"]:
-                    st.warning(f"**Stock:** {product['stock']} (LOW)")
+                    st.warning(f"**Stock:** {product['stock']:.2f} (LOW)")
                 else:
-                    st.success(f"**Stock:** {product['stock']} units")
+                    st.success(f"**Stock:** {product['stock']:.2f} units")
             with col3:
                 st.write(f"**Category:** {product['category']}")
+            
+            # Show decimal support info
+            if is_decimal:
+                st.info("🔢 Decimal quantities supported (e.g., 0.5, 1.5, 2.0)")
+                st.caption("💡 Use 'Amount ($)' mode to buy by value instead of weight")
+            
+            # Calculate quantity based on mode
+            final_qty = quick_qty
+            price_per_unit = float(product["price"])
+            
+            if quick_mode == "Amount ($)":
+                # User enters amount they want to spend
+                amount_to_spend = quick_qty
+                if amount_to_spend > 0 and price_per_unit > 0:
+                    final_qty = amount_to_spend / price_per_unit
+                    st.caption(f"💡 ${amount_to_spend:.2f} = {final_qty:.2f} units @ ${price_per_unit:.2f}")
+                else:
+                    final_qty = 0
+            else:
+                final_qty = quick_qty
+            
+            # For non-decimal products, ensure quantity is integer
+            if not is_decimal:
+                final_qty = int(final_qty) if final_qty > 0 else 0
+                if final_qty != quick_qty:
+                    st.info(f"Quantity rounded to {final_qty} (whole units only)")
             
             if st.button("Add to Cart", key="add_to_cart_btn", use_container_width=True):
                 if product["stock"] <= 0:
                     st.toast(f"{product['name']} is out of stock!")
-                elif quick_qty > product["stock"]:
-                    st.toast(f"Only {product['stock']} units available for {product['name']}")
+                elif final_qty <= 0:
+                    st.toast("Please enter a valid quantity or amount")
+                elif final_qty > product["stock"]:
+                    st.toast(f"Only {product['stock']:.2f} units available for {product['name']}")
                 else:
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
-                            new_qty = item["qty"] + quick_qty
+                            new_qty = float(item["qty"]) + final_qty
                             if new_qty > product["stock"]:
-                                st.toast(f"Cart exceeds available stock ({product['stock']})")
+                                st.toast(f"Cart exceeds available stock ({product['stock']:.2f})")
                                 found = True
                                 break
                             item["qty"] = new_qty
-                            item["total"] = item["qty"] * item["price"]
+                            item["total"] = new_qty * item["price"]
                             found = True
-                            st.toast(f"Updated: {product['name']} x{new_qty}")
+                            if is_decimal:
+                                st.toast(f"Updated: {product['name']} x{new_qty:.2f}")
+                            else:
+                                st.toast(f"Updated: {product['name']} x{int(new_qty)}")
                             break
                     
                     if not found:
@@ -377,15 +460,18 @@ def pos_page():
                             "name": product["name"],
                             "price": float(product["price"]),
                             "cost": float(product["cost"]),
-                            "qty": int(quick_qty),
-                            "total": float(product["price"]) * int(quick_qty)
+                            "qty": final_qty,
+                            "total": float(product["price"]) * final_qty
                         })
-                        st.toast(f"Added: {product['name']} x{quick_qty}")
+                        if is_decimal:
+                            st.toast(f"Added: {product['name']} x{final_qty:.2f}")
+                        else:
+                            st.toast(f"Added: {product['name']} x{int(final_qty)}")
     
     st.markdown("---")
     
     # ==============================
-    # CART DISPLAY
+    # CART DISPLAY WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Current Cart")
     
@@ -404,7 +490,7 @@ def pos_page():
                             st.rerun()
         return
     
-    # Cart items with management
+    # Cart items with management - supports decimals
     st.write("### Cart Items")
     
     for idx, item in enumerate(cart):
@@ -412,13 +498,17 @@ def pos_page():
         
         with col1:
             st.write(f"**{item['name']}**")
+            # Show if it's a decimal quantity
+            if isinstance(item["qty"], float) and item["qty"] % 1 != 0:
+                st.caption(f"🔢 {item['qty']:.2f} units")
         
         with col2:
             new_qty = st.number_input(
                 "Qty",
-                min_value=0,
-                value=item["qty"],
-                step=1,
+                min_value=0.0,
+                value=float(item["qty"]),
+                step=0.5,
+                format="%.2f",
                 key=f"qty_{idx}_{item['barcode']}",
                 label_visibility="collapsed"
             )
@@ -440,10 +530,16 @@ def pos_page():
         st.divider()
     
     cart_df = pd.DataFrame(cart)
+    # Display with proper decimal formatting
     st.dataframe(
-        cart_df[["name", "qty", "price", "total"]], 
-        use_container_width=True, 
-        hide_index=True
+        cart_df[["name", "qty", "price", "total"]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "qty": st.column_config.NumberColumn("Quantity", format="%.2f"),
+            "price": st.column_config.NumberColumn("Price", format="$%.2f"),
+            "total": st.column_config.NumberColumn("Total", format="$%.2f")
+        }
     )
     
     subtotal = cart_df["total"].sum()
@@ -643,7 +739,7 @@ def pos_page():
                     st.error("Checkout validation failed. Please check payment details.")
                     st.stop()
                 
-                # Check stock - quick
+                # Check stock - quick (supports decimals)
                 products_df = get_products()
                 stock_ok, stock_message = check_stock_available(products_df, cart)
                 if not stock_ok:

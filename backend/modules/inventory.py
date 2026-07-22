@@ -5,7 +5,7 @@ from backend.core.auth import check_login
 
 
 # ==============================
-# INVENTORY PAGE - NO RERUNS
+# INVENTORY PAGE - WITH DECIMAL SUPPORT
 # ==============================
 def inventory_page():
     
@@ -30,7 +30,16 @@ def inventory_page():
         
         if not low_stock.empty:
             st.error(f"{len(low_stock)} products need reordering!")
-            st.dataframe(low_stock[["name", "stock", "reorder_level", "price"]], use_container_width=True, hide_index=True)
+            st.dataframe(
+                low_stock[["name", "stock", "reorder_level", "price"]], 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "stock": st.column_config.NumberColumn("Stock", format="%.2f"),
+                    "reorder_level": st.column_config.NumberColumn("Reorder Level", format="%.2f"),
+                    "price": st.column_config.NumberColumn("Price", format="$%.2f")
+                }
+            )
         else:
             st.success("All products are sufficiently stocked.")
     else:
@@ -52,7 +61,16 @@ def inventory_page():
         ]
         
         if not result.empty:
-            st.dataframe(result, use_container_width=True, hide_index=True)
+            st.dataframe(
+                result, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "stock": st.column_config.NumberColumn("Stock", format="%.2f"),
+                    "price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                    "cost": st.column_config.NumberColumn("Cost", format="$%.2f")
+                }
+            )
             st.success(f"Found {len(result)} product(s)")
         else:
             st.warning("No product found")
@@ -67,7 +85,18 @@ def inventory_page():
     if not df.empty:
         display_cols = ["barcode", "name", "category", "price", "stock", "reorder_level"]
         available_cols = [col for col in display_cols if col in df.columns]
-        st.dataframe(df[available_cols], use_container_width=True, hide_index=True)
+        
+        # Display with decimal formatting for stock
+        st.dataframe(
+            df[available_cols], 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "stock": st.column_config.NumberColumn("Stock", format="%.2f"),
+                "price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                "reorder_level": st.column_config.NumberColumn("Reorder Level", format="%.2f")
+            }
+        )
         st.caption(f"Total products: {len(df)}")
     else:
         st.info("No products in inventory. Add your first product below.")
@@ -75,7 +104,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # ADD PRODUCT
+    # ADD PRODUCT - WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Add Product")
     
@@ -90,8 +119,12 @@ def inventory_page():
         
         with col2:
             cost = st.number_input("Cost ($)", min_value=0.0, step=0.5, key="add_cost")
-            stock = st.number_input("Stock", min_value=0, step=1, key="add_stock")
-            reorder_level = st.number_input("Reorder Level", min_value=0, step=1, key="add_reorder")
+            # Stock now supports decimals for gas and bread
+            stock = st.number_input("Stock", min_value=0.0, step=0.5, format="%.2f", key="add_stock")
+            reorder_level = st.number_input("Reorder Level", min_value=0.0, step=0.5, format="%.2f", key="add_reorder")
+            
+            # Show hint for decimal products
+            st.caption("Use decimals (e.g., 0.5, 1.5) for gas, bread, and weight-based products")
         
         submitted = st.form_submit_button("Add Product", type="primary", use_container_width=True)
         
@@ -106,8 +139,8 @@ def inventory_page():
                         "category": category if category else "Uncategorized",
                         "price": price,
                         "cost": cost,
-                        "stock": stock,
-                        "reorder_level": reorder_level
+                        "stock": float(stock),  # Allow decimal stock
+                        "reorder_level": float(reorder_level)  # Allow decimal reorder level
                     }])
                     
                     if df.empty:
@@ -126,7 +159,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # UPDATE PRODUCT - FIXED
+    # UPDATE PRODUCT - WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Update Product")
     
@@ -140,6 +173,14 @@ def inventory_page():
             # Get the index of the selected product
             product_index = df[df["name"] == selected_product].index[0]
             
+            # Check if this product supports decimals
+            name_lower = str(product_data["name"]).lower()
+            category_lower = str(product_data.get("category", "")).lower()
+            is_decimal_product = any(keyword in name_lower or keyword in category_lower 
+                                     for keyword in ["gas", "kg", "bread", "loaf", "flour", "sugar", 
+                                                     "rice", "maize meal", "cooking oil", "milk", 
+                                                     "liquid", "weight"])
+            
             with st.form("update_product_form", clear_on_submit=False):
                 col1, col2 = st.columns(2)
                 
@@ -151,8 +192,32 @@ def inventory_page():
                 
                 with col2:
                     update_cost = st.number_input("Cost ($)", value=float(product_data.get("cost", 0)), step=0.5, key="update_cost")
-                    update_stock = st.number_input("Stock", value=int(product_data["stock"]), step=1, key="update_stock")
-                    update_reorder = st.number_input("Reorder Level", value=int(product_data["reorder_level"]), step=1, key="update_reorder")
+                    
+                    # Stock with decimal support
+                    stock_step = 0.5 if is_decimal_product else 1.0
+                    stock_min = 0.0 if is_decimal_product else 0
+                    
+                    update_stock = st.number_input(
+                        "Stock", 
+                        min_value=stock_min, 
+                        value=float(product_data["stock"]), 
+                        step=stock_step,
+                        format="%.2f" if is_decimal_product else "%.0f",
+                        key="update_stock"
+                    )
+                    
+                    update_reorder = st.number_input(
+                        "Reorder Level", 
+                        min_value=stock_min, 
+                        value=float(product_data["reorder_level"]), 
+                        step=stock_step,
+                        format="%.2f" if is_decimal_product else "%.0f",
+                        key="update_reorder"
+                    )
+                
+                # Show decimal hint
+                if is_decimal_product:
+                    st.info("Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
                 
                 # Save button inside the form
                 save_changes = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
@@ -165,8 +230,8 @@ def inventory_page():
                         df.at[product_index, "category"] = update_category if update_category else "Uncategorized"
                         df.at[product_index, "price"] = update_price
                         df.at[product_index, "cost"] = update_cost
-                        df.at[product_index, "stock"] = update_stock
-                        df.at[product_index, "reorder_level"] = update_reorder
+                        df.at[product_index, "stock"] = float(update_stock)  # Always store as float
+                        df.at[product_index, "reorder_level"] = float(update_reorder)  # Always store as float
                         
                         # Save to database
                         if save_products(df):
