@@ -9,8 +9,7 @@ from backend.core.db_adapter import (
     load_sales,
     save_sales,
     record_customer_purchase,
-    process_checkout_batch,  # ADD THIS - FAST CHECKOUT
-    get_branch_shift_status  # ADD THIS
+    process_checkout_batch, 
 )
 
 from backend.modules.receipt import (
