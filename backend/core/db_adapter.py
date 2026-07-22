@@ -3860,3 +3860,442 @@ get_segment_summary = get_segment_summary
 get_marketing_targets = get_marketing_targets
 get_customer_lifecycle = get_customer_lifecycle
 get_customer_actions = get_customer_actions
+
+# ==============================
+# NEW: BATCH CHECKOUT - FASTEST METHOD
+# ==============================
+def process_checkout_batch(branch_id, checkout_data):
+    """
+    Process entire checkout in ONE database transaction - FASTEST
+    Returns: (success, message)
+    
+    Args:
+        branch_id: The branch ID
+        checkout_data: Dictionary containing:
+            - cart: List of items with barcode, name, price, cost, qty
+            - receipt_no: Receipt number
+            - payment_method: CASH, ECOCASH, CARD, CREDIT
+            - customer_name: Customer name
+            - customer_phone: Customer phone
+            - final_total: Final total amount
+            - shift_id: Shift ID
+            - cashier: Cashier username
+    """
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False, "No database connection"
+            
+            # Extract data
+            cart = checkout_data.get("cart", [])
+            receipt_no = checkout_data.get("receipt_no", "")
+            payment_method = checkout_data.get("payment_method", "CASH")
+            customer_name = checkout_data.get("customer_name", "Walk-in")
+            customer_phone = checkout_data.get("customer_phone", "")
+            final_total = float(checkout_data.get("final_total", 0))
+            shift_id = checkout_data.get("shift_id", "")
+            cashier = checkout_data.get("cashier", "system")
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            if not cart:
+                return False, "Cart is empty"
+            
+            if not receipt_no:
+                return False, "No receipt number"
+            
+            # 1. UPDATE STOCK - All products in one go
+            for item in cart:
+                cur.execute("""
+                    UPDATE products 
+                    SET stock = stock - %s 
+                    WHERE branch_id = %s AND barcode = %s
+                """, (item["qty"], branch_id, item["barcode"]))
+            
+            # 2. INSERT SALES - All items in one go
+            for item in cart:
+                selling_total = float(item["price"]) * int(item["qty"])
+                cost_total = float(item.get("cost", 0)) * int(item["qty"])
+                profit = selling_total - cost_total
+                
+                cur.execute("""
+                    INSERT INTO sales (branch_id, sale_date, receipt_no, barcode, product_name, 
+                        items, total, profit, payment_method, customer_name, customer_phone, 
+                        final_total, shift_id, cashier)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, now, receipt_no, str(item["barcode"]), 
+                      str(item["name"]), int(item["qty"]), selling_total, profit,
+                      payment_method, customer_name, customer_phone,
+                      final_total, shift_id, cashier))
+            
+            # 3. CASH REGISTER
+            if payment_method == "CASH":
+                cur.execute("""
+                    INSERT INTO cash_register (branch_id, cash_date, shift_id, type, 
+                        amount, receipt_no, customer_name, payment_method, note, cashier)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, now, shift_id, "CASH_SALE", final_total, 
+                      receipt_no, customer_name, "CASH", f"POS Cash Sale - {receipt_no}", cashier))
+            elif payment_method == "CREDIT":
+                cur.execute("""
+                    INSERT INTO cash_register (branch_id, cash_date, shift_id, type, 
+                        amount, receipt_no, customer_name, payment_method, note, cashier)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (branch_id, now, shift_id, "CREDIT_SALE", final_total, 
+                      receipt_no, customer_name, "CREDIT", f"Credit Sale - {receipt_no}", cashier))
+                
+                if customer_phone:
+                    cur.execute("""
+                        INSERT INTO debtors (branch_id, debt_id, date_borrowed, customer_name, phone,
+                            total_amount, amount_paid, balance, status, risk_level)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (branch_id, f"DEBT-{receipt_no}", now, customer_name, 
+                          customer_phone, final_total, 0, final_total, "NOT PAID", "LOW"))
+            
+            # 4. UPDATE SHIFT STATS
+            if shift_id:
+                cur.execute("""
+                    UPDATE shifts 
+                    SET cash_sales = cash_sales + %s,
+                        credit_sales = credit_sales + %s,
+                        transactions = transactions + 1,
+                        total_revenue = total_revenue + %s
+                    WHERE shift_id = %s
+                """, (
+                    final_total if payment_method == "CASH" else 0,
+                    final_total if payment_method == "CREDIT" else 0,
+                    final_total,
+                    shift_id
+                ))
+            
+            # 5. UPDATE CUSTOMER
+            if customer_phone:
+                cur.execute("SELECT * FROM customers WHERE branch_id = %s AND phone = %s", (branch_id, customer_phone))
+                existing = cur.fetchone()
+                
+                if existing:
+                    cur.execute("""
+                        UPDATE customers 
+                        SET total_orders = total_orders + 1,
+                            total_spent = total_spent + %s,
+                            last_purchase_date = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE branch_id = %s AND phone = %s
+                    """, (final_total, now, branch_id, customer_phone))
+                else:
+                    customer_id = f"CUST{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    cur.execute("""
+                        INSERT INTO customers (branch_id, customer_id, customer_name, phone, 
+                            total_orders, total_spent, last_purchase_date)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (branch_id, customer_id, customer_name, customer_phone, 1, final_total, now))
+            
+            # 6. LOYALTY POINTS
+            if customer_phone and payment_method != "CREDIT":
+                try:
+                    points_earned = int(final_total)
+                    cur.execute("SELECT * FROM loyalty_points WHERE branch_id = %s AND phone = %s", (branch_id, customer_phone))
+                    loyalty_customer = cur.fetchone()
+                    
+                    if loyalty_customer:
+                        cur.execute("""
+                            UPDATE loyalty_points 
+                            SET points = points + %s,
+                                total_spent = total_spent + %s,
+                                total_orders = total_orders + 1,
+                                last_visit = %s
+                            WHERE branch_id = %s AND phone = %s
+                        """, (points_earned + 50, final_total, now, branch_id, customer_phone))
+                    else:
+                        cur.execute("""
+                            INSERT INTO loyalty_points (branch_id, customer_name, phone, points, tier,
+                                total_spent, total_orders, last_visit, joined_date)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (branch_id, customer_name, customer_phone, points_earned + 50, 
+                              "BRONZE", final_total, 1, now, now))
+                except Exception as e:
+                    print(f"Loyalty points error (non-critical): {e}")
+            
+            # COMMIT ALL CHANGES
+            conn.commit()
+            
+            return True, "Checkout completed successfully"
+            
+    except Exception as e:
+        print(f"Checkout error: {e}")
+        return False, str(e)
+
+_# ==============================
+# EXPORTS
+# ==============================
+__all__ = [
+    # Core functions
+    "load_products",
+    "save_products",
+    "load_sales",
+    "save_sales",
+    "load_customers",
+    "save_customers",
+    "load_debtors",
+    "save_debtors",
+    "load_expenses",
+    "save_expenses",
+    "load_purchases",
+    "save_purchases",
+    "load_cash",
+    "save_cash",
+    "load_shifts",
+    "save_shifts",
+    "load_loyalty",
+    "save_loyalty",
+    "load_income",
+    "save_income",
+    "load_suppliers",
+    "load_branches",
+    "load_all_branches",
+    "save_branches",
+    
+    # Branch functions
+    "get_current_branch",
+    "set_current_branch",
+    "get_active_shift_id",
+    
+    # Cash register functions
+    "record_cash_sale",
+    "record_credit_sale",
+    "record_debt_payment_entry",
+    "set_opening_cash",
+    "record_closing_cash",
+    "record_petty_cash",
+    "load_petty_cash",
+    "record_bank_deposit",
+    "load_bank_deposits",
+    "get_cash_summary",
+    "get_daily_report",
+    "get_cash_flow",
+    "get_cashier_performance",
+    
+    # Shift functions
+    "start_shift",
+    "end_shift",
+    "update_shift_stats",
+    "can_cashier_login",
+    "get_active_shifts_by_branch",
+    "get_all_active_shifts",
+    "get_shifts_by_date",
+    
+    # Loyalty functions
+    "get_customer_loyalty_info",
+    "add_loyalty_points",
+    "redeem_points",
+    "get_tier_benefits",
+    "get_top_loyalty_customers",
+    "get_birthday_customers",
+    
+    # Customer functions
+    "record_customer_purchase",
+    "load_customer_transactions",
+    "save_customer_transactions",
+    
+    # Debtor functions
+    "get_overdue_debtors",
+    "record_debt_payment",
+    "load_debtor_payments",
+    "save_debtor_payments",
+    "get_debt_items",
+    "get_debt_aging",
+    
+    # Expense functions
+    "get_total_expenses",
+    "load_expense_categories",
+    "load_expense_budget",
+    "save_expense_budget",
+    "get_budget_vs_actual",
+    "load_recurring_expenses",
+    "save_recurring_expenses",
+    "get_expenses_by_category",
+    "get_monthly_expenses",
+    "record_expense",
+    
+    # Income functions
+    "get_monthly_income",
+    "record_income",
+    
+    # User functions
+    "load_users",
+    "save_users",
+    "init_users",
+    
+    # Batch checkout
+    "process_checkout_batch",
+    
+    # Utility functions
+    "generate_receipt_number",
+    "init_data_folder",
+    "init_database",
+    "test_connection",
+    "reset_connection_pool",
+    
+    # Compatibility functions
+    "load_branch_products",
+    "save_branch_products",
+    "load_branch_sales",
+    "save_branch_sales",
+    "load_branch_customers",
+    "save_branch_customers",
+    "load_branch_debtors",
+    "save_branch_debtors",
+    "load_branch_expenses",
+    "save_branch_expenses",
+    "load_branch_purchases",
+    "save_branch_purchases",
+    "load_branch_cash",
+    "save_branch_cash",
+    "get_branch_products_file",
+    "get_branch_sales_file",
+    "get_branch_customers_file",
+    "get_branch_debtors_file",
+    "get_branch_expenses_file",
+    "get_branch_purchases_file",
+    "get_branch_cash_file",
+    "get_branch_customer_transactions_file",
+    
+    # Performance functions
+    "get_branch_performance_summary",
+    "get_all_branches_performance",
+    
+    # Sync functions
+    "sync_products_to_all_branches",
+    "copy_products_to_branch",
+    
+    # Customer Analytics
+    "get_customer_retention",
+    "get_retention_rate",
+    "get_repeat_customer_rate",
+    "get_customer_segments",
+    "get_segment_summary",
+    "get_marketing_targets",
+    "get_customer_lifecycle",
+    "get_customer_actions",
+    
+    # Compatibility aliases
+    "get_current_branch",
+    "set_current_branch",
+    "load_branches",
+    "load_all_branches",
+    "save_branches",
+    "load_products",
+    "save_products",
+    "load_sales",
+    "save_sales",
+    "load_customers",
+    "save_customers",
+    "load_debtors",
+    "save_debtors",
+    "load_expenses",
+    "save_expenses",
+    "load_purchases",
+    "save_purchases",
+    "load_cash",
+    "save_cash",
+    "load_shifts",
+    "save_shifts",
+    "load_suppliers",
+    "load_loyalty",
+    "save_loyalty",
+    "load_income",
+    "save_income",
+    "load_expense_budget",
+    "save_expense_budget",
+    "load_recurring_expenses",
+    "save_recurring_expenses",
+    "load_customer_transactions",
+    "save_customer_transactions",
+    "load_debtor_payments",
+    "save_debtor_payments",
+    "load_loyalty_redemptions",
+    "generate_receipt_number",
+    "load_users",
+    "save_users",
+    "init_users",
+    "record_customer_purchase",
+    "record_debt_payment",
+    "get_debt_items",
+    "get_debt_aging",
+    "get_overdue_debtors",
+    "get_total_expenses",
+    "load_expense_categories",
+    "get_budget_vs_actual",
+    "get_expenses_by_category",
+    "get_monthly_expenses",
+    "record_expense",
+    "get_monthly_income",
+    "record_income",
+    "record_cash_sale",
+    "record_credit_sale",
+    "record_debt_payment_entry",
+    "set_opening_cash",
+    "record_closing_cash",
+    "record_petty_cash",
+    "load_petty_cash",
+    "record_bank_deposit",
+    "load_bank_deposits",
+    "get_cash_summary",
+    "get_daily_report",
+    "get_cash_flow",
+    "get_cashier_performance",
+    "start_shift",
+    "end_shift",
+    "can_cashier_login",
+    "get_active_shifts_by_branch",
+    "get_all_active_shifts",
+    "get_shifts_by_date",
+    "update_shift_stats",
+    "get_customer_loyalty_info",
+    "get_tier_benefits",
+    "get_top_loyalty_customers",
+    "get_birthday_customers",
+    "add_loyalty_points",
+    "redeem_points",
+    "init_data_folder",
+    "get_branch_data_path",
+    "initialize_branch_with_empty_data",
+    "initialize_branch_data",
+    "initialize_branch_with_defaults",
+    "load_branch_products",
+    "save_branch_products",
+    "load_branch_sales",
+    "save_branch_sales",
+    "load_branch_customers",
+    "save_branch_customers",
+    "load_branch_debtors",
+    "save_branch_debtors",
+    "load_branch_expenses",
+    "save_branch_expenses",
+    "load_branch_purchases",
+    "save_branch_purchases",
+    "load_branch_cash",
+    "save_branch_cash",
+    "load_branch_customer_transactions",
+    "save_branch_customer_transactions",
+    "get_branch_products_file",
+    "get_branch_sales_file",
+    "get_branch_customers_file",
+    "get_branch_debtors_file",
+    "get_branch_expenses_file",
+    "get_branch_purchases_file",
+    "get_branch_cash_file",
+    "get_branch_customer_transactions_file",
+    "get_branch_performance_summary",
+    "get_all_branches_performance",
+    "sync_products_to_all_branches",
+    "copy_products_to_branch",
+    "get_customer_retention",
+    "get_retention_rate",
+    "get_repeat_customer_rate",
+    "get_customer_segments",
+    "get_segment_summary",
+    "get_marketing_targets",
+    "get_customer_lifecycle",
+    "get_customer_actions",
+    "process_checkout_batch"  # ADDED - FAST CHECKOUT
+]
