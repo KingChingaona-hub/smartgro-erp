@@ -591,7 +591,7 @@ def pos_page():
     with col1:
         if st.button("Clear Cart", key="clear_cart_btn", use_container_width=True):
             st.session_state.cart = []
-            st.rerun()
+            #st.rerun()
     
     with col2:
         cart_name = st.text_input("Save Cart As", placeholder="Cart name", key="save_cart_name", label_visibility="collapsed")
@@ -607,7 +607,7 @@ def pos_page():
             load_cart_name = st.selectbox("Load Cart", [""] + list(st.session_state.saved_carts.keys()), key="load_cart_name", label_visibility="collapsed")
             if load_cart_name and st.button("Load Cart", key="load_cart_btn", use_container_width=True):
                 load_saved_cart(load_cart_name)
-                st.rerun()
+                #st.rerun()
     
     with col4:
         # Disable checkout if no active shift
