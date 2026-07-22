@@ -213,7 +213,7 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         barcode = str(item.get("barcode", "")).strip()
         product_name = str(item.get("name", "")).strip()
         received_qty = float(item["received_qty"])  # Allow decimal
-        cost_price = float(item["cost"])
+        cost_price = float(item["cost"])  # Convert to float
         category = str(item.get("category", "New Purchase")).strip()
         if not category or category == "nan" or category == "None":
             category = "New Purchase"
@@ -1090,7 +1090,7 @@ Contact: +263 78 290 5853
                                 )
                             
                             with col3:
-                                cost_price = item.get("cost_price", 0)
+                                cost_price = float(item.get("cost_price", 0))  # Convert to float
                                 st.write(f"Cost: ${cost_price:.2f}")
                             
                             with col4:
