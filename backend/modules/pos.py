@@ -9,7 +9,7 @@ from backend.core.db_adapter import (
     load_sales,
     save_sales,
     record_customer_purchase,
-    process_checkout_batch, 
+    process_checkout_batch
 )
 
 from backend.modules.receipt import (
@@ -163,6 +163,33 @@ def add_recent_customer(name, phone):
 
 
 # ==============================
+# CHECK BRANCH SHIFT STATUS - ADD THIS FUNCTION
+# ==============================
+def get_branch_shift_status(branch_id):
+    """Get the active shift status for a branch"""
+    active_shift = get_active_shift_for_branch(branch_id)
+    
+    if active_shift:
+        return {
+            "active": True,
+            "shift_id": active_shift.get("shift_id"),
+            "started_by": active_shift.get("cashier_name", "Unknown"),
+            "start_time": active_shift.get("start_time"),
+            "opening_cash": active_shift.get("opening_cash", 0),
+            "branch_name": active_shift.get("branch_name", "")
+        }
+    else:
+        return {
+            "active": False,
+            "shift_id": None,
+            "started_by": None,
+            "start_time": None,
+            "opening_cash": 0,
+            "branch_name": ""
+        }
+
+
+# ==============================
 # REMOVE ITEM FROM CART
 # ==============================
 def remove_from_cart(index):
@@ -185,7 +212,7 @@ def update_cart_quantity(index, new_qty):
 
 
 # ==============================
-# POS PAGE - OPTIMIZED WITH BATCH CHECKOUT
+# POS PAGE
 # ==============================
 def pos_page():
     init_session()
@@ -229,6 +256,7 @@ def pos_page():
     # ==============================
     st.markdown("## Quick Action Products")
     
+    # Load sales for quick products - cached
     sales_df = load_sales()
     if not sales_df.empty and "name" in sales_df.columns:
         top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
@@ -657,9 +685,7 @@ def pos_page():
                     "cashier": st.session_state.get("username", "system")
                 }
                 
-                # ======================================================
                 # USE BATCH CHECKOUT - ONE DATABASE TRANSACTION
-                # ======================================================
                 success, message = process_checkout_batch(
                     branch_id=st.session_state.get("user_branch", "HO"),
                     checkout_data=checkout_data
