@@ -47,7 +47,7 @@ def supports_decimal(product_name, category=""):
 
 
 # ==============================
-# CREATE PURCHASE ORDER - OPTIMIZED
+# CREATE PURCHASE ORDER
 # ==============================
 def create_purchase_order(supplier, items, expected_date):
     """Create a purchase order before receiving stock"""
@@ -168,7 +168,7 @@ def delete_all_purchase_orders():
 
 
 # ==============================
-# RECEIVE PURCHASE ORDER - OPTIMIZED
+# RECEIVE PURCHASE ORDER
 # ==============================
 def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
@@ -249,22 +249,14 @@ def receive_purchase_order(po_number, received_items, invoice_no):
             purchases_df.loc[matching_idx, "status"] = "RECEIVED"
             purchases_df.loc[matching_idx, "invoice_no"] = invoice_no
             
-            # ============================================================
-            # UPDATE PRODUCT STOCK - PRESERVE EXISTING PRICE AND CATEGORY
-            # ============================================================
+            # Update product stock in inventory - ONLY UPDATE STOCK
             product_idx = products_df[products_df["barcode"] == barcode].index
             
             if len(product_idx) > 0:
                 # Product exists - ONLY UPDATE STOCK
-                # DO NOT change price, cost, or category
                 current_stock = float(products_df.loc[product_idx[0], "stock"]) if "stock" in products_df.columns else 0
                 new_stock = current_stock + received_qty
-                
-                # ONLY update the stock quantity
                 products_df.loc[product_idx[0], "stock"] = new_stock
-                
-                # Keep existing price and cost - DO NOT overwrite
-                # Keep existing category - DO NOT overwrite
                 
                 updated_products.append({
                     "name": product_name,
@@ -447,7 +439,7 @@ def get_po_details(po_number):
 
 
 # ==============================
-# PURCHASES PAGE - OPTIMIZED
+# PURCHASES PAGE - NO RERUNS
 # ==============================
 def purchases_page():
     """Enhanced Purchases Management Page with Auto-Stock Update"""
@@ -640,7 +632,7 @@ def purchases_page():
                     st.success("Cart cleared!")
         
         # ==============================
-        # MANUAL ITEM ENTRY - WITH DECIMAL SUPPORT
+        # MANUAL ITEM ENTRY
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
@@ -846,9 +838,8 @@ def purchases_page():
                             st.session_state.show_preview = False
                             st.session_state.preview_data = None
                             
-                            st.success(f"Purchase Order {po_number} created successfully!")
+                            st.success(f"Purchase Order {po_number} created successfully with {len(po_df)} items!")
                             
-                            # Quick PO text for download
                             po_text = f"""
 {'='*50}
 AZIEL INVESTMENTS - PURCHASE ORDER
@@ -893,10 +884,12 @@ Contact: +263 78 290 5853
                                 mime="text/plain",
                                 use_container_width=True
                             )
+                            
+                            # NO st.rerun() here - prevents infinite loop
                         else:
-                            st.error("Failed to save purchase order.")
+                            st.error("Failed to save purchase order. Please try again.")
         
-        # Quick create option
+        # Quick create option - NO rerun
         if not st.session_state.show_preview and st.session_state.po_cart:
             col1, col2 = st.columns(2)
             
@@ -909,7 +902,7 @@ Contact: +263 78 290 5853
                     if not supplier_name or not supplier_name.strip():
                         st.error("Please enter a supplier name")
                     elif not st.session_state.po_cart:
-                        st.error("Cart is empty")
+                        st.error("Cart is empty. Add products to create a purchase order.")
                     else:
                         cart_items = st.session_state.po_cart.copy()
                         po_cart_df = pd.DataFrame(cart_items)
@@ -947,6 +940,7 @@ Contact: +263 78 290 5853
                                 - Total Value: ${po_total:,.2f}
                                 - Expected Date: {expected_date}
                                 """)
+                                # NO st.rerun() here
                             else:
                                 st.error("Failed to save purchase order.")
         elif st.session_state.show_preview:
@@ -1036,7 +1030,7 @@ Contact: +263 78 290 5853
                                     else:
                                         st.error(message)
                                 elif delete_button and not confirm_delete:
-                                    st.error("Please confirm deletion")
+                                    st.error("Please confirm deletion by checking the box")
                             
                             with col3:
                                 delete_all_button = st.button("Delete All POs", type="secondary", use_container_width=True)
@@ -1051,7 +1045,7 @@ Contact: +263 78 290 5853
                                         else:
                                             st.error(message)
                                     else:
-                                        st.error("Please confirm deletion")
+                                        st.error("Please confirm deletion by checking the box")
                         
                         st.markdown("---")
                         st.markdown("### Receiving Details")
@@ -1135,6 +1129,8 @@ Contact: +263 78 290 5853
                                             st.info(f"Created {len(new_products)} new products in inventory!")
                                             for p in new_products:
                                                 st.write(f"   - {p['name']}: Added {p['stock']:.2f} units at ${p['cost']:.2f} - Category: {p.get('category', 'New Purchase')}")
+                                        
+                                        # NO st.rerun() here
                         
                         with col2:
                             refresh_button = st.button("Refresh", use_container_width=True)
@@ -1150,7 +1146,7 @@ Contact: +263 78 290 5853
         supplier_perf = get_supplier_performance()
         
         if supplier_perf.empty:
-            st.info("No purchase data available yet.")
+            st.info("No purchase data available yet. Create purchase orders to see supplier performance.")
         else:
             col1, col2, col3 = st.columns(3)
             
