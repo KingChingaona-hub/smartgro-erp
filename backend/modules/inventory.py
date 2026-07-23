@@ -86,7 +86,6 @@ def inventory_page():
         display_cols = ["barcode", "name", "category", "price", "stock", "reorder_level"]
         available_cols = [col for col in display_cols if col in df.columns]
         
-        # Display with decimal formatting for stock
         st.dataframe(
             df[available_cols], 
             use_container_width=True, 
@@ -104,7 +103,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # ADD PRODUCT - WITH DECIMAL SUPPORT
+    # ADD PRODUCT
     # ==============================
     st.markdown("## Add Product")
     
@@ -157,40 +156,34 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # BATCH UPDATE PRODUCTS - NEW FEATURE
+    # BATCH UPDATE PRODUCTS - MANUAL EDITING
     # ==============================
     st.markdown("## Batch Update Products")
-    st.caption("Select multiple products and update their stock/price in bulk")
+    st.caption("Select multiple products, edit their details manually, then save all at once")
     
     if not df.empty:
-        # Initialize batch cart in session state
-        if "batch_cart" not in st.session_state:
-            st.session_state.batch_cart = []
+        # Initialize session state for batch editing
+        if "batch_edit_data" not in st.session_state:
+            st.session_state.batch_edit_data = {}
+        if "batch_selected" not in st.session_state:
+            st.session_state.batch_selected = []
         
         # Display products with checkboxes
-        st.markdown("### Select Products to Update")
+        st.markdown("### Select Products to Edit")
         
-        # Add select/deselect all
         col1, col2, col3 = st.columns([1, 1, 3])
         with col1:
-            select_all = st.checkbox("Select All", key="select_all_batch")
+            select_all = st.checkbox("Select All", key="select_all_batch_manual")
         
-        # Create a dataframe with checkboxes
-        selected_products = []
+        # Create a copy for display
         display_df = df.copy()
         
-        # Add selection column
-        if "selected" not in display_df.columns:
-            display_df["selected"] = False
-        
+        # Reset selection if select all
         if select_all:
-            display_df["selected"] = True
+            st.session_state.batch_selected = df.index.tolist()
         
-        # Show products with checkboxes using columns
-        st.write("**Select products to update:**")
-        
-        # Use columns for better display
-        cols_per_row = 3
+        # Show products with checkboxes
+        cols_per_row = 2
         product_list = display_df.to_dict('records')
         
         for i, product in enumerate(product_list):
@@ -202,199 +195,226 @@ def inventory_page():
             name = str(product.get("name", ""))
             stock = float(product.get("stock", 0))
             price = float(product.get("price", 0))
+            idx = i
             
             with cols[col_idx]:
-                # Checkbox with product info
-                key = f"batch_select_{barcode}_{i}"
-                selected = st.checkbox(f"{name}\n(Stock: {stock:.2f})", key=key, value=display_df.at[i, "selected"])
-                display_df.at[i, "selected"] = selected
+                is_selected = idx in st.session_state.batch_selected
+                selected = st.checkbox(
+                    f"{name}\n(Stock: {stock:.2f} | Price: ${price:.2f})", 
+                    key=f"batch_select_{barcode}_{i}",
+                    value=is_selected
+                )
                 
-                if selected:
-                    selected_products.append({
-                        "index": i,
-                        "barcode": barcode,
-                        "name": name,
-                        "stock": stock,
-                        "price": price
-                    })
+                if selected and idx not in st.session_state.batch_selected:
+                    st.session_state.batch_selected.append(idx)
+                    # Initialize edit data for this product
+                    if idx not in st.session_state.batch_edit_data:
+                        st.session_state.batch_edit_data[idx] = {
+                            "name": name,
+                            "category": product.get("category", ""),
+                            "price": price,
+                            "cost": float(product.get("cost", 0)),
+                            "stock": stock,
+                            "reorder_level": float(product.get("reorder_level", 0))
+                        }
+                elif not selected and idx in st.session_state.batch_selected:
+                    st.session_state.batch_selected.remove(idx)
+                    if idx in st.session_state.batch_edit_data:
+                        del st.session_state.batch_edit_data[idx]
         
-        if selected_products:
+        # Show selected products for editing
+        if st.session_state.batch_selected:
             st.markdown("---")
-            st.markdown(f"### {len(selected_products)} Product(s) Selected")
+            st.markdown(f"### Editing {len(st.session_state.batch_selected)} Product(s)")
+            st.info("💡 Edit the fields below for each selected product. Changes will be saved together when you click 'Save All Changes'.")
             
-            # Show selected products in a table
-            selected_df = pd.DataFrame(selected_products)
-            st.dataframe(
-                selected_df[["name", "stock", "price"]],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "stock": st.column_config.NumberColumn("Current Stock", format="%.2f"),
-                    "price": st.column_config.NumberColumn("Current Price", format="$%.2f")
-                }
-            )
-            
-            # Batch update form
-            with st.form("batch_update_form", clear_on_submit=False):
-                st.markdown("### Update Selected Products")
+            # Create editable fields for each selected product
+            with st.form("batch_edit_form", clear_on_submit=False):
+                # Store updates in a temporary dict
+                updates = {}
                 
-                col1, col2 = st.columns(2)
+                for idx in st.session_state.batch_selected:
+                    if idx < len(df):
+                        product = df.iloc[idx]
+                        barcode = str(product.get("barcode", ""))
+                        current_name = str(product.get("name", ""))
+                        
+                        # Get existing edit data or use current values
+                        edit_data = st.session_state.batch_edit_data.get(idx, {})
+                        
+                        st.markdown(f"**Product {idx+1}: {current_name}**")
+                        
+                        col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 1.5, 1.5])
+                        
+                        with col1:
+                            new_name = st.text_input(
+                                "Name",
+                                value=edit_data.get("name", current_name),
+                                key=f"batch_name_{idx}",
+                                label_visibility="collapsed"
+                            )
+                            st.caption("Product Name")
+                        
+                        with col2:
+                            new_category = st.text_input(
+                                "Category",
+                                value=edit_data.get("category", product.get("category", "")),
+                                key=f"batch_category_{idx}",
+                                label_visibility="collapsed"
+                            )
+                            st.caption("Category")
+                        
+                        with col3:
+                            new_price = st.number_input(
+                                "Price ($)",
+                                min_value=0.0,
+                                value=float(edit_data.get("price", product.get("price", 0))),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"batch_price_{idx}",
+                                label_visibility="collapsed"
+                            )
+                            st.caption("Price ($)")
+                        
+                        with col4:
+                            new_cost = st.number_input(
+                                "Cost ($)",
+                                min_value=0.0,
+                                value=float(edit_data.get("cost", product.get("cost", 0))),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"batch_cost_{idx}",
+                                label_visibility="collapsed"
+                            )
+                            st.caption("Cost ($)")
+                        
+                        with col5:
+                            new_stock = st.number_input(
+                                "Stock",
+                                min_value=0.0,
+                                value=float(edit_data.get("stock", product.get("stock", 0))),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"batch_stock_{idx}",
+                                label_visibility="collapsed"
+                            )
+                            st.caption("Stock")
+                        
+                        # Reorder level
+                        col1, col2 = st.columns([1, 4])
+                        with col1:
+                            new_reorder = st.number_input(
+                                "Reorder Level",
+                                min_value=0.0,
+                                value=float(edit_data.get("reorder_level", product.get("reorder_level", 0))),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"batch_reorder_{idx}",
+                                label_visibility="collapsed"
+                            )
+                            st.caption("Reorder Level")
+                        
+                        # Store updates
+                        updates[idx] = {
+                            "name": new_name,
+                            "category": new_category,
+                            "price": new_price,
+                            "cost": new_cost,
+                            "stock": new_stock,
+                            "reorder_level": new_reorder
+                        }
+                        
+                        st.divider()
+                
+                # Update session state with latest values
+                for idx, data in updates.items():
+                    st.session_state.batch_edit_data[idx] = data
+                
+                # Action buttons
+                col1, col2, col3 = st.columns([1, 1, 1])
                 
                 with col1:
-                    # Stock update options
-                    stock_action = st.selectbox(
-                        "Stock Action",
-                        ["Set to Value", "Add", "Subtract", "Multiply"],
-                        key="batch_stock_action"
-                    )
-                    
-                    stock_value = st.number_input(
-                        "Stock Value",
-                        min_value=0.0,
-                        value=1.0,
-                        step=0.5,
-                        format="%.2f",
-                        key="batch_stock_value"
-                    )
-                    
-                    st.caption("💡 For 'Set to Value', stock will become this number. For 'Add/Subtract', this number will be added/subtracted.")
+                    if st.form_submit_button("🗑️ Clear All Selections", use_container_width=True):
+                        st.session_state.batch_selected = []
+                        st.session_state.batch_edit_data = {}
+                        st.rerun()
                 
                 with col2:
-                    # Price update options
-                    price_action = st.selectbox(
-                        "Price Action",
-                        ["No Change", "Set to Value", "Add", "Subtract", "Percentage Increase", "Percentage Decrease"],
-                        key="batch_price_action"
+                    if st.form_submit_button("🔄 Reset Changes", use_container_width=True):
+                        # Reset to original values
+                        for idx in st.session_state.batch_selected:
+                            if idx < len(df):
+                                product = df.iloc[idx]
+                                st.session_state.batch_edit_data[idx] = {
+                                    "name": str(product.get("name", "")),
+                                    "category": str(product.get("category", "")),
+                                    "price": float(product.get("price", 0)),
+                                    "cost": float(product.get("cost", 0)),
+                                    "stock": float(product.get("stock", 0)),
+                                    "reorder_level": float(product.get("reorder_level", 0))
+                                }
+                        st.rerun()
+                
+                with col3:
+                    save_all = st.form_submit_button(
+                        f"💾 Save All {len(st.session_state.batch_selected)} Product(s)",
+                        type="primary",
+                        use_container_width=True
                     )
                     
-                    price_value = st.number_input(
-                        "Price Value",
-                        min_value=0.0,
-                        value=0.50,
-                        step=0.10,
-                        format="%.2f",
-                        key="batch_price_value"
-                    )
-                    
-                    if price_action in ["Percentage Increase", "Percentage Decrease"]:
-                        st.caption("💡 Enter percentage (e.g., 10 for 10%)")
-                    else:
-                        st.caption("💡 Enter amount in dollars")
-                
-                # Preview updates
-                st.markdown("### Preview Changes")
-                
-                # Calculate preview
-                preview_data = []
-                for prod in selected_products:
-                    new_stock = prod["stock"]
-                    new_price = prod["price"]
-                    
-                    # Calculate new stock
-                    if stock_action == "Set to Value":
-                        new_stock = stock_value
-                    elif stock_action == "Add":
-                        new_stock = prod["stock"] + stock_value
-                    elif stock_action == "Subtract":
-                        new_stock = max(0, prod["stock"] - stock_value)
-                    elif stock_action == "Multiply":
-                        new_stock = prod["stock"] * stock_value
-                    
-                    # Calculate new price
-                    if price_action == "Set to Value":
-                        new_price = price_value
-                    elif price_action == "Add":
-                        new_price = prod["price"] + price_value
-                    elif price_action == "Subtract":
-                        new_price = max(0, prod["price"] - price_value)
-                    elif price_action == "Percentage Increase":
-                        new_price = prod["price"] * (1 + price_value / 100)
-                    elif price_action == "Percentage Decrease":
-                        new_price = prod["price"] * (1 - price_value / 100)
-                    
-                    preview_data.append({
-                        "Product": prod["name"],
-                        "Old Stock": prod["stock"],
-                        "New Stock": round(new_stock, 2),
-                        "Old Price": prod["price"],
-                        "New Price": round(new_price, 2)
-                    })
-                
-                preview_df = pd.DataFrame(preview_data)
-                st.dataframe(
-                    preview_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Old Stock": st.column_config.NumberColumn("Old Stock", format="%.2f"),
-                        "New Stock": st.column_config.NumberColumn("New Stock", format="%.2f"),
-                        "Old Price": st.column_config.NumberColumn("Old Price", format="$%.2f"),
-                        "New Price": st.column_config.NumberColumn("New Price", format="$%.2f")
-                    }
-                )
-                
-                # Submit button
-                batch_save = st.form_submit_button(
-                    f"💾 Save Changes to {len(selected_products)} Product(s)",
-                    type="primary",
-                    use_container_width=True
-                )
-                
-                if batch_save:
-                    try:
-                        # Apply updates to DataFrame
-                        for prod in selected_products:
-                            idx = prod["index"]
+                    if save_all:
+                        try:
+                            # Apply all updates to DataFrame
+                            for idx, data in st.session_state.batch_edit_data.items():
+                                if idx < len(df):
+                                    df.at[idx, "name"] = str(data.get("name", df.at[idx, "name"]))
+                                    df.at[idx, "category"] = str(data.get("category", df.at[idx, "category"]))
+                                    df.at[idx, "price"] = float(data.get("price", df.at[idx, "price"]))
+                                    df.at[idx, "cost"] = float(data.get("cost", df.at[idx, "cost"]))
+                                    df.at[idx, "stock"] = float(data.get("stock", df.at[idx, "stock"]))
+                                    df.at[idx, "reorder_level"] = float(data.get("reorder_level", df.at[idx, "reorder_level"]))
                             
-                            # Calculate new stock
-                            if stock_action == "Set to Value":
-                                new_stock = stock_value
-                            elif stock_action == "Add":
-                                new_stock = float(df.at[idx, "stock"]) + stock_value
-                            elif stock_action == "Subtract":
-                                new_stock = max(0, float(df.at[idx, "stock"]) - stock_value)
-                            elif stock_action == "Multiply":
-                                new_stock = float(df.at[idx, "stock"]) * stock_value
+                            # Save all changes at once
+                            if save_products(df):
+                                st.success(f"✅ Successfully updated {len(st.session_state.batch_selected)} products!")
+                                st.balloons()
+                                # Clear selections
+                                st.session_state.batch_selected = []
+                                st.session_state.batch_edit_data = {}
+                                st.rerun()
                             else:
-                                new_stock = float(df.at[idx, "stock"])
-                            
-                            # Calculate new price
-                            if price_action == "Set to Value":
-                                new_price = price_value
-                            elif price_action == "Add":
-                                new_price = float(df.at[idx, "price"]) + price_value
-                            elif price_action == "Subtract":
-                                new_price = max(0, float(df.at[idx, "price"]) - price_value)
-                            elif price_action == "Percentage Increase":
-                                new_price = float(df.at[idx, "price"]) * (1 + price_value / 100)
-                            elif price_action == "Percentage Decrease":
-                                new_price = float(df.at[idx, "price"]) * (1 - price_value / 100)
-                            else:
-                                new_price = float(df.at[idx, "price"])
-                            
-                            # Update DataFrame
-                            df.at[idx, "stock"] = round(float(new_stock), 2)
-                            df.at[idx, "price"] = round(float(new_price), 2)
-                        
-                        # Save all changes at once - FAST
-                        if save_products(df):
-                            st.success(f"✅ Successfully updated {len(selected_products)} products!")
-                            st.balloons()
-                            # Reset selections
-                            display_df["selected"] = False
-                            st.session_state.batch_cart = []
-                            st.rerun()
-                        else:
-                            st.error("Failed to save changes. Please try again.")
-                            
-                    except Exception as e:
-                        st.error(f"Error updating products: {str(e)}")
+                                st.error("Failed to save changes. Please try again.")
+                                
+                        except Exception as e:
+                            st.error(f"Error saving products: {str(e)}")
             
-            # Clear selection button
-            if st.button("Clear Selection", use_container_width=True):
-                display_df["selected"] = False
-                st.session_state.batch_cart = []
-                st.rerun()
+            # Show summary of selected products
+            with st.expander("📋 Selected Products Summary"):
+                summary_data = []
+                for idx in st.session_state.batch_selected:
+                    if idx < len(df):
+                        product = df.iloc[idx]
+                        edit_data = st.session_state.batch_edit_data.get(idx, {})
+                        summary_data.append({
+                            "Product": product.get("name", ""),
+                            "Stock": edit_data.get("stock", product.get("stock", 0)),
+                            "Price": edit_data.get("price", product.get("price", 0)),
+                            "Cost": edit_data.get("cost", product.get("cost", 0)),
+                            "Category": edit_data.get("category", product.get("category", ""))
+                        })
+                
+                if summary_data:
+                    summary_df = pd.DataFrame(summary_data)
+                    st.dataframe(
+                        summary_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Stock": st.column_config.NumberColumn("Stock", format="%.2f"),
+                            "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                            "Cost": st.column_config.NumberColumn("Cost", format="$%.2f")
+                        }
+                    )
     
     st.markdown("---")
     
