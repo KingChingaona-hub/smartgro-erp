@@ -1723,6 +1723,7 @@ def load_purchases(branch_id=None):
         return pd.DataFrame()
 
 def save_purchases(df, branch_id=None):
+    """Save purchases to database with validation"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1730,6 +1731,15 @@ def save_purchases(df, branch_id=None):
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
                 return False
+            
+            # ============================================================
+            # FIX: Handle empty DataFrame - Delete all purchases for branch
+            # ============================================================
+            if df.empty:
+                cur.execute("DELETE FROM purchases WHERE branch_id = %s", (branch_id,))
+                conn.commit()
+                print(f"All purchases deleted for branch: {branch_id}")
+                return True
             
             validation_errors = []
             saved_count = 0
@@ -1768,11 +1778,14 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
                 
+                # Also handle category if it exists
+                category = row.get("category", "New Purchase")
+                
                 cur.execute("""
                     INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
                         product_name, barcode, quantity_ordered, quantity_received,
-                        cost_price, total_cost, expected_date, status, payment_status, invoice_no)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        cost_price, total_cost, expected_date, status, payment_status, invoice_no, category)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (po_number, barcode) DO UPDATE SET
                         supplier = EXCLUDED.supplier,
                         product_name = EXCLUDED.product_name,
@@ -1783,7 +1796,8 @@ def save_purchases(df, branch_id=None):
                         expected_date = EXCLUDED.expected_date,
                         status = EXCLUDED.status,
                         payment_status = EXCLUDED.payment_status,
-                        invoice_no = EXCLUDED.invoice_no
+                        invoice_no = EXCLUDED.invoice_no,
+                        category = EXCLUDED.category
                 """, (
                     branch_id, 
                     row["po_number"], 
@@ -1798,7 +1812,8 @@ def save_purchases(df, branch_id=None):
                     row["expected_date"], 
                     row["status"], 
                     row.get("payment_status", "UNPAID"),
-                    row.get("invoice_no", "")
+                    row.get("invoice_no", ""),
+                    category
                 ))
                 saved_count += 1
             
@@ -1811,7 +1826,7 @@ def save_purchases(df, branch_id=None):
     except Exception as e:
         print(f"Error saving purchases: {e}")
         return False
-
+    
 # ==============================
 # CASH REGISTER FUNCTIONS
 # ==============================
