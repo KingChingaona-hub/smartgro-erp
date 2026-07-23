@@ -5,7 +5,7 @@ from backend.core.auth import check_login
 
 
 # ==============================
-# INVENTORY PAGE - WITH DECIMAL SUPPORT
+# INVENTORY PAGE - WITH BATCH EDITING
 # ==============================
 def inventory_page():
     
@@ -122,7 +122,6 @@ def inventory_page():
             stock = st.number_input("Stock", min_value=0.0, step=0.5, format="%.2f", key="add_stock")
             reorder_level = st.number_input("Reorder Level", min_value=0.0, step=0.5, format="%.2f", key="add_reorder")
             
-            # Show hint for decimal products
             st.caption("💡 Use decimals (e.g., 0.5, 1.5) for gas, bread, and weight-based products")
         
         submitted = st.form_submit_button("Add Product", type="primary", use_container_width=True)
@@ -158,9 +157,252 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # UPDATE PRODUCT - WITH DECIMAL SUPPORT (FIXED)
+    # BATCH UPDATE PRODUCTS - NEW FEATURE
     # ==============================
-    st.markdown("## Update Product")
+    st.markdown("## Batch Update Products")
+    st.caption("Select multiple products and update their stock/price in bulk")
+    
+    if not df.empty:
+        # Initialize batch cart in session state
+        if "batch_cart" not in st.session_state:
+            st.session_state.batch_cart = []
+        
+        # Display products with checkboxes
+        st.markdown("### Select Products to Update")
+        
+        # Add select/deselect all
+        col1, col2, col3 = st.columns([1, 1, 3])
+        with col1:
+            select_all = st.checkbox("Select All", key="select_all_batch")
+        
+        # Create a dataframe with checkboxes
+        selected_products = []
+        display_df = df.copy()
+        
+        # Add selection column
+        if "selected" not in display_df.columns:
+            display_df["selected"] = False
+        
+        if select_all:
+            display_df["selected"] = True
+        
+        # Show products with checkboxes using columns
+        st.write("**Select products to update:**")
+        
+        # Use columns for better display
+        cols_per_row = 3
+        product_list = display_df.to_dict('records')
+        
+        for i, product in enumerate(product_list):
+            col_idx = i % cols_per_row
+            if col_idx == 0:
+                cols = st.columns(cols_per_row)
+            
+            barcode = str(product.get("barcode", ""))
+            name = str(product.get("name", ""))
+            stock = float(product.get("stock", 0))
+            price = float(product.get("price", 0))
+            
+            with cols[col_idx]:
+                # Checkbox with product info
+                key = f"batch_select_{barcode}_{i}"
+                selected = st.checkbox(f"{name}\n(Stock: {stock:.2f})", key=key, value=display_df.at[i, "selected"])
+                display_df.at[i, "selected"] = selected
+                
+                if selected:
+                    selected_products.append({
+                        "index": i,
+                        "barcode": barcode,
+                        "name": name,
+                        "stock": stock,
+                        "price": price
+                    })
+        
+        if selected_products:
+            st.markdown("---")
+            st.markdown(f"### {len(selected_products)} Product(s) Selected")
+            
+            # Show selected products in a table
+            selected_df = pd.DataFrame(selected_products)
+            st.dataframe(
+                selected_df[["name", "stock", "price"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "stock": st.column_config.NumberColumn("Current Stock", format="%.2f"),
+                    "price": st.column_config.NumberColumn("Current Price", format="$%.2f")
+                }
+            )
+            
+            # Batch update form
+            with st.form("batch_update_form", clear_on_submit=False):
+                st.markdown("### Update Selected Products")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Stock update options
+                    stock_action = st.selectbox(
+                        "Stock Action",
+                        ["Set to Value", "Add", "Subtract", "Multiply"],
+                        key="batch_stock_action"
+                    )
+                    
+                    stock_value = st.number_input(
+                        "Stock Value",
+                        min_value=0.0,
+                        value=1.0,
+                        step=0.5,
+                        format="%.2f",
+                        key="batch_stock_value"
+                    )
+                    
+                    st.caption("💡 For 'Set to Value', stock will become this number. For 'Add/Subtract', this number will be added/subtracted.")
+                
+                with col2:
+                    # Price update options
+                    price_action = st.selectbox(
+                        "Price Action",
+                        ["No Change", "Set to Value", "Add", "Subtract", "Percentage Increase", "Percentage Decrease"],
+                        key="batch_price_action"
+                    )
+                    
+                    price_value = st.number_input(
+                        "Price Value",
+                        min_value=0.0,
+                        value=0.50,
+                        step=0.10,
+                        format="%.2f",
+                        key="batch_price_value"
+                    )
+                    
+                    if price_action in ["Percentage Increase", "Percentage Decrease"]:
+                        st.caption("💡 Enter percentage (e.g., 10 for 10%)")
+                    else:
+                        st.caption("💡 Enter amount in dollars")
+                
+                # Preview updates
+                st.markdown("### Preview Changes")
+                
+                # Calculate preview
+                preview_data = []
+                for prod in selected_products:
+                    new_stock = prod["stock"]
+                    new_price = prod["price"]
+                    
+                    # Calculate new stock
+                    if stock_action == "Set to Value":
+                        new_stock = stock_value
+                    elif stock_action == "Add":
+                        new_stock = prod["stock"] + stock_value
+                    elif stock_action == "Subtract":
+                        new_stock = max(0, prod["stock"] - stock_value)
+                    elif stock_action == "Multiply":
+                        new_stock = prod["stock"] * stock_value
+                    
+                    # Calculate new price
+                    if price_action == "Set to Value":
+                        new_price = price_value
+                    elif price_action == "Add":
+                        new_price = prod["price"] + price_value
+                    elif price_action == "Subtract":
+                        new_price = max(0, prod["price"] - price_value)
+                    elif price_action == "Percentage Increase":
+                        new_price = prod["price"] * (1 + price_value / 100)
+                    elif price_action == "Percentage Decrease":
+                        new_price = prod["price"] * (1 - price_value / 100)
+                    
+                    preview_data.append({
+                        "Product": prod["name"],
+                        "Old Stock": prod["stock"],
+                        "New Stock": round(new_stock, 2),
+                        "Old Price": prod["price"],
+                        "New Price": round(new_price, 2)
+                    })
+                
+                preview_df = pd.DataFrame(preview_data)
+                st.dataframe(
+                    preview_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Old Stock": st.column_config.NumberColumn("Old Stock", format="%.2f"),
+                        "New Stock": st.column_config.NumberColumn("New Stock", format="%.2f"),
+                        "Old Price": st.column_config.NumberColumn("Old Price", format="$%.2f"),
+                        "New Price": st.column_config.NumberColumn("New Price", format="$%.2f")
+                    }
+                )
+                
+                # Submit button
+                batch_save = st.form_submit_button(
+                    f"💾 Save Changes to {len(selected_products)} Product(s)",
+                    type="primary",
+                    use_container_width=True
+                )
+                
+                if batch_save:
+                    try:
+                        # Apply updates to DataFrame
+                        for prod in selected_products:
+                            idx = prod["index"]
+                            
+                            # Calculate new stock
+                            if stock_action == "Set to Value":
+                                new_stock = stock_value
+                            elif stock_action == "Add":
+                                new_stock = float(df.at[idx, "stock"]) + stock_value
+                            elif stock_action == "Subtract":
+                                new_stock = max(0, float(df.at[idx, "stock"]) - stock_value)
+                            elif stock_action == "Multiply":
+                                new_stock = float(df.at[idx, "stock"]) * stock_value
+                            else:
+                                new_stock = float(df.at[idx, "stock"])
+                            
+                            # Calculate new price
+                            if price_action == "Set to Value":
+                                new_price = price_value
+                            elif price_action == "Add":
+                                new_price = float(df.at[idx, "price"]) + price_value
+                            elif price_action == "Subtract":
+                                new_price = max(0, float(df.at[idx, "price"]) - price_value)
+                            elif price_action == "Percentage Increase":
+                                new_price = float(df.at[idx, "price"]) * (1 + price_value / 100)
+                            elif price_action == "Percentage Decrease":
+                                new_price = float(df.at[idx, "price"]) * (1 - price_value / 100)
+                            else:
+                                new_price = float(df.at[idx, "price"])
+                            
+                            # Update DataFrame
+                            df.at[idx, "stock"] = round(float(new_stock), 2)
+                            df.at[idx, "price"] = round(float(new_price), 2)
+                        
+                        # Save all changes at once - FAST
+                        if save_products(df):
+                            st.success(f"✅ Successfully updated {len(selected_products)} products!")
+                            st.balloons()
+                            # Reset selections
+                            display_df["selected"] = False
+                            st.session_state.batch_cart = []
+                            st.rerun()
+                        else:
+                            st.error("Failed to save changes. Please try again.")
+                            
+                    except Exception as e:
+                        st.error(f"Error updating products: {str(e)}")
+            
+            # Clear selection button
+            if st.button("Clear Selection", use_container_width=True):
+                display_df["selected"] = False
+                st.session_state.batch_cart = []
+                st.rerun()
+    
+    st.markdown("---")
+    
+    # ==============================
+    # SINGLE PRODUCT UPDATE (Original)
+    # ==============================
+    st.markdown("## Single Product Update")
+    st.caption("Update one product at a time")
     
     if not df.empty:
         product_names = df["name"].tolist()
@@ -168,11 +410,8 @@ def inventory_page():
         
         if selected_product:
             product_data = df[df["name"] == selected_product].iloc[0]
-            
-            # Get the index of the selected product
             product_index = df[df["name"] == selected_product].index[0]
             
-            # Check if this product supports decimals
             name_lower = str(product_data["name"]).lower()
             category_lower = str(product_data.get("category", "")).lower()
             is_decimal_product = any(keyword in name_lower or keyword in category_lower 
@@ -206,19 +445,14 @@ def inventory_page():
                         key="update_cost"
                     )
                     
-                    # ============================================================
-                    # FIX: Use consistent types - all float for decimal products
-                    # ============================================================
                     current_stock = float(product_data["stock"])
                     current_reorder = float(product_data["reorder_level"])
                     
                     if is_decimal_product:
-                        # Decimal products: all floats
                         stock_step = 0.5
                         stock_min = 0.0
                         stock_format = "%.2f"
                     else:
-                        # Non-decimal products: use floats but step 1.0
                         stock_step = 1.0
                         stock_min = 0.0
                         stock_format = "%.0f"
@@ -241,16 +475,13 @@ def inventory_page():
                         key="update_reorder"
                     )
                 
-                # Show decimal hint
                 if is_decimal_product:
                     st.info("🔢 Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
                 
-                # Save button inside the form
                 save_changes = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
                 
                 if save_changes:
                     try:
-                        # Update the DataFrame using the stored index
                         df.at[product_index, "barcode"] = update_barcode.strip()
                         df.at[product_index, "name"] = update_name
                         df.at[product_index, "category"] = update_category if update_category else "Uncategorized"
@@ -259,16 +490,15 @@ def inventory_page():
                         df.at[product_index, "stock"] = float(update_stock)
                         df.at[product_index, "reorder_level"] = float(update_reorder)
                         
-                        # Save to database
                         if save_products(df):
                             st.success(f"Product '{update_name}' updated successfully!")
-                            # st.rerun() - REMOVED to prevent constant reloading
+                            st.rerun()
                         else:
-                            st.error("Failed to save product changes. Please try again.")
+                            st.error("Failed to save product changes.")
                     except Exception as e:
                         st.error(f"Error updating product: {str(e)}")
             
-            # Delete section outside the form
+            # Delete section
             st.markdown("### Delete Product")
             st.warning("This will permanently delete the selected product.")
             
@@ -276,15 +506,12 @@ def inventory_page():
             
             if st.button("Delete Product", type="secondary", use_container_width=True):
                 if confirm_delete:
-                    # Remove product from DataFrame
                     df = df[df["name"] != selected_product].reset_index(drop=True)
-                    
-                    # Save to database
                     if save_products(df):
                         st.success(f"Product '{selected_product}' deleted successfully!")
-                        # st.rerun() - REMOVED to prevent constant reloading
+                        st.rerun()
                     else:
-                        st.error("Failed to delete product. Please try again.")
+                        st.error("Failed to delete product.")
                 else:
                     st.error("Please confirm deletion by checking the box above.")
     else:
@@ -297,7 +524,6 @@ def inventory_page():
     st.markdown("## Danger Zone")
     st.warning("This section is for administrators only. Proceed with caution.")
     
-    # Check if user is admin
     user_role = st.session_state.get("role", "")
     is_admin = user_role in ["owner", "admin"]
     
@@ -305,24 +531,18 @@ def inventory_page():
         with st.expander("Delete All Products (Admin Only)", expanded=False):
             st.error("DANGER: This action will permanently delete ALL products from inventory!")
             
-            # Count products
             product_count = len(df) if not df.empty else 0
             st.warning(f"You are about to delete {product_count} products. This action CANNOT be undone.")
             
-            # Step 1: Confirm action
             confirm_action = st.checkbox("I understand this will delete ALL products", key="confirm_delete_all")
-            
-            # Step 2: Enter admin password
             admin_password = st.text_input("Enter Admin Password to Confirm", type="password", key="admin_password_delete_all")
             
-            # Step 3: Delete button
             if st.button("DELETE ALL PRODUCTS", type="secondary", use_container_width=True):
                 if not confirm_action:
                     st.error("Please confirm that you understand this action.")
                 elif not admin_password:
                     st.error("Please enter your admin password.")
                 else:
-                    # Verify admin credentials
                     username = st.session_state.get("username", "")
                     login_success, role = check_login(username, admin_password)
                     
@@ -330,15 +550,12 @@ def inventory_page():
                         if df.empty:
                             st.info("No products to delete.")
                         else:
-                            # Create empty DataFrame with same columns
                             empty_df = pd.DataFrame(columns=df.columns.tolist())
-                            
-                            # Save empty DataFrame to delete all products
                             if save_products(empty_df):
                                 st.success(f"Successfully deleted ALL {product_count} products!")
-                                # st.rerun() - REMOVED to prevent constant reloading
+                                st.rerun()
                             else:
-                                st.error("Failed to delete products. Please try again.")
+                                st.error("Failed to delete products.")
                     else:
                         st.error("Invalid admin password. Deletion cancelled.")
     else:
