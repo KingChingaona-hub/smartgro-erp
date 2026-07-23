@@ -11,7 +11,8 @@ from backend.core.db_adapter import (
     load_purchases,
     save_purchases,
     save_products,
-    get_db_cursor  # ADD THIS IMPORT
+    get_db_cursor,
+    clear_cache  # ADD THIS
 )
 
 
@@ -131,6 +132,9 @@ def delete_purchase_order(po_number):
             cur.execute("DELETE FROM purchases WHERE po_number = %s", (po_number,))
             conn.commit()
             
+            # Clear cache to refresh data
+            clear_cache()
+            
             return True, f"Purchase Order {po_number} deleted successfully. Removed {count} item(s)."
             
     except Exception as e:
@@ -168,6 +172,9 @@ def delete_all_purchase_orders():
             # Delete ALL purchases
             cur.execute("DELETE FROM purchases")
             conn.commit()
+            
+            # Clear cache to refresh data
+            clear_cache()
             
             return True, f"All {unique_pos} purchase orders ({count} items) deleted successfully."
             
@@ -366,6 +373,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
     try:
         save_products(products_df)
         save_purchases(purchases_df)
+        # Clear cache to refresh data
+        clear_cache()
         return True, updated_products, new_products
     except Exception as e:
         print(f"Error saving: {e}")
@@ -959,20 +968,38 @@ Contact: +263 78 290 5853
         st.markdown("## Receive Stock - Auto Update Inventory")
         st.caption("Confirm receipt of stock. Inventory will be automatically updated.")
         
+        # ============================================================
+        # FIX: Force reload purchases data from database
+        # ============================================================
         purchases_df = load_purchases()
         
         if purchases_df.empty:
             st.info("No purchase orders found. Create a PO first in the Create Purchase Order tab.")
         else:
+            # Check if status column exists
             if "status" not in purchases_df.columns:
                 purchases_df["status"] = "PENDING"
             
-            pending_pos = purchases_df[purchases_df["status"] == "PENDING"]["po_number"].unique().tolist()
-            partial_pos = purchases_df[purchases_df["status"] == "PARTIALLY_RECEIVED"]["po_number"].unique().tolist()
+            # Find pending and partially received POs
+            pending_mask = purchases_df["status"] == "PENDING"
+            partial_mask = purchases_df["status"] == "PARTIALLY_RECEIVED"
+            
+            pending_pos = purchases_df[pending_mask]["po_number"].unique().tolist()
+            partial_pos = purchases_df[partial_mask]["po_number"].unique().tolist()
             all_receivable = list(set(pending_pos + partial_pos))
             
             if not all_receivable:
                 st.info("No pending or partially received purchase orders. All orders have been completed.")
+                # Show completed orders for reference
+                completed_mask = purchases_df["status"] == "COMPLETED"
+                if completed_mask.any():
+                    with st.expander("View Completed Orders"):
+                        completed_df = purchases_df[completed_mask]
+                        st.dataframe(
+                            completed_df[["po_number", "supplier", "date_ordered", "status"]],
+                            use_container_width=True,
+                            hide_index=True
+                        )
             else:
                 st.info(f"Found {len(all_receivable)} orders ready for receiving")
                 
@@ -1016,7 +1043,7 @@ Contact: +263 78 290 5853
                         po_total = po_details['total_value']
                         st.info(f"PO Total: ${po_total:,.2f}")
                         
-                        # Delete buttons - USING DIRECT SQL
+                        # Delete buttons
                         if po_details['status'] == "PENDING":
                             st.markdown("---")
                             st.markdown("### Delete Purchase Order")
