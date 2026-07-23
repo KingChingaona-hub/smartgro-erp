@@ -119,7 +119,6 @@ def inventory_page():
         
         with col2:
             cost = st.number_input("Cost ($)", min_value=0.0, step=0.5, format="%.2f", key="add_cost")
-            # Stock now supports decimals for gas and bread
             stock = st.number_input("Stock", min_value=0.0, step=0.5, format="%.2f", key="add_stock")
             reorder_level = st.number_input("Reorder Level", min_value=0.0, step=0.5, format="%.2f", key="add_reorder")
             
@@ -208,24 +207,21 @@ def inventory_page():
                     )
                     
                     # ============================================================
-                    # FIX: Use consistent types for number_input
+                    # FIX: Use consistent types - all float for decimal products
                     # ============================================================
-                    # Get the current stock value as float
                     current_stock = float(product_data["stock"])
                     current_reorder = float(product_data["reorder_level"])
                     
-                    # For decimal products, allow floats; for others, use ints
                     if is_decimal_product:
+                        # Decimal products: all floats
                         stock_step = 0.5
                         stock_min = 0.0
                         stock_format = "%.2f"
                     else:
+                        # Non-decimal products: use floats but step 1.0
                         stock_step = 1.0
-                        stock_min = 0
+                        stock_min = 0.0
                         stock_format = "%.0f"
-                        # Round to nearest integer for non-decimal products
-                        current_stock = int(current_stock)
-                        current_reorder = int(current_reorder)
                     
                     update_stock = st.number_input(
                         "Stock", 
