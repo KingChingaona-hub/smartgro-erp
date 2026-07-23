@@ -115,16 +115,16 @@ def inventory_page():
             barcode = st.text_input("Barcode *", key="add_barcode")
             name = st.text_input("Product Name *", key="add_name")
             category = st.text_input("Category", key="add_category")
-            price = st.number_input("Price ($) *", min_value=0.0, step=0.5, key="add_price")
+            price = st.number_input("Price ($) *", min_value=0.0, step=0.5, format="%.2f", key="add_price")
         
         with col2:
-            cost = st.number_input("Cost ($)", min_value=0.0, step=0.5, key="add_cost")
+            cost = st.number_input("Cost ($)", min_value=0.0, step=0.5, format="%.2f", key="add_cost")
             # Stock now supports decimals for gas and bread
             stock = st.number_input("Stock", min_value=0.0, step=0.5, format="%.2f", key="add_stock")
             reorder_level = st.number_input("Reorder Level", min_value=0.0, step=0.5, format="%.2f", key="add_reorder")
             
             # Show hint for decimal products
-            st.caption("Use decimals (e.g., 0.5, 1.5) for gas, bread, and weight-based products")
+            st.caption("💡 Use decimals (e.g., 0.5, 1.5) for gas, bread, and weight-based products")
         
         submitted = st.form_submit_button("Add Product", type="primary", use_container_width=True)
         
@@ -137,10 +137,10 @@ def inventory_page():
                         "barcode": barcode.strip(),
                         "name": name,
                         "category": category if category else "Uncategorized",
-                        "price": price,
-                        "cost": cost,
-                        "stock": float(stock),  # Allow decimal stock
-                        "reorder_level": float(reorder_level)  # Allow decimal reorder level
+                        "price": float(price),
+                        "cost": float(cost),
+                        "stock": float(stock),
+                        "reorder_level": float(reorder_level)
                     }])
                     
                     if df.empty:
@@ -159,7 +159,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # UPDATE PRODUCT - WITH DECIMAL SUPPORT
+    # UPDATE PRODUCT - WITH DECIMAL SUPPORT (FIXED)
     # ==============================
     st.markdown("## Update Product")
     
@@ -188,36 +188,66 @@ def inventory_page():
                     update_barcode = st.text_input("Barcode", value=str(product_data["barcode"]), key="update_barcode")
                     update_name = st.text_input("Product Name", value=product_data["name"], key="update_name")
                     update_category = st.text_input("Category", value=product_data.get("category", ""), key="update_category")
-                    update_price = st.number_input("Price ($)", value=float(product_data["price"]), step=0.5, key="update_price")
+                    update_price = st.number_input(
+                        "Price ($)", 
+                        value=float(product_data["price"]), 
+                        min_value=0.0, 
+                        step=0.5, 
+                        format="%.2f",
+                        key="update_price"
+                    )
                 
                 with col2:
-                    update_cost = st.number_input("Cost ($)", value=float(product_data.get("cost", 0)), step=0.5, key="update_cost")
+                    update_cost = st.number_input(
+                        "Cost ($)", 
+                        value=float(product_data.get("cost", 0)), 
+                        min_value=0.0, 
+                        step=0.5, 
+                        format="%.2f",
+                        key="update_cost"
+                    )
                     
-                    # Stock with decimal support
-                    stock_step = 0.5 if is_decimal_product else 1.0
-                    stock_min = 0.0 if is_decimal_product else 0
+                    # ============================================================
+                    # FIX: Use consistent types for number_input
+                    # ============================================================
+                    # Get the current stock value as float
+                    current_stock = float(product_data["stock"])
+                    current_reorder = float(product_data["reorder_level"])
+                    
+                    # For decimal products, allow floats; for others, use ints
+                    if is_decimal_product:
+                        stock_step = 0.5
+                        stock_min = 0.0
+                        stock_format = "%.2f"
+                    else:
+                        stock_step = 1.0
+                        stock_min = 0
+                        stock_format = "%.0f"
+                        # Round to nearest integer for non-decimal products
+                        current_stock = int(current_stock)
+                        current_reorder = int(current_reorder)
                     
                     update_stock = st.number_input(
                         "Stock", 
                         min_value=stock_min, 
-                        value=float(product_data["stock"]), 
+                        value=current_stock, 
                         step=stock_step,
-                        format="%.2f" if is_decimal_product else "%.0f",
+                        format=stock_format,
                         key="update_stock"
                     )
                     
                     update_reorder = st.number_input(
                         "Reorder Level", 
                         min_value=stock_min, 
-                        value=float(product_data["reorder_level"]), 
+                        value=current_reorder, 
                         step=stock_step,
-                        format="%.2f" if is_decimal_product else "%.0f",
+                        format=stock_format,
                         key="update_reorder"
                     )
                 
                 # Show decimal hint
                 if is_decimal_product:
-                    st.info("Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
+                    st.info("🔢 Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
                 
                 # Save button inside the form
                 save_changes = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
@@ -228,10 +258,10 @@ def inventory_page():
                         df.at[product_index, "barcode"] = update_barcode.strip()
                         df.at[product_index, "name"] = update_name
                         df.at[product_index, "category"] = update_category if update_category else "Uncategorized"
-                        df.at[product_index, "price"] = update_price
-                        df.at[product_index, "cost"] = update_cost
-                        df.at[product_index, "stock"] = float(update_stock)  # Always store as float
-                        df.at[product_index, "reorder_level"] = float(update_reorder)  # Always store as float
+                        df.at[product_index, "price"] = float(update_price)
+                        df.at[product_index, "cost"] = float(update_cost)
+                        df.at[product_index, "stock"] = float(update_stock)
+                        df.at[product_index, "reorder_level"] = float(update_reorder)
                         
                         # Save to database
                         if save_products(df):
