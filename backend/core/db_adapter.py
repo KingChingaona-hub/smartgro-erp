@@ -3641,6 +3641,11 @@ def process_checkout_batch(branch_id, checkout_data):
         print(f"Checkout error: {e}")
         return False, str(e)
 
+def clear_cache():
+    """Clear all cached data"""
+    st.cache_data.clear()
+    return True
+
 # ==============================
 # EXPORTS
 # ==============================
@@ -3761,5 +3766,6 @@ __all__ = [
     "get_segment_summary",
     "get_marketing_targets",
     "get_customer_lifecycle",
-    "get_customer_actions"
+    "get_customer_actions",
+    "clear_cache"
 ]
