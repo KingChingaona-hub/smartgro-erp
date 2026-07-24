@@ -92,6 +92,20 @@ def _get_permission_key(item):
         return "debtors"
     elif item == "Debtors Dashboard":
         return "debtors_dashboard"
+    elif item == "Business Advisor":
+        return "business_advisor"
+    elif item == "Sales History":
+        return "sales_history"
+    elif item == "Sales Dashboard":
+        return "sales_dashboard"
+    elif item == "Stock Dashboard":
+        return "inventory_view"
+    elif item == "Inventory":
+        return "inventory_view"
+    elif item == "POS":
+        return "pos"
+    elif item == "Customer Dashboard":
+        return "customers"
     
     # Return None if no mapping found
     return None
@@ -231,70 +245,98 @@ def get_visible_modules(role):
 def get_navigation_menu(role):
     """Get the complete navigation structure based on role"""
     
-    # Define menu hierarchy with emoji icons
-    menu_structure = {
-        "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
-        "🛒 Sales": ["POS", "Sales History", "Sales Dashboard", "Returns & Refunds"],
-        "💰 Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
-        "📥 Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding"],
-        "👥 Customers": ["Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard", "Customer App", "Customer Insights", "Customer 360 View"],
-        "🧠 Intelligence": ["Business Advisor", "Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
-        "📊 Analytics": [
-            "Profit Center Analysis", 
-            "Predictive Analytics", 
-            "Competitor Price Monitoring",
-            "Churn Prediction",
-            "Recommendation Engine",
-            "Inventory Optimizer",
-            "Anomaly Detection",
-            "Automated Insights"
-        ],
-        "📁 Reports": ["Reports Dashboard", "Documents"],
-        "🔄 Operations": ["Shift Management"],
-        "📱 Mobile": ["Mobile Dashboard"],
-        "🛍️ E-commerce": ["E-commerce Sync"],
-        "📱 Communications": ["SMS Gateway", "Voice Commands"],
-        "📷 Scanner": ["Barcode Scanner"],
-        "📦 Replenishment": ["Smart Replenishment"],
-        "🤖 Automation": ["Automated Follow-up", "Workflow Approvals"],
-        "⚙️ Administration": ["White Label", "Multi-Tenant", "API Developer", "PWA Setup", "User Management", "Branch Management", "Branch Performance", "Settings", "Offline Mode"]
-    }
-    
-    # Cashier gets simplified menu with Debtors
+    # ============================================================
+    # CASHIER MENU - FULL AND COMPLETE
+    # ============================================================
     if role == "cashier":
-        menu_structure = {
-            "🛒 POS": ["POS"],
-            "📱 Today": ["Mobile Dashboard"],
-            "📋 History": ["Sales History"],
-            "📦 Stock": ["Stock Dashboard", "Barcode Scanner"],
+        return {
+            "🛒 Sales": ["POS", "Sales History"],
+            "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Scanner"],
             "👥 Customers": ["Customer Dashboard", "Customer App"],
-            "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],  # ADDED FOR CASHIERS
-            "🎤 Voice": ["Voice Commands"],
-            "📷 Scanner": ["Barcode Scanner"]
+            "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+            "📊 Reports": ["Reports Dashboard"],
+            "📱 Mobile": ["Mobile Dashboard"],
+            "🎤 Voice": ["Voice Commands"]
         }
     
-    # Filter based on role permissions
-    filtered_menu = {}
-    for category, items in menu_structure.items():
-        visible_items = []
-        for item in items:
-            # Map menu item to permission key using helper function
-            perm_key = _get_permission_key(item)
-            
-            # Check if user has permission
-            if perm_key:
-                if can_access_feature(role, perm_key):
-                    visible_items.append(item)
-            else:
-                # For items without specific permission, check default
-                default_key = item.lower().replace(" ", "_")
-                if can_access_feature(role, default_key):
-                    visible_items.append(item)
-        
-        if visible_items:
-            filtered_menu[category] = visible_items
+    # ============================================================
+    # MANAGER MENU
+    # ============================================================
+    if role == "manager":
+        return {
+            "🛒 Sales": ["POS", "Sales Dashboard", "Sales History", "Returns & Refunds"],
+            "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner", "Inventory Optimizer"],
+            "📥 Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding", "Smart Replenishment"],
+            "💰 Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
+            "👥 Customers": ["Customer Dashboard", "Customer 360 View", "Customer Insights", "Customer App", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard"],
+            "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+            "📊 Analytics": [
+                "Reports Dashboard",
+                "Business Advisor",
+                "Demand Forecasting",
+                "Predictive Analytics",
+                "Profit Center Analysis",
+                "Competitor Price Monitoring",
+                "Churn Prediction",
+                "Automated Insights",
+                "Anomaly Detection",
+                "Recommendation Engine"
+            ],
+            "🔄 Operations": ["Shift Management", "Live Dashboard", "Mobile Dashboard", "Voice Commands", "Automated Follow-up", "Workflow Approvals"],
+            "🛍️ Integrations": ["E-commerce Sync", "SMS Gateway"],
+            "🔒 Admin": ["Security Dashboard", "Language Management", "Offline Mode", "PWA Setup", "API Developer", "Multi-Tenant", "White Label"]
+        }
     
-    return filtered_menu
+    # ============================================================
+    # OWNER MENU - FULL ACCESS
+    # ============================================================
+    if role == "owner":
+        return {
+            "🛒 Sales": ["POS", "Sales Dashboard", "Sales History", "Returns & Refunds"],
+            "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner", "Inventory Optimizer"],
+            "📥 Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding", "Smart Replenishment"],
+            "💰 Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
+            "👥 Customers": ["Customer Dashboard", "Customer 360 View", "Customer Insights", "Customer App", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard"],
+            "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+            "📊 Analytics": [
+                "Reports Dashboard",
+                "Business Advisor",
+                "Demand Forecasting",
+                "Predictive Analytics",
+                "Profit Center Analysis",
+                "Competitor Price Monitoring",
+                "Churn Prediction",
+                "Automated Insights",
+                "Anomaly Detection",
+                "Recommendation Engine"
+            ],
+            "🔄 Operations": ["Shift Management", "Live Dashboard", "Mobile Dashboard", "Voice Commands", "Automated Follow-up", "Workflow Approvals"],
+            "🛍️ Integrations": ["E-commerce Sync", "SMS Gateway"],
+            "🔒 Admin": [
+                "Branch Management",
+                "User Management",
+                "Settings",
+                "Security Dashboard",
+                "Language Management",
+                "Offline Mode",
+                "PWA Setup",
+                "API Developer",
+                "Multi-Tenant",
+                "White Label",
+                "Documents"
+            ]
+        }
+    
+    # ============================================================
+    # DEFAULT FALLBACK
+    # ============================================================
+    return {
+        "🛒 Sales": ["POS", "Sales History"],
+        "📦 Stock": ["Stock Dashboard", "Inventory"],
+        "👥 Customers": ["Customer Dashboard"],
+        "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+        "📊 Reports": ["Reports Dashboard"]
+    }
 
 
 def get_mobile_menu(role):
@@ -307,7 +349,7 @@ def get_mobile_menu(role):
         "Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
         "Finance": ["Cash Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
         "Customers": ["Customer Dashboard", "Customer App", "Customer 360 View"],
-        "Credit & Debtors": ["Debtors", "Debtors Dashboard"],  # ADDED
+        "Credit & Debtors": ["Debtors", "Debtors Dashboard"],
         "Intelligence": ["Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
         "Analytics": [
             "Profit Center Analysis", 
@@ -385,7 +427,7 @@ def get_mobile_navigation_html(role, current_page):
         {"icon": "🎯", "label": "Churn", "page": "Churn Prediction"},
         {"icon": "📊", "label": "Optimizer", "page": "Inventory Optimizer"},
         {"icon": "🛍️", "label": "Recommend", "page": "Recommendation Engine"},
-        {"icon": "💰", "label": "Debtors", "page": "Debtors"},  # ADDED
+        {"icon": "💰", "label": "Debtors", "page": "Debtors"},
         {"icon": "⚙️", "label": "More", "page": None}
     ]
     
