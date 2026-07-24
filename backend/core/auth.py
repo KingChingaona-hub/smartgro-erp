@@ -87,9 +87,11 @@ ROLES = {
         "level": 50,
         "permissions": [
             "pos", "view_inventory", "create_customer", "view_sales_history",
-            "mobile_dashboard", "voice_commands", "barcode_scanner"
+            "mobile_dashboard", "voice_commands", "barcode_scanner",
+            # ===== ADDED: Cashier can now access debtors =====
+            "debtors", "debtors_dashboard", "record_debt_payment"
         ],
-        "description": "Can process sales and view basic info",
+        "description": "Can process sales and manage debtors",
         "mobile_access": True,
         "color": "#45B7D1",
         "icon": "🛒"
@@ -182,10 +184,11 @@ def can_access_feature(role, feature):
         "lifecycle_dashboard": ["manager", "owner"],
         
         # ==============================
-        # DEBTORS
+        # DEBTORS - CASHIER NOW HAS ACCESS
         # ==============================
-        "debtors": ["manager", "owner"],
-        "debtors_dashboard": ["manager", "owner"],
+        "debtors": ["cashier", "manager", "owner"],  # CHANGED: Added cashier
+        "debtors_dashboard": ["cashier", "manager", "owner"],  # CHANGED: Added cashier
+        "record_debt_payment": ["cashier", "manager", "owner"],  # CHANGED: Added cashier
         
         # ==============================
         # ANALYTICS - NEW DATA SCIENCE MODULES
