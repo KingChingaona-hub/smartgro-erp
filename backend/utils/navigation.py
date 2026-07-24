@@ -68,23 +68,108 @@ CUSTOMER_SUB = {
 }
 
 # ==============================
+# ROLE-BASED MENU
+# ==============================
+def get_navigation_menu(role):
+    """Get navigation menu based on user role"""
+    
+    # Base menu for all users
+    base_menu = [
+        "Stock",
+        "POS",
+        "Sales",
+        "Customers",
+        "Credit & Debtors"  # Now accessible to cashiers
+    ]
+    
+    # Manager adds more features
+    manager_menu = base_menu + [
+        "Purchases",
+        "Income",
+        "Expenses",
+        "Cash",
+        "P&L",
+        "Shift Management",
+        "Reports",
+        "Demand Forecasting",
+        "Live Dashboard",
+        "Barcode Generator",
+        "Barcode Scanner",
+        "Competitor Price Monitoring",
+        "Predictive Analytics",
+        "Profit Center Analysis",
+        "Smart Replenishment",
+        "Supplier Bidding",
+        "Automated Follow-up",
+        "Workflow Approvals",
+        "Security Dashboard",
+        "Language Management",
+        "Offline Mode",
+        "Financial Closing",
+        "Payment Gateway",
+        "Accounting Sync",
+        "E-commerce Sync",
+        "SMS Gateway",
+        "Mobile",
+        "Voice Commands",
+        "API Developer",
+        "Business Advisor",
+        # Data Science Modules
+        "Anomaly Detection",
+        "Automated Insights",
+        "Churn Prediction",
+        "Inventory Optimizer",
+        "Recommendation Engine"
+    ]
+    
+    # Owner adds admin features
+    owner_menu = manager_menu + [
+        "Branch Management",
+        "Multi-Tenant",
+        "PWA Setup",
+        "White Label",
+        "Returns & Refunds"
+    ]
+    
+    if role == "owner":
+        return owner_menu
+    elif role == "manager":
+        return manager_menu
+    elif role == "cashier":
+        return base_menu
+    else:
+        return ["Stock", "Sales", "Customers", "Credit & Debtors"]
+
+# ==============================
 # MAIN MENU - FLAT ALPHABETICAL (NO CATEGORIES)
 # ==============================
 def main_menu():
     st.sidebar.title("AZIEL ERP")
     
+    # Get user role
+    role = st.session_state.get("role", "cashier")
+    
+    # Get menu based on role
+    available_modules = get_navigation_menu(role)
+    
+    # Filter MODULES to only show available ones
+    filtered_modules = {k: v for k, v in MODULES.items() if k in available_modules}
+    
     # Sort modules alphabetically
-    sorted_modules = sorted(MODULES.items())
+    sorted_modules = sorted(filtered_modules.items())
     menu_items = [f"{icon} {name}" for name, icon in sorted_modules]
     
     # Display as a flat list without any category headers
-    module = st.sidebar.radio(
-        "Modules",
-        menu_items,
-        key="main_menu_radio"
-    )
-    
-    return module.split(" ", 1)[1]
+    if menu_items:
+        module = st.sidebar.radio(
+            "Modules",
+            menu_items,
+            key="main_menu_radio"
+        )
+        return module.split(" ", 1)[1]
+    else:
+        st.sidebar.warning("No modules available for your role")
+        return "Stock"
 
 # ==============================
 # SUB MENU - ALPHABETICAL
@@ -141,7 +226,7 @@ def sub_menu(module):
         return choice.split(" ", 1)[1]
     
     # ==============================
-    # CREDIT & DEBTORS
+    # CREDIT & DEBTORS - UPDATED FOR CASHIERS
     # ==============================
     elif module == "Credit & Debtors":
         options = ["Debtors", "Debtors Dashboard"]
