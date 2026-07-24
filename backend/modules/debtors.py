@@ -282,9 +282,7 @@ def generate_receipt_html(receipt_data):
         </div>
         
         <script>
-            // Auto-print when page loads
             window.onload = function() {{
-                // Small delay to ensure rendering is complete
                 setTimeout(function() {{
                     window.print();
                 }}, 500);
@@ -565,16 +563,10 @@ def generate_receipt_pdf_html(receipt_data):
         </div>
         
         <script>
-            // Auto-print when page loads
             window.onload = function() {{
                 setTimeout(function() {{
                     window.print();
                 }}, 600);
-            }}
-            
-            // Close after printing (optional)
-            window.onafterprint = function() {{
-                // You can add close logic here if needed
             }}
         </script>
     </body>
@@ -587,8 +579,15 @@ def generate_receipt_pdf_html(receipt_data):
 def debtors_page():
     """Enhanced Debtors Management Page"""
     
-    st.title("⏱Debtors Management System")
+    st.title("Debtors Management System")
     st.caption("Track customer credit, manage payments, and reduce bad debt")
+    
+    # ============================================================
+    # FORCE REFRESH: Clear cache and reload debtors
+    # ============================================================
+    if st.session_state.get("debt_updated", False):
+        st.cache_data.clear()
+        st.session_state.debt_updated = False
     
     # Update risk levels on load
     update_risk_levels()
@@ -797,6 +796,8 @@ def debtors_page():
                                 st.info(f"Credit Limit: ${credit_limit:.2f}")
                             st.session_state.debt_cart = []
                             st.session_state.debt_created = True
+                            st.session_state.debt_updated = True
+                            st.rerun()
                         else:
                             st.error(f"Failed: {result}")
                     
@@ -857,7 +858,6 @@ def debtors_page():
                 
                 with col2:
                     payment_note = st.text_input("Payment Reference", placeholder="Receipt number, notes...", key="debt_payment_note")
-                    # Get the first debt ID for the receipt
                     first_debt_id = customer_debts.iloc[0]["debt_id"] if not customer_debts.empty else "N/A"
                 
                 # Calculate change
@@ -896,6 +896,7 @@ def debtors_page():
                                 
                                 st.balloons()
                                 st.success(f"Payment of ${pay_amount:.2f} recorded")
+                                st.session_state.debt_updated = True
                                 
                                 # Prepare receipt data
                                 receipt_data = {
@@ -944,6 +945,8 @@ def debtors_page():
                                 st.session_state.receipt_data = receipt_data
                                 st.session_state.payment_receipt = generate_receipt_pdf_html(receipt_data)
                                 st.session_state.payment_recorded = True
+                                
+                                st.rerun()
                         
                         st.session_state.button_clicked = False
     
@@ -1087,7 +1090,7 @@ def debtors_page():
                 mime="text/csv"
             )
         else:
-            st.info("No debt records found")
+            st.info("No debt records found. Credit sales from POS will appear here once recorded.")
     
     # ==============================
     # DISPLAY PAYMENT RECEIPT WITH PRINT OPTION
