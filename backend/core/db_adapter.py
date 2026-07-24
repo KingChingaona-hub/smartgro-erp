@@ -988,8 +988,7 @@ def validate_debtor_data(data):
     if 'expected_repayment_date' in data:
         valid, date_obj, msg = validate_date(data['expected_repayment_date'])
         if not valid:
-            errors['expected_repayment_date'] = msg
-        else:
+            errors['expected_repayment_date'] = msg        else:
             data['expected_repayment_date'] = date_obj.strftime("%Y-%m-%d")
     
     allowed_status = ['NOT PAID', 'PAID', 'PARTIAL', 'OVERDUE', 'WRITTEN_OFF']
@@ -3442,7 +3441,7 @@ def init_users():
     return auth_init_users()
 
 # ==============================
-# NEW: BATCH CHECKOUT - FASTEST METHOD
+# NEW: BATCH CHECKOUT - FASTEST METHOD (FIXED)
 # ==============================
 def process_checkout_batch(branch_id, checkout_data):
     """
@@ -3450,9 +3449,7 @@ def process_checkout_batch(branch_id, checkout_data):
     Returns: (success, message)
     """
     try:
-        # Use direct connection instead of cursor context manager
-        from backend.core.db_adapter import get_db_connection
-        
+        # Use direct connection instead of cursor context manager to avoid generator issues
         with get_db_connection() as conn:
             if conn is None:
                 return False, "No database connection"
@@ -3626,7 +3623,7 @@ def process_checkout_batch(branch_id, checkout_data):
     except Exception as e:
         print(f"Checkout error: {e}")
         return False, str(e)
-    
+
 # ==============================
 # EXPORTS
 # ==============================
@@ -3708,7 +3705,7 @@ __all__ = [
     "load_users",
     "save_users",
     "init_users",
-    "process_checkout_batch",  # FAST CHECKOUT
+    "process_checkout_batch",  # FAST CHECKOUT - FIXED
     "generate_receipt_number",
     "init_data_folder",
     "init_database",
