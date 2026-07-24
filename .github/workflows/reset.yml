@@ -1,0 +1,29 @@
+name: Reset Passwords
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Reset Database Passwords
+        env:
+          # Use a fully qualified connection string with sslmode
+          DATABASE_URL: postgresql://postgres:R234715KING@ep-orange-block-abu8uif3.eu-west-2.aws.neon.tech/smartgro?sslmode=require
+        run: |
+          # The -c flag executes the SQL command
+          psql "$DATABASE_URL" -c "UPDATE users SET password = CASE WHEN role = 'admin' THEN 'admin123' WHEN role = 'manager' THEN 'manager123' WHEN role = 'cashier' THEN 'cash123' WHEN role = 'owner' THEN 'owner123' ELSE password END;"
+          echo "✅ Passwords reset successfully!"
+
+      - name: Verify the reset (Optional)
+        env:
+          DATABASE_URL: postgresql://postgres:R234715KING@ep-orange-block-abu8uif3.eu-west-2.aws.neon.tech/smartgro?sslmode=require
+        run: |
+          echo "📋 Current users:"
+          psql "$DATABASE_URL" -c "SELECT username, role FROM users ORDER BY role;"
