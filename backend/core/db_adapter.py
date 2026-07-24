@@ -3450,9 +3450,14 @@ def process_checkout_batch(branch_id, checkout_data):
     Returns: (success, message)
     """
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        # Use direct connection instead of cursor context manager
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return False, "No database connection"
+            
+            cur = conn.cursor()
             
             # Extract data
             cart = checkout_data.get("cart", [])
@@ -3466,9 +3471,11 @@ def process_checkout_batch(branch_id, checkout_data):
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             if not cart:
+                cur.close()
                 return False, "Cart is empty"
             
             if not receipt_no:
+                cur.close()
                 return False, "No receipt number"
             
             # 1. UPDATE STOCK
@@ -3512,13 +3519,8 @@ def process_checkout_batch(branch_id, checkout_data):
                 """, (branch_id, now, shift_id, "CREDIT_SALE", final_total, 
                       receipt_no, customer_name, "CREDIT", f"Credit Sale - {receipt_no}", cashier))
                 
-                # ============================================================
-                # FIX: CREATE DEBTOR RECORD FOR CREDIT SALES
-                # ============================================================
+                # CREATE DEBTOR RECORD FOR CREDIT SALES
                 if customer_phone:
-                    # Generate debt ID
-                    debt_id = f"DEBT-{receipt_no}"
-                    
                     # Check if customer already has an existing debt
                     cur.execute("SELECT * FROM debtors WHERE branch_id = %s AND phone = %s AND status != 'PAID'", (branch_id, customer_phone))
                     existing_debt = cur.fetchone()
@@ -3538,19 +3540,16 @@ def process_checkout_batch(branch_id, checkout_data):
                             INSERT INTO debtors (branch_id, debt_id, date_borrowed, customer_name, phone,
                                 total_amount, amount_paid, balance, status, risk_level, items)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """, (branch_id, debt_id, now, customer_name, 
+                        """, (branch_id, f"DEBT-{receipt_no}", now, customer_name, 
                               customer_phone, final_total, 0, final_total, "NOT PAID", "LOW", 
                               f"Credit Sale - Receipt {receipt_no}"))
-                    
-                    print(f"✅ Debtor record created/updated for {customer_name} - Amount: ${final_total}")
                 else:
                     # If no phone, create debtor with generic name
-                    debt_id = f"DEBT-{receipt_no}"
                     cur.execute("""
                         INSERT INTO debtors (branch_id, debt_id, date_borrowed, customer_name, phone,
                             total_amount, amount_paid, balance, status, risk_level, items)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (branch_id, debt_id, now, customer_name, 
+                    """, (branch_id, f"DEBT-{receipt_no}", now, customer_name, 
                           customer_phone or "No Phone", final_total, 0, final_total, "NOT PAID", "LOW", 
                           f"Credit Sale - Receipt {receipt_no}"))
             
@@ -3592,7 +3591,7 @@ def process_checkout_batch(branch_id, checkout_data):
                         VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, (branch_id, customer_id, customer_name, customer_phone, 1, final_total, now))
             
-            # 6. LOYALTY POINTS
+            # 6. LOYALTY POINTS (only for non-credit sales)
             if customer_phone and payment_method != "CREDIT":
                 try:
                     points_earned = int(final_total)
@@ -3620,6 +3619,7 @@ def process_checkout_batch(branch_id, checkout_data):
             
             # COMMIT ALL CHANGES
             conn.commit()
+            cur.close()
             
             return True, "Checkout completed successfully"
             
