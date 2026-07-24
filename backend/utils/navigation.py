@@ -16,7 +16,7 @@ MODULES = {
     "Cash": "💳",
     "Churn Prediction": "🎯",
     "Competitor Price Monitoring": "🏪",
-    "Credit & Debtors": "⏱️",
+    "Credit & Debtors": "💰",  # CHANGED: Better icon for debtors
     "Customer 360 View": "👤",
     "Customer App": "🎁",
     "Customers": "👥",
@@ -73,13 +73,13 @@ CUSTOMER_SUB = {
 def get_navigation_menu(role):
     """Get navigation menu based on user role"""
     
-    # Base menu for all users
+    # Base menu for all users (including cashiers)
     base_menu = [
         "Stock",
         "POS",
         "Sales",
         "Customers",
-        "Credit & Debtors"  # Now accessible to cashiers
+        "Credit & Debtors"  # Cashiers can now see this
     ]
     
     # Manager adds more features
@@ -138,6 +138,7 @@ def get_navigation_menu(role):
     elif role == "cashier":
         return base_menu
     else:
+        # Default for unknown roles
         return ["Stock", "Sales", "Customers", "Credit & Debtors"]
 
 # ==============================
@@ -146,7 +147,7 @@ def get_navigation_menu(role):
 def main_menu():
     st.sidebar.title("AZIEL ERP")
     
-    # Get user role
+    # Get user role from session state
     role = st.session_state.get("role", "cashier")
     
     # Get menu based on role
@@ -159,13 +160,14 @@ def main_menu():
     sorted_modules = sorted(filtered_modules.items())
     menu_items = [f"{icon} {name}" for name, icon in sorted_modules]
     
-    # Display as a flat list without any category headers
+    # Display as a flat list
     if menu_items:
         module = st.sidebar.radio(
             "Modules",
             menu_items,
             key="main_menu_radio"
         )
+        # Extract the module name from the selected item
         return module.split(" ", 1)[1]
     else:
         st.sidebar.warning("No modules available for your role")
@@ -226,7 +228,7 @@ def sub_menu(module):
         return choice.split(" ", 1)[1]
     
     # ==============================
-    # CREDIT & DEBTORS - UPDATED FOR CASHIERS
+    # CREDIT & DEBTORS - FIXED
     # ==============================
     elif module == "Credit & Debtors":
         options = ["Debtors", "Debtors Dashboard"]
