@@ -3448,18 +3448,6 @@ def process_checkout_batch(branch_id, checkout_data):
     """
     Process entire checkout in ONE database transaction - FASTEST
     Returns: (success, message)
-    
-    Args:
-        branch_id: The branch ID
-        checkout_data: Dictionary containing:
-            - cart: List of items with barcode, name, price, cost, qty
-            - receipt_no: Receipt number
-            - payment_method: CASH, ECOCASH, CARD, CREDIT
-            - customer_name: Customer name
-            - customer_phone: Customer phone
-            - final_total: Final total amount
-            - shift_id: Shift ID
-            - cashier: Cashier username
     """
     try:
         with get_db_cursor() as (cur, conn):
@@ -3483,7 +3471,7 @@ def process_checkout_batch(branch_id, checkout_data):
             if not receipt_no:
                 return False, "No receipt number"
             
-            # 1. UPDATE STOCK - All products in one go
+            # 1. UPDATE STOCK
             for item in cart:
                 cur.execute("""
                     UPDATE products 
@@ -3491,7 +3479,7 @@ def process_checkout_batch(branch_id, checkout_data):
                     WHERE branch_id = %s AND barcode = %s
                 """, (item["qty"], branch_id, item["barcode"]))
             
-            # 2. INSERT SALES - All items in one go
+            # 2. INSERT SALES
             for item in cart:
                 selling_total = float(item["price"]) * int(item["qty"])
                 cost_total = float(item.get("cost", 0)) * int(item["qty"])
@@ -3507,7 +3495,7 @@ def process_checkout_batch(branch_id, checkout_data):
                       payment_method, customer_name, customer_phone,
                       final_total, shift_id, cashier))
             
-            # 3. CASH REGISTER
+            # 3. CASH REGISTER & DEBTOR CREATION
             if payment_method == "CASH":
                 cur.execute("""
                     INSERT INTO cash_register (branch_id, cash_date, shift_id, type, 
@@ -3515,6 +3503,7 @@ def process_checkout_batch(branch_id, checkout_data):
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (branch_id, now, shift_id, "CASH_SALE", final_total, 
                       receipt_no, customer_name, "CASH", f"POS Cash Sale - {receipt_no}", cashier))
+            
             elif payment_method == "CREDIT":
                 cur.execute("""
                     INSERT INTO cash_register (branch_id, cash_date, shift_id, type, 
@@ -3523,13 +3512,47 @@ def process_checkout_batch(branch_id, checkout_data):
                 """, (branch_id, now, shift_id, "CREDIT_SALE", final_total, 
                       receipt_no, customer_name, "CREDIT", f"Credit Sale - {receipt_no}", cashier))
                 
+                # ============================================================
+                # FIX: CREATE DEBTOR RECORD FOR CREDIT SALES
+                # ============================================================
                 if customer_phone:
+                    # Generate debt ID
+                    debt_id = f"DEBT-{receipt_no}"
+                    
+                    # Check if customer already has an existing debt
+                    cur.execute("SELECT * FROM debtors WHERE branch_id = %s AND phone = %s AND status != 'PAID'", (branch_id, customer_phone))
+                    existing_debt = cur.fetchone()
+                    
+                    if existing_debt:
+                        # Update existing debt (add to balance)
+                        cur.execute("""
+                            UPDATE debtors 
+                            SET balance = balance + %s,
+                                total_amount = total_amount + %s,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE branch_id = %s AND phone = %s AND status != 'PAID'
+                        """, (final_total, final_total, branch_id, customer_phone))
+                    else:
+                        # Create new debt record
+                        cur.execute("""
+                            INSERT INTO debtors (branch_id, debt_id, date_borrowed, customer_name, phone,
+                                total_amount, amount_paid, balance, status, risk_level, items)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (branch_id, debt_id, now, customer_name, 
+                              customer_phone, final_total, 0, final_total, "NOT PAID", "LOW", 
+                              f"Credit Sale - Receipt {receipt_no}"))
+                    
+                    print(f"✅ Debtor record created/updated for {customer_name} - Amount: ${final_total}")
+                else:
+                    # If no phone, create debtor with generic name
+                    debt_id = f"DEBT-{receipt_no}"
                     cur.execute("""
                         INSERT INTO debtors (branch_id, debt_id, date_borrowed, customer_name, phone,
-                            total_amount, amount_paid, balance, status, risk_level)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (branch_id, f"DEBT-{receipt_no}", now, customer_name, 
-                          customer_phone, final_total, 0, final_total, "NOT PAID", "LOW"))
+                            total_amount, amount_paid, balance, status, risk_level, items)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (branch_id, debt_id, now, customer_name, 
+                          customer_phone or "No Phone", final_total, 0, final_total, "NOT PAID", "LOW", 
+                          f"Credit Sale - Receipt {receipt_no}"))
             
             # 4. UPDATE SHIFT STATS
             if shift_id:
@@ -3603,7 +3626,7 @@ def process_checkout_batch(branch_id, checkout_data):
     except Exception as e:
         print(f"Checkout error: {e}")
         return False, str(e)
-
+    
 # ==============================
 # EXPORTS
 # ==============================
