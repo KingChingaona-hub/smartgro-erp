@@ -492,6 +492,7 @@ def login_page():
                         st.session_state.role = role
                         st.session_state.branch_name = branch_name
                         
+                        # Redirect based on role
                         if role == "cashier":
                             st.session_state.current_page = "POS"
                         else:
@@ -1161,14 +1162,16 @@ def main_app():
             else:
                 st.error("You don't have permission to access this page")
 
-        # ================= DEBTORS =================
+        # ================= DEBTORS - CASHIERS CAN NOW ACCESS =================
         elif page == "Debtors":
+            # Cashiers can now access debtors page
             if can_access_feature(role, "debtors"):
                 debtors_page()
             else:
                 st.error("You don't have permission to access this page")
 
         elif page == "Debtors Dashboard":
+            # Cashiers can now access debtors dashboard
             if can_access_feature(role, "debtors_dashboard"):
                 debtors_dashboard()
             else:
