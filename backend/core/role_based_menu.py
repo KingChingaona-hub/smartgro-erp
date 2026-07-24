@@ -88,6 +88,10 @@ def _get_permission_key(item):
         return "multi_tenant"
     elif item == "API Developer":
         return "api_developer"
+    elif item == "Debtors":
+        return "debtors"
+    elif item == "Debtors Dashboard":
+        return "debtors_dashboard"
     
     # Return None if no mapping found
     return None
@@ -229,13 +233,13 @@ def get_navigation_menu(role):
     
     # Define menu hierarchy with emoji icons
     menu_structure = {
-        "Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
-        "Sales": ["POS", "Sales History", "Sales Dashboard", "Returns & Refunds"],
-        "Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
-        "Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding"],
-        "Customers": ["Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard", "Customer App", "Customer Insights", "Customer 360 View"],
-        "Intelligence": ["Business Advisor", "Debtors", "Debtors Dashboard", "Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
-        "Analytics": [
+        "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
+        "🛒 Sales": ["POS", "Sales History", "Sales Dashboard", "Returns & Refunds"],
+        "💰 Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
+        "📥 Purchases": ["Purchases", "Purchases Dashboard", "Supplier Bidding"],
+        "👥 Customers": ["Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard", "Customer App", "Customer Insights", "Customer 360 View"],
+        "🧠 Intelligence": ["Business Advisor", "Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
+        "📊 Analytics": [
             "Profit Center Analysis", 
             "Predictive Analytics", 
             "Competitor Price Monitoring",
@@ -245,26 +249,28 @@ def get_navigation_menu(role):
             "Anomaly Detection",
             "Automated Insights"
         ],
-        "Reports": ["Reports Dashboard", "Documents"],
-        "Operations": ["Shift Management"],
-        "Mobile": ["Mobile Dashboard"],
-        "E-commerce": ["E-commerce Sync"],
-        "Communications": ["SMS Gateway", "Voice Commands"],
-        "Scanner": ["Barcode Scanner"],
-        "Replenishment": ["Smart Replenishment"],
-        "Automation": ["Automated Follow-up", "Workflow Approvals"],
-        "Administration": ["White Label", "Multi-Tenant", "API Developer", "PWA Setup", "User Management", "Branch Management", "Branch Performance", "Settings", "Offline Mode"]
+        "📁 Reports": ["Reports Dashboard", "Documents"],
+        "🔄 Operations": ["Shift Management"],
+        "📱 Mobile": ["Mobile Dashboard"],
+        "🛍️ E-commerce": ["E-commerce Sync"],
+        "📱 Communications": ["SMS Gateway", "Voice Commands"],
+        "📷 Scanner": ["Barcode Scanner"],
+        "📦 Replenishment": ["Smart Replenishment"],
+        "🤖 Automation": ["Automated Follow-up", "Workflow Approvals"],
+        "⚙️ Administration": ["White Label", "Multi-Tenant", "API Developer", "PWA Setup", "User Management", "Branch Management", "Branch Performance", "Settings", "Offline Mode"]
     }
     
-    # Cashier gets simplified mobile view
+    # Cashier gets simplified menu with Debtors
     if role == "cashier":
         menu_structure = {
-            "POS": ["POS"],
-            "Today": ["Mobile Dashboard"],
-            "History": ["Sales History"],
-            "Stock": ["Stock Dashboard", "Barcode Generator"],
-            "Voice": ["Voice Commands"],
-            "Scanner": ["Barcode Scanner"]
+            "🛒 POS": ["POS"],
+            "📱 Today": ["Mobile Dashboard"],
+            "📋 History": ["Sales History"],
+            "📦 Stock": ["Stock Dashboard", "Barcode Scanner"],
+            "👥 Customers": ["Customer Dashboard", "Customer App"],
+            "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],  # ADDED FOR CASHIERS
+            "🎤 Voice": ["Voice Commands"],
+            "📷 Scanner": ["Barcode Scanner"]
         }
     
     # Filter based on role permissions
@@ -301,6 +307,7 @@ def get_mobile_menu(role):
         "Stock": ["Stock Dashboard", "Inventory", "Barcode Generator"],
         "Finance": ["Cash Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
         "Customers": ["Customer Dashboard", "Customer App", "Customer 360 View"],
+        "Credit & Debtors": ["Debtors", "Debtors Dashboard"],  # ADDED
         "Intelligence": ["Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
         "Analytics": [
             "Profit Center Analysis", 
@@ -378,6 +385,7 @@ def get_mobile_navigation_html(role, current_page):
         {"icon": "🎯", "label": "Churn", "page": "Churn Prediction"},
         {"icon": "📊", "label": "Optimizer", "page": "Inventory Optimizer"},
         {"icon": "🛍️", "label": "Recommend", "page": "Recommendation Engine"},
+        {"icon": "💰", "label": "Debtors", "page": "Debtors"},  # ADDED
         {"icon": "⚙️", "label": "More", "page": None}
     ]
     
@@ -385,9 +393,13 @@ def get_mobile_navigation_html(role, current_page):
     visible_nav = []
     for item in nav_items:
         if item["page"]:
-            perm_key = item["page"].lower().replace(" ", "_")
-            if can_access_feature(role, perm_key):
+            perm_key = _get_permission_key(item["page"])
+            if perm_key and can_access_feature(role, perm_key):
                 visible_nav.append(item)
+            elif not perm_key:
+                default_key = item["page"].lower().replace(" ", "_")
+                if can_access_feature(role, default_key):
+                    visible_nav.append(item)
         else:
             visible_nav.append(item)
     
@@ -516,7 +528,7 @@ def get_mobile_navigation_html(role, current_page):
 
 def get_menu_badge_counts():
     """Get notification badge counts for menu items"""
-    from backend.core.database import load_products
+    from backend.core.db_adapter import load_products
     
     badges = {}
     
@@ -530,7 +542,7 @@ def get_menu_badge_counts():
             badges["Inventory"] = low_stock
     
     # Pending purchases badge
-    from backend.core.database import load_purchases
+    from backend.core.db_adapter import load_purchases
     purchases_df = load_purchases()
     if not purchases_df.empty:
         pending = len(purchases_df[purchases_df["status"] == "PENDING"])
@@ -568,7 +580,7 @@ def render_sidebar_menu(role, current_page):
             button_key = f"nav_{item.replace(' ', '_').replace('&', '')}"
             
             if st.sidebar.button(
-                f"📌 {item}{badge_text}", 
+                f"{item}{badge_text}", 
                 key=button_key, 
                 use_container_width=True
             ):
