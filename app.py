@@ -209,37 +209,7 @@ import threading
 import time
 
 
-# Add at the top of app.py after imports
-import psycopg2
 
-# TEMPORARY - Reset passwords on app startup
-try:
-    conn = psycopg2.connect(
-        host="ep-orange-block-abu8uif3.eu-west-2.aws.neon.tech",
-        port=5432,
-        database="smartgro",
-        user="postgres",
-        password="R234715KING",
-        sslmode="require"
-    )
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE users 
-        SET password = CASE 
-            WHEN role = 'admin' THEN 'admin123'
-            WHEN role = 'manager' THEN 'manager123'
-            WHEN role = 'cashier' THEN 'cash123'
-            WHEN role = 'owner' THEN 'owner123'
-            ELSE password
-        END
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
-    print("✅ Passwords reset to defaults!")
-except Exception as e:
-    print(f"Reset error: {e}")
-    
 # ==============================
 # PAGE CONFIG
 # ==============================
