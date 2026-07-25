@@ -616,6 +616,9 @@ def debtors_page():
     if "receipt_data" not in st.session_state:
         st.session_state.receipt_data = None
     
+    if "clear_manual_fields" not in st.session_state:
+        st.session_state.clear_manual_fields = False
+    
     # ==============================
     # TABS FOR DIFFERENT FUNCTIONS
     # ==============================
@@ -726,43 +729,42 @@ def debtors_page():
                             st.success(f"Added {debt_qty} x {product['name']}")
                         st.session_state.button_clicked = False
         
-        # Manual / Non-Inventory Item Entry
+        # Manual / Non-Inventory Item Entry - FIXED
         st.markdown("---")
         st.markdown("### Add Non-Inventory Item")
         st.caption("For services, money borrowed, fees, or items not in inventory")
         
-        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-        
-        with col1:
-            manual_item = st.text_input("Item Description *", placeholder="Service fee, cash borrowed, delivery charge...", key="manual_item_desc")
-        
-        with col2:
-            manual_amount = st.number_input("Amount ($) *", min_value=0.0, step=5.0, key="manual_item_amount")
-        
-        with col3:
-            manual_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
-        
-        with col4:
-            if st.button("Add Non-Inventory", key="add_manual_debt_item", type="primary"):
-                if not st.session_state.button_clicked:
-                    st.session_state.button_clicked = True
-                    if manual_item and manual_amount > 0:
-                        total_manual = manual_amount * manual_qty
-                        st.session_state.debt_cart.append({
-                            "barcode": f"MANUAL-{len(st.session_state.debt_cart)}",
-                            "name": f"[NON-INVENTORY] {manual_item}",
-                            "price": float(manual_amount),
-                            "quantity": manual_qty,
-                            "total": total_manual,
-                            "type": "non_inventory"
-                        })
-                        st.success(f"Added non-inventory item: {manual_item} x{manual_qty} = ${total_manual:.2f}")
-                        # Clear the input fields after adding
-                        st.session_state.manual_item_desc = ""
-                        st.session_state.manual_item_amount = 0
-                    else:
-                        st.error("Please enter both description and amount")
-                    st.session_state.button_clicked = False
+        # Use a form to avoid the session state modification error
+        with st.form(key="add_non_inventory_form"):
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            
+            with col1:
+                manual_item = st.text_input("Item Description *", placeholder="Service fee, cash borrowed, delivery charge...", key="manual_item_desc_form")
+            
+            with col2:
+                manual_amount = st.number_input("Amount ($) *", min_value=0.0, step=5.0, key="manual_item_amount_form")
+            
+            with col3:
+                manual_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty_form")
+            
+            with col4:
+                submitted = st.form_submit_button("Add Non-Inventory", type="primary")
+            
+            if submitted:
+                if manual_item and manual_amount > 0:
+                    total_manual = manual_amount * manual_qty
+                    st.session_state.debt_cart.append({
+                        "barcode": f"MANUAL-{len(st.session_state.debt_cart)}",
+                        "name": f"[NON-INVENTORY] {manual_item}",
+                        "price": float(manual_amount),
+                        "quantity": manual_qty,
+                        "total": total_manual,
+                        "type": "non_inventory"
+                    })
+                    st.success(f"Added non-inventory item: {manual_item} x{manual_qty} = ${total_manual:.2f}")
+                    st.rerun()
+                else:
+                    st.error("Please enter both description and amount")
         
         # Display Debt Cart
         if st.session_state.debt_cart:
@@ -961,7 +963,8 @@ def debtors_page():
                                     selected_customer,
                                     pay_amount,
                                     st.session_state.get("shift_id", ""),
-                                    receipt_no
+                                    receipt_no,
+                                    payment_method
                                 )
                                 
                                 if success:
@@ -1141,7 +1144,7 @@ def debtors_page():
             
             col1, col2 = st.columns(2)
             with col1:
-                status_filter = st.selectbox("Filter by Status", ["All", "NOT PAID", "PAID"], key="debtor_status_filter")
+                status_filter = st.selectbox("Filter by Status", ["All", "NOT PAID", "PAID", "PARTIAL"], key="debtor_status_filter")
             with col2:
                 risk_filter = st.selectbox("Filter by Risk", ["All", "LOW", "MEDIUM", "HIGH", "CRITICAL"], key="debtor_risk_filter")
             
