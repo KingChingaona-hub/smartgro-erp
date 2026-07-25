@@ -64,6 +64,31 @@ def init_session():
 
 
 # ==============================
+# DATABASE HELPERS - FIXED
+# ==============================
+def get_db_cursor():
+    """Get a database connection and cursor directly"""
+    conn = get_db_connection()
+    # If conn is a context manager, get the actual connection
+    if hasattr(conn, '__enter__'):
+        conn = conn.__enter__()
+    return conn, conn.cursor()
+
+
+def safe_close(conn):
+    """Safely close a database connection"""
+    try:
+        if conn:
+            # If it's a context manager, exit it
+            if hasattr(conn, '__exit__'):
+                conn.__exit__(None, None, None)
+            else:
+                conn.close()
+    except Exception:
+        pass
+
+
+# ==============================
 # SAVE SALE - ONE ROW PER RECEIPT (FIXED)
 # ==============================
 def save_sale_record(checkout_data):
@@ -72,10 +97,14 @@ def save_sale_record(checkout_data):
     Items are stored as JSON for detailed reporting.
     This fixes the revenue duplication issue.
     """
-    # Get connection directly without context manager
     conn = None
+    cursor = None
     try:
+        # Get connection directly
         conn = get_db_connection()
+        # If it's a context manager, get the actual connection
+        if hasattr(conn, '__enter__'):
+            conn = conn.__enter__()
         cursor = conn.cursor()
         
         # Create sales table if not exists with proper structure
@@ -145,24 +174,30 @@ def save_sale_record(checkout_data):
         ))
         
         conn.commit()
-        conn.close()
+        safe_close(conn)
         return True, "Sale recorded successfully"
         
     except Exception as e:
-        if conn:
-            conn.rollback()
-            conn.close()
+        try:
+            if conn:
+                conn.rollback()
+        except:
+            pass
+        safe_close(conn)
         return False, f"Error saving sale: {str(e)}"
 
 
 # ==============================
-# UPDATE STOCK - BULK UPDATE
+# UPDATE STOCK - BULK UPDATE (FIXED)
 # ==============================
 def update_stock_bulk(cart):
     """Update stock for all items in cart in one transaction"""
     conn = None
+    cursor = None
     try:
         conn = get_db_connection()
+        if hasattr(conn, '__enter__'):
+            conn = conn.__enter__()
         cursor = conn.cursor()
         
         for item in cart:
@@ -173,12 +208,15 @@ def update_stock_bulk(cart):
             """, (float(item["qty"]), item["barcode"]))
         
         conn.commit()
-        conn.close()
+        safe_close(conn)
         return True, "Stock updated successfully"
     except Exception as e:
-        if conn:
-            conn.rollback()
-            conn.close()
+        try:
+            if conn:
+                conn.rollback()
+        except:
+            pass
+        safe_close(conn)
         return False, f"Error updating stock: {str(e)}"
 
 
@@ -795,7 +833,7 @@ def pos_page():
             
             col1, col2 = st.columns(2)
             with col1:
-                st.info(f"Available Points: {customer_loyalty['points']} (Worth ${customer_loyalty['points']/100:.2f}")
+                st.info(f"Available Points: {customer_loyalty['points']} (Worth ${customer_loyalty['points']/100:.2f})")
             
             with col2:
                 redeem = st.checkbox("Redeem points for this purchase", key="redeem_points_checkbox")
