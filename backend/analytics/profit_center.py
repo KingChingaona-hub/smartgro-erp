@@ -3,12 +3,12 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import numpy as np
-from decimal import Decimal
+import json
 import warnings
 warnings.filterwarnings('ignore')
 
-from backend.core.db_adapter import load_sales, load_products, load_customers, load_branches
+from backend.core.db_adapter import get_db_connection, load_products
+
 
 # ==============================
 # HELPER FUNCTIONS
@@ -34,173 +34,202 @@ def safe_int(value, default=0):
         return default
 
 
-def safe_str(value, default=""):
-    """Safely convert value to string"""
-    if value is None:
-        return default
-    try:
-        return str(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def convert_decimal_to_float(df):
-    """Convert all Decimal columns to float for compatibility - FIXED"""
-    if df is None or df.empty:
-        return df
+def load_sales_from_new_table(start_date=None, end_date=None):
+    """
+    Load sales from the new sales table structure (one row per receipt)
+    FIXED: Separates receipt-level and item-level data to avoid revenue duplication
+    """
+    conn = get_db_connection()
     
     try:
-        for col in df.columns:
-            # Check if column contains Decimal values
-            if df[col].dtype == object:
-                sample = df[col].iloc[0] if len(df) > 0 else None
-                if sample is not None and isinstance(sample, Decimal):
-                    df[col] = df[col].astype(float)
-                elif sample is not None and isinstance(sample, (int, float)):
-                    pass  # Already numeric
-    except Exception as e:
-        print(f"Error converting decimals: {e}")
-    
-    return df
-
-
-def find_column(df, possible_names, default=None):
-    """Find the first column that matches any of the possible names"""
-    if df is None or df.empty:
-        return default
-    for name in possible_names:
-        if name in df.columns:
-            return name
-    return default
-
-
-def get_sales_data():
-    """Load and prepare sales data with proper column handling - FIXED"""
-    try:
-        sales_df = load_sales()
+        # Check if the new sales table exists
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='sales'
+        """)
+        
+        if not cursor.fetchone():
+            return pd.DataFrame()
+        
+        # Build query with date filters
+        query = """
+            SELECT 
+                id,
+                receipt_no,
+                customer_name,
+                customer_phone,
+                payment_method,
+                subtotal,
+                discount_amount,
+                discount_type,
+                discount_value,
+                tax_amount,
+                tax_rate,
+                final_total,
+                cash_received,
+                change_amount,
+                items_json,
+                item_count,
+                shift_id,
+                cashier,
+                branch_id,
+                points_earned,
+                points_used,
+                sale_date,
+                created_at
+            FROM sales
+            WHERE 1=1
+        """
+        params = []
+        
+        if start_date:
+            query += " AND date(sale_date) >= date(?)"
+            params.append(str(start_date))
+        
+        if end_date:
+            query += " AND date(sale_date) <= date(?)"
+            params.append(str(end_date))
+        
+        query += " ORDER BY sale_date DESC"
+        
+        sales_df = pd.read_sql_query(query, conn, params=params)
         
         if sales_df.empty:
             return pd.DataFrame()
         
-        # Convert Decimal columns to float
-        sales_df = convert_decimal_to_float(sales_df)
+        # ==============================
+        # FIX: Separate receipt-level and item-level data
+        # ==============================
         
-        # Find date column
-        date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
+        # 1. Create receipt-level summary (ONE row per receipt)
+        receipt_rows = []
         
-        if date_col is None:
+        # 2. Create item-level breakdown (for product analysis)
+        item_rows = []
+        
+        for _, sale in sales_df.iterrows():
+            # Receipt-level data (use this for revenue totals)
+            receipt_data = {
+                'receipt_no': sale['receipt_no'],
+                'customer_name': sale['customer_name'],
+                'customer_phone': sale['customer_phone'],
+                'payment_method': sale['payment_method'],
+                'final_total': float(sale['final_total']) if sale['final_total'] else 0,
+                'subtotal': float(sale['subtotal']) if sale['subtotal'] else 0,
+                'discount_amount': float(sale['discount_amount']) if sale['discount_amount'] else 0,
+                'tax_amount': float(sale['tax_amount']) if sale['tax_amount'] else 0,
+                'cash_received': float(sale['cash_received']) if sale['cash_received'] else 0,
+                'change_amount': float(sale['change_amount']) if sale['change_amount'] else 0,
+                'shift_id': sale['shift_id'],
+                'cashier': sale['cashier'],
+                'branch_id': sale['branch_id'],
+                'sale_date': sale['sale_date'],
+                'created_at': sale['created_at'],
+                'item_count': int(sale['item_count']) if sale['item_count'] else 0,
+                'points_earned': int(sale['points_earned']) if sale['points_earned'] else 0,
+                'points_used': int(sale['points_used']) if sale['points_used'] else 0
+            }
+            receipt_rows.append(receipt_data)
+            
+            # Parse items_json for product-level breakdown
+            try:
+                items = json.loads(sale['items_json'])
+                for item in items:
+                    item_data = {
+                        'receipt_no': sale['receipt_no'],
+                        'sale_date': sale['sale_date'],
+                        'payment_method': sale['payment_method'],
+                        'customer_name': sale['customer_name'],
+                        'name': item.get('name', 'Unknown'),
+                        'barcode': item.get('barcode', ''),
+                        'qty': float(item.get('qty', 0)),
+                        'price': float(item.get('price', 0)),
+                        'total': float(item.get('total', 0)),
+                        'cost': float(item.get('cost', 0)),
+                        # Calculate profit at item level
+                        'profit': float(item.get('total', 0)) - (float(item.get('cost', 0)) * float(item.get('qty', 0)))
+                    }
+                    item_rows.append(item_data)
+            except json.JSONDecodeError:
+                pass
+            except Exception as e:
+                print(f"Error processing items for receipt {sale.get('receipt_no', 'unknown')}: {str(e)}")
+        
+        # Create DataFrames
+        receipts_df = pd.DataFrame(receipt_rows)
+        items_df = pd.DataFrame(item_rows)
+        
+        if receipts_df.empty:
             return pd.DataFrame()
         
         # Convert date column
-        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-        sales_df = sales_df.dropna(subset=[date_col])
+        receipts_df['sale_date'] = pd.to_datetime(receipts_df['sale_date'], errors='coerce')
+        receipts_df = receipts_df.dropna(subset=['sale_date'])
         
-        if sales_df.empty:
-            return pd.DataFrame()
+        # Rename for consistency
+        receipts_df.rename(columns={
+            'sale_date': 'date',
+            'final_total': 'receipt_total'
+        }, inplace=True)
         
-        # Rename to standard 'date' for consistency
-        if date_col != "date":
-            sales_df["date"] = sales_df[date_col]
+        if items_df.empty:
+            # If no items, return receipt-level data only
+            return receipts_df
         
-        # Find total column
-        total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
+        # Merge receipt-level data with item-level data
+        # This creates one row per item BUT with receipt-level totals preserved separately
+        merged_df = pd.merge(
+            receipts_df[['receipt_no', 'date', 'receipt_total', 'payment_method', 'customer_name', 
+                         'cashier', 'branch_id', 'item_count', 'subtotal', 'discount_amount', 
+                         'tax_amount']],
+            items_df[['receipt_no', 'name', 'barcode', 'qty', 'price', 'total', 'cost', 'profit']],
+            on='receipt_no',
+            how='left'
+        )
         
-        if total_col and total_col != "total":
-            sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
-        elif not total_col:
-            sales_df["total"] = 0
+        # Rename columns to avoid confusion
+        merged_df.rename(columns={
+            'total': 'item_total'  # This is the item's total
+        }, inplace=True)
         
-        # Ensure total is float
-        sales_df["total"] = sales_df["total"].astype(float)
+        # For backward compatibility with existing code
+        # Use item-level data for product names and quantities
+        # Use receipt-level data for revenue (to avoid duplication)
+        merged_df['name'] = merged_df['name'].fillna('Unknown')
+        merged_df['quantity'] = merged_df['qty']
+        merged_df['item_price'] = merged_df['price']
+        merged_df['item_total'] = merged_df['item_total'].fillna(0)
+        merged_df['profit'] = merged_df['profit'].fillna(0)
         
-        # Find profit column
-        profit_col = find_column(sales_df, ["profit", "profit_margin", "gross_profit"])
+        return merged_df
         
-        if profit_col and profit_col != "profit":
-            sales_df["profit"] = pd.to_numeric(sales_df[profit_col], errors="coerce").fillna(0)
-        elif not profit_col:
-            sales_df["profit"] = 0
-        
-        # Ensure profit is float
-        sales_df["profit"] = sales_df["profit"].astype(float)
-        
-        # Find items column
-        items_col = find_column(sales_df, ["items", "quantity", "qty", "item_count"])
-        
-        if items_col and items_col != "items":
-            sales_df["items"] = pd.to_numeric(sales_df[items_col], errors="coerce").fillna(1)
-        elif not items_col:
-            sales_df["items"] = 1
-        
-        # Ensure items is int
-        sales_df["items"] = sales_df["items"].astype(int)
-        
-        # Find product name column
-        product_col = find_column(sales_df, ["name", "product_name", "Product", "item_name"])
-        
-        if product_col and product_col != "name":
-            sales_df["name"] = sales_df[product_col].fillna("Unknown")
-        elif not product_col:
-            sales_df["name"] = "Unknown"
-        
-        # Ensure name is string
-        sales_df["name"] = sales_df["name"].astype(str)
-        
-        # Find payment method column
-        payment_col = find_column(sales_df, ["payment_method", "payment_type", "payment"])
-        
-        if payment_col and payment_col != "payment_method":
-            sales_df["payment_method"] = sales_df[payment_col].fillna("CASH")
-        elif not payment_col:
-            sales_df["payment_method"] = "CASH"
-        
-        # Find customer column
-        customer_col = find_column(sales_df, ["customer", "customer_name", "customer_name"])
-        
-        if customer_col and customer_col != "customer":
-            sales_df["customer"] = sales_df[customer_col].fillna("Walk-in")
-        elif not customer_col:
-            sales_df["customer"] = "Walk-in"
-        
-        # Find receipt column
-        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id"])
-        
-        if receipt_col and receipt_col != "receipt_no":
-            sales_df["receipt_no"] = sales_df[receipt_col].fillna("")
-        elif not receipt_col:
-            sales_df["receipt_no"] = sales_df.index.astype(str)
-        
-        return sales_df
     except Exception as e:
-        print(f"Error loading sales data: {e}")
+        st.error(f"Error loading sales data: {str(e)}")
         return pd.DataFrame()
+    finally:
+        conn.close()
 
 
 def profit_center_analysis():
-    """Main profit center analysis dashboard - FIXED"""
+    """Main profit center analysis dashboard - FIXED for correct revenue"""
     
     st.title("Profit Center Analysis")
     st.caption("Analyze profitability by product, category, payment method, and time")
     
     # Load data
-    sales_df = get_sales_data()
+    sales_df = load_sales_from_new_table()
     
     if sales_df.empty:
         st.warning("No sales data available for profit analysis")
+        st.info("Make sure you have processed sales using the POS system with the new sales table structure.")
         return
-    
-    products_df = load_products()
-    
-    # Convert products DataFrame Decimal to float
-    if not products_df.empty:
-        products_df = convert_decimal_to_float(products_df)
     
     # ==============================
     # SIDEBAR FILTERS
     # ==============================
     st.sidebar.header("Filters")
     
-    # Date filter
     min_date = sales_df["date"].min().date()
     max_date = sales_df["date"].max().date()
     
@@ -211,7 +240,7 @@ def profit_center_analysis():
         max_value=max_date
     )
     
-    # Apply date filter - FIXED: Handle date_range properly
+    # Apply date filter
     filtered_df = sales_df.copy()
     
     if isinstance(date_range, tuple) and len(date_range) == 2:
@@ -221,9 +250,6 @@ def profit_center_analysis():
             filtered_df = filtered_df[mask].copy()
         except Exception:
             pass
-    elif isinstance(date_range, (pd.Timestamp, datetime)):
-        mask = filtered_df["date"].dt.date == date_range.date()
-        filtered_df = filtered_df[mask].copy()
     
     if filtered_df.empty:
         st.warning("No data matches the date filter")
@@ -237,8 +263,7 @@ def profit_center_analysis():
         if selected_product != "All Products" and selected_product in filtered_df["name"].values:
             filtered_df = filtered_df[filtered_df["name"] == selected_product]
     
-    # Payment method filter
-    if "payment_method" in filtered_df.columns and not filtered_df.empty:
+    # Payment method filter    if "payment_method" in filtered_df.columns and not filtered_df.empty:
         payment_methods = ["All"] + sorted(filtered_df["payment_method"].unique().tolist())
         selected_payment = st.sidebar.selectbox("Payment Method", payment_methods)
         
@@ -250,20 +275,25 @@ def profit_center_analysis():
         return
     
     # ==============================
-    # KEY METRICS
+    # KEY METRICS - Use receipt-level data
     # ==============================
     st.markdown("## Key Profit Metrics")
     
-    total_revenue = safe_float(filtered_df["total"].sum())
-    total_profit = safe_float(filtered_df["profit"].sum())
-    total_items = safe_int(filtered_df["items"].sum())
-    total_transactions = filtered_df["receipt_no"].nunique() if "receipt_no" in filtered_df.columns else len(filtered_df)
+    # Get unique receipts for revenue calculation
+    unique_receipts = filtered_df.drop_duplicates(subset=['receipt_no'])
     
-    # Calculate profit margin
+    total_revenue = safe_float(unique_receipts['receipt_total'].sum())
+    total_transactions = len(unique_receipts)
+    avg_transaction = total_revenue / total_transactions if total_transactions > 0 else 0
+    
+    # For profit, sum item-level profits (this is correct because profit is per item)
+    total_profit = safe_float(filtered_df['profit'].sum())
+    
+    # Profit margin
     profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
     
-    # Average transaction value
-    avg_transaction = total_revenue / total_transactions if total_transactions > 0 else 0
+    # Total items sold
+    total_items = safe_int(filtered_df['qty'].sum())
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -282,34 +312,41 @@ def profit_center_analysis():
     st.markdown("---")
     
     # ==============================
-    # PROFIT BY CATEGORY / PRODUCT
+    # PROFIT BY PRODUCT - Use item-level data
     # ==============================
     st.markdown("## Profit by Product")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Top 10 products by profit
+        # Group by product name using item-level data
         product_profit = filtered_df.groupby("name").agg({
             "profit": "sum",
-            "total": "sum",
-            "items": "sum"
+            "item_total": "sum",
+            "qty": "sum"
         }).reset_index()
+        
+        product_profit.rename(columns={
+            "item_total": "revenue",
+            "qty": "quantity"
+        }, inplace=True)
         
         # Convert to float
         product_profit["profit"] = product_profit["profit"].astype(float)
-        product_profit["total"] = product_profit["total"].astype(float)
-        product_profit["items"] = product_profit["items"].astype(float)
+        product_profit["revenue"] = product_profit["revenue"].astype(float)
+        product_profit["quantity"] = product_profit["quantity"].astype(float)
         
-        # Calculate margin safely
+        # Calculate margin
         product_profit["margin"] = product_profit.apply(
-            lambda x: (x["profit"] / x["total"] * 100) if x["total"] > 0 else 0, axis=1
+            lambda x: (x["profit"] / x["revenue"] * 100) if x["revenue"] > 0 else 0, axis=1
         )
-        product_profit = product_profit.sort_values("profit", ascending=False).head(10)
         
-        if not product_profit.empty:
+        # Sort and display top 10
+        top_products = product_profit.sort_values("profit", ascending=False).head(10)
+        
+        if not top_products.empty:
             fig = px.bar(
-                product_profit,
+                top_products,
                 x="profit",
                 y="name",
                 orientation='h',
@@ -348,29 +385,38 @@ def profit_center_analysis():
     st.markdown("---")
     
     # ==============================
-    # PROFIT BY PAYMENT METHOD
+    # PROFIT BY PAYMENT METHOD - Use receipt-level data
     # ==============================
     if "payment_method" in filtered_df.columns:
         st.markdown("## Profit by Payment Method")
         
-        payment_profit = filtered_df.groupby("payment_method").agg({
-            "profit": "sum",
-            "total": "sum",
-            "receipt_no": "nunique" if "receipt_no" in filtered_df.columns else "count"
+        # Use unique receipts for payment method revenue
+        payment_receipts = filtered_df.drop_duplicates(subset=['receipt_no', 'payment_method'])
+        
+        payment_profit = payment_receipts.groupby("payment_method").agg({
+            "receipt_total": "sum",
+            "receipt_no": "count"
         }).reset_index()
         
-        # Convert to float
-        payment_profit["profit"] = payment_profit["profit"].astype(float)
-        payment_profit["total"] = payment_profit["total"].astype(float)
+        payment_profit.rename(columns={
+            "receipt_total": "revenue",
+            "receipt_no": "transactions"
+        }, inplace=True)
         
-        if "receipt_no" not in filtered_df.columns:
-            payment_profit["receipt_no"] = 1
+        # Add profit per payment method (from item-level data)
+        payment_item_profit = filtered_df.groupby("payment_method")["profit"].sum().reset_index()
+        payment_profit = pd.merge(payment_profit, payment_item_profit, on="payment_method")
+        
+        # Convert to float
+        payment_profit["revenue"] = payment_profit["revenue"].astype(float)
+        payment_profit["profit"] = payment_profit["profit"].astype(float)
+        payment_profit["transactions"] = payment_profit["transactions"].astype(float)
         
         payment_profit["margin"] = payment_profit.apply(
-            lambda x: (x["profit"] / x["total"] * 100) if x["total"] > 0 else 0, axis=1
+            lambda x: (x["profit"] / x["revenue"] * 100) if x["revenue"] > 0 else 0, axis=1
         )
         payment_profit["avg_transaction"] = payment_profit.apply(
-            lambda x: x["total"] / x["receipt_no"] if x["receipt_no"] > 0 else 0, axis=1
+            lambda x: x["revenue"] / x["transactions"] if x["transactions"] > 0 else 0, axis=1
         )
         
         col1, col2 = st.columns(2)
@@ -392,13 +438,13 @@ def profit_center_analysis():
         with col2:
             if not payment_profit.empty:
                 st.dataframe(
-                    payment_profit[["payment_method", "profit", "total", "margin", "avg_transaction"]],
+                    payment_profit[["payment_method", "profit", "revenue", "margin", "avg_transaction"]],
                     use_container_width=True,
                     hide_index=True,
                     column_config={
                         "payment_method": "Payment Method",
                         "profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
-                        "total": st.column_config.NumberColumn("Revenue", format="$%.2f"),
+                        "revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
                         "margin": st.column_config.NumberColumn("Margin", format="%.1f%%"),
                         "avg_transaction": st.column_config.NumberColumn("Avg Transaction", format="$%.2f")
                     }
@@ -411,31 +457,37 @@ def profit_center_analysis():
     # ==============================
     st.markdown("## Profit Trend Over Time")
     
-    # Group by date
-    daily_profit = filtered_df.groupby(filtered_df["date"].dt.date).agg({
-        "profit": "sum",
-        "total": "sum",
-        "items": "sum"
+    # Group by date using receipt-level data for revenue
+    daily_receipts = filtered_df.drop_duplicates(subset=['date', 'receipt_no'])
+    daily_revenue = daily_receipts.groupby('date').agg({
+        'receipt_total': 'sum'
     }).reset_index()
-    daily_profit.columns = ["date", "profit", "revenue", "items"]
+    daily_revenue.columns = ['date', 'revenue']
     
-    # Convert to float
-    daily_profit["profit"] = daily_profit["profit"].astype(float)
-    daily_profit["revenue"] = daily_profit["revenue"].astype(float)
-    daily_profit["items"] = daily_profit["items"].astype(float)
-    daily_profit["margin"] = daily_profit.apply(
+    # Group by date for profit (item-level)
+    daily_profit = filtered_df.groupby('date').agg({
+        'profit': 'sum',
+        'qty': 'sum'
+    }).reset_index()
+    daily_profit.columns = ['date', 'profit', 'items']
+    
+    # Merge revenue and profit
+    daily_data = pd.merge(daily_revenue, daily_profit, on='date')
+    
+    # Calculate margin
+    daily_data["margin"] = daily_data.apply(
         lambda x: (x["profit"] / x["revenue"] * 100) if x["revenue"] > 0 else 0, axis=1
     )
     
-    if not daily_profit.empty and len(daily_profit) > 1:
+    if not daily_data.empty and len(daily_data) > 1:
         try:
             # Create figure with dual y-axis
             fig = go.Figure()
             
             # Add profit bar chart
             fig.add_trace(go.Bar(
-                x=daily_profit["date"],
-                y=daily_profit["profit"],
+                x=daily_data["date"],
+                y=daily_data["profit"],
                 name="Profit",
                 marker_color="green",
                 yaxis="y"
@@ -443,19 +495,19 @@ def profit_center_analysis():
             
             # Add revenue line
             fig.add_trace(go.Scatter(
-                x=daily_profit["date"],
-                y=daily_profit["revenue"],
+                x=daily_data["date"],
+                y=daily_data["revenue"],
                 name="Revenue",
                 mode="lines+markers",
                 line=dict(color="blue", width=2),
                 yaxis="y"
             ))
             
-            # Add margin line on secondary axis (only if data exists)
-            if daily_profit["margin"].notna().any():
+            # Add margin line on secondary axis
+            if daily_data["margin"].notna().any():
                 fig.add_trace(go.Scatter(
-                    x=daily_profit["date"],
-                    y=daily_profit["margin"],
+                    x=daily_data["date"],
+                    y=daily_data["margin"],
                     name="Margin %",
                     mode="lines+markers",
                     line=dict(color="red", width=2, dash="dash"),
@@ -489,78 +541,27 @@ def profit_center_analysis():
     st.markdown("---")
     
     # ==============================
-    # PROFIT MARGIN HEATMAP
-    # ==============================
-    st.markdown("## Profit Margin Heatmap")
-    
-    if len(daily_profit) >= 7:
-        try:
-            # Create pivot table for heatmap
-            daily_profit["day_of_week"] = daily_profit["date"].apply(lambda x: x.weekday())
-            daily_profit["week"] = daily_profit["date"].apply(lambda x: x.isocalendar().week)
-            
-            # Create week labels
-            daily_profit["week_label"] = daily_profit["date"].apply(
-                lambda x: f"Week {x.isocalendar().week}"
-            )
-            
-            # Day names
-            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            daily_profit["day_name"] = daily_profit["day_of_week"].apply(lambda x: day_names[x])
-            
-            # Create pivot
-            heatmap_data = daily_profit.pivot_table(
-                values="margin",
-                index="week_label",
-                columns="day_name",
-                aggfunc="mean"
-            )
-            
-            # Ensure all days are present
-            for day in day_names:
-                if day not in heatmap_data.columns:
-                    heatmap_data[day] = 0
-            
-            # Reorder columns
-            heatmap_data = heatmap_data[day_names]
-            
-            # Convert to float for heatmap
-            heatmap_data = heatmap_data.astype(float)
-            
-            fig = px.imshow(
-                heatmap_data,
-                title="Profit Margin Heatmap by Week and Day",
-                labels=dict(x="Day of Week", y="Week", color="Margin %"),
-                color_continuous_scale="RdYlGn",
-                aspect="auto",
-                text_auto=True
-            )
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.info(f"Could not generate heatmap: {str(e)}")
-    else:
-        st.info("Need at least 7 days of data for heatmap visualization")
-    
-    st.markdown("---")
-    
-    # ==============================
     # LOSS LEADER IDENTIFICATION
     # ==============================
     st.markdown("## Loss Leaders (Negative Margin Products)")
     
     product_margin_all = filtered_df.groupby("name").agg({
         "profit": "sum",
-        "total": "sum",
-        "items": "sum"
+        "item_total": "sum",
+        "qty": "sum"
     }).reset_index()
+    
+    product_margin_all.rename(columns={
+        "item_total": "revenue",
+        "qty": "quantity"
+    }, inplace=True)
     
     # Convert to float
     product_margin_all["profit"] = product_margin_all["profit"].astype(float)
-    product_margin_all["total"] = product_margin_all["total"].astype(float)
-    product_margin_all["items"] = product_margin_all["items"].astype(float)
+    product_margin_all["revenue"] = product_margin_all["revenue"].astype(float)
+    product_margin_all["quantity"] = product_margin_all["quantity"].astype(float)
     product_margin_all["margin"] = product_margin_all.apply(
-        lambda x: (x["profit"] / x["total"] * 100) if x["total"] > 0 else 0, axis=1
+        lambda x: (x["profit"] / x["revenue"] * 100) if x["revenue"] > 0 else 0, axis=1
     )
     
     # Identify products with negative profit
@@ -587,14 +588,14 @@ def profit_center_analysis():
             pass
         
         st.dataframe(
-            loss_leaders[["name", "profit", "total", "items", "margin"]],
+            loss_leaders[["name", "profit", "revenue", "quantity", "margin"]],
             use_container_width=True,
             hide_index=True,
             column_config={
                 "name": "Product",
                 "profit": st.column_config.NumberColumn("Loss", format="-$%.2f"),
-                "total": st.column_config.NumberColumn("Revenue", format="$%.2f"),
-                "items": "Units Sold",
+                "revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
+                "quantity": "Units Sold",
                 "margin": st.column_config.NumberColumn("Margin", format="%.1f%%")
             }
         )
@@ -611,7 +612,6 @@ def profit_center_analysis():
     st.markdown("## Profit Optimization Recommendations")
     
     try:
-        # Calculate key metrics for recommendations
         avg_margin = safe_float(product_margin_all["margin"].mean())
         high_margin_products = product_margin_all[product_margin_all["margin"] > avg_margin * 1.5].head(5)
         
@@ -642,24 +642,6 @@ def profit_center_analysis():
                         f"**Best Payment Method**: {best_payment} generates the highest profit. "
                         f"Consider encouraging customers to use this method."
                     )
-        
-        # Check if there are products with high revenue but low margin
-        if len(product_margin_all) > 3:
-            try:
-                revenue_quantile = safe_float(product_margin_all["total"].quantile(0.75))
-                high_revenue_low_margin = product_margin_all[
-                    (product_margin_all["total"] > revenue_quantile) &
-                    (product_margin_all["margin"] < avg_margin * 0.5)
-                ].head(3)
-                
-                if not high_revenue_low_margin.empty:
-                    names = high_revenue_low_margin["name"].tolist()
-                    recommendations.append(
-                        f"**Optimization Opportunity**: {', '.join(names)} "
-                        f"have high revenue but low margins. Consider cost reduction or price increase."
-                    )
-            except Exception:
-                pass
         
         if recommendations:
             for rec in recommendations:
@@ -700,19 +682,19 @@ def profit_center_analysis():
         )
     
     with col2:
-        # Detailed export - ensure all columns are properly formatted
-        detail_data = filtered_df[["date", "name", "total", "profit", "payment_method"]].copy()
-        detail_data["date"] = detail_data["date"].dt.strftime("%Y-%m-%d")
-        detail_data["total"] = detail_data["total"].astype(float)
-        detail_data["profit"] = detail_data["profit"].astype(float)
-        
-        csv_detail = detail_data.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Detailed Data (CSV)",
-            data=csv_detail,
-            file_name=f"profit_details_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
+        # Detailed export - use item-level data
+        if not filtered_df.empty:
+            detail_data = filtered_df[["date", "name", "item_total", "profit", "payment_method", "receipt_no", "qty"]].copy()
+            detail_data["date"] = detail_data["date"].dt.strftime("%Y-%m-%d")
+            detail_data.rename(columns={"item_total": "revenue"}, inplace=True)
+            
+            csv_detail = detail_data.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Detailed Data (CSV)",
+                data=csv_detail,
+                file_name=f"profit_details_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
 
 
 # ==============================
