@@ -335,11 +335,22 @@ def trading_account(year=None, month=None, quarter=None):
     sales_df = get_filtered_sales(year, month, quarter)
     purchases_df = get_filtered_purchases(year, month, quarter)
     
-    # Get total column
-    total_col = get_total_column(sales_df)
-    
-    # SALES - Convert Decimal to float
-    sales = to_float(sales_df["total"].sum()) if total_col and not sales_df.empty else 0
+    # ==============================
+    # FIX: Use unique receipts for revenue (NO DUPLICATION)
+    # ==============================
+    if not sales_df.empty and "receipt_no" in sales_df.columns:
+        # Get unique receipts to avoid duplication
+        unique_receipts = sales_df.drop_duplicates(subset=['receipt_no'])
+        
+        # Get total column
+        total_col = get_total_column(unique_receipts)
+        
+        # SALES - Convert Decimal to float from unique receipts only
+        sales = to_float(unique_receipts[total_col].sum()) if total_col and not unique_receipts.empty else 0
+    else:
+        # Fallback if no receipt_no column (old data structure)
+        total_col = get_total_column(sales_df)
+        sales = to_float(sales_df["total"].sum()) if total_col and not sales_df.empty else 0
     
     # TURNOVER (same as sales)
     turnover = sales
@@ -390,7 +401,6 @@ def trading_account(year=None, month=None, quarter=None):
         "gross_profit": gross_profit,
         "gross_margin": gross_margin
     }
-
 
 # ==============================
 # PROFIT & LOSS ACCOUNT - USING REAL DATA
