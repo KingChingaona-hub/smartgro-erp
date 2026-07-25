@@ -780,7 +780,7 @@ def debtors_page():
                 with col1:
                     st.write(f"{item['name']}")
                     if item.get("type") == "non_inventory":
-                        st.caption("📝 Non-Inventory")
+                        st.caption("Non-Inventory")
                 with col2:
                     st.write(f"x{item['quantity']}")
                 with col3:
@@ -790,7 +790,7 @@ def debtors_page():
                 with col5:
                     if st.button("✖️", key=f"remove_debt_item_{idx}"):
                         st.session_state.debt_cart.pop(idx)
-                        st.rerun()
+                        #st.rerun()
             
             st.dataframe(cart_df[["name", "quantity", "price", "total", "type_label"]], 
                         use_container_width=True, hide_index=True)
@@ -800,7 +800,7 @@ def debtors_page():
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🗑️ Clear Cart", key="clear_debt_cart"):
+                if st.button("Clear Cart", key="clear_debt_cart"):
                     if not st.session_state.button_clicked:
                         st.session_state.button_clicked = True
                         st.session_state.debt_cart = []
@@ -813,7 +813,7 @@ def debtors_page():
             # Store the total for later use
             st.session_state.debt_total_amount = debt_total
             
-            if st.button("✅ Create Debt Record", type="primary", key="create_debt_record"):
+            if st.button("Create Debt Record", type="primary", key="create_debt_record"):
                 if not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     
@@ -1012,10 +1012,10 @@ def debtors_page():
                                     
                                     # Set status
                                     if is_paid:
-                                        receipt_data["status_text"] = "✅ FULLY PAID - THANK YOU!"
+                                        receipt_data["status_text"] = "FULLY PAID - THANK YOU!"
                                         receipt_data["status_class"] = "status-paid"
                                     else:
-                                        receipt_data["status_text"] = f"📝 PARTIAL PAYMENT - Remaining: ${new_balance:.2f}"
+                                        receipt_data["status_text"] = f"PARTIAL PAYMENT - Remaining: ${new_balance:.2f}"
                                         receipt_data["status_class"] = "status-partial"
                                     
                                     # Store receipt data in session
