@@ -674,7 +674,7 @@ def profit_center_analysis():
     # ==============================
     st.markdown("---")
     st.markdown("## Export Data")
-    
+    total_sales = float(filtered_df["total"].sum()) if "total" in filtered_df.columns else 0
     col1, col2 = st.columns(2)
     
     with col1:
@@ -682,7 +682,7 @@ def profit_center_analysis():
         summary_data = {
             "Metric": ["Total Revenue", "Total Profit", "Profit Margin", "Total Transactions", "Average Transaction"],
             "Value": [
-                f"${total_revenue:,.2f}",
+                f"${total_sales:,.2f}",
                 f"${total_profit:,.2f}",
                 f"{profit_margin:.1f}%",
                 total_transactions,
