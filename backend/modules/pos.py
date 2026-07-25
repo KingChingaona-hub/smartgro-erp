@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import time
 import json
+import sqlite3
 
 from backend.core.db_adapter import (
     load_products,
@@ -71,10 +72,12 @@ def save_sale_record(checkout_data):
     Items are stored as JSON for detailed reporting.
     This fixes the revenue duplication issue.
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    # Get connection directly without context manager
+    conn = None
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         # Create sales table if not exists with proper structure
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales (
@@ -142,13 +145,14 @@ def save_sale_record(checkout_data):
         ))
         
         conn.commit()
+        conn.close()
         return True, "Sale recorded successfully"
         
     except Exception as e:
-        conn.rollback()
+        if conn:
+            conn.rollback()
+            conn.close()
         return False, f"Error saving sale: {str(e)}"
-    finally:
-        conn.close()
 
 
 # ==============================
@@ -156,10 +160,11 @@ def save_sale_record(checkout_data):
 # ==============================
 def update_stock_bulk(cart):
     """Update stock for all items in cart in one transaction"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    conn = None
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         for item in cart:
             cursor.execute("""
                 UPDATE products 
@@ -168,12 +173,13 @@ def update_stock_bulk(cart):
             """, (float(item["qty"]), item["barcode"]))
         
         conn.commit()
+        conn.close()
         return True, "Stock updated successfully"
     except Exception as e:
-        conn.rollback()
+        if conn:
+            conn.rollback()
+            conn.close()
         return False, f"Error updating stock: {str(e)}"
-    finally:
-        conn.close()
 
 
 # ==============================
@@ -789,7 +795,7 @@ def pos_page():
             
             col1, col2 = st.columns(2)
             with col1:
-                st.info(f"Available Points: {customer_loyalty['points']} (Worth ${customer_loyalty['points']/100:.2f})")
+                st.info(f"Available Points: {customer_loyalty['points']} (Worth ${customer_loyalty['points']/100:.2f}")
             
             with col2:
                 redeem = st.checkbox("Redeem points for this purchase", key="redeem_points_checkbox")
