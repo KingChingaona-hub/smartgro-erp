@@ -253,11 +253,14 @@ def profit_center_analysis():
     # KEY METRICS
     # ==============================
     st.markdown("## Key Profit Metrics")
-    
-    total_revenue = safe_float(filtered_df["total"].sum())
+    unique_receipts = filtered_df.drop_duplicates(subset=['receipt_no'])
+    total_transactions = len(unique_receipts)
+    avg_transaction = total_revenue / total_transactions if total_transactions > 0 else 0
+    total_revenue = float(unique_receipts['receipt_total'].sum()) if 'receipt_total' in unique_receipts.columns else float(unique_receipts['total'].sum())
+    #total_revenue = safe_float(filtered_df["total"].sum())
     total_profit = safe_float(filtered_df["profit"].sum())
     total_items = safe_int(filtered_df["items"].sum())
-    total_transactions = filtered_df["receipt_no"].nunique() if "receipt_no" in filtered_df.columns else len(filtered_df)
+    #total_transactions = filtered_df["receipt_no"].nunique() if "receipt_no" in filtered_df.columns else len(filtered_df)
     
     # Calculate profit margin
     profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
@@ -674,8 +677,7 @@ def profit_center_analysis():
     # ==============================
     st.markdown("---")
     st.markdown("## Export Data")
-    unique_receipts = filtered_df.drop_duplicates(subset=['receipt_no'])
-    total_sales = float(unique_receipts['receipt_total'].sum()) if 'receipt_total' in unique_receipts.columns else float(unique_receipts['total'].sum())
+    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -683,7 +685,7 @@ def profit_center_analysis():
         summary_data = {
             "Metric": ["Total Revenue", "Total Profit", "Profit Margin", "Total Transactions", "Average Transaction"],
             "Value": [
-                f"${total_sales:,.2f}",
+                f"${total_revenue:,.2f}",
                 f"${total_profit:,.2f}",
                 f"{profit_margin:.1f}%",
                 total_transactions,
