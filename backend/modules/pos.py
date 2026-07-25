@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import time
-import json
 
 from backend.core.db_adapter import (
     load_products,
@@ -58,8 +57,6 @@ def init_session():
         st.session_state.receipt_style = "Standard"
     if "checkout_processing" not in st.session_state:
         st.session_state.checkout_processing = False
-    if "last_checkout_data" not in st.session_state:
-        st.session_state.last_checkout_data = {}
 
 
 # ==============================
@@ -244,124 +241,7 @@ def supports_decimal_quantity(product_name, category=""):
 
 
 # ==============================
-# SAVE SALE - ONE ROW PER RECEIPT (FIX)
-# ==============================
-def save_sale_record(checkout_data):
-    """
-    Save ONE row per receipt with summary data.
-    Items are stored as JSON for detailed reporting.
-    """
-    from backend.core.db_adapter import get_db_connection
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        # Create sales table if not exists with proper structure
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sales (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                receipt_no TEXT UNIQUE,
-                customer_name TEXT,
-                customer_phone TEXT,
-                payment_method TEXT,
-                subtotal REAL,
-                discount_amount REAL,
-                discount_type TEXT,
-                discount_value REAL,
-                tax_amount REAL,
-                tax_rate REAL,
-                final_total REAL,
-                cash_received REAL,
-                change_amount REAL,
-                items_json TEXT,
-                item_count INTEGER,
-                shift_id TEXT,
-                cashier TEXT,
-                branch_id TEXT,
-                points_earned INTEGER,
-                points_used INTEGER,
-                sale_date TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Convert cart items to JSON
-        items_json = json.dumps(checkout_data["cart"])
-        item_count = len(checkout_data["cart"])
-        
-        # Insert ONE row per receipt
-        cursor.execute("""
-            INSERT INTO sales (
-                receipt_no, customer_name, customer_phone, payment_method,
-                subtotal, discount_amount, discount_type, discount_value,
-                tax_amount, tax_rate, final_total, cash_received, change_amount,
-                items_json, item_count, shift_id, cashier, branch_id,
-                points_earned, points_used, sale_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            checkout_data["receipt_no"],
-            checkout_data["customer_name"],
-            checkout_data["customer_phone"],
-            checkout_data["payment_method"],
-            checkout_data["subtotal"],
-            checkout_data["discount_amount"],
-            checkout_data["discount_type"],
-            checkout_data["discount_value"],
-            checkout_data["tax_amount"],
-            checkout_data["tax_rate"],
-            checkout_data["final_total"],
-            checkout_data["cash_received"],
-            checkout_data["change"],
-            items_json,
-            item_count,
-            checkout_data["shift_id"],
-            checkout_data["cashier"],
-            checkout_data["branch_id"],
-            checkout_data.get("points_earned", 0),
-            checkout_data.get("points_used", 0),
-            datetime.now().isoformat()
-        ))
-        
-        conn.commit()
-        return True, "Sale recorded successfully"
-        
-    except Exception as e:
-        conn.rollback()
-        return False, f"Error saving sale: {str(e)}"
-    finally:
-        conn.close()
-
-
-# ==============================
-# UPDATE STOCK - BULK UPDATE
-# ==============================
-def update_stock_bulk(cart):
-    """Update stock for all items in cart in one transaction"""
-    from backend.core.db_adapter import get_db_connection
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        for item in cart:
-            cursor.execute("""
-                UPDATE products 
-                SET stock = stock - ? 
-                WHERE barcode = ?
-            """, (float(item["qty"]), item["barcode"]))
-        
-        conn.commit()
-        return True, "Stock updated successfully"
-    except Exception as e:
-        conn.rollback()
-        return False, f"Error updating stock: {str(e)}"
-    finally:
-        conn.close()
-
-
-# ==============================
-# POS PAGE
+# POS PAGE - WITH DECIMAL SUPPORT
 # ==============================
 def pos_page():
     init_session()
@@ -379,7 +259,7 @@ def pos_page():
     cart = st.session_state.cart
     
     # ==============================
-    # SHIFT STATUS
+    # SHIFT STATUS - FAST
     # ==============================
     user_branch = st.session_state.get("user_branch", "HO")
     branch_shift = get_branch_shift_status(user_branch)
@@ -427,7 +307,7 @@ def pos_page():
                             found = False
                             for item in cart:
                                 if item["barcode"] == product["barcode"]:
-                                    item["qty"] = float(item["qty"]) + 1.0
+                                    item["qty"] = float(item["qty"]) + 1.0  # FIX: Keep as float
                                     item["total"] = float(item["qty"]) * float(item["price"])
                                     found = True
                                     break
@@ -447,7 +327,7 @@ def pos_page():
     st.markdown("---")
     
     # ==============================
-    # PRODUCT SEARCH
+    # PRODUCT SEARCH WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Search Products")
     
@@ -458,6 +338,7 @@ def pos_page():
             st.rerun()
         return
     
+    # Add mode selector for decimal products
     col_search, col_qty, col_mode = st.columns([3, 1, 1])
     
     with col_search:
@@ -468,6 +349,7 @@ def pos_page():
         )
     
     with col_qty:
+        # Allow decimal quantities with step of 0.5
         quick_qty = st.number_input(
             "Qty", 
             min_value=0.0, 
@@ -478,6 +360,7 @@ def pos_page():
         )
     
     with col_mode:
+        # Add option to input by amount instead of quantity
         quick_mode = st.selectbox(
             "Mode",
             ["Quantity", "Amount ($)"],
@@ -501,6 +384,7 @@ def pos_page():
         if selected_product:
             product = filtered_df[filtered_df["name"] == selected_product].iloc[0]
             
+            # Check if this product supports decimal quantities
             is_decimal = supports_decimal_quantity(
                 product["name"], 
                 product.get("category", "")
@@ -519,14 +403,17 @@ def pos_page():
             with col3:
                 st.write(f"**Category:** {product['category']}")
             
+            # Show decimal support info
             if is_decimal:
                 st.info("🔢 Decimal quantities supported (e.g., 0.5, 1.5, 2.0)")
                 st.caption("💡 Use 'Amount ($)' mode to buy by value instead of weight")
             
+            # Calculate quantity based on mode
             final_qty = quick_qty
             price_per_unit = float(product["price"])
             
             if quick_mode == "Amount ($)":
+                # User enters amount they want to spend
                 amount_to_spend = quick_qty
                 if amount_to_spend > 0 and price_per_unit > 0:
                     final_qty = amount_to_spend / price_per_unit
@@ -536,6 +423,7 @@ def pos_page():
             else:
                 final_qty = quick_qty
             
+            # For non-decimal products, ensure quantity is integer
             if not is_decimal:
                 final_qty = int(final_qty) if final_qty > 0 else 0
                 if final_qty != quick_qty:
@@ -552,13 +440,13 @@ def pos_page():
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
-                            new_qty = float(item["qty"]) + float(final_qty)
+                            new_qty = float(item["qty"]) + float(final_qty)  # FIX: Keep as float
                             if new_qty > product["stock"]:
                                 st.toast(f"Cart exceeds available stock ({product['stock']:.2f})")
                                 found = True
                                 break
                             item["qty"] = new_qty
-                            item["total"] = float(new_qty) * float(item["price"])
+                            item["total"] = float(new_qty) * float(item["price"])  # FIX: Keep as float
                             found = True
                             if is_decimal:
                                 st.toast(f"Updated: {product['name']} x{new_qty:.2f}")
@@ -572,8 +460,8 @@ def pos_page():
                             "name": product["name"],
                             "price": float(product["price"]),
                             "cost": float(product["cost"]),
-                            "qty": float(final_qty),
-                            "total": float(product["price"]) * float(final_qty)
+                            "qty": float(final_qty),  # FIX: Store as float
+                            "total": float(product["price"]) * float(final_qty)  # FIX: Keep as float
                         })
                         if is_decimal:
                             st.toast(f"Added: {product['name']} x{final_qty:.2f}")
@@ -583,7 +471,7 @@ def pos_page():
     st.markdown("---")
     
     # ==============================
-    # CART DISPLAY
+    # CART DISPLAY WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Current Cart")
     
@@ -602,6 +490,7 @@ def pos_page():
                             st.rerun()
         return
     
+    # Cart items with management - supports decimals
     st.write("### Cart Items")
     
     for idx, item in enumerate(cart):
@@ -609,6 +498,7 @@ def pos_page():
         
         with col1:
             st.write(f"**{item['name']}**")
+            # Show if it's a decimal quantity
             if isinstance(item["qty"], float) and item["qty"] % 1 != 0:
                 st.caption(f"🔢 {item['qty']:.2f} units")
         
@@ -640,6 +530,7 @@ def pos_page():
         st.divider()
     
     cart_df = pd.DataFrame(cart)
+    # Display with proper decimal formatting
     st.dataframe(
         cart_df[["name", "qty", "price", "total"]],
         use_container_width=True,
@@ -810,7 +701,7 @@ def pos_page():
                         st.info(f"New total: ${final_total:.2f}")
     
     # ==============================
-    # CHECKOUT BUTTONS
+    # CHECKOUT BUTTONS - USING BATCH
     # ==============================
     col1, col2, col3, col4 = st.columns(4)
     
@@ -848,7 +739,7 @@ def pos_page():
                     st.error("Checkout validation failed. Please check payment details.")
                     st.stop()
                 
-                # Check stock
+                # Check stock - quick (supports decimals)
                 products_df = get_products()
                 stock_ok, stock_message = check_stock_available(products_df, cart)
                 if not stock_ok:
@@ -862,7 +753,7 @@ def pos_page():
                 # Get shift ID
                 shift_id = st.session_state.branch_shift_id or st.session_state.get("shift_id", "")
                 
-                # Add loyalty points
+                # Add loyalty points - only if customer has phone
                 points_earned = 0
                 if customer_phone_clean and payment_method != "CREDIT":
                     try:
@@ -875,10 +766,10 @@ def pos_page():
                     except:
                         points_earned = 0
                 
-                # Set processing flag
+                # Set processing flag to prevent double click
                 st.session_state.checkout_processing = True
                 
-                # Prepare checkout data
+                # Prepare checkout data for batch processing
                 checkout_data = {
                     "cart": cart.copy(),
                     "receipt_no": receipt_no,
@@ -886,36 +777,17 @@ def pos_page():
                     "customer_name": customer_display,
                     "customer_phone": customer_phone_clean,
                     "final_total": final_total,
-                    "subtotal": subtotal,
-                    "discount_amount": discount_amount,
-                    "discount_type": discount_type,
-                    "discount_value": discount_value,
-                    "tax_amount": tax_amount,
-                    "tax_rate": tax_rate,
-                    "cash_received": cash_received,
-                    "change": change,
                     "shift_id": shift_id,
-                    "cashier": st.session_state.get("username", "system"),
-                    "branch_id": st.session_state.get("user_branch", "HO"),
-                    "points_earned": points_earned,
-                    "points_used": points_used
+                    "cashier": st.session_state.get("username", "system")
                 }
                 
-                # Store checkout data
-                st.session_state.last_checkout_data = checkout_data
-                
-                # SAVE SALE - ONE ROW PER RECEIPT (FIX)
-                success, message = save_sale_record(checkout_data)
+                # USE BATCH CHECKOUT - ONE DATABASE TRANSACTION
+                success, message = process_checkout_batch(
+                    branch_id=st.session_state.get("user_branch", "HO"),
+                    checkout_data=checkout_data
+                )
                 
                 if success:
-                    # Update stock
-                    stock_success, stock_message = update_stock_bulk(cart)
-                    
-                    if not stock_success:
-                        st.error(f"Stock update failed: {stock_message}")
-                        st.session_state.checkout_processing = False
-                        st.stop()
-                    
                     # Generate receipt
                     selected_style = st.session_state.get("receipt_style", "Standard")
                     
