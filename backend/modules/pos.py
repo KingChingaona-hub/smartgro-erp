@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import time
-import json
-import sqlite3
 
 from backend.core.db_adapter import (
     load_products,
@@ -11,7 +9,7 @@ from backend.core.db_adapter import (
     load_sales,
     save_sales,
     record_customer_purchase,
-    get_db_connection
+    process_checkout_batch
 )
 
 from backend.modules.receipt import (
@@ -59,166 +57,6 @@ def init_session():
         st.session_state.receipt_style = "Standard"
     if "checkout_processing" not in st.session_state:
         st.session_state.checkout_processing = False
-    if "last_checkout_data" not in st.session_state:
-        st.session_state.last_checkout_data = {}
-
-
-# ==============================
-# DATABASE HELPERS - FIXED
-# ==============================
-def get_db_cursor():
-    """Get a database connection and cursor directly"""
-    conn = get_db_connection()
-    # If conn is a context manager, get the actual connection
-    if hasattr(conn, '__enter__'):
-        conn = conn.__enter__()
-    return conn, conn.cursor()
-
-
-def safe_close(conn):
-    """Safely close a database connection"""
-    try:
-        if conn:
-            # If it's a context manager, exit it
-            if hasattr(conn, '__exit__'):
-                conn.__exit__(None, None, None)
-            else:
-                conn.close()
-    except Exception:
-        pass
-
-
-# ==============================
-# SAVE SALE - ONE ROW PER RECEIPT (FIXED)
-# ==============================
-def save_sale_record(checkout_data):
-    """
-    Save ONE row per receipt with summary data.
-    Items are stored as JSON for detailed reporting.
-    This fixes the revenue duplication issue.
-    """
-    conn = None
-    cursor = None
-    try:
-        # Get connection directly
-        conn = get_db_connection()
-        # If it's a context manager, get the actual connection
-        if hasattr(conn, '__enter__'):
-            conn = conn.__enter__()
-        cursor = conn.cursor()
-        
-        # Create sales table if not exists with proper structure
-        # FIXED: Removed AUTOINCREMENT, using INTEGER PRIMARY KEY is enough in SQLite
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sales (
-                id INTEGER PRIMARY KEY,
-                receipt_no TEXT UNIQUE,
-                customer_name TEXT,
-                customer_phone TEXT,
-                payment_method TEXT,
-                subtotal REAL,
-                discount_amount REAL,
-                discount_type TEXT,
-                discount_value REAL,
-                tax_amount REAL,
-                tax_rate REAL,
-                final_total REAL,
-                cash_received REAL,
-                change_amount REAL,
-                items_json TEXT,
-                item_count INTEGER,
-                shift_id TEXT,
-                cashier TEXT,
-                branch_id TEXT,
-                points_earned INTEGER,
-                points_used INTEGER,
-                sale_date TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Convert cart items to JSON
-        items_json = json.dumps(checkout_data["cart"])
-        item_count = len(checkout_data["cart"])
-        
-        # Insert ONE row per receipt
-        cursor.execute("""
-            INSERT INTO sales (
-                receipt_no, customer_name, customer_phone, payment_method,
-                subtotal, discount_amount, discount_type, discount_value,
-                tax_amount, tax_rate, final_total, cash_received, change_amount,
-                items_json, item_count, shift_id, cashier, branch_id,
-                points_earned, points_used, sale_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            checkout_data["receipt_no"],
-            checkout_data["customer_name"],
-            checkout_data["customer_phone"],
-            checkout_data["payment_method"],
-            checkout_data["subtotal"],
-            checkout_data["discount_amount"],
-            checkout_data["discount_type"],
-            checkout_data["discount_value"],
-            checkout_data["tax_amount"],
-            checkout_data["tax_rate"],
-            checkout_data["final_total"],
-            checkout_data["cash_received"],
-            checkout_data["change"],
-            items_json,
-            item_count,
-            checkout_data["shift_id"],
-            checkout_data["cashier"],
-            checkout_data["branch_id"],
-            checkout_data.get("points_earned", 0),
-            checkout_data.get("points_used", 0),
-            datetime.now().isoformat()
-        ))
-        
-        conn.commit()
-        safe_close(conn)
-        return True, "Sale recorded successfully"
-        
-    except Exception as e:
-        try:
-            if conn:
-                conn.rollback()
-        except:
-            pass
-        safe_close(conn)
-        return False, f"Error saving sale: {str(e)}"
-
-
-# ==============================
-# UPDATE STOCK - BULK UPDATE (FIXED)
-# ==============================
-def update_stock_bulk(cart):
-    """Update stock for all items in cart in one transaction"""
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        if hasattr(conn, '__enter__'):
-            conn = conn.__enter__()
-        cursor = conn.cursor()
-        
-        for item in cart:
-            cursor.execute("""
-                UPDATE products 
-                SET stock = stock - ? 
-                WHERE barcode = ?
-            """, (float(item["qty"]), item["barcode"]))
-        
-        conn.commit()
-        safe_close(conn)
-        return True, "Stock updated successfully"
-    except Exception as e:
-        try:
-            if conn:
-                conn.rollback()
-        except:
-            pass
-        safe_close(conn)
-        return False, f"Error updating stock: {str(e)}"
 
 
 # ==============================
@@ -469,7 +307,7 @@ def pos_page():
                             found = False
                             for item in cart:
                                 if item["barcode"] == product["barcode"]:
-                                    item["qty"] = float(item["qty"]) + 1.0
+                                    item["qty"] = float(item["qty"]) + 1.0  # FIX: Keep as float
                                     item["total"] = float(item["qty"]) * float(item["price"])
                                     found = True
                                     break
@@ -602,13 +440,13 @@ def pos_page():
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
-                            new_qty = float(item["qty"]) + float(final_qty)
+                            new_qty = float(item["qty"]) + float(final_qty)  # FIX: Keep as float
                             if new_qty > product["stock"]:
                                 st.toast(f"Cart exceeds available stock ({product['stock']:.2f})")
                                 found = True
                                 break
                             item["qty"] = new_qty
-                            item["total"] = float(new_qty) * float(item["price"])
+                            item["total"] = float(new_qty) * float(item["price"])  # FIX: Keep as float
                             found = True
                             if is_decimal:
                                 st.toast(f"Updated: {product['name']} x{new_qty:.2f}")
@@ -622,8 +460,8 @@ def pos_page():
                             "name": product["name"],
                             "price": float(product["price"]),
                             "cost": float(product["cost"]),
-                            "qty": float(final_qty),
-                            "total": float(product["price"]) * float(final_qty)
+                            "qty": float(final_qty),  # FIX: Store as float
+                            "total": float(product["price"]) * float(final_qty)  # FIX: Keep as float
                         })
                         if is_decimal:
                             st.toast(f"Added: {product['name']} x{final_qty:.2f}")
@@ -863,7 +701,7 @@ def pos_page():
                         st.info(f"New total: ${final_total:.2f}")
     
     # ==============================
-    # CHECKOUT BUTTONS - USING NEW SAVE FUNCTION
+    # CHECKOUT BUTTONS - USING BATCH
     # ==============================
     col1, col2, col3, col4 = st.columns(4)
     
@@ -931,7 +769,7 @@ def pos_page():
                 # Set processing flag to prevent double click
                 st.session_state.checkout_processing = True
                 
-                # Prepare checkout data for saving
+                # Prepare checkout data for batch processing
                 checkout_data = {
                     "cart": cart.copy(),
                     "receipt_no": receipt_no,
@@ -939,36 +777,17 @@ def pos_page():
                     "customer_name": customer_display,
                     "customer_phone": customer_phone_clean,
                     "final_total": final_total,
-                    "subtotal": subtotal,
-                    "discount_amount": discount_amount,
-                    "discount_type": discount_type,
-                    "discount_value": discount_value,
-                    "tax_amount": tax_amount,
-                    "tax_rate": tax_rate,
-                    "cash_received": cash_received,
-                    "change": change,
                     "shift_id": shift_id,
-                    "cashier": st.session_state.get("username", "system"),
-                    "branch_id": st.session_state.get("user_branch", "HO"),
-                    "points_earned": points_earned,
-                    "points_used": points_used
+                    "cashier": st.session_state.get("username", "system")
                 }
                 
-                # Store checkout data for receipt generation
-                st.session_state.last_checkout_data = checkout_data
-                
-                # SAVE SALE - ONE ROW PER RECEIPT (FIX)
-                success, message = save_sale_record(checkout_data)
+                # USE BATCH CHECKOUT - ONE DATABASE TRANSACTION
+                success, message = process_checkout_batch(
+                    branch_id=st.session_state.get("user_branch", "HO"),
+                    checkout_data=checkout_data
+                )
                 
                 if success:
-                    # Update stock
-                    stock_success, stock_message = update_stock_bulk(cart)
-                    
-                    if not stock_success:
-                        st.error(f"Stock update failed: {stock_message}")
-                        st.session_state.checkout_processing = False
-                        st.stop()
-                    
                     # Generate receipt
                     selected_style = st.session_state.get("receipt_style", "Standard")
                     
