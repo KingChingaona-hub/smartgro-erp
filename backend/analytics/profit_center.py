@@ -3,12 +3,12 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import json
+import numpy as np
+from decimal import Decimal
 import warnings
 warnings.filterwarnings('ignore')
 
-from backend.core.db_adapter import get_db_connection, load_products
-
+from backend.core.db_adapter import load_sales, load_products, load_customers, load_branches
 
 # ==============================
 # HELPER FUNCTIONS
@@ -34,154 +34,173 @@ def safe_int(value, default=0):
         return default
 
 
-def load_sales_from_new_table(start_date=None, end_date=None):
-    """Load sales from the new sales table structure (one row per receipt)"""
-    conn = get_db_connection()
+def safe_str(value, default=""):
+    """Safely convert value to string"""
+    if value is None:
+        return default
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def convert_decimal_to_float(df):
+    """Convert all Decimal columns to float for compatibility - FIXED"""
+    if df is None or df.empty:
+        return df
     
     try:
-        # Check if the new sales table exists
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT name FROM sqlite_master 
-            WHERE type='table' AND name='sales'
-        """)
-        
-        if not cursor.fetchone():
-            return pd.DataFrame()
-        
-        # Build query with date filters
-        query = """
-            SELECT 
-                id,
-                receipt_no,
-                customer_name,
-                customer_phone,
-                payment_method,
-                subtotal,
-                discount_amount,
-                discount_type,
-                discount_value,
-                tax_amount,
-                tax_rate,
-                final_total,
-                cash_received,
-                change_amount,
-                items_json,
-                item_count,
-                shift_id,
-                cashier,
-                branch_id,
-                points_earned,
-                points_used,
-                sale_date,
-                created_at
-            FROM sales
-            WHERE 1=1
-        """
-        params = []
-        
-        if start_date:
-            query += " AND date(sale_date) >= date(?)"
-            params.append(str(start_date))
-        
-        if end_date:
-            query += " AND date(sale_date) <= date(?)"
-            params.append(str(end_date))
-        
-        query += " ORDER BY sale_date DESC"
-        
-        sales_df = pd.read_sql_query(query, conn, params=params)
+        for col in df.columns:
+            # Check if column contains Decimal values
+            if df[col].dtype == object:
+                sample = df[col].iloc[0] if len(df) > 0 else None
+                if sample is not None and isinstance(sample, Decimal):
+                    df[col] = df[col].astype(float)
+                elif sample is not None and isinstance(sample, (int, float)):
+                    pass  # Already numeric
+    except Exception as e:
+        print(f"Error converting decimals: {e}")
+    
+    return df
+
+
+def find_column(df, possible_names, default=None):
+    """Find the first column that matches any of the possible names"""
+    if df is None or df.empty:
+        return default
+    for name in possible_names:
+        if name in df.columns:
+            return name
+    return default
+
+
+def get_sales_data():
+    """Load and prepare sales data with proper column handling - FIXED"""
+    try:
+        sales_df = load_sales()
         
         if sales_df.empty:
             return pd.DataFrame()
         
-        # Parse items_json to extract product names and individual items
-        expanded_rows = []
+        # Convert Decimal columns to float
+        sales_df = convert_decimal_to_float(sales_df)
         
-        for _, sale in sales_df.iterrows():
-            try:
-                items = json.loads(sale['items_json'])
-                
-                # If there are items, create one row per item but keep receipt-level data
-                for item in items:
-                    expanded_row = {
-                        'receipt_no': sale['receipt_no'],
-                        'customer_name': sale['customer_name'],
-                        'customer_phone': sale['customer_phone'],
-                        'payment_method': sale['payment_method'],
-                        'final_total': sale['final_total'],
-                        'subtotal': sale['subtotal'],
-                        'discount_amount': sale['discount_amount'],
-                        'tax_amount': sale['tax_amount'],
-                        'cash_received': sale['cash_received'],
-                        'change_amount': sale['change_amount'],
-                        'shift_id': sale['shift_id'],
-                        'cashier': sale['cashier'],
-                        'branch_id': sale['branch_id'],
-                        'sale_date': sale['sale_date'],
-                        'created_at': sale['created_at'],
-                        'item_name': item.get('name', 'Unknown'),
-                        'item_barcode': item.get('barcode', ''),
-                        'item_qty': float(item.get('qty', 0)),
-                        'item_price': float(item.get('price', 0)),
-                        'item_total': float(item.get('total', 0)),
-                        'item_cost': float(item.get('cost', 0)),
-                        'item_profit': float(item.get('total', 0)) - float(item.get('cost', 0)) * float(item.get('qty', 0))
-                    }
-                    expanded_rows.append(expanded_row)
-                    
-            except json.JSONDecodeError:
-                # If items_json is not valid JSON, skip
-                pass
-            except Exception as e:
-                print(f"Error processing sale {sale.get('receipt_no', 'unknown')}: {str(e)}")
+        # Find date column
+        date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
         
-        if not expanded_rows:
+        if date_col is None:
             return pd.DataFrame()
         
-        result_df = pd.DataFrame(expanded_rows)
-        
         # Convert date column
-        result_df['sale_date'] = pd.to_datetime(result_df['sale_date'], errors='coerce')
-        result_df = result_df.dropna(subset=['sale_date'])
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
         
-        # Rename columns for consistency with old code
-        result_df.rename(columns={
-            'sale_date': 'date',
-            'item_name': 'name',
-            'item_total': 'total',
-            'item_profit': 'profit',
-            'item_qty': 'items'
-        }, inplace=True)
+        if sales_df.empty:
+            return pd.DataFrame()
         
-        return result_df
+        # Rename to standard 'date' for consistency
+        if date_col != "date":
+            sales_df["date"] = sales_df[date_col]
         
+        # Find total column
+        total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
+        
+        if total_col and total_col != "total":
+            sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
+        elif not total_col:
+            sales_df["total"] = 0
+        
+        # Ensure total is float
+        sales_df["total"] = sales_df["total"].astype(float)
+        
+        # Find profit column
+        profit_col = find_column(sales_df, ["profit", "profit_margin", "gross_profit"])
+        
+        if profit_col and profit_col != "profit":
+            sales_df["profit"] = pd.to_numeric(sales_df[profit_col], errors="coerce").fillna(0)
+        elif not profit_col:
+            sales_df["profit"] = 0
+        
+        # Ensure profit is float
+        sales_df["profit"] = sales_df["profit"].astype(float)
+        
+        # Find items column
+        items_col = find_column(sales_df, ["items", "quantity", "qty", "item_count"])
+        
+        if items_col and items_col != "items":
+            sales_df["items"] = pd.to_numeric(sales_df[items_col], errors="coerce").fillna(1)
+        elif not items_col:
+            sales_df["items"] = 1
+        
+        # Ensure items is int
+        sales_df["items"] = sales_df["items"].astype(int)
+        
+        # Find product name column
+        product_col = find_column(sales_df, ["name", "product_name", "Product", "item_name"])
+        
+        if product_col and product_col != "name":
+            sales_df["name"] = sales_df[product_col].fillna("Unknown")
+        elif not product_col:
+            sales_df["name"] = "Unknown"
+        
+        # Ensure name is string
+        sales_df["name"] = sales_df["name"].astype(str)
+        
+        # Find payment method column
+        payment_col = find_column(sales_df, ["payment_method", "payment_type", "payment"])
+        
+        if payment_col and payment_col != "payment_method":
+            sales_df["payment_method"] = sales_df[payment_col].fillna("CASH")
+        elif not payment_col:
+            sales_df["payment_method"] = "CASH"
+        
+        # Find customer column
+        customer_col = find_column(sales_df, ["customer", "customer_name", "customer_name"])
+        
+        if customer_col and customer_col != "customer":
+            sales_df["customer"] = sales_df[customer_col].fillna("Walk-in")
+        elif not customer_col:
+            sales_df["customer"] = "Walk-in"
+        
+        # Find receipt column
+        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id"])
+        
+        if receipt_col and receipt_col != "receipt_no":
+            sales_df["receipt_no"] = sales_df[receipt_col].fillna("")
+        elif not receipt_col:
+            sales_df["receipt_no"] = sales_df.index.astype(str)
+        
+        return sales_df
     except Exception as e:
-        st.error(f"Error loading sales data: {str(e)}")
+        print(f"Error loading sales data: {e}")
         return pd.DataFrame()
-    finally:
-        conn.close()
 
 
 def profit_center_analysis():
-    """Main profit center analysis dashboard - FIXED to use new sales table"""
+    """Main profit center analysis dashboard - FIXED"""
     
     st.title("Profit Center Analysis")
     st.caption("Analyze profitability by product, category, payment method, and time")
+    
+    # Load data
+    sales_df = get_sales_data()
+    
+    if sales_df.empty:
+        st.warning("No sales data available for profit analysis")
+        return
+    
+    products_df = load_products()
+    
+    # Convert products DataFrame Decimal to float
+    if not products_df.empty:
+        products_df = convert_decimal_to_float(products_df)
     
     # ==============================
     # SIDEBAR FILTERS
     # ==============================
     st.sidebar.header("Filters")
     
-    # Get date range from data
-    sales_df = load_sales_from_new_table()
-    
-    if sales_df.empty:
-        st.warning("No sales data available for profit analysis")
-        st.info("Make sure you have processed sales using the POS system with the new sales table structure.")
-        return
-    
+    # Date filter
     min_date = sales_df["date"].min().date()
     max_date = sales_df["date"].max().date()
     
@@ -192,7 +211,7 @@ def profit_center_analysis():
         max_value=max_date
     )
     
-    # Apply date filter
+    # Apply date filter - FIXED: Handle date_range properly
     filtered_df = sales_df.copy()
     
     if isinstance(date_range, tuple) and len(date_range) == 2:
@@ -202,6 +221,9 @@ def profit_center_analysis():
             filtered_df = filtered_df[mask].copy()
         except Exception:
             pass
+    elif isinstance(date_range, (pd.Timestamp, datetime)):
+        mask = filtered_df["date"].dt.date == date_range.date()
+        filtered_df = filtered_df[mask].copy()
     
     if filtered_df.empty:
         st.warning("No data matches the date filter")
@@ -232,7 +254,6 @@ def profit_center_analysis():
     # ==============================
     st.markdown("## Key Profit Metrics")
     
-    # Calculate metrics from the expanded data
     total_revenue = safe_float(filtered_df["total"].sum())
     total_profit = safe_float(filtered_df["profit"].sum())
     total_items = safe_int(filtered_df["items"].sum())
@@ -241,9 +262,8 @@ def profit_center_analysis():
     # Calculate profit margin
     profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
     
-    # Average transaction value (based on final_total per receipt)
-    receipt_totals = filtered_df.groupby("receipt_no")["final_total"].first() if "receipt_no" in filtered_df.columns else filtered_df.groupby("receipt_no")["total"].sum()
-    avg_transaction = receipt_totals.mean() if not receipt_totals.empty else 0
+    # Average transaction value
+    avg_transaction = total_revenue / total_transactions if total_transactions > 0 else 0
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -262,7 +282,7 @@ def profit_center_analysis():
     st.markdown("---")
     
     # ==============================
-    # PROFIT BY PRODUCT
+    # PROFIT BY CATEGORY / PRODUCT
     # ==============================
     st.markdown("## Profit by Product")
     
@@ -469,6 +489,62 @@ def profit_center_analysis():
     st.markdown("---")
     
     # ==============================
+    # PROFIT MARGIN HEATMAP
+    # ==============================
+    st.markdown("## Profit Margin Heatmap")
+    
+    if len(daily_profit) >= 7:
+        try:
+            # Create pivot table for heatmap
+            daily_profit["day_of_week"] = daily_profit["date"].apply(lambda x: x.weekday())
+            daily_profit["week"] = daily_profit["date"].apply(lambda x: x.isocalendar().week)
+            
+            # Create week labels
+            daily_profit["week_label"] = daily_profit["date"].apply(
+                lambda x: f"Week {x.isocalendar().week}"
+            )
+            
+            # Day names
+            day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            daily_profit["day_name"] = daily_profit["day_of_week"].apply(lambda x: day_names[x])
+            
+            # Create pivot
+            heatmap_data = daily_profit.pivot_table(
+                values="margin",
+                index="week_label",
+                columns="day_name",
+                aggfunc="mean"
+            )
+            
+            # Ensure all days are present
+            for day in day_names:
+                if day not in heatmap_data.columns:
+                    heatmap_data[day] = 0
+            
+            # Reorder columns
+            heatmap_data = heatmap_data[day_names]
+            
+            # Convert to float for heatmap
+            heatmap_data = heatmap_data.astype(float)
+            
+            fig = px.imshow(
+                heatmap_data,
+                title="Profit Margin Heatmap by Week and Day",
+                labels=dict(x="Day of Week", y="Week", color="Margin %"),
+                color_continuous_scale="RdYlGn",
+                aspect="auto",
+                text_auto=True
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.info(f"Could not generate heatmap: {str(e)}")
+    else:
+        st.info("Need at least 7 days of data for heatmap visualization")
+    
+    st.markdown("---")
+    
+    # ==============================
     # LOSS LEADER IDENTIFICATION
     # ==============================
     st.markdown("## Loss Leaders (Negative Margin Products)")
@@ -625,7 +701,7 @@ def profit_center_analysis():
     
     with col2:
         # Detailed export - ensure all columns are properly formatted
-        detail_data = filtered_df[["date", "name", "total", "profit", "payment_method", "receipt_no"]].copy()
+        detail_data = filtered_df[["date", "name", "total", "profit", "payment_method"]].copy()
         detail_data["date"] = detail_data["date"].dt.strftime("%Y-%m-%d")
         detail_data["total"] = detail_data["total"].astype(float)
         detail_data["profit"] = detail_data["profit"].astype(float)
