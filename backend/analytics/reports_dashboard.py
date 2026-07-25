@@ -1,5 +1,7 @@
 # backend/analytics/reports_dashboard.py
 
+# backend/analytics/reports_dashboard.py
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -8,6 +10,7 @@ from datetime import datetime, timedelta
 import io
 import base64
 
+# Import all functions from reports_engine
 from backend.analytics.reports_engine import (
     generate_sales_report,
     generate_expense_report,
@@ -21,16 +24,16 @@ from backend.analytics.reports_engine import (
     generate_customers_report_pdf,
     generate_debtors_report_pdf,
     generate_inventory_report_pdf,
-    generate_combined_report_pdf,
-    get_report_header,
-    get_report_footer
+    generate_combined_report_pdf
 )
+
+# Rest of the reports_dashboard code remains the same...
 
 
 def reports_dashboard():
     """Main reports dashboard"""
     
-    st.title("📊 Reports Dashboard")
+    st.title("Reports Dashboard")
     st.caption("Generate and download comprehensive business reports")
     
     # ==============================
@@ -140,7 +143,7 @@ def reports_dashboard():
                     # CSV export
                     csv_data = report_data['product_sales'].to_csv(index=False).encode('utf-8')
                     st.download_button(
-                        label="📥 Download CSV Data",
+                        label="Download CSV Data",
                         data=csv_data,
                         file_name=f"sales_report_{start_date}_to_{end_date}.csv",
                         mime="text/csv"
