@@ -108,9 +108,10 @@ def save_sale_record(checkout_data):
         cursor = conn.cursor()
         
         # Create sales table if not exists with proper structure
+        # FIXED: Removed AUTOINCREMENT, using INTEGER PRIMARY KEY is enough in SQLite
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 receipt_no TEXT UNIQUE,
                 customer_name TEXT,
                 customer_phone TEXT,
