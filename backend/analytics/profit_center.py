@@ -255,8 +255,8 @@ def profit_center_analysis():
     st.markdown("## Key Profit Metrics")
     unique_receipts = filtered_df.drop_duplicates(subset=['receipt_no'])
     total_transactions = len(unique_receipts)
-    avg_transaction = total_revenue / total_transactions if total_transactions > 0 else 0
     total_revenue = float(unique_receipts['receipt_total'].sum()) if 'receipt_total' in unique_receipts.columns else float(unique_receipts['total'].sum())
+    avg_transaction = total_revenue / total_transactions if total_transactions > 0 else 0
     #total_revenue = safe_float(filtered_df["total"].sum())
     total_profit = safe_float(filtered_df["profit"].sum())
     total_items = safe_int(filtered_df["items"].sum())
