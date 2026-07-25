@@ -674,7 +674,8 @@ def profit_center_analysis():
     # ==============================
     st.markdown("---")
     st.markdown("## Export Data")
-    total_sales = float(filtered_df["total"].sum()) if "total" in filtered_df.columns else 0
+    unique_receipts = filtered_df.drop_duplicates(subset=['receipt_no'])
+    total_sales = float(unique_receipts['receipt_total'].sum()) if 'receipt_total' in unique_receipts.columns else float(unique_receipts['total'].sum())
     col1, col2 = st.columns(2)
     
     with col1:
