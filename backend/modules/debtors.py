@@ -3,8 +3,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import base64
 from io import BytesIO
+import json
 
-from backend.core.db_adapter import load_products
+from backend.core.db_adapter import load_products, get_db_connection
 from backend.analytics.debtors_engine import (
     load_debtors,
     create_debt_with_items,
@@ -631,7 +632,7 @@ def debtors_page():
     # ==============================
     with tab1:
         st.markdown("## Create New Debt")
-        st.caption("Select products and create a debt record")
+        st.caption("Select products or add non-inventory items to create a debt record")
         
         # Customer Information
         col1, col2 = st.columns(2)
@@ -664,7 +665,7 @@ def debtors_page():
         st.markdown("---")
         
         # Product Selection for Debt
-        st.markdown("### Select Products")
+        st.markdown("### Select Products (Inventory Items)")
         
         # Search and select product
         col1, col2, col3 = st.columns([2, 1, 1])
@@ -687,7 +688,7 @@ def debtors_page():
         with col2:
             if selected_product:
                 product = filtered_products[filtered_products["name"] == selected_product].iloc[0]
-                product_stock = int(product["stock"])
+                product_stock = int(product["stock"]) if "stock" in product else 0
                 
                 if product_stock > 0:
                     debt_qty = st.number_input("Quantity", min_value=1, max_value=product_stock, value=1, key="debt_qty")
@@ -703,43 +704,64 @@ def debtors_page():
                 if st.button("Add to Debt", key="add_debt_item"):
                     if not st.session_state.button_clicked:
                         st.session_state.button_clicked = True
-                        if product_stock >= debt_qty:
+                        # Check if product already in cart
+                        existing = False
+                        for item in st.session_state.debt_cart:
+                            if item.get("barcode") == product["barcode"]:
+                                item["quantity"] += debt_qty
+                                item["total"] = float(item["price"]) * item["quantity"]
+                                existing = True
+                                st.success(f"Updated {product['name']} to {item['quantity']} units")
+                                break
+                        
+                        if not existing:
                             st.session_state.debt_cart.append({
                                 "barcode": product["barcode"],
                                 "name": product["name"],
-                                "price": float(product["price"]),
+                                "price": float(product["price"]) if "price" in product else 0,
                                 "quantity": debt_qty,
-                                "total": float(product["price"]) * debt_qty
+                                "total": float(product["price"]) * debt_qty if "price" in product else 0,
+                                "type": "inventory"
                             })
                             st.success(f"Added {debt_qty} x {product['name']}")
-                        else:
-                            st.error(f"Only {product_stock} units available")
                         st.session_state.button_clicked = False
         
-        # Manual item entry
-        st.markdown("### Manual Item (Non-Inventory)")
+        # Manual / Non-Inventory Item Entry
+        st.markdown("---")
+        st.markdown("### Add Non-Inventory Item")
+        st.caption("For services, money borrowed, fees, or items not in inventory")
         
-        col1, col2, col3 = st.columns([2, 1, 1])
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
         with col1:
-            manual_item = st.text_input("Item Description", placeholder="Service fee, delivery charge...", key="manual_item_desc")
+            manual_item = st.text_input("Item Description *", placeholder="Service fee, cash borrowed, delivery charge...", key="manual_item_desc")
         
         with col2:
-            manual_amount = st.number_input("Amount ($)", min_value=0.0, step=5.0, key="manual_item_amount")
+            manual_amount = st.number_input("Amount ($) *", min_value=0.0, step=5.0, key="manual_item_amount")
         
         with col3:
-            if st.button("Add Manual", key="add_manual_debt_item"):
+            manual_qty = st.number_input("Quantity", min_value=1, value=1, step=1, key="manual_item_qty")
+        
+        with col4:
+            if st.button("Add Non-Inventory", key="add_manual_debt_item", type="primary"):
                 if not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     if manual_item and manual_amount > 0:
+                        total_manual = manual_amount * manual_qty
                         st.session_state.debt_cart.append({
                             "barcode": f"MANUAL-{len(st.session_state.debt_cart)}",
-                            "name": f"[MANUAL] {manual_item}",
+                            "name": f"[NON-INVENTORY] {manual_item}",
                             "price": float(manual_amount),
-                            "quantity": 1,
-                            "total": float(manual_amount)
+                            "quantity": manual_qty,
+                            "total": total_manual,
+                            "type": "non_inventory"
                         })
-                        st.success(f"Added manual item: {manual_item}")
+                        st.success(f"Added non-inventory item: {manual_item} x{manual_qty} = ${total_manual:.2f}")
+                        # Clear the input fields after adding
+                        st.session_state.manual_item_desc = ""
+                        st.session_state.manual_item_amount = 0
+                    else:
+                        st.error("Please enter both description and amount")
                     st.session_state.button_clicked = False
         
         # Display Debt Cart
@@ -748,23 +770,48 @@ def debtors_page():
             st.markdown("### Debt Items Cart")
             
             cart_df = pd.DataFrame(st.session_state.debt_cart)
-            st.dataframe(cart_df[["name", "quantity", "price", "total"]], use_container_width=True, hide_index=True)
+            cart_df["type_label"] = cart_df["type"].map({"inventory": "📦 Inventory", "non_inventory": "📝 Non-Inventory"})
+            
+            # Display with edit/remove options
+            for idx, item in enumerate(st.session_state.debt_cart):
+                col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+                with col1:
+                    st.write(f"{item['name']}")
+                    if item.get("type") == "non_inventory":
+                        st.caption("📝 Non-Inventory")
+                with col2:
+                    st.write(f"x{item['quantity']}")
+                with col3:
+                    st.write(f"${item['price']:.2f}")
+                with col4:
+                    st.write(f"${item['total']:.2f}")
+                with col5:
+                    if st.button("✖️", key=f"remove_debt_item_{idx}"):
+                        st.session_state.debt_cart.pop(idx)
+                        st.rerun()
+            
+            st.dataframe(cart_df[["name", "quantity", "price", "total", "type_label"]], 
+                        use_container_width=True, hide_index=True)
             
             debt_total = cart_df["total"].sum()
             st.info(f"**TOTAL DEBT AMOUNT: ${debt_total:.2f}**")
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("Clear Cart", key="clear_debt_cart"):
+                if st.button("🗑️ Clear Cart", key="clear_debt_cart"):
                     if not st.session_state.button_clicked:
                         st.session_state.button_clicked = True
                         st.session_state.debt_cart = []
                         st.session_state.button_clicked = False
+                        st.rerun()
             
             with col2:
-                notes = st.text_area("Notes (optional)", key="debt_notes")
+                notes = st.text_area("Notes (optional)", key="debt_notes", placeholder="Additional notes about this debt...")
             
-            if st.button("Create Debt Record", type="primary", key="create_debt_record"):
+            # Store the total for later use
+            st.session_state.debt_total_amount = debt_total
+            
+            if st.button("✅ Create Debt Record", type="primary", key="create_debt_record"):
                 if not st.session_state.button_clicked:
                     st.session_state.button_clicked = True
                     
@@ -773,10 +820,22 @@ def debtors_page():
                     elif not st.session_state.debt_cart:
                         st.error("Please add at least one item")
                     else:
+                        # Prepare items list with proper format
+                        items_list = []
+                        for item in st.session_state.debt_cart:
+                            items_list.append({
+                                "product_name": item["name"],
+                                "barcode": item.get("barcode", ""),
+                                "quantity": item["quantity"],
+                                "unit_price": item["price"],
+                                "total_price": item["total"],
+                                "type": item.get("type", "inventory")
+                            })
+                        
                         success, result = create_debt_with_items(
                             customer_name=customer_name,
                             phone=customer_phone,
-                            items_list=st.session_state.debt_cart,
+                            items_list=items_list,
                             total_amount=debt_total,
                             expected_date=str(due_date),
                             notes=notes,
@@ -808,147 +867,162 @@ def debtors_page():
     # ==============================
     with tab2:
         st.markdown("## Record Debt Payment")
+        st.caption("Record part or full payment for a customer's debt")
         
         if df.empty:
             st.info("No debt records found")
         else:
-            selected_customer = st.selectbox("Select Customer", df["customer_name"].tolist(), key="pay_customer_select")
+            # Filter to show only customers with outstanding balance
+            active_debtors = df[df["balance"] > 0]
             
-            if selected_customer:
-                customer_debts = df[df["customer_name"] == selected_customer]
+            if active_debtors.empty:
+                st.success("All debts are fully paid! 🎉")
+            else:
+                selected_customer = st.selectbox("Select Customer", active_debtors["customer_name"].tolist(), key="pay_customer_select")
                 
-                # Display summary
-                total_borrowed = customer_debts["total_amount"].sum()
-                total_paid = customer_debts["amount_paid"].sum()
-                total_balance = customer_debts["balance"].sum()
-                credit_limit_val = customer_debts["credit_limit"].iloc[0] if not customer_debts.empty and "credit_limit" in customer_debts.columns else 0
-                
-                st.markdown("### Customer Summary")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total Borrowed", f"${total_borrowed:,.2f}")
-                with col2:
-                    st.metric("Total Paid", f"${total_paid:,.2f}")
-                with col3:
-                    st.metric("Outstanding", f"${total_balance:,.2f}")
-                with col4:
-                    credit_available = max(0, credit_limit_val - total_balance)
-                    st.metric("Credit Available", f"${credit_available:,.2f}")
-                
-                # Individual debts
-                st.markdown("### Individual Debts")
-                
-                for idx, (_, debt) in enumerate(customer_debts.iterrows()):
-                    debt_id_safe = str(debt['debt_id']).replace("-", "_")
-                    with st.expander(f"Debt ID: {debt['debt_id']} | Balance: ${debt['balance']:.2f} | Due: {debt['expected_repayment_date']}"):
-                        items = get_debt_items(debt['debt_id'])
-                        if not items.empty:
-                            st.dataframe(items[["product_name", "quantity", "unit_price", "total_price"]], use_container_width=True, hide_index=True)
-                
-                # Payment input
-                st.markdown("---")
-                st.markdown("### Payment Details")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    pay_amount = st.number_input("Payment Amount ($)", min_value=0.01, step=10.0, key="debt_pay_amount")
-                    cash_tendered = st.number_input("Cash Tendered ($)", min_value=0.0, step=10.0, key="debt_cash_tendered")
-                
-                with col2:
-                    payment_note = st.text_input("Payment Reference", placeholder="Receipt number, notes...", key="debt_payment_note")
-                    first_debt_id = customer_debts.iloc[0]["debt_id"] if not customer_debts.empty else "N/A"
-                
-                # Calculate change
-                change_debt = 0
-                if cash_tendered > 0 and pay_amount > 0:
-                    if cash_tendered >= pay_amount:
-                        change_debt = cash_tendered - pay_amount
-                        st.success(f"Change to return: ${change_debt:.2f}")
-                    else:
-                        st.warning(f"Cash tendered is less than payment amount")
-                
-                if pay_amount > total_balance:
-                    st.error(f"Payment amount exceeds outstanding balance (${total_balance:.2f})")
-                
-                if st.button("Record Payment", type="primary", key="record_debt_payment"):
-                    if not st.session_state.button_clicked:
-                        st.session_state.button_clicked = True
-                        
-                        if pay_amount <= 0:
-                            st.error("Enter valid payment amount")
-                        elif pay_amount > total_balance:
-                            st.error("Payment exceeds balance")
+                if selected_customer:
+                    customer_debts = df[df["customer_name"] == selected_customer]
+                    
+                    # Display summary
+                    total_borrowed = customer_debts["total_amount"].sum()
+                    total_paid = customer_debts["amount_paid"].sum()
+                    total_balance = customer_debts["balance"].sum()
+                    credit_limit_val = customer_debts["credit_limit"].iloc[0] if not customer_debts.empty and "credit_limit" in customer_debts.columns else 0
+                    
+                    st.markdown("### Customer Summary")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Borrowed", f"${total_borrowed:,.2f}")
+                    with col2:
+                        st.metric("Total Paid", f"${total_paid:,.2f}")
+                    with col3:
+                        st.metric("Outstanding", f"${total_balance:,.2f}")
+                    with col4:
+                        credit_available = max(0, credit_limit_val - total_balance)
+                        st.metric("Credit Available", f"${credit_available:,.2f}")
+                    
+                    # Individual debts with items
+                    st.markdown("### Individual Debts")
+                    
+                    for idx, (_, debt) in enumerate(customer_debts.iterrows()):
+                        if debt['balance'] > 0:
+                            debt_id_safe = str(debt['debt_id']).replace("-", "_")
+                            with st.expander(f"Debt ID: {debt['debt_id']} | Balance: ${debt['balance']:.2f} | Due: {debt['expected_repayment_date']}"):
+                                items = get_debt_items(debt['debt_id'])
+                                if not items.empty:
+                                    st.dataframe(items[["product_name", "quantity", "unit_price", "total_price"]], 
+                                               use_container_width=True, hide_index=True)
+                                st.write(f"**Total Amount:** ${debt['total_amount']:.2f}")
+                                st.write(f"**Amount Paid:** ${debt['amount_paid']:.2f}")
+                                st.write(f"**Remaining Balance:** ${debt['balance']:.2f}")
+                    
+                    # Payment input
+                    st.markdown("---")
+                    st.markdown("### Payment Details")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        pay_amount = st.number_input("Payment Amount ($)", min_value=0.01, step=10.0, key="debt_pay_amount")
+                        cash_tendered = st.number_input("Cash Tendered ($)", min_value=0.0, step=10.0, key="debt_cash_tendered")
+                    
+                    with col2:
+                        payment_note = st.text_input("Payment Reference", placeholder="Receipt number, notes...", key="debt_payment_note")
+                        payment_method = st.selectbox("Payment Method", ["CASH", "ECOCASH", "CARD", "BANK TRANSFER"], key="debt_payment_method")
+                    
+                    # Calculate change
+                    change_debt = 0
+                    if cash_tendered > 0 and pay_amount > 0:
+                        if cash_tendered >= pay_amount:
+                            change_debt = cash_tendered - pay_amount
+                            st.success(f"Change to return: ${change_debt:.2f}")
                         else:
-                            receipt_no = f"DEBTPAY-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                            st.warning(f"Cash tendered is less than payment amount")
+                    
+                    if pay_amount > total_balance:
+                        st.error(f"Payment amount exceeds outstanding balance (${total_balance:.2f})")
+                    elif pay_amount > 0:
+                        st.info(f"Payment will reduce balance from ${total_balance:.2f} to ${total_balance - pay_amount:.2f}")
+                    
+                    if st.button("Record Payment", type="primary", key="record_debt_payment"):
+                        if not st.session_state.button_clicked:
+                            st.session_state.button_clicked = True
                             
-                            success = record_debt_payment(
-                                selected_customer,
-                                pay_amount,
-                                st.session_state.get("shift_id", ""),
-                                receipt_no
-                            )
+                            if pay_amount <= 0:
+                                st.error("Enter valid payment amount")
+                            elif pay_amount > total_balance:
+                                st.error("Payment exceeds balance")
+                            else:
+                                receipt_no = f"DEBTPAY-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                                
+                                # Record payment for all debts with outstanding balance
+                                success = record_debt_payment(
+                                    selected_customer,
+                                    pay_amount,
+                                    st.session_state.get("shift_id", ""),
+                                    receipt_no
+                                )
+                                
+                                if success:
+                                    new_balance = total_balance - pay_amount
+                                    is_paid = new_balance <= 0
+                                    
+                                    st.balloons()
+                                    st.success(f"Payment of ${pay_amount:.2f} recorded successfully!")
+                                    st.session_state.debt_updated = True
+                                    
+                                    # Prepare receipt data
+                                    receipt_data = {
+                                        "receipt_no": receipt_no,
+                                        "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                        "customer_name": selected_customer,
+                                        "phone": customer_debts.iloc[0].get("phone", "N/A"),
+                                        "debt_id": customer_debts.iloc[0]["debt_id"] if not customer_debts.empty else "N/A",
+                                        "amount_paid": pay_amount,
+                                        "previous_balance": total_balance,
+                                        "new_balance": new_balance,
+                                        "payment_method": payment_method,
+                                        "cash_tendered": cash_tendered if cash_tendered > 0 else 0,
+                                        "change": change_debt if cash_tendered > 0 else 0,
+                                        "is_paid": is_paid,
+                                        "items_rows": ""
+                                    }
+                                    
+                                    # Add cash tendered row if applicable
+                                    if cash_tendered > 0:
+                                        receipt_data["cash_tendered_row"] = f"""
+                                        <tr>
+                                            <td class="total-label">Cash Tendered:</td>
+                                            <td style="text-align: right;">${cash_tendered:.2f}</td>
+                                        </tr>
+                                        """
+                                        receipt_data["change_row"] = f"""
+                                        <tr>
+                                            <td class="total-label">Change:</td>
+                                            <td style="text-align: right; color: #2e7d32;">${change_debt:.2f}</td>
+                                        </tr>
+                                        """
+                                    else:
+                                        receipt_data["cash_tendered_row"] = ""
+                                        receipt_data["change_row"] = ""
+                                    
+                                    # Set status
+                                    if is_paid:
+                                        receipt_data["status_text"] = "✅ FULLY PAID - THANK YOU!"
+                                        receipt_data["status_class"] = "status-paid"
+                                    else:
+                                        receipt_data["status_text"] = f"📝 PARTIAL PAYMENT - Remaining: ${new_balance:.2f}"
+                                        receipt_data["status_class"] = "status-partial"
+                                    
+                                    # Store receipt data in session
+                                    st.session_state.receipt_data = receipt_data
+                                    st.session_state.payment_receipt = generate_receipt_pdf_html(receipt_data)
+                                    st.session_state.payment_recorded = True
+                                    
+                                    st.rerun()
                             
-                            if success:
-                                new_balance = total_balance - pay_amount
-                                is_paid = new_balance <= 0
-                                
-                                st.balloons()
-                                st.success(f"Payment of ${pay_amount:.2f} recorded")
-                                st.session_state.debt_updated = True
-                                
-                                # Prepare receipt data
-                                receipt_data = {
-                                    "receipt_no": receipt_no,
-                                    "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                    "customer_name": selected_customer,
-                                    "phone": customer_debts.iloc[0].get("phone", "N/A"),
-                                    "debt_id": first_debt_id,
-                                    "amount_paid": pay_amount,
-                                    "previous_balance": total_balance,
-                                    "new_balance": new_balance,
-                                    "payment_method": "CASH" if cash_tendered > 0 else "OTHER",
-                                    "cash_tendered": cash_tendered if cash_tendered > 0 else 0,
-                                    "change": change_debt if cash_tendered > 0 else 0,
-                                    "is_paid": is_paid,
-                                    "items_rows": ""
-                                }
-                                
-                                # Add cash tendered row if applicable
-                                if cash_tendered > 0:
-                                    receipt_data["cash_tendered_row"] = f"""
-                                    <tr>
-                                        <td class="total-label">Cash Tendered:</td>
-                                        <td style="text-align: right;">${cash_tendered:.2f}</td>
-                                    </tr>
-                                    """
-                                    receipt_data["change_row"] = f"""
-                                    <tr>
-                                        <td class="total-label">Change:</td>
-                                        <td style="text-align: right; color: #2e7d32;">${change_debt:.2f}</td>
-                                    </tr>
-                                    """
-                                else:
-                                    receipt_data["cash_tendered_row"] = ""
-                                    receipt_data["change_row"] = ""
-                                
-                                # Set status
-                                if is_paid:
-                                    receipt_data["status_text"] = "FULLY PAID - THANK YOU!"
-                                    receipt_data["status_class"] = "status-paid"
-                                else:
-                                    receipt_data["status_text"] = f"PARTIAL PAYMENT - Remaining: ${new_balance:.2f}"
-                                    receipt_data["status_class"] = "status-partial"
-                                
-                                # Store receipt data in session
-                                st.session_state.receipt_data = receipt_data
-                                st.session_state.payment_receipt = generate_receipt_pdf_html(receipt_data)
-                                st.session_state.payment_recorded = True
-                                
-                                st.rerun()
-                        
-                        st.session_state.button_clicked = False
+                            st.session_state.button_clicked = False
     
     # ==============================
     # TAB 3: OVERDUE & REMINDERS
@@ -1077,11 +1151,12 @@ def debtors_page():
             if risk_filter != "All":
                 filtered_df = filtered_df[filtered_df["risk_level"] == risk_filter]
             
-            display_cols = ["debt_id", "customer_name", "phone", "total_amount", "balance", "expected_repayment_date", "status", "risk_level"]
+            display_cols = ["debt_id", "customer_name", "phone", "total_amount", "amount_paid", "balance", "expected_repayment_date", "status", "risk_level"]
             available_cols = [col for col in display_cols if col in filtered_df.columns]
             
             st.dataframe(filtered_df[available_cols], use_container_width=True, hide_index=True)
             
+            # Download option
             csv = filtered_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="Download Debtors Report (CSV)",

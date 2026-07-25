@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from pathlib import Path
 from datetime import datetime, timedelta
+import json
 
 # ==============================
 # FILE SETUP
@@ -41,7 +42,8 @@ def init_debtors():
             "payment_plan",
             "installment_amount",
             "installment_frequency",
-            "next_payment_date"
+            "next_payment_date",
+            "payment_history"  # Added for tracking part payments
         ])
         df.to_csv(DEBTORS_FILE, index=False)
 
@@ -53,7 +55,8 @@ def init_debtors():
             "amount_paid",
             "balance_after",
             "note",
-            "receipt_no"
+            "receipt_no",
+            "payment_method"
         ])
         df.to_csv(DEBTOR_PAYMENTS_FILE, index=False)
 
@@ -65,7 +68,8 @@ def init_debtors():
             "product_name",
             "quantity",
             "unit_price",
-            "total_price"
+            "total_price",
+            "type"  # "inventory" or "non_inventory"
         ])
         df.to_csv(DEBTOR_ITEMS_FILE, index=False)
 
@@ -117,7 +121,8 @@ def load_debtors():
             "total_amount", "amount_paid", "balance", "expected_repayment_date",
             "repayment_date", "status", "risk_level", "provision_bad_debt",
             "bad_debt", "notes", "credit_limit", "payment_plan",
-            "installment_amount", "installment_frequency", "next_payment_date"
+            "installment_amount", "installment_frequency", "next_payment_date",
+            "payment_history"
         ])
     
     try:
@@ -132,9 +137,14 @@ def load_debtors():
                 df[col] = 0
         
         # Add missing columns if they don't exist
-        for col in ["credit_limit", "payment_plan", "installment_amount", "installment_frequency", "next_payment_date"]:
+        for col in ["credit_limit", "payment_plan", "installment_amount", "installment_frequency", "next_payment_date", "payment_history"]:
             if col not in df.columns:
-                df[col] = "" if col in ["payment_plan", "installment_frequency", "next_payment_date"] else 0
+                if col in ["payment_plan", "installment_frequency", "next_payment_date"]:
+                    df[col] = ""
+                elif col == "payment_history":
+                    df[col] = ""  # Store as JSON string
+                else:
+                    df[col] = 0
         
         return df
     except Exception as e:
@@ -144,7 +154,8 @@ def load_debtors():
             "total_amount", "amount_paid", "balance", "expected_repayment_date",
             "repayment_date", "status", "risk_level", "provision_bad_debt",
             "bad_debt", "notes", "credit_limit", "payment_plan",
-            "installment_amount", "installment_frequency", "next_payment_date"
+            "installment_amount", "installment_frequency", "next_payment_date",
+            "payment_history"
         ])
 
 
@@ -159,10 +170,14 @@ def load_debtor_items():
     init_debtors()
     if DEBTOR_ITEMS_FILE.exists():
         try:
-            return pd.read_csv(DEBTOR_ITEMS_FILE)
+            df = pd.read_csv(DEBTOR_ITEMS_FILE)
+            # Add type column if missing
+            if "type" not in df.columns:
+                df["type"] = "inventory"
+            return df
         except:
-            return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price"])
-    return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price"])
+            return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price", "type"])
+    return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price", "type"])
 
 
 def save_debtor_items(df):
@@ -178,8 +193,8 @@ def load_payments():
         try:
             return pd.read_csv(DEBTOR_PAYMENTS_FILE)
         except:
-            return pd.DataFrame(columns=["date", "debt_id", "customer_name", "amount_paid", "balance_after", "note", "receipt_no"])
-    return pd.DataFrame(columns=["date", "debt_id", "customer_name", "amount_paid", "balance_after", "note", "receipt_no"])
+            return pd.DataFrame(columns=["date", "debt_id", "customer_name", "amount_paid", "balance_after", "note", "receipt_no", "payment_method"])
+    return pd.DataFrame(columns=["date", "debt_id", "customer_name", "amount_paid", "balance_after", "note", "receipt_no", "payment_method"])
 
 
 def load_reminders():
@@ -212,8 +227,8 @@ def record_cash_movement(amount, receipt_no, payment_method="CASH", shift_id="")
             "type": "DEBT_PAYMENT",
             "amount": float(amount),
             "receipt_no": receipt_no,
-            "customer_name": receipt_no.split("-")[1] if "-" in receipt_no else "",
-            "note": "Debt payment",
+            "customer_name": "",
+            "note": f"Debt payment - {payment_method}",
             "shift_id": shift_id
         }
         
@@ -226,10 +241,10 @@ def record_cash_movement(amount, receipt_no, payment_method="CASH", shift_id="")
 
 
 # ==============================
-# CREATE DEBT WITH ITEMS
+# CREATE DEBT WITH ITEMS (FIXED)
 # ==============================
 def create_debt_with_items(customer_name, phone, items_list, total_amount, expected_date, notes="", credit_limit=0, payment_plan="", installment_amount=0, installment_frequency="", next_payment_date=""):
-    """Create debt with multiple items - STOCK IS DEDUCTED"""
+    """Create debt with multiple items - STOCK IS DEDUCTED for inventory items only"""
     
     try:
         from backend.core.db_adapter import load_products, save_products
@@ -256,12 +271,14 @@ def create_debt_with_items(customer_name, phone, items_list, total_amount, expec
     # Generate unique debt ID
     debt_id = f"DEBT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
-    # DEDUCT STOCK FOR EACH ITEM (CREDIT SALE)
+    # DEDUCT STOCK ONLY FOR INVENTORY ITEMS (non-inventory items don't affect stock)
     stock_errors = []
     for item in items_list:
+        item_type = item.get("type", "inventory")
         barcode = safe_str(item.get("barcode", ""))
         
-        if not barcode.startswith("MANUAL"):
+        # Only deduct stock for inventory items
+        if item_type == "inventory" and not barcode.startswith("MANUAL"):
             if not products_df.empty and "barcode" in products_df.columns:
                 product = products_df[products_df["barcode"].astype(str) == barcode]
                 if not product.empty:
@@ -301,7 +318,8 @@ def create_debt_with_items(customer_name, phone, items_list, total_amount, expec
         "next_payment_date": next_payment_date,
         "provision_bad_debt": float(total_amount) * 0.05,
         "bad_debt": 0.0,
-        "notes": notes
+        "notes": notes,
+        "payment_history": ""  # Initialize empty payment history
     }
     
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -309,21 +327,23 @@ def create_debt_with_items(customer_name, phone, items_list, total_amount, expec
     
     # Save items for this debt
     for item in items_list:
+        item_type = item.get("type", "inventory")
         barcode = safe_str(item.get("barcode", "MANUAL"))
         item_row = {
             "debt_id": debt_id,
             "customer_name": customer_name,
             "barcode": barcode,
             "product_name": item["name"],
-            "quantity": item["quantity"],
-            "unit_price": item["price"],
-            "total_price": item["price"] * item["quantity"]
+            "quantity": int(item["quantity"]),
+            "unit_price": float(item["price"]),
+            "total_price": float(item["price"]) * int(item["quantity"]),
+            "type": item_type
         }
         items_df = pd.concat([items_df, pd.DataFrame([item_row])], ignore_index=True)
     
     save_debtor_items(items_df)
     
-    # Also record as credit sale in cash register (try both methods)
+    # Also record as credit sale in cash register
     try:
         from backend.modules.cash_register import record_credit_sale
         record_credit_sale(
@@ -333,11 +353,7 @@ def create_debt_with_items(customer_name, phone, items_list, total_amount, expec
             shift_id=""
         )
     except:
-        try:
-            from backend.core.db_adapter import record_cash_movement
-            record_cash_movement(total_amount, debt_id, "CREDIT", customer_name)
-        except:
-            pass
+        pass
     
     return True, debt_id
 
@@ -351,89 +367,126 @@ def create_debt(customer_name, phone, items, total_amount, expected_date):
         "barcode": "MANUAL",
         "name": str(items),
         "quantity": 1,
-        "price": float(total_amount)
+        "price": float(total_amount),
+        "type": "non_inventory"
     }]
     success, debt_id = create_debt_with_items(customer_name, phone, items_list, total_amount, expected_date, "", 0, "", 0, "", "")
     return debt_id if success else None
 
 
 # ==============================
-# GET DEBT ITEMS
+# GET DEBT ITEMS (FIXED)
 # ==============================
 def get_debt_items(debt_id):
     """Get all items for a specific debt"""
     items_df = load_debtor_items()
     if items_df.empty or "debt_id" not in items_df.columns:
-        return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price"])
-    return items_df[items_df["debt_id"] == debt_id]
+        return pd.DataFrame(columns=["debt_id", "customer_name", "barcode", "product_name", "quantity", "unit_price", "total_price", "type"])
+    result = items_df[items_df["debt_id"] == debt_id]
+    if "type" not in result.columns:
+        result["type"] = "inventory"
+    return result
 
 
 # ==============================
-# RECORD DEBT PAYMENT
+# RECORD DEBT PAYMENT (FIXED - Supports Part Payments)
 # ==============================
-def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None):
+def record_debt_payment(customer_name, amount, shift_id="", receipt_no=None, payment_method="CASH"):
+    """Record a debt payment - supports part payments"""
     df = load_debtors()
     payments = load_payments()
 
-    match = df[df["customer_name"] == customer_name]
-
-    if match.empty:
-        return False
-
-    i = match.index[0]
-    amount = float(amount)
-    old_balance = float(df.at[i, "balance"])
-    debt_id = df.at[i, "debt_id"]
-
-    # Prevent overpayment
-    if amount > old_balance:
-        amount = old_balance
-
-    df.at[i, "amount_paid"] += amount
-    df.at[i, "balance"] -= amount
-
-    # Payment log
-    if receipt_no is None:
-        receipt_no = f"PAY-{debt_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    # Get all debts for this customer with outstanding balance
+    customer_debts = df[df["customer_name"] == customer_name]
     
-    new_payment = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "debt_id": debt_id,
-        "customer_name": customer_name,
-        "amount_paid": amount,
-        "balance_after": df.at[i, "balance"],
-        "note": "Debt repayment",
-        "receipt_no": receipt_no
-    }
-    payments = pd.concat([payments, pd.DataFrame([new_payment])], ignore_index=True)
-
-    # Mark as paid if balance is zero
-    if df.at[i, "balance"] <= 0:
-        df.at[i, "balance"] = 0
-        df.at[i, "status"] = "PAID"
-        df.at[i, "repayment_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Update next payment date if on payment plan
-    if df.at[i, "installment_amount"] > 0 and df.at[i, "balance"] > 0:
-        freq = df.at[i, "installment_frequency"]
-        next_date = datetime.now()
-        if freq == "Weekly":
-            next_date = next_date + timedelta(days=7)
-        elif freq == "Monthly":
-            next_date = next_date + timedelta(days=30)
-        df.at[i, "next_payment_date"] = next_date.strftime("%Y-%m-%d")
-
-    # Record payment in cash register
-    record_cash_movement(
-        amount=amount,
-        receipt_no=receipt_no,
-        payment_method="CASH",
-        shift_id=shift_id
-    )
-
+    if customer_debts.empty:
+        return False
+    
+    amount = float(amount)
+    remaining_to_allocate = amount
+    
+    # Sort debts by oldest first (or by expected repayment date)
+    customer_debts = customer_debts.sort_values("expected_repayment_date")
+    
+    payment_history = []
+    
+    for idx in customer_debts.index:
+        if remaining_to_allocate <= 0:
+            break
+            
+        debt_id = df.at[idx, "debt_id"]
+        current_balance = float(df.at[idx, "balance"])
+        
+        if current_balance <= 0:
+            continue
+        
+        # Determine payment amount for this debt
+        if remaining_to_allocate >= current_balance:
+            payment_amount = current_balance
+        else:
+            payment_amount = remaining_to_allocate
+        
+        # Update debt
+        df.at[idx, "amount_paid"] += payment_amount
+        df.at[idx, "balance"] -= payment_amount
+        
+        remaining_to_allocate -= payment_amount
+        
+        # Record payment
+        if receipt_no is None:
+            receipt_no = f"PAY-{debt_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        new_payment = {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "debt_id": debt_id,
+            "customer_name": customer_name,
+            "amount_paid": payment_amount,
+            "balance_after": df.at[idx, "balance"],
+            "note": f"Part payment - {payment_method}",
+            "receipt_no": receipt_no,
+            "payment_method": payment_method
+        }
+        payments = pd.concat([payments, pd.DataFrame([new_payment])], ignore_index=True)
+        
+        # Add to payment history
+        payment_history.append({
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "debt_id": debt_id,
+            "amount": payment_amount,
+            "balance_after": df.at[idx, "balance"]
+        })
+        
+        # Mark as PAID if balance is zero
+        if df.at[idx, "balance"] <= 0:
+            df.at[idx, "balance"] = 0
+            df.at[idx, "status"] = "PAID"
+            df.at[idx, "repayment_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            df.at[idx, "status"] = "PARTIAL"
+        
+        # Update next payment date if on payment plan
+        if df.at[idx, "installment_amount"] > 0 and df.at[idx, "balance"] > 0:
+            freq = df.at[idx, "installment_frequency"]
+            next_date = datetime.now()
+            if freq == "Weekly":
+                next_date = next_date + timedelta(days=7)
+            elif freq == "Monthly":
+                next_date = next_date + timedelta(days=30)
+            df.at[idx, "next_payment_date"] = next_date.strftime("%Y-%m-%d")
+    
+    # Save updated data
     save_debtors(df)
     payments.to_csv(DEBTOR_PAYMENTS_FILE, index=False)
-
+    
+    # Record cash movement
+    if payment_method == "CASH":
+        record_cash_movement(
+            amount=amount,
+            receipt_no=receipt_no,
+            payment_method="CASH",
+            shift_id=shift_id
+        )
+    
     return True
 
 
@@ -465,7 +518,7 @@ def get_overdue_debtors():
     now = pd.Timestamp.now()
 
     overdue = df[
-        (df["status"] == "NOT PAID") &
+        (df["status"].isin(["NOT PAID", "PARTIAL"])) &
         (df["expected_repayment_date"] < now) &
         (df["balance"] > 0)
     ]
@@ -695,7 +748,7 @@ def get_customer_debt_summary(customer_name):
         "total_borrowed": customer_debts["total_amount"].sum(),
         "total_paid": customer_debts["amount_paid"].sum(),
         "outstanding": customer_debts["balance"].sum(),
-        "active_debts": len(customer_debts[customer_debts["status"] == "NOT PAID"]),
+        "active_debts": len(customer_debts[customer_debts["status"].isin(["NOT PAID", "PARTIAL"])]),
         "credit_limit": credit_limit,
         "credit_available": max(0, credit_limit - customer_debts["balance"].sum()),
         "items": []
@@ -711,8 +764,17 @@ def get_customer_debt_summary(customer_name):
                     "product": item["product_name"],
                     "quantity": item["quantity"],
                     "price": item["unit_price"],
-                    "total": item["total_price"]
+                    "total": item["total_price"],
+                    "type": item.get("type", "inventory")
                 })
+    
+    # Add payment history
+    payments = load_payments()
+    if not payments.empty:
+        customer_payments = payments[payments["customer_name"] == customer_name]
+        summary["payment_history"] = customer_payments.to_dict('records')
+    else:
+        summary["payment_history"] = []
     
     return summary
 
