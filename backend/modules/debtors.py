@@ -735,7 +735,7 @@ def debtors_page():
         st.caption("For services, money borrowed, fees, or items not in inventory")
         
         # Use a form to avoid the session state modification error
-        with st.form(key="add_non_inventory_form"):
+        with st.form(key="add_non_inventory_form",clear_on_submit=True):
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
             
             with col1:
