@@ -87,10 +87,53 @@ def get_period_dates(period_type, year, month=None, quarter=None):
 
 
 # ==============================
-# DIRECT EXPENSES LOADER - Bypass the module
+# DEDUPLICATE SALES HELPER
+# ==============================
+def get_unduplicated_sales(sales_df, date_col=None, total_col=None, receipt_col=None):
+    """
+    Get unduplicated sales by receipt_no.
+    This handles the old table structure where each item is a row.
+    """
+    if sales_df.empty:
+        return pd.DataFrame(), 0, 0, 0, 0
+    
+    # If we have receipt_no, deduplicate
+    if receipt_col and receipt_col in sales_df.columns:
+        # Get unique receipts only
+        unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
+        total_revenue = to_float(unique_receipts[total_col].sum()) if total_col in unique_receipts.columns else 0
+        transaction_count = len(unique_receipts)
+        
+        # For items sold, sum from original (or use item_count if available)
+        if 'items' in sales_df.columns:
+            items_sold = to_float(sales_df['items'].sum())
+        elif 'item_count' in unique_receipts.columns:
+            items_sold = to_float(unique_receipts['item_count'].sum())
+        else:
+            items_sold = len(sales_df)
+        
+        # For profit, sum from original (profit is per item)
+        if 'profit' in sales_df.columns:
+            total_profit = to_float(sales_df['profit'].sum())
+        else:
+            total_profit = 0
+        
+        return unique_receipts, total_revenue, total_profit, items_sold, transaction_count
+    
+    # Fallback: no receipt_no, use original logic
+    total_revenue = to_float(sales_df[total_col].sum()) if total_col in sales_df.columns else 0
+    total_profit = to_float(sales_df['profit'].sum()) if 'profit' in sales_df.columns else 0
+    items_sold = to_float(sales_df['items'].sum()) if 'items' in sales_df.columns else len(sales_df)
+    transaction_count = len(sales_df)
+    
+    return sales_df, total_revenue, total_profit, items_sold, transaction_count
+
+
+# ==============================
+# DIRECT EXPENSES LOADER
 # ==============================
 def load_expenses_direct():
-    """Load expenses directly from CSV file - bypasses the module"""
+    """Load expenses directly from CSV file"""
     try:
         if not EXPENSES_FILE.exists():
             print(f"Expenses file not found: {EXPENSES_FILE}")
@@ -118,9 +161,6 @@ def load_expenses_direct():
         if "amount" in df.columns:
             df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
         
-        print(f"Expenses columns: {df.columns.tolist()}")
-        print(f"Expenses sample: {df.head(3)}")
-        
         return df
     except Exception as e:
         print(f"Error loading expenses: {e}")
@@ -128,74 +168,80 @@ def load_expenses_direct():
 
 
 def get_period_data(period_type, year, month=None, quarter=None):
-    """Get REAL financial data for a period from PostgreSQL"""
+    """Get REAL financial data for a period - WITH UNDUPLICATED REVENUE"""
     
     start_date, end_date = get_period_dates(period_type, year, month, quarter)
     
     # Load data
     sales_df = load_sales()
-    
-    # Use direct loader for expenses
     expenses_df = load_expenses_direct()
-    
     purchases_df = load_purchases()
     customers_df = load_customers()
     debtors_df = load_debtors()
     products_df = load_products()
     
     # ============================================================
-    # DEBUG: Print column names to see what we're working with
+    # FIND COLUMNS IN SALES
     # ============================================================
-    print(f"Sales columns: {sales_df.columns.tolist() if not sales_df.empty else 'EMPTY'}")
-    print(f"Expenses rows: {len(expenses_df) if not expenses_df.empty else 0}")
-    print(f"Expenses columns: {expenses_df.columns.tolist() if not expenses_df.empty else 'EMPTY'}")
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    total_col = None
+    for col in ["final_total", "total", "amount", "sale_amount"]:
+        if col in sales_df.columns:
+            total_col = col
+            break
+    
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id", "invoice_no"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
     
     # ============================================================
-    # SALES DATA
+    # SALES DATA - Filter by date then deduplicate
     # ============================================================
     total_revenue = 0
     total_profit = 0
     transaction_count = 0
     items_sold = 0
     
-    if not sales_df.empty:
-        date_col = None
-        for col in ["sale_date", "date", "transaction_date", "created_at"]:
-            if col in sales_df.columns:
-                date_col = col
-                break
+    if not sales_df.empty and date_col:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
         
-        if date_col:
-            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-            sales_df = sales_df.dropna(subset=[date_col])
+        period_sales = sales_df[(sales_df[date_col] >= start_date) & (sales_df[date_col] <= end_date)]
+        
+        if not period_sales.empty:
+            # DEDUPLICATE: Get unique receipts for revenue calculation
+            unique_receipts, revenue, profit, items, transactions = get_unduplicated_sales(
+                period_sales, date_col, total_col, receipt_col
+            )
             
-            period_sales = sales_df[(sales_df[date_col] >= start_date) & (sales_df[date_col] <= end_date)]
+            total_revenue = revenue
+            total_profit = profit
+            items_sold = items
+            transaction_count = transactions
             
-            if not period_sales.empty:
-                total_col = "final_total" if "final_total" in period_sales.columns else "total" if "total" in period_sales.columns else None
-                profit_col = "profit" if "profit" in period_sales.columns else None
-                items_col = "items" if "items" in period_sales.columns else None
-                receipt_col = "receipt_no" if "receipt_no" in period_sales.columns else None
-                
-                total_revenue = to_float(period_sales[total_col].sum()) if total_col else 0
-                total_profit = to_float(period_sales[profit_col].sum()) if profit_col else 0
-                items_sold = to_float(period_sales[items_col].sum()) if items_col else 0
-                transaction_count = period_sales[receipt_col].nunique() if receipt_col else len(period_sales)
+            print(f"Total Revenue (unduplicated): ${total_revenue:,.2f}")
+            print(f"Transactions: {transaction_count}")
+            print(f"Items Sold: {items_sold}")
     
     # ============================================================
-    # EXPENSES DATA - Using direct loader
+    # EXPENSES DATA
     # ============================================================
     total_expenses = 0
     expense_categories = {}
     
     if not expenses_df.empty:
-        print(f"Processing {len(expenses_df)} expense records")
-        
         # Find the date column
-        date_col = None
+        date_col_exp = None
         for col in ["date", "expense_date", "created_at"]:
             if col in expenses_df.columns:
-                date_col = col
+                date_col_exp = col
                 break
         
         # Find the amount column
@@ -212,54 +258,33 @@ def get_period_data(period_type, year, month=None, quarter=None):
                 category_col = col
                 break
         
-        print(f"Expense date column: {date_col}")
-        print(f"Expense amount column: {amount_col}")
-        print(f"Expense category column: {category_col}")
-        
-        if date_col and amount_col:
-            # Ensure date is datetime
-            expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
-            expenses_df = expenses_df.dropna(subset=[date_col])
+        if date_col_exp and amount_col:
+            expenses_df[date_col_exp] = pd.to_datetime(expenses_df[date_col_exp], errors="coerce")
+            expenses_df = expenses_df.dropna(subset=[date_col_exp])
             
-            # Filter by date range
-            period_expenses = expenses_df[(expenses_df[date_col] >= start_date) & (expenses_df[date_col] <= end_date)]
-            
-            print(f"Period expenses: {len(period_expenses)} rows after date filter")
-            print(f"Date range: {start_date} to {end_date}")
+            period_expenses = expenses_df[(expenses_df[date_col_exp] >= start_date) & (expenses_df[date_col_exp] <= end_date)]
             
             if not period_expenses.empty:
                 total_expenses = to_float(period_expenses[amount_col].sum())
-                print(f"Total expenses: ${total_expenses:,.2f}")
                 
-                # Get expenses by category if category column exists
                 if category_col:
                     category_summary = period_expenses.groupby(category_col)[amount_col].sum().to_dict()
                     expense_categories = {str(k): to_float(v) for k, v in category_summary.items()}
-                    print(f"Expense categories: {expense_categories}")
-            else:
-                print(f"No expenses found in date range")
-                # Show available dates
-                if not expenses_df.empty and date_col:
-                    print(f"Available expense dates: {expenses_df[date_col].min()} to {expenses_df[date_col].max()}")
-        else:
-            print(f"Missing date or amount column in expenses")
-    else:
-        print(f"No expense records found")
     
     # ============================================================
     # PURCHASES DATA
     # ============================================================
     total_purchases = 0
     if not purchases_df.empty:
-        date_col = None
+        date_col_pur = None
         for col in ["date_ordered", "date", "order_date"]:
             if col in purchases_df.columns:
-                date_col = col
+                date_col_pur = col
                 break
         
-        if date_col:
-            purchases_df[date_col] = pd.to_datetime(purchases_df[date_col], errors="coerce")
-            period_purchases = purchases_df[(purchases_df[date_col] >= start_date) & (purchases_df[date_col] <= end_date)]
+        if date_col_pur:
+            purchases_df[date_col_pur] = pd.to_datetime(purchases_df[date_col_pur], errors="coerce")
+            period_purchases = purchases_df[(purchases_df[date_col_pur] >= start_date) & (purchases_df[date_col_pur] <= end_date)]
             total_purchases = to_float(period_purchases["total_cost"].sum()) if "total_cost" in period_purchases.columns and not period_purchases.empty else 0
     
     # ============================================================
@@ -267,15 +292,15 @@ def get_period_data(period_type, year, month=None, quarter=None):
     # ============================================================
     new_customers = 0
     if not customers_df.empty:
-        date_col = None
+        date_col_cust = None
         for col in ["created_at", "join_date", "date_joined", "last_purchase_date"]:
             if col in customers_df.columns:
-                date_col = col
+                date_col_cust = col
                 break
         
-        if date_col:
-            customers_df[date_col] = pd.to_datetime(customers_df[date_col], errors="coerce")
-            new_customers = len(customers_df[customers_df[date_col] >= start_date])
+        if date_col_cust:
+            customers_df[date_col_cust] = pd.to_datetime(customers_df[date_col_cust], errors="coerce")
+            new_customers = len(customers_df[customers_df[date_col_cust] >= start_date])
         else:
             new_customers = len(customers_df)
     
@@ -441,26 +466,46 @@ def generate_tax_report(year, tax_period="annual"):
     sales_df = load_sales()
     expenses_df = load_expenses_direct()
     
-    total_sales = 0
-    if not sales_df.empty:
-        date_col = None
-        for col in ["sale_date", "date", "transaction_date"]:
-            if col in sales_df.columns:
-                date_col = col
-                break
-        
-        if date_col:
-            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-            period_sales = sales_df[(sales_df[date_col] >= start_date) & (sales_df[date_col] <= end_date)]
-            total_col = "final_total" if "final_total" in period_sales.columns else "total" if "total" in period_sales.columns else None
-            total_sales = to_float(period_sales[total_col].sum()) if total_col and not period_sales.empty else 0
+    # Find columns
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
     
+    total_col = None
+    for col in ["final_total", "total", "amount"]:
+        if col in sales_df.columns:
+            total_col = col
+            break
+    
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
+    
+    # Calculate unduplicated revenue
+    total_sales = 0
+    if not sales_df.empty and date_col and total_col:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        period_sales = sales_df[(sales_df[date_col] >= start_date) & (sales_df[date_col] <= end_date)]
+        
+        if not period_sales.empty:
+            if receipt_col and receipt_col in period_sales.columns:
+                # Deduplicate by receipt
+                unique_receipts = period_sales.drop_duplicates(subset=[receipt_col])
+                total_sales = to_float(unique_receipts[total_col].sum())
+            else:
+                total_sales = to_float(period_sales[total_col].sum())
+    
+    # Expenses
     total_expenses = 0
     if not expenses_df.empty:
-        date_col = None
+        date_col_exp = None
         for col in ["date", "expense_date"]:
             if col in expenses_df.columns:
-                date_col = col
+                date_col_exp = col
                 break
         
         amount_col = None
@@ -469,9 +514,9 @@ def generate_tax_report(year, tax_period="annual"):
                 amount_col = col
                 break
         
-        if date_col and amount_col:
-            expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
-            period_expenses = expenses_df[(expenses_df[date_col] >= start_date) & (expenses_df[date_col] <= end_date)]
+        if date_col_exp and amount_col:
+            expenses_df[date_col_exp] = pd.to_datetime(expenses_df[date_col_exp], errors="coerce")
+            period_expenses = expenses_df[(expenses_df[date_col_exp] >= start_date) & (expenses_df[date_col_exp] <= end_date)]
             total_expenses = to_float(period_expenses[amount_col].sum()) if amount_col in period_expenses.columns and not period_expenses.empty else 0
     
     taxable_income = total_sales - total_expenses
@@ -540,45 +585,6 @@ def financial_closing_dashboard():
     with tab1:
         st.markdown("## End-of-Day Closing")
         st.caption("Close the day's transactions and generate report")
-        
-        # Show debug info
-        with st.expander("🔧 Debug - Check Expenses Data"):
-            expenses_df = load_expenses_direct()
-            if not expenses_df.empty:
-                st.success(f"Expenses data loaded: {len(expenses_df)} records")
-                st.write(f"Columns: {expenses_df.columns.tolist()}")
-                st.write("**Sample data:**")
-                st.dataframe(expenses_df.head(5))
-                
-                # Show date range
-                if "date" in expenses_df.columns:
-                    expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
-                    st.write(f"Date range: {expenses_df['date'].min()} to {expenses_df['date'].max()}")
-                    
-                    # Show total expenses
-                    if "amount" in expenses_df.columns:
-                        total_exp = expenses_df["amount"].sum()
-                        st.write(f"Total expenses (all time): ${total_exp:,.2f}")
-            else:
-                st.warning("No expenses data found!")
-                st.info("Please record some expenses first in the Expenses module.")
-                
-                # Check if file exists
-                if EXPENSES_FILE.exists():
-                    st.write(f"📁 File exists at: {EXPENSES_FILE.absolute()}")
-                    st.write(f"📁 File size: {EXPENSES_FILE.stat().st_size} bytes")
-                    
-                    # Try to read raw file
-                    try:
-                        with open(EXPENSES_FILE, 'r') as f:
-                            lines = f.readlines()
-                            st.write(f"📁 Lines in file: {len(lines)}")
-                            if len(lines) > 1:
-                                st.write(f"📁 First data row: {lines[1]}")
-                    except Exception as e:
-                        st.write(f"Error reading file: {e}")
-                else:
-                    st.write(f"File does not exist at: {EXPENSES_FILE.absolute()}")
         
         today_data = get_period_data("daily", datetime.now().year, datetime.now().month)
         today_data["period_type"] = "daily"
