@@ -46,7 +46,13 @@ def init_accounting_files():
 def load_accounting_exports():
     """Load accounting export history"""
     init_accounting_files()
-    return pd.read_csv(ACCOUNTING_FILE)
+    try:
+        return pd.read_csv(ACCOUNTING_FILE)
+    except:
+        return pd.DataFrame(columns=[
+            "export_id", "export_date", "export_type", "date_from", "date_to",
+            "total_sales", "total_expenses", "total_profit", "exported_by", "file_path"
+        ])
 
 
 def save_accounting_export(export_data):
@@ -106,10 +112,13 @@ def load_expenses_from_csv():
 
 
 # ==============================
-# GET REAL SALES DATA
+# GET REAL SALES DATA - FIXED WITH DEDUPLICATION
 # ==============================
 def get_sales_data(date_from, date_to):
-    """Get sales data for the period"""
+    """
+    Get sales data for the period - WITH DEDUPLICATION
+    Uses drop_duplicates on receipt_no to avoid revenue duplication
+    """
     
     sales_df = load_sales()
     
@@ -132,6 +141,12 @@ def get_sales_data(date_from, date_to):
     end_dt = pd.to_datetime(date_to) + timedelta(days=1) - timedelta(seconds=1)
     
     filtered = sales_df[(sales_df[date_col] >= start_dt) & (sales_df[date_col] <= end_dt)]
+    
+    # ==============================
+    # FIX: DEDUPLICATE BY RECEIPT_NO TO AVOID REVENUE DUPLICATION
+    # ==============================
+    if not filtered.empty and "receipt_no" in filtered.columns:
+        filtered = filtered.drop_duplicates(subset=["receipt_no"])
     
     return filtered
 
@@ -324,16 +339,17 @@ def export_to_sage(sales_df, expenses_df, date_from, date_to):
 
 
 # ==============================
-# ZIMRA E-FILING EXPORT
+# ZIMRA E-FILING EXPORT - FIXED
 # ==============================
 def export_to_zimra(sales_df, date_from, date_to):
-    """Export to ZIMRA e-filing format"""
+    """Export to ZIMRA e-filing format - Uses unduplicated revenue"""
     
     total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
     
+    # Revenue is already deduplicated from get_sales_data()
     total_sales = to_float(sales_df[total_col].sum()) if total_col and not sales_df.empty else 0
     vat_amount = total_sales * 0.15
-    vat_exclusive = total_sales
+    vat_exclusive = total_sales / 1.15 if total_sales > 0 else 0
     
     date_from_str = date_from.strftime("%Y-%m-%d") if hasattr(date_from, 'strftime') else str(date_from)
     date_to_str = date_to.strftime("%Y-%m-%d") if hasattr(date_to, 'strftime') else str(date_to)
@@ -397,18 +413,19 @@ def accounting_sync_dashboard():
         date_to = st.date_input("To Date", datetime.now())
     
     # ==============================
-    # LOAD REAL DATA
+    # LOAD REAL DATA (Already Deduplicated)
     # ==============================
     with st.spinner("Loading data..."):
         sales_df = get_sales_data(date_from, date_to)
         expenses_df = get_expenses_data(date_from, date_to)
     
     # ==============================
-    # CALCULATE REAL METRICS
+    # CALCULATE REAL METRICS - NOW CORRECT
     # ==============================
     total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
     profit_col = "profit" if "profit" in sales_df.columns else None
     
+    # These are now unduplicated because sales_df is deduplicated
     total_sales = to_float(sales_df[total_col].sum()) if total_col and not sales_df.empty else 0
     total_expenses = to_float(expenses_df["amount"].sum()) if "amount" in expenses_df.columns and not expenses_df.empty else 0
     total_profit = to_float(sales_df[profit_col].sum()) if profit_col and not sales_df.empty else 0
