@@ -794,7 +794,7 @@ def anomaly_detection_dashboard():
                     st.session_state.anomaly_results = results
                     st.success(f"Analysis complete! Found {results['total_count']} anomalies")
                     st.balloons()
-                    st.rerun()
+                    #st.rerun()
         
         if st.session_state.anomalies_detected:
             results = st.session_state.anomaly_results
