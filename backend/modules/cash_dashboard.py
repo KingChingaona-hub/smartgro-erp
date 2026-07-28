@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
+from decimal import Decimal
 
 from backend.modules.cash_register import (
     load_cash,
@@ -40,9 +41,13 @@ from backend.analytics.debtors_engine import load_debtors as load_debtors_data
 # ==============================
 
 def safe_float(value, default=0.0):
-    """Safely convert value to float"""
+    """Safely convert Decimal or any value to float"""
     if value is None:
         return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, Decimal):
+        return float(value)
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -136,7 +141,6 @@ def get_debt_payments_unduplicated(debtors_df):
     if debtors_df is None or debtors_df.empty:
         return 0.0
     
-    # Sum of amount_paid from debtors records
     if "amount_paid" in debtors_df.columns:
         return safe_float(debtors_df["amount_paid"].sum())
     
@@ -268,7 +272,7 @@ def cash_dashboard():
                 **Shift ID:** `{shift_id}`  
                 **Started by:** {active_shift.get('cashier_name', 'Unknown')}  
                 **Start Time:** {start_time_str}  
-                **Opening Cash:** ${active_shift.get('opening_cash', 0):.2f}  
+                **Opening Cash:** ${safe_float(active_shift.get('opening_cash', 0)):.2f}  
                 **Branch:** {active_shift.get('branch_name', user_branch)}
                 """)
                 
@@ -276,10 +280,10 @@ def cash_dashboard():
                 summary = get_cash_summary(shift_id)
                 
                 # Get unduplicated cash and credit sales
-                cash_sales = get_cash_sales_unduplicated(sales_undup)
-                credit_sales = get_credit_sales_unduplicated(sales_undup)
-                debt_payments = get_debt_payments_unduplicated(debtors_df)
-                total_revenue = get_total_revenue_unduplicated(sales_undup)
+                cash_sales = safe_float(get_cash_sales_unduplicated(sales_undup))
+                credit_sales = safe_float(get_credit_sales_unduplicated(sales_undup))
+                debt_payments = safe_float(get_debt_payments_unduplicated(debtors_df))
+                total_revenue = safe_float(get_total_revenue_unduplicated(sales_undup))
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -307,10 +311,11 @@ def cash_dashboard():
                     if st.button("Close Shift", type="secondary", use_container_width=True):
                         with st.spinner("Closing shift..."):
                             # Get unduplicated data for closing
-                            cash_sales = get_cash_sales_unduplicated(sales_undup)
-                            debt_payments = get_debt_payments_unduplicated(debtors_df)
+                            cash_sales = safe_float(get_cash_sales_unduplicated(sales_undup))
+                            debt_payments = safe_float(get_debt_payments_unduplicated(debtors_df))
+                            credit_sales = safe_float(get_credit_sales_unduplicated(sales_undup))
                             
-                            expected_cash = (active_shift.get('opening_cash', 0) + 
+                            expected_cash = (safe_float(active_shift.get('opening_cash', 0)) + 
                                            cash_sales + 
                                            debt_payments)
                             
@@ -319,7 +324,7 @@ def cash_dashboard():
                             success, result = end_shift(
                                 shift_id=shift_id,
                                 closing_cash=actual_cash,
-                                total_sales=cash_sales + get_credit_sales_unduplicated(sales_undup),
+                                total_sales=cash_sales + credit_sales,
                                 profit=cash_sales * 0.3,
                                 transactions=len(sales_undup) if not sales_undup.empty else 0,
                                 notes=notes
@@ -367,7 +372,7 @@ def cash_dashboard():
                 st.dataframe(display_shifts, use_container_width=True, hide_index=True)
                 
                 total_shifts = len(branch_shifts)
-                total_revenue = branch_shifts["total_revenue"].sum() if "total_revenue" in branch_shifts.columns else 0
+                total_revenue = safe_float(branch_shifts["total_revenue"].sum()) if "total_revenue" in branch_shifts.columns else 0
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -390,10 +395,14 @@ def cash_dashboard():
         st.caption("All revenue metrics based on unduplicated sales data")
         
         today_report = get_daily_report()
+        today = datetime.now().date()
         
         # Get unduplicated data for today
+        today_cash_sales = 0
+        today_credit_sales = 0
+        today_total_revenue = 0
+        
         if not sales_undup.empty and amount_col:
-            today = datetime.now().date()
             date_col = None
             for col in ["sale_date", "date", "transaction_date"]:
                 if col in sales_undup.columns:
@@ -403,10 +412,6 @@ def cash_dashboard():
             if date_col:
                 sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
                 today_sales = sales_undup[sales_undup[date_col].dt.date == today]
-                
-                today_cash_sales = 0
-                today_credit_sales = 0
-                today_total_revenue = 0
                 
                 if not today_sales.empty:
                     amount_col_today = get_amount_column(today_sales)
@@ -421,14 +426,6 @@ def cash_dashboard():
                             
                             credit_sales_df = today_sales[today_sales[payment_col_today].str.upper() == "CREDIT"]
                             today_credit_sales = safe_float(credit_sales_df[amount_col_today].sum()) if not credit_sales_df.empty else 0
-            else:
-                today_cash_sales = 0
-                today_credit_sales = 0
-                today_total_revenue = 0
-        else:
-            today_cash_sales = 0
-            today_credit_sales = 0
-            today_total_revenue = 0
         
         # Today's debt payments from debtors
         today_debt_payments = 0
@@ -440,13 +437,13 @@ def cash_dashboard():
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Cash Sales", f"${today_cash_sales:.2f}")
+            st.metric("Cash Sales", f"${safe_float(today_cash_sales):.2f}")
         with col2:
-            st.metric("Credit Sales", f"${today_credit_sales:.2f}")
+            st.metric("Credit Sales", f"${safe_float(today_credit_sales):.2f}")
         with col3:
-            st.metric("Debt Payments", f"${today_debt_payments:.2f}")
+            st.metric("Debt Payments", f"${safe_float(today_debt_payments):.2f}")
         with col4:
-            st.metric("Total Revenue", f"${today_total_revenue:.2f}")
+            st.metric("Total Revenue", f"${safe_float(today_total_revenue):.2f}")
         
         st.markdown("---")
         
@@ -487,10 +484,10 @@ def cash_dashboard():
             col1, col2 = st.columns(2)
             
             with col1:
-                expected_cash = today_report.get('opening_cash', 0) + today_cash_sales + today_debt_payments
+                expected_cash = safe_float(today_report.get('opening_cash', 0)) + safe_float(today_cash_sales) + safe_float(today_debt_payments)
                 st.metric("Expected Cash", f"${expected_cash:.2f}")
             with col2:
-                actual_cash = today_report.get('closing_cash', 0)
+                actual_cash = safe_float(today_report.get('closing_cash', 0))
                 st.metric("Actual Cash", f"${actual_cash:.2f}")
             
             variance = actual_cash - expected_cash
@@ -538,10 +535,10 @@ def cash_dashboard():
         st.markdown("---")
         st.markdown("### Summary Statistics (Unduplicated)")
         
-        total_cash_sales = get_cash_sales_unduplicated(sales_undup)
-        total_credit_sales = get_credit_sales_unduplicated(sales_undup)
-        total_debt_payments = get_debt_payments_unduplicated(debtors_df)
-        total_revenue = get_total_revenue_unduplicated(sales_undup)
+        total_cash_sales = safe_float(get_cash_sales_unduplicated(sales_undup))
+        total_credit_sales = safe_float(get_credit_sales_unduplicated(sales_undup))
+        total_debt_payments = safe_float(get_debt_payments_unduplicated(debtors_df))
+        total_revenue = safe_float(get_total_revenue_unduplicated(sales_undup))
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -597,7 +594,7 @@ def cash_dashboard():
         if not petty_df.empty:
             st.dataframe(petty_df.sort_values("date", ascending=False), use_container_width=True, hide_index=True)
             
-            total_petty = petty_df["amount"].sum()
+            total_petty = safe_float(petty_df["amount"].sum())
             st.metric("Total Petty Cash Expenses", f"${total_petty:,.2f}")
     
     # ==============================
@@ -643,7 +640,7 @@ def cash_dashboard():
         if not deposits_df.empty:
             st.dataframe(deposits_df.sort_values("date", ascending=False), use_container_width=True, hide_index=True)
             
-            total_deposits = deposits_df["amount"].sum()
+            total_deposits = safe_float(deposits_df["amount"].sum())
             st.metric("Total Bank Deposits", f"${total_deposits:,.2f}")
     
     # ==============================
@@ -697,10 +694,10 @@ Branch: {user_branch}
 {'-'*30}
 CASH SUMMARY (UNDUPLICATED)
 {'-'*30}
-Cash Sales: ${today_cash_sales:.2f}
-Credit Sales: ${today_credit_sales:.2f}
-Debt Payments: ${today_debt_payments:.2f}
-Total Revenue: ${today_total_revenue:.2f}
+Cash Sales: ${safe_float(today_cash_sales):.2f}
+Credit Sales: ${safe_float(today_credit_sales):.2f}
+Debt Payments: ${safe_float(today_debt_payments):.2f}
+Total Revenue: ${safe_float(today_total_revenue):.2f}
 
 {'-'*30}
 TRANSACTIONS
@@ -713,14 +710,19 @@ TRANSACTIONS
             report_text += f"Total Transactions: {today_sales_count}\n"
         
         if report:
+            opening_cash = safe_float(report.get('opening_cash', 0))
+            closing_cash = safe_float(report.get('closing_cash', 0))
+            expected_cash = opening_cash + safe_float(today_cash_sales) + safe_float(today_debt_payments)
+            variance = closing_cash - expected_cash
+            
             report_text += f"""
 {'-'*30}
 CASH REGISTER
 {'-'*30}
-Opening Cash: ${report.get('opening_cash', 0):.2f}
-Expected Cash: ${report.get('opening_cash', 0) + today_cash_sales + today_debt_payments:.2f}
-Actual Cash: ${report.get('closing_cash', 0):.2f}
-Variance: ${report.get('closing_cash', 0) - (report.get('opening_cash', 0) + today_cash_sales + today_debt_payments):.2f}
+Opening Cash: ${opening_cash:.2f}
+Expected Cash: ${expected_cash:.2f}
+Actual Cash: ${closing_cash:.2f}
+Variance: ${variance:.2f}
 """
         
         report_text += f"""
