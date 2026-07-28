@@ -18,10 +18,16 @@ from backend.core.db_adapter import (
     load_products,
     load_purchases,
     load_expenses,
-    load_cash,
     load_customers,
     to_float
 )
+
+# Try to import load_cash, but handle if it doesn't exist
+try:
+    from backend.core.db_adapter import load_cash
+except ImportError:
+    def load_cash():
+        return pd.DataFrame()
 
 
 # ==============================
@@ -68,6 +74,36 @@ def get_amount_column(df):
     return None
 
 
+def get_product_column(df):
+    """Find product name column"""
+    if df is None or df.empty:
+        return None
+    for col in ["name", "product_name", "Product", "item_name"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_quantity_column(df):
+    """Find quantity column"""
+    if df is None or df.empty:
+        return None
+    for col in ["items", "quantity", "qty", "item_count"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_customer_column(df):
+    """Find customer column"""
+    if df is None or df.empty:
+        return None
+    for col in ["customer", "customer_name", "client", "buyer"]:
+        if col in df.columns:
+            return col
+    return None
+
+
 def clean_to_float_list(values):
     """Safely convert any iterable to a list of floats"""
     result = []
@@ -86,18 +122,15 @@ def clean_to_float_list(values):
 
 def safe_quantile(values, q):
     """Safely calculate quantile using numpy, avoiding Decimal issues"""
-    # Clean the values first
     clean_values = clean_to_float_list(values)
     
     if len(clean_values) == 0:
         return 0.0
     
     try:
-        # Use numpy percentile with clean float array
         arr = np.array(clean_values, dtype=np.float64)
         return float(np.percentile(arr, q * 100))
-    except Exception as e:
-        # If numpy fails, try sorting manually
+    except Exception:
         try:
             sorted_vals = sorted(clean_values)
             idx = int(q * (len(sorted_vals) - 1))
@@ -148,8 +181,6 @@ class AnomalyDetector:
         self.financial_anomalies = []
         self.customer_anomalies = []
         self.last_analysis = None
-        self.model = None
-        self.scaler = None
         
     def detect_sales_anomalies(self, sales_df, days=30):
         """Detect anomalies in sales data"""
@@ -292,14 +323,13 @@ class AnomalyDetector:
         
         # 2. Sudden stock drops
         if not purchases_df.empty and not sales_df.empty:
-            # Process sales data safely
-            sales_data = []
             date_col = get_date_column(sales_df)
             product_col = get_product_column(sales_df)
             qty_col = get_quantity_column(sales_df)
             
             if date_col and product_col and qty_col:
                 cutoff = datetime.now() - timedelta(days=7)
+                sales_data = []
                 for _, row in sales_df.iterrows():
                     try:
                         date_val = pd.to_datetime(row[date_col], errors='coerce')
@@ -312,13 +342,11 @@ class AnomalyDetector:
                         continue
                 
                 if sales_data:
-                    # Aggregate sales by product
                     product_sales = {}
                     for sale in sales_data:
                         if sale['product']:
                             product_sales[sale['product']] = product_sales.get(sale['product'], 0.0) + sale['qty']
                     
-                    # Sort by quantity and get top 10
                     sorted_products = sorted(product_sales.items(), key=lambda x: x[1], reverse=True)[:10]
                     
                     for product_name, qty_sold in sorted_products:
@@ -480,8 +508,8 @@ class AnomalyDetector:
                                 "confidence": 75
                             })
         
-        # 2. Cash variance
-        if not cash_df.empty and "amount" in cash_df.columns:
+        # 2. Cash variance (only if cash_df has data)
+        if cash_df is not None and not cash_df.empty and "amount" in cash_df.columns:
             for _, row in cash_df.head(5).iterrows():
                 amount_val = safe_float(row.get('amount', 0))
                 if amount_val < 0:
@@ -494,8 +522,8 @@ class AnomalyDetector:
                         "confidence": 100
                     })
         
-        # 3. Missing entries
-        if not cash_df.empty and "date" in cash_df.columns:
+        # 3. Missing entries (only if cash_df has date column)
+        if cash_df is not None and not cash_df.empty and "date" in cash_df.columns:
             cash_dates = set()
             for _, row in cash_df.iterrows():
                 try:
@@ -698,40 +726,6 @@ class AnomalyDetector:
 
 
 # ==============================
-# HELPER FUNCTIONS (continued)
-# ==============================
-
-def get_product_column(df):
-    """Find product name column"""
-    if df is None or df.empty:
-        return None
-    for col in ["name", "product_name", "Product", "item_name"]:
-        if col in df.columns:
-            return col
-    return None
-
-
-def get_quantity_column(df):
-    """Find quantity column"""
-    if df is None or df.empty:
-        return None
-    for col in ["items", "quantity", "qty", "item_count"]:
-        if col in df.columns:
-            return col
-    return None
-
-
-def get_customer_column(df):
-    """Find customer column"""
-    if df is None or df.empty:
-        return None
-    for col in ["customer", "customer_name", "client", "buyer"]:
-        if col in df.columns:
-            return col
-    return None
-
-
-# ==============================
 # ANOMALY DETECTION DASHBOARD
 # ==============================
 
@@ -794,7 +788,7 @@ def anomaly_detection_dashboard():
                     st.session_state.anomaly_results = results
                     st.success(f"Analysis complete! Found {results['total_count']} anomalies")
                     st.balloons()
-                    #st.rerun()
+                    # st.rerun()  # Commented out as requested
         
         if st.session_state.anomalies_detected:
             results = st.session_state.anomaly_results
@@ -925,16 +919,20 @@ def anomaly_detection_dashboard():
                 st.success("No anomalies found matching the filters!")
     
     # ==============================
-    # TAB 3: TRENDS & PATTERNS
+    # TAB 3: TRENDS & PATTERNS - FIXED
     # ==============================
     with tab3:
         st.markdown("## Trends & Patterns")
         
-        if not sales_df.empty:
+        if sales_df is None or sales_df.empty:
+            st.warning("No sales data available for trend analysis.")
+        else:
             date_col = get_date_column(sales_df)
             amount_col = get_amount_column(sales_df)
             
-            if date_col and amount_col:
+            if date_col is None or amount_col is None:
+                st.warning("Required columns (date or amount) not found in sales data.")
+            else:
                 # Convert to list of dicts for safe processing
                 sales_data = []
                 for _, row in sales_df.iterrows():
@@ -945,139 +943,149 @@ def anomaly_detection_dashboard():
                                 'date': date_val,
                                 'amount': safe_float(row[amount_col])
                             })
-                    except:
+                    except Exception as e:
                         continue
                 
-                if sales_data:
-                    # Aggregate daily sales
-                    daily_dict = {}
-                    for sale in sales_data:
-                        date_key = sale['date'].date()
-                        daily_dict[date_key] = daily_dict.get(date_key, 0.0) + sale['amount']
+                if not sales_data:
+                    st.warning("No valid sales data found.")
+                    return
+                
+                # Aggregate daily sales
+                daily_dict = {}
+                for sale in sales_data:
+                    date_key = sale['date'].date()
+                    daily_dict[date_key] = daily_dict.get(date_key, 0.0) + sale['amount']
+                
+                dates = sorted(daily_dict.keys())
+                sales_values = [daily_dict[d] for d in dates]
+                
+                if len(sales_values) < 3:
+                    st.info("Not enough sales data for trend analysis. Need at least 3 days of data.")
+                    return
+                
+                # Calculate rolling averages
+                ma_7 = []
+                ma_30 = []
+                
+                for i in range(len(sales_values)):
+                    # 7-day MA
+                    start_7 = max(0, i - 6)
+                    window_7 = sales_values[start_7:i+1]
+                    ma_7.append(safe_mean(window_7))
                     
-                    dates = sorted(daily_dict.keys())
-                    sales_values = [daily_dict[d] for d in dates]
-                    
-                    if len(sales_values) >= 7:
-                        # Calculate rolling averages manually
-                        ma_7 = []
-                        ma_30 = []
-                        
-                        for i in range(len(sales_values)):
-                            # 7-day MA
-                            start_7 = max(0, i - 6)
-                            window_7 = sales_values[start_7:i+1]
-                            ma_7.append(safe_mean(window_7))
-                            
-                            # 30-day MA
-                            start_30 = max(0, i - 29)
-                            window_30 = sales_values[start_30:i+1]
-                            ma_30.append(safe_mean(window_30))
-                        
-                        # Create dataframe for plotting
-                        daily_sales = pd.DataFrame({
-                            'date': dates,
-                            'sales': sales_values,
-                            'ma_7': ma_7,
-                            'ma_30': ma_30
-                        })
-                        
-                        # Detect anomalies
-                        mean = safe_mean(sales_values)
-                        std = safe_std(sales_values)
-                        daily_sales['is_anomaly'] = False
-                        
-                        if std > 0:
-                            z_scores = []
-                            for val in sales_values:
-                                z_scores.append((val - mean) / std)
-                            daily_sales['z_score'] = z_scores
-                            daily_sales['is_anomaly'] = [abs(z) > 2.5 for z in z_scores]
-                        
-                        fig = go.Figure()
-                        
-                        fig.add_trace(go.Scatter(
-                            x=daily_sales['date'],
-                            y=daily_sales['sales'],
-                            mode="lines+markers",
-                            name="Daily Sales",
-                            line=dict(color="#6366F1", width=1),
-                            opacity=0.6
-                        ))
-                        
-                        fig.add_trace(go.Scatter(
-                            x=daily_sales['date'],
-                            y=daily_sales['ma_7'],
-                            mode="lines",
-                            name="7-Day Average",
-                            line=dict(color="#f59e0b", width=2)
-                        ))
-                        
-                        fig.add_trace(go.Scatter(
-                            x=daily_sales['date'],
-                            y=daily_sales['ma_30'],
-                            mode="lines",
-                            name="30-Day Average",
-                            line=dict(color="#10b981", width=2)
-                        ))
-                        
-                        anomaly_points = daily_sales[daily_sales['is_anomaly']]
-                        if not anomaly_points.empty:
-                            fig.add_trace(go.Scatter(
-                                x=anomaly_points['date'],
-                                y=anomaly_points['sales'],
-                                mode="markers",
-                                name="Anomaly Detected",
-                                marker=dict(color="red", size=12, symbol="x")
-                            ))
-                        
-                        fig.update_layout(
-                            title="Sales Trend with Anomaly Detection",
-                            xaxis_title="Date",
-                            yaxis_title="Sales ($)",
-                            height=400,
-                            hovermode="x unified"
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Avg Daily Sales", f"${safe_mean(sales_values):,.2f}")
-                        with col2:
-                            st.metric("Trend", "Increasing" if sales_values[-1] > sales_values[0] else "Decreasing")
-                        with col3:
-                            st.metric("Anomalies Found", len(anomaly_points))
-                        
-                        st.markdown("### Day of Week Pattern")
-                        
-                        # Calculate day of week averages
-                        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-                        weekly_dict = {day: [] for day in day_names}
-                        
-                        for date, value in zip(dates, sales_values):
-                            day_name = day_names[date.weekday()]
-                            weekly_dict[day_name].append(value)
-                        
-                        weekly_avg_data = []
-                        for day in day_names:
-                            avg = safe_mean(weekly_dict[day])
-                            weekly_avg_data.append({"day_name": day, "sales": avg})
-                        
-                        weekly_avg = pd.DataFrame(weekly_avg_data)
-                        
-                        fig = px.bar(
-                            weekly_avg,
-                            x="day_name",
-                            y="sales",
-                            title="Average Sales by Day of Week",
-                            color="sales",
-                            color_continuous_scale="Viridis",
-                            text="sales"
-                        )
-                        fig.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
-                        fig.update_layout(height=300)
-                        st.plotly_chart(fig, use_container_width=True)
+                    # 30-day MA
+                    start_30 = max(0, i - 29)
+                    window_30 = sales_values[start_30:i+1]
+                    ma_30.append(safe_mean(window_30))
+                
+                # Create dataframe for plotting
+                daily_sales = pd.DataFrame({
+                    'date': dates,
+                    'sales': sales_values,
+                    'ma_7': ma_7,
+                    'ma_30': ma_30
+                })
+                
+                # Detect anomalies
+                mean = safe_mean(sales_values)
+                std = safe_std(sales_values)
+                daily_sales['is_anomaly'] = False
+                
+                if std > 0:
+                    z_scores = []
+                    for val in sales_values:
+                        z_scores.append((val - mean) / std)
+                    daily_sales['z_score'] = z_scores
+                    daily_sales['is_anomaly'] = [abs(z) > 2.5 for z in z_scores]
+                
+                # Plot
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=daily_sales['date'],
+                    y=daily_sales['sales'],
+                    mode="lines+markers",
+                    name="Daily Sales",
+                    line=dict(color="#6366F1", width=1),
+                    opacity=0.6
+                ))
+                
+                if len(daily_sales) >= 7:
+                    fig.add_trace(go.Scatter(
+                        x=daily_sales['date'],
+                        y=daily_sales['ma_7'],
+                        mode="lines",
+                        name="7-Day Average",
+                        line=dict(color="#f59e0b", width=2)
+                    ))
+                
+                if len(daily_sales) >= 30:
+                    fig.add_trace(go.Scatter(
+                        x=daily_sales['date'],
+                        y=daily_sales['ma_30'],
+                        mode="lines",
+                        name="30-Day Average",
+                        line=dict(color="#10b981", width=2)
+                    ))
+                
+                anomaly_points = daily_sales[daily_sales['is_anomaly']]
+                if not anomaly_points.empty:
+                    fig.add_trace(go.Scatter(
+                        x=anomaly_points['date'],
+                        y=anomaly_points['sales'],
+                        mode="markers",
+                        name="Anomaly Detected",
+                        marker=dict(color="red", size=12, symbol="x")
+                    ))
+                
+                fig.update_layout(
+                    title="Sales Trend with Anomaly Detection",
+                    xaxis_title="Date",
+                    yaxis_title="Sales ($)",
+                    height=400,
+                    hovermode="x unified"
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Avg Daily Sales", f"${safe_mean(sales_values):,.2f}")
+                with col2:
+                    trend = "Increasing" if sales_values[-1] > sales_values[0] else "Decreasing"
+                    st.metric("Trend", trend)
+                with col3:
+                    st.metric("Anomalies Found", len(anomaly_points))
+                
+                # Day of Week Pattern
+                st.markdown("### Day of Week Pattern")
+                
+                day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                weekly_dict = {day: [] for day in day_names}
+                
+                for date, value in zip(dates, sales_values):
+                    day_name = day_names[date.weekday()]
+                    weekly_dict[day_name].append(value)
+                
+                weekly_avg_data = []
+                for day in day_names:
+                    avg = safe_mean(weekly_dict[day])
+                    weekly_avg_data.append({"day_name": day, "sales": avg})
+                
+                weekly_avg = pd.DataFrame(weekly_avg_data)
+                
+                fig2 = px.bar(
+                    weekly_avg,
+                    x="day_name",
+                    y="sales",
+                    title="Average Sales by Day of Week",
+                    color="sales",
+                    color_continuous_scale="Viridis",
+                    text="sales"
+                )
+                fig2.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
+                fig2.update_layout(height=300)
+                st.plotly_chart(fig2, use_container_width=True)
 
 
 # ==============================
