@@ -1,3 +1,11 @@
+import os
+os.environ['TZ'] = 'Africa/Harare'
+try:
+    import time
+    time.tzset()
+except:
+    pass
+
 import streamlit as st
 import traceback
 import sys
