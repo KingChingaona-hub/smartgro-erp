@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from backend.core.db_adapter import load_sales, load_products, load_customers
+from backend.core.db_adapter import load_sales, load_products, load_customers, to_float
 from backend.modules.expenses import load_expenses
 from backend.analytics.pl_engine import profit_loss_account, get_financial_ratios
 
@@ -31,6 +31,60 @@ def get_date_column(df):
         if col in df.columns:
             return col
     return None
+
+
+# ==============================
+# HELPER: Get amount column
+# ==============================
+def get_amount_column(df):
+    """Find amount column"""
+    if df is None or df.empty:
+        return None
+    for col in ["final_total", "total", "amount", "spent"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# HELPER: Get receipt column
+# ==============================
+def get_receipt_column(df):
+    """Find receipt number column"""
+    if df is None or df.empty:
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# HELPER: Deduplicate sales for revenue calculation
+# ==============================
+def get_unduplicated_sales(sales_df):
+    """Get unduplicated sales by receipt_no to avoid revenue duplication"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_df = sales_df.copy()
+    receipt_col = get_receipt_column(sales_df)
+    
+    # If we have receipt_no, deduplicate
+    if receipt_col and receipt_col in sales_df.columns:
+        return sales_df.drop_duplicates(subset=[receipt_col])
+    
+    # If no receipt_no, try to deduplicate by date and amount
+    date_col = get_date_column(sales_df)
+    amount_col = get_amount_column(sales_df)
+    
+    if date_col and amount_col and date_col in sales_df.columns and amount_col in sales_df.columns:
+        try:
+            return sales_df.drop_duplicates(subset=[date_col, amount_col])
+        except:
+            return sales_df
+    
+    return sales_df
 
 
 # ==============================
@@ -64,16 +118,14 @@ def calculate_business_score():
     except Exception:
         scores["profitability"] = 0
     
-    # 2. Sales Performance Score (25 points)
+    # 2. Sales Performance Score (25 points) - USING UNDUPLICATED REVENUE
     if not sales_df.empty:
-        total_col = None
-        for col in ["final_total", "total"]:
-            if col in sales_df.columns:
-                total_col = col
-                break
+        # Deduplicate sales by receipt_no
+        sales_undup = get_unduplicated_sales(sales_df)
         
-        if total_col:
-            total_sales = to_float(sales_df[total_col].sum())
+        amount_col = get_amount_column(sales_undup)
+        if amount_col:
+            total_sales = to_float(sales_undup[amount_col].sum())
             scores["sales"] = min(25, (total_sales / 5000) * 25)
     
     # 3. Inventory Health Score (20 points)
@@ -112,15 +164,22 @@ def calculate_business_score():
                     (expenses_df[expense_date_col].dt.year == current_year)
                 ]["amount"].sum()
                 
-                # Get monthly revenue
-                sales_date_col = get_date_column(sales_df)
-                revenue = 1
-                if not sales_df.empty and sales_date_col and total_col:
-                    sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], errors="coerce")
-                    revenue = sales_df[
-                        (sales_df[sales_date_col].dt.month == current_month) & 
-                        (sales_df[sales_date_col].dt.year == current_year)
-                    ][total_col].sum() if total_col in sales_df.columns else 0
+                # Get monthly revenue using unduplicated sales
+                if not sales_df.empty:
+                    sales_undup = get_unduplicated_sales(sales_df)
+                    sales_date_col = get_date_column(sales_undup)
+                    amount_col = get_amount_column(sales_undup)
+                    
+                    if sales_date_col and amount_col:
+                        sales_undup[sales_date_col] = pd.to_datetime(sales_undup[sales_date_col], errors="coerce")
+                        revenue = sales_undup[
+                            (sales_undup[sales_date_col].dt.month == current_month) & 
+                            (sales_undup[sales_date_col].dt.year == current_year)
+                        ][amount_col].sum() if amount_col in sales_undup.columns else 0
+                    else:
+                        revenue = 0
+                else:
+                    revenue = 0
                 
                 expense_ratio = (to_float(monthly_expenses) / to_float(revenue) * 100) if revenue > 0 else 100
                 scores["expenses"] = max(0, 10 - (expense_ratio / 10))
@@ -152,10 +211,10 @@ def calculate_business_score():
 
 
 # ==============================
-# ANOMALY DETECTION
+# ANOMALY DETECTION - FIXED
 # ==============================
 def detect_anomalies():
-    """Detect unusual patterns in business data"""
+    """Detect unusual patterns in business data using unduplicated revenue"""
     
     anomalies = []
     sales_df = load_sales()
@@ -163,24 +222,26 @@ def detect_anomalies():
     if sales_df.empty or len(sales_df) < 7:
         return anomalies
     
-    date_col = get_date_column(sales_df)
+    # Deduplicate sales for accurate analysis
+    sales_undup = get_unduplicated_sales(sales_df)
+    
+    if sales_undup.empty or len(sales_undup) < 7:
+        return anomalies
+    
+    date_col = get_date_column(sales_undup)
     if date_col is None:
         return anomalies
     
     try:
-        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-        sales_df = sales_df.dropna(subset=[date_col])
-        sales_df["day"] = sales_df[date_col].dt.date
+        sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+        sales_undup = sales_undup.dropna(subset=[date_col])
+        sales_undup["day"] = sales_undup[date_col].dt.date
         
-        total_col = None
-        for col in ["final_total", "total"]:
-            if col in sales_df.columns:
-                total_col = col
-                break
+        amount_col = get_amount_column(sales_undup)
         
-        if total_col:
-            sales_df[total_col] = sales_df[total_col].apply(to_float)
-            daily_sales = sales_df.groupby("day")[total_col].sum().reset_index()
+        if amount_col:
+            sales_undup[amount_col] = sales_undup[amount_col].apply(to_float)
+            daily_sales = sales_undup.groupby("day")[amount_col].sum().reset_index()
             daily_sales.columns = ["date", "sales"]
             
             if len(daily_sales) >= 7:
@@ -216,10 +277,10 @@ def detect_anomalies():
 
 
 # ==============================
-# INTELLIGENT RECOMMENDATIONS
+# INTELLIGENT RECOMMENDATIONS - FIXED
 # ==============================
 def get_intelligent_recommendations():
-    """Generate AI-powered business recommendations"""
+    """Generate AI-powered business recommendations using unduplicated data"""
     
     recommendations = []
     sales_df = load_sales()
@@ -231,8 +292,10 @@ def get_intelligent_recommendations():
     # Priority levels
     priorities = {"Critical": 1, "High": 2, "Medium": 3, "Low": 4}
     
-    # Get date columns
-    sales_date_col = get_date_column(sales_df)
+    # Get unduplicated sales
+    sales_undup = get_unduplicated_sales(sales_df)
+    sales_date_col = get_date_column(sales_undup)
+    amount_col = get_amount_column(sales_undup)
     
     # 1. Stock-related recommendations
     if not products_df.empty:
@@ -263,47 +326,40 @@ def get_intelligent_recommendations():
         except Exception:
             pass
     
-    # 2. Sales-related recommendations
-    if not sales_df.empty and sales_date_col:
+    # 2. Sales-related recommendations - USING UNDUPLICATED REVENUE
+    if not sales_undup.empty and sales_date_col and amount_col:
         try:
-            sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], errors="coerce")
-            sales_df = sales_df.dropna(subset=[sales_date_col])
+            sales_undup[sales_date_col] = pd.to_datetime(sales_undup[sales_date_col], errors="coerce")
+            sales_undup = sales_undup.dropna(subset=[sales_date_col])
             
-            total_col = None
-            for col in ["final_total", "total"]:
-                if col in sales_df.columns:
-                    total_col = col
-                    break
+            last_30_days = sales_undup[sales_undup[sales_date_col] >= (datetime.now() - timedelta(days=30))]
+            previous_30_days = sales_undup[(sales_undup[sales_date_col] < (datetime.now() - timedelta(days=30))) & 
+                                             (sales_undup[sales_date_col] >= (datetime.now() - timedelta(days=60)))]
             
-            if total_col:
-                last_30_days = sales_df[sales_df[sales_date_col] >= (datetime.now() - timedelta(days=30))]
-                previous_30_days = sales_df[(sales_df[sales_date_col] < (datetime.now() - timedelta(days=30))) & 
-                                             (sales_df[sales_date_col] >= (datetime.now() - timedelta(days=60)))]
+            current_sales = to_float(last_30_days[amount_col].sum()) if not last_30_days.empty else 0
+            previous_sales = to_float(previous_30_days[amount_col].sum()) if not previous_30_days.empty else 0
+            
+            if previous_sales > 0:
+                growth = ((current_sales - previous_sales) / previous_sales) * 100
                 
-                current_sales = to_float(last_30_days[total_col].sum()) if not last_30_days.empty else 0
-                previous_sales = to_float(previous_30_days[total_col].sum()) if not previous_30_days.empty else 0
-                
-                if previous_sales > 0:
-                    growth = ((current_sales - previous_sales) / previous_sales) * 100
-                    
-                    if growth < -10:
-                        recommendations.append({
-                            "category": "Sales",
-                            "priority": "High",
-                            "title": "Sales Declining",
-                            "description": f"Sales decreased by {abs(growth):.0f}% compared to previous period.",
-                            "action": "Review pricing, run promotions, or increase marketing efforts.",
-                            "potential_impact": "Could recover lost revenue and improve cash flow."
-                        })
-                    elif growth > 20:
-                        recommendations.append({
-                            "category": "Sales",
-                            "priority": "Low",
-                            "title": "Strong Sales Growth",
-                            "description": f"Sales increased by {growth:.0f}% - excellent performance!",
-                            "action": "Analyze what's working and consider expanding successful products.",
-                            "potential_impact": "Capitalize on momentum for further growth."
-                        })
+                if growth < -10:
+                    recommendations.append({
+                        "category": "Sales",
+                        "priority": "High",
+                        "title": "Sales Declining",
+                        "description": f"Sales decreased by {abs(growth):.0f}% compared to previous period.",
+                        "action": "Review pricing, run promotions, or increase marketing efforts.",
+                        "potential_impact": "Could recover lost revenue and improve cash flow."
+                    })
+                elif growth > 20:
+                    recommendations.append({
+                        "category": "Sales",
+                        "priority": "Low",
+                        "title": "Strong Sales Growth",
+                        "description": f"Sales increased by {growth:.0f}% - excellent performance!",
+                        "action": "Analyze what's working and consider expanding successful products.",
+                        "potential_impact": "Capitalize on momentum for further growth."
+                    })
         except Exception:
             pass
     
@@ -331,16 +387,10 @@ def get_intelligent_recommendations():
             expenses_df[expense_date_col] = pd.to_datetime(expenses_df[expense_date_col], errors="coerce")
             monthly_expenses = expenses_df[expenses_df[expense_date_col].dt.month == datetime.now().month]["amount"].sum()
             
-            total_col = None
-            for col in ["final_total", "total"]:
-                if col in sales_df.columns:
-                    total_col = col
-                    break
-            
-            revenue = 1
-            if not sales_df.empty and total_col and sales_date_col:
-                sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], errors="coerce")
-                revenue = sales_df[sales_df[sales_date_col].dt.month == datetime.now().month][total_col].sum()
+            revenue = 0
+            if not sales_undup.empty and amount_col and sales_date_col:
+                sales_undup[sales_date_col] = pd.to_datetime(sales_undup[sales_date_col], errors="coerce")
+                revenue = sales_undup[sales_undup[sales_date_col].dt.month == datetime.now().month][amount_col].sum() if amount_col in sales_undup.columns else 0
             
             expense_ratio = (to_float(monthly_expenses) / to_float(revenue) * 100) if revenue > 0 else 100
             
@@ -391,35 +441,36 @@ def get_intelligent_recommendations():
 
 
 # ==============================
-# SALES FORECAST (AI)
+# SALES FORECAST (AI) - FIXED
 # ==============================
 def ai_sales_forecast(days=30):
-    """AI-powered sales forecast using simple linear regression"""
+    """AI-powered sales forecast using simple linear regression with unduplicated data"""
     
     sales_df = load_sales()
     
     if sales_df.empty or len(sales_df) < 14:
         return None
     
-    date_col = get_date_column(sales_df)
+    # Deduplicate sales
+    sales_undup = get_unduplicated_sales(sales_df)
+    
+    if sales_undup.empty or len(sales_undup) < 7:
+        return None
+    
+    date_col = get_date_column(sales_undup)
     if date_col is None:
         return None
     
     try:
-        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-        sales_df = sales_df.dropna(subset=[date_col])
+        sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+        sales_undup = sales_undup.dropna(subset=[date_col])
         
-        total_col = None
-        for col in ["final_total", "total"]:
-            if col in sales_df.columns:
-                total_col = col
-                break
-        
-        if total_col is None:
+        amount_col = get_amount_column(sales_undup)
+        if amount_col is None:
             return None
         
-        sales_df[total_col] = sales_df[total_col].apply(to_float)
-        daily_sales = sales_df.groupby(sales_df[date_col].dt.date)[total_col].sum().reset_index()
+        sales_undup[amount_col] = sales_undup[amount_col].apply(to_float)
+        daily_sales = sales_undup.groupby(sales_undup[date_col].dt.date)[amount_col].sum().reset_index()
         daily_sales.columns = ["date", "sales"]
         
         if len(daily_sales) < 7:
@@ -465,55 +516,56 @@ def ai_sales_forecast(days=30):
 
 
 # ==============================
-# SEASONAL TREND ANALYSIS
+# SEASONAL TREND ANALYSIS - FIXED
 # ==============================
 def seasonal_trend_analysis():
-    """Identify seasonal patterns in sales"""
+    """Identify seasonal patterns in sales using unduplicated data"""
     
     sales_df = load_sales()
     
     if sales_df.empty:
         return None
     
-    date_col = get_date_column(sales_df)
+    # Deduplicate sales
+    sales_undup = get_unduplicated_sales(sales_df)
+    
+    if sales_undup.empty:
+        return None
+    
+    date_col = get_date_column(sales_undup)
     if date_col is None:
         return None
     
     try:
-        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-        sales_df = sales_df.dropna(subset=[date_col])
-        sales_df["month"] = sales_df[date_col].dt.month
-        sales_df["day_of_week"] = sales_df[date_col].dt.day_name()
+        sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+        sales_undup = sales_undup.dropna(subset=[date_col])
+        sales_undup["month"] = sales_undup[date_col].dt.month
+        sales_undup["day_of_week"] = sales_undup[date_col].dt.day_name()
         
-        total_col = None
-        for col in ["final_total", "total"]:
-            if col in sales_df.columns:
-                total_col = col
-                break
-        
-        if total_col is None:
+        amount_col = get_amount_column(sales_undup)
+        if amount_col is None:
             return None
         
-        sales_df[total_col] = sales_df[total_col].apply(to_float)
+        sales_undup[amount_col] = sales_undup[amount_col].apply(to_float)
         
         # Monthly seasonality
-        monthly_sales = sales_df.groupby("month")[total_col].sum().reset_index()
+        monthly_sales = sales_undup.groupby("month")[amount_col].sum().reset_index()
         
         # Day of week patterns
         dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        dow_sales = sales_df.groupby("day_of_week")[total_col].sum().reset_index()
+        dow_sales = sales_undup.groupby("day_of_week")[amount_col].sum().reset_index()
         
         if not dow_sales.empty:
             dow_sales["day_of_week"] = pd.Categorical(dow_sales["day_of_week"], categories=dow_order, ordered=True)
             dow_sales = dow_sales.sort_values("day_of_week")
         
         # Identify peak periods
-        peak_month = monthly_sales.loc[monthly_sales[total_col].idxmax(), "month"] if not monthly_sales.empty else None
-        peak_day = dow_sales.loc[dow_sales[total_col].idxmax(), "day_of_week"] if not dow_sales.empty else None
-        slow_day = dow_sales.loc[dow_sales[total_col].idxmin(), "day_of_week"] if not dow_sales.empty else None
+        peak_month = monthly_sales.loc[monthly_sales[amount_col].idxmax(), "month"] if not monthly_sales.empty else None
+        peak_day = dow_sales.loc[dow_sales[amount_col].idxmax(), "day_of_week"] if not dow_sales.empty else None
+        slow_day = dow_sales.loc[dow_sales[amount_col].idxmin(), "day_of_week"] if not dow_sales.empty else None
         
         return {
-            "peak_month": peak_month,
+            "peak_month": int(peak_month) if peak_month is not None else None,
             "peak_day": peak_day,
             "slow_day": slow_day,
             "monthly_pattern": monthly_sales.to_dict('records') if not monthly_sales.empty else [],
@@ -524,13 +576,14 @@ def seasonal_trend_analysis():
 
 
 # ==============================
-# ALERT GENERATION
+# ALERT GENERATION - FIXED
 # ==============================
 def generate_alerts():
-    """Generate critical business alerts"""
+    """Generate critical business alerts using unduplicated data"""
     
     alerts = []
     products_df = load_products()
+    sales_df = load_sales()
     score = calculate_business_score()
     anomalies = detect_anomalies()
     
@@ -569,6 +622,27 @@ def generate_alerts():
             })
     except Exception:
         pass
+    
+    # Sales alerts - check if no sales today using unduplicated data
+    if not sales_df.empty:
+        sales_undup = get_unduplicated_sales(sales_df)
+        date_col = get_date_column(sales_undup)
+        
+        if date_col:
+            try:
+                sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+                today = datetime.now().date()
+                today_sales = sales_undup[sales_undup[date_col].dt.date == today]
+                
+                if today_sales.empty:
+                    alerts.append({
+                        "level": "warning",
+                        "title": "No Sales Recorded Today",
+                        "message": "No transactions have been recorded for today.",
+                        "timestamp": datetime.now()
+                    })
+            except Exception:
+                pass
     
     # Anomaly alerts
     for anomaly in anomalies:

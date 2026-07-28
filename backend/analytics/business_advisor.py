@@ -29,6 +29,68 @@ def to_float(value):
         return 0.0
 
 
+# ==============================
+# HELPER: Get receipt column
+# ==============================
+def get_receipt_column(df):
+    """Find receipt number column"""
+    if df is None or df.empty:
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# HELPER: Get amount column
+# ==============================
+def get_amount_column(df):
+    """Find amount column"""
+    if df is None or df.empty:
+        return None
+    for col in ["final_total", "total", "amount", "spent"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
+# HELPER: Get unduplicated sales
+# ==============================
+def get_unduplicated_sales(sales_df):
+    """Get unduplicated sales by receipt_no to avoid revenue duplication"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_df = sales_df.copy()
+    receipt_col = get_receipt_column(sales_df)
+    
+    # If we have receipt_no, deduplicate
+    if receipt_col and receipt_col in sales_df.columns:
+        return sales_df.drop_duplicates(subset=[receipt_col])
+    
+    # If no receipt_no, try to deduplicate by date and amount
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    amount_col = get_amount_column(sales_df)
+    
+    if date_col and amount_col and date_col in sales_df.columns and amount_col in sales_df.columns:
+        try:
+            return sales_df.drop_duplicates(subset=[date_col, amount_col])
+        except:
+            return sales_df
+    
+    return sales_df
+
+
+# ==============================
+# BUSINESS ADVISOR DASHBOARD
+# ==============================
 def business_advisor_dashboard():
     """AI-Powered Business Advisor Dashboard"""
     
@@ -39,6 +101,10 @@ def business_advisor_dashboard():
     sales_df = load_sales()
     products_df = load_products()
     customers_df = load_customers()
+    
+    # Get unduplicated sales for accurate metrics
+    sales_undup = get_unduplicated_sales(sales_df)
+    amount_col = get_amount_column(sales_undup)
     
     # ==============================
     # ALERTS SECTION (Top priority)
@@ -137,6 +203,7 @@ def business_advisor_dashboard():
     # AI SALES FORECAST
     # ==============================
     st.markdown("## AI Sales Forecast")
+    st.caption("Based on unduplicated sales data (one receipt per transaction)")
     
     forecast_days = st.slider("Forecast Days", 7, 90, 30, key="forecast_days")
     
@@ -210,6 +277,7 @@ def business_advisor_dashboard():
     # SEASONAL TRENDS
     # ==============================
     st.markdown("## Seasonal Trend Analysis")
+    st.caption("Based on unduplicated sales data (one receipt per transaction)")
     
     seasonal = seasonal_trend_analysis()
     
@@ -294,6 +362,8 @@ def business_advisor_dashboard():
                     )
                     fig_monthly.update_layout(height=350)
                     st.plotly_chart(fig_monthly, use_container_width=True)
+    else:
+        st.info("Not enough data for seasonal trend analysis.")
     
     st.markdown("---")
     
@@ -320,30 +390,26 @@ def business_advisor_dashboard():
     st.markdown("---")
     
     # ==============================
-    # QUICK STATS & INSIGHTS
+    # QUICK STATS & INSIGHTS - FIXED WITH UNDUPLICATED REVENUE
     # ==============================
     st.markdown("## Quick Business Insights")
+    st.caption("Revenue metrics based on unduplicated sales data")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if not sales_df.empty:
-            total_col = None
-            for col in ["final_total", "total"]:
-                if col in sales_df.columns:
-                    total_col = col
-                    break
+        if not sales_undup.empty and amount_col:
+            total_sales = to_float(sales_undup[amount_col].sum())
+            st.metric("Lifetime Sales (Unduplicated)", f"${total_sales:,.2f}")
             
-            if total_col:
-                total_sales = to_float(sales_df[total_col].sum())
-                st.metric("Lifetime Sales", f"${total_sales:,.2f}")
-                
-                # Items count if available
-                if "items" in sales_df.columns:
-                    total_items = to_float(sales_df["items"].sum())
-                    st.caption(f"{total_items:,.0f} items sold")
+            # Show row counts for transparency
+            if amount_col and "items" in sales_undup.columns:
+                total_items = to_float(sales_undup["items"].sum())
+                st.caption(f"{total_items:,.0f} items sold | {len(sales_undup)} receipts")
             else:
-                st.metric("Lifetime Sales", "$0.00")
+                st.caption(f"{len(sales_undup)} receipts")
+        else:
+            st.metric("Lifetime Sales", "$0.00")
     
     with col2:
         if not products_df.empty:
