@@ -47,9 +47,7 @@ def safe_float(value, default=0.0):
     if isinstance(value, (int, float)):
         return float(value)
     try:
-        # Handle string values
         if isinstance(value, str):
-            # Remove any non-numeric characters except decimal point
             cleaned = ''.join(c for c in value if c.isdigit() or c == '.')
             if cleaned:
                 return float(cleaned)
@@ -130,39 +128,35 @@ def get_payment_method_column(df):
 
 
 # ==============================
-# FEATURE ENGINEERING - FIXED
+# FEATURE ENGINEERING - COMPLETELY REWRITTEN
 # ==============================
 
 def calculate_rfm_metrics(customer_transactions_df, sales_df, customers_df):
     """
     Calculate RFM (Recency, Frequency, Monetary) metrics for each customer.
     """
-    rfm_data = {}
+    rfm_data = []
     
     if customers_df.empty:
         return pd.DataFrame()
     
-    # Get customer list
     customer_col = get_customer_column(customers_df)
+    phone_col = get_phone_column(customers_df)
+    sales_date_col = get_date_column(sales_df)
+    amount_col = get_amount_column(sales_df)
+    sales_customer_col = get_customer_column(sales_df)
+    
     if customer_col is None:
         return pd.DataFrame()
     
-    # Get phone column for matching
-    phone_col = get_phone_column(customers_df)
-    
-    # Get date column from sales
-    sales_date_col = get_date_column(sales_df)
-    
-    # Get amount column from sales
-    amount_col = get_amount_column(sales_df)
-    
-    # Find customer column in sales
-    sales_customer_col = get_customer_column(sales_df)
-    
-    # Process each customer
+    # Get unique customers with valid names
     for idx, customer in customers_df.iterrows():
         customer_name = safe_str(customer.get(customer_col, ""))
         customer_phone = safe_str(customer.get(phone_col, "")) if phone_col else ""
+        
+        # Skip customers with empty names
+        if not customer_name or customer_name.strip() == "":
+            continue
         
         # Find this customer's sales
         customer_sales = pd.DataFrame()
@@ -175,27 +169,20 @@ def calculate_rfm_metrics(customer_transactions_df, sales_df, customers_df):
             except:
                 customer_sales = pd.DataFrame()
         
-        # If no sales by name, try by phone
         if customer_sales.empty and phone_col and "customer_phone" in sales_df.columns:
             try:
                 customer_sales = sales_df[sales_df["customer_phone"].astype(str) == str(customer_phone)]
             except:
                 customer_sales = pd.DataFrame()
         
-        if customer_sales.empty:
-            rfm_data[customer_name] = {
-                "customer_name": customer_name,
-                "phone": customer_phone,
-                "recency_days": 999.0,
-                "frequency": 0.0,
-                "monetary": 0.0,
-                "avg_order_value": 0.0,
-                "is_churned": 1.0
-            }
-            continue
+        # Initialize with default values
+        recency_days = 999.0
+        frequency = 0.0
+        monetary = 0.0
+        avg_order_value = 0.0
+        is_churned = 1.0
         
-        # Calculate metrics
-        if sales_date_col and amount_col:
+        if not customer_sales.empty and sales_date_col and amount_col:
             try:
                 customer_sales[sales_date_col] = pd.to_datetime(customer_sales[sales_date_col], errors="coerce")
                 customer_sales = customer_sales.dropna(subset=[sales_date_col])
@@ -207,53 +194,28 @@ def calculate_rfm_metrics(customer_transactions_df, sales_df, customers_df):
                     monetary = safe_float(customer_sales[amount_col].sum())
                     avg_order_value = monetary / frequency if frequency > 0 else 0.0
                     is_churned = 1.0 if recency_days > 90 else 0.0
-                    
-                    rfm_data[customer_name] = {
-                        "customer_name": customer_name,
-                        "phone": customer_phone,
-                        "recency_days": recency_days,
-                        "frequency": frequency,
-                        "monetary": monetary,
-                        "avg_order_value": avg_order_value,
-                        "is_churned": is_churned
-                    }
-                else:
-                    rfm_data[customer_name] = {
-                        "customer_name": customer_name,
-                        "phone": customer_phone,
-                        "recency_days": 999.0,
-                        "frequency": 0.0,
-                        "monetary": 0.0,
-                        "avg_order_value": 0.0,
-                        "is_churned": 1.0
-                    }
-            except Exception as e:
-                rfm_data[customer_name] = {
-                    "customer_name": customer_name,
-                    "phone": customer_phone,
-                    "recency_days": 999.0,
-                    "frequency": 0.0,
-                    "monetary": 0.0,
-                    "avg_order_value": 0.0,
-                    "is_churned": 1.0
-                }
-        else:
-            rfm_data[customer_name] = {
-                "customer_name": customer_name,
-                "phone": customer_phone,
-                "recency_days": 999.0,
-                "frequency": 0.0,
-                "monetary": 0.0,
-                "avg_order_value": 0.0,
-                "is_churned": 1.0
-            }
+            except:
+                pass
+        
+        rfm_data.append({
+            "customer_name": customer_name,
+            "phone": customer_phone,
+            "recency_days": recency_days,
+            "frequency": frequency,
+            "monetary": monetary,
+            "avg_order_value": avg_order_value,
+            "is_churned": is_churned
+        })
     
-    return pd.DataFrame(rfm_data).T
+    if not rfm_data:
+        return pd.DataFrame()
+    
+    return pd.DataFrame(rfm_data)
 
 
 def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
     """
-    Build comprehensive feature set for each customer - FIXED to ensure all numeric values
+    Build comprehensive feature set for each customer.
     """
     if customers_df.empty:
         return pd.DataFrame()
@@ -265,25 +227,29 @@ def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
     if customer_col is None:
         return pd.DataFrame()
     
-    # Get products data for categories
     products_df = load_products()
     
+    # Get unique customers with valid names
     for idx, customer in customers_df.iterrows():
         customer_name = safe_str(customer.get(customer_col, ""))
         customer_phone = safe_str(customer.get(phone_col, "")) if phone_col else ""
+        
+        # Skip customers with empty names
+        if not customer_name or customer_name.strip() == "":
+            continue
         
         # Get RFM features
         rfm_data = rfm_df[rfm_df["customer_name"] == customer_name]
         if not rfm_data.empty:
             rfm_row = rfm_data.iloc[0]
         else:
-            rfm_row = pd.Series({
+            rfm_row = {
                 "recency_days": 999.0,
                 "frequency": 0.0,
                 "monetary": 0.0,
                 "avg_order_value": 0.0,
                 "is_churned": 1.0
-            })
+            }
         
         # Get loyalty features
         loyalty_points = 0.0
@@ -295,7 +261,7 @@ def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
             except:
                 loyalty_points = 0.0
         
-        # Calculate additional features
+        # Initialize features
         purchase_regularity = 0.0
         tenure_days = 0.0
         avg_items = 0.0
@@ -311,7 +277,6 @@ def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
                 )].copy()
                 
                 if not customer_sales.empty:
-                    # Purchase regularity
                     customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
                     customer_sales = customer_sales.dropna(subset=[date_col])
                     customer_sales = customer_sales.sort_values(date_col)
@@ -321,21 +286,17 @@ def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
                         if not date_diffs.empty:
                             purchase_regularity = safe_float(date_diffs.std())
                     
-                    # Tenure
                     if not customer_sales.empty:
                         first_purchase = customer_sales[date_col].min()
                         tenure_days = safe_float((datetime.now() - first_purchase).days)
                     
-                    # Average items per order
                     if "items" in customer_sales.columns:
                         avg_items = safe_float(customer_sales["items"].mean())
                     
-                    # Payment method diversity - FIXED: ensure numeric only
                     payment_col = get_payment_method_column(customer_sales)
                     if payment_col and payment_col in customer_sales.columns:
                         try:
                             payment_methods = customer_sales[payment_col].dropna().unique().tolist()
-                            # Filter out empty/unknown/None values
                             payment_methods = [
                                 p for p in payment_methods 
                                 if p and str(p).strip() and str(p).lower() not in ['unknown', 'none', 'null', '']
@@ -344,56 +305,31 @@ def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
                         except:
                             payment_diversity = 0.0
             except:
-                purchase_regularity = 0.0
-                tenure_days = 0.0
-                avg_items = 0.0
-                payment_diversity = 0.0
+                pass
         
-        # Favorite category (string - handled separately)
-        favorite_category = "Unknown"
-        if not sales_df.empty and sales_customer_col and "barcode" in sales_df.columns:
-            try:
-                customer_sales = sales_df[sales_df[sales_customer_col].astype(str).str.contains(
-                    customer_name, case=False, na=False
-                )].copy()
-                
-                if not customer_sales.empty and "barcode" in customer_sales.columns:
-                    if not products_df.empty and "barcode" in products_df.columns and "category" in products_df.columns:
-                        product_categories = {}
-                        for _, sale in customer_sales.iterrows():
-                            barcode = safe_str(sale.get("barcode", ""))
-                            product = products_df[products_df["barcode"].astype(str) == barcode]
-                            if not product.empty:
-                                category = safe_str(product.iloc[0].get("category", "Unknown"))
-                                product_categories[category] = product_categories.get(category, 0) + 1
-                        
-                        if product_categories:
-                            favorite_category = max(product_categories, key=product_categories.get)
-            except:
-                favorite_category = "Unknown"
-        
-        # Build feature vector - ALL NUMERIC VALUES ARE FLOATS
         features.append({
             "customer_name": customer_name,
             "phone": customer_phone,
-            "recency_days": float(safe_float(rfm_row.get("recency_days", 999))),
-            "frequency": float(safe_float(rfm_row.get("frequency", 0))),
-            "monetary": float(safe_float(rfm_row.get("monetary", 0))),
-            "avg_order_value": float(safe_float(rfm_row.get("avg_order_value", 0))),
-            "loyalty_points": float(safe_float(loyalty_points)),
-            "purchase_regularity": float(safe_float(purchase_regularity)),
-            "tenure_days": float(safe_float(tenure_days)),
-            "avg_items": float(safe_float(avg_items)),
-            "payment_diversity": float(safe_float(payment_diversity)),
-            "is_churned": float(safe_float(rfm_row.get("is_churned", 1))),
-            "favorite_category": safe_str(favorite_category)
+            "recency_days": float(rfm_row.get("recency_days", 999)),
+            "frequency": float(rfm_row.get("frequency", 0)),
+            "monetary": float(rfm_row.get("monetary", 0)),
+            "avg_order_value": float(rfm_row.get("avg_order_value", 0)),
+            "loyalty_points": float(loyalty_points),
+            "purchase_regularity": float(purchase_regularity),
+            "tenure_days": float(tenure_days),
+            "avg_items": float(avg_items),
+            "payment_diversity": float(payment_diversity),
+            "is_churned": float(rfm_row.get("is_churned", 1))
         })
+    
+    if not features:
+        return pd.DataFrame()
     
     return pd.DataFrame(features)
 
 
 # ==============================
-# ML MODEL TRAINING - FIXED
+# ML MODEL TRAINING
 # ==============================
 
 class ChurnPredictor:
@@ -402,18 +338,17 @@ class ChurnPredictor:
     def __init__(self):
         self.model = None
         self.scaler = None
-        self.label_encoders = {}
         self.feature_columns = []
         self.model_trained = False
         self.performance_metrics = {}
         self.feature_importance = {}
     
     def prepare_data(self, features_df):
-        """Prepare data for training - FIXED to handle string columns properly"""
+        """Prepare data for training"""
         if features_df.empty:
             return None, None, None, None
         
-        # Define numeric features to use
+        # Define numeric features
         self.feature_columns = [
             "recency_days",
             "frequency",
@@ -426,15 +361,12 @@ class ChurnPredictor:
             "payment_diversity"
         ]
         
-        # Extract numeric features only
+        # Extract and validate numeric features
         X = features_df[self.feature_columns].copy()
         
-        # Convert EVERYTHING to numeric, coercing errors to NaN
+        # Convert ALL columns to numeric
         for col in X.columns:
-            X[col] = pd.to_numeric(X[col], errors="coerce")
-        
-        # Fill NaN with 0
-        X = X.fillna(0)
+            X[col] = pd.to_numeric(X[col], errors="coerce").fillna(0)
         
         # Get target
         y = pd.to_numeric(features_df["is_churned"], errors="coerce").fillna(1).values
@@ -442,7 +374,6 @@ class ChurnPredictor:
         # Scale features
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
-        X_scaled = pd.DataFrame(X_scaled, columns=X.columns)
         
         return X_scaled, y, features_df
     
@@ -454,12 +385,14 @@ class ChurnPredictor:
         if X is None or y is None:
             return False, "No data available for training"
         
-        # Check class balance
+        if len(y) < 10:
+            return False, "Need at least 10 customers for training. Add more customers."
+        
         n_churned = sum(y)
         n_active = len(y) - n_churned
         
         if n_churned == 0 or n_active == 0:
-            return False, "Need both churned and active customers for training. Try adding more data."
+            return False, "Need both churned and active customers for training."
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
@@ -496,45 +429,10 @@ class ChurnPredictor:
         self.model_trained = True
         
         if hasattr(self.model, "feature_importances_"):
-            importance = self.model.feature_importances_
-            feature_names = X.columns.tolist()
-            self.feature_importance = dict(zip(feature_names, importance))
+            feature_names = self.feature_columns
+            self.feature_importance = dict(zip(feature_names, self.model.feature_importances_))
         
-        return True, f"Model trained successfully. {len(X)} customers analyzed."
-    
-    def predict(self, customer_data):
-        """Predict churn probability for a single customer"""
-        if not self.model_trained:
-            return None, "Model not trained yet"
-        
-        try:
-            X = pd.DataFrame([customer_data])[self.feature_columns].copy()
-            
-            # Convert to numeric
-            for col in X.columns:
-                X[col] = pd.to_numeric(X[col], errors="coerce")
-            X = X.fillna(0)
-            
-            # Scale
-            X_scaled = self.scaler.transform(X)
-            
-            # Predict
-            proba = self.model.predict_proba(X_scaled)[0, 1]
-            prediction = self.model.predict(X_scaled)[0]
-            
-            return {
-                "probability": round(proba * 100, 1),
-                "will_churn": bool(prediction),
-                "risk_level": self.get_risk_level(proba),
-                "recommendation": self.get_recommendation(proba)
-            }
-        except Exception as e:
-            return {
-                "probability": 0,
-                "will_churn": False,
-                "risk_level": "UNKNOWN",
-                "recommendation": f"Could not predict: {str(e)}"
-            }
+        return True, f"Model trained successfully on {len(X)} customers."
     
     def predict_batch(self, features_df):
         """Predict churn probability for all customers"""
@@ -543,16 +441,11 @@ class ChurnPredictor:
         
         try:
             X = features_df[self.feature_columns].copy()
-            
-            # Convert to numeric
             for col in X.columns:
-                X[col] = pd.to_numeric(X[col], errors="coerce")
-            X = X.fillna(0)
+                X[col] = pd.to_numeric(X[col], errors="coerce").fillna(0)
             
-            # Scale
             X_scaled = self.scaler.transform(X)
             
-            # Predict
             probabilities = self.model.predict_proba(X_scaled)[:, 1]
             predictions = self.model.predict(X_scaled)
             
@@ -564,26 +457,24 @@ class ChurnPredictor:
             
             return results, "Predictions generated"
         except Exception as e:
-            return None, f"Error generating predictions: {str(e)}"
+            return None, f"Error: {str(e)}"
     
     def get_risk_level(self, probability):
-        """Get risk level based on probability"""
-        if probability >= 0.7:
+        if probability >= 70:
             return "HIGH"
-        elif probability >= 0.4:
+        elif probability >= 40:
             return "MEDIUM"
-        elif probability >= 0.2:
+        elif probability >= 20:
             return "LOW"
         else:
             return "VERY LOW"
     
     def get_recommendation(self, probability):
-        """Get recommendation based on probability"""
-        if probability >= 0.7:
+        if probability >= 70:
             return "IMMEDIATE ACTION: Call customer and offer retention discount"
-        elif probability >= 0.4:
+        elif probability >= 40:
             return "Send re-engagement offer and follow up"
-        elif probability >= 0.2:
+        elif probability >= 20:
             return "Send personalized recommendation email"
         else:
             return "Maintain regular communication"
@@ -611,6 +502,11 @@ def churn_prediction_dashboard():
         sales_df = load_sales()
         loyalty_df = load_loyalty()
     
+    # Debug: Show customer data info
+    st.sidebar.markdown("### Debug Info")
+    st.sidebar.write(f"Customers: {len(customers_df)}")
+    st.sidebar.write(f"Sales: {len(sales_df)}")
+    
     if customers_df.empty:
         st.warning("No customer data available. Please add customers first.")
         return
@@ -619,7 +515,7 @@ def churn_prediction_dashboard():
         st.warning("No sales data available. Complete some transactions first.")
         return
     
-    # Initialize model in session state
+    # Initialize model
     if "churn_model" not in st.session_state:
         st.session_state.churn_model = ChurnPredictor()
         st.session_state.churn_model_trained = False
@@ -641,70 +537,25 @@ def churn_prediction_dashboard():
     with tab1:
         st.markdown("## Churn Prediction Overview")
         
-        # Calculate basic stats
         customer_col = get_customer_column(customers_df)
-        phone_col = get_phone_column(customers_df)
-        sales_customer_col = get_customer_column(sales_df)
-        
         total_customers = len(customers_df)
         
-        # Count active vs churned
-        active_customers = 0
-        churned_customers = 0
+        # Count customers with sales
+        customers_with_sales = 0
+        if customer_col and not sales_df.empty:
+            sales_customer_col = get_customer_column(sales_df)
+            if sales_customer_col:
+                sales_customers = set(sales_df[sales_customer_col].astype(str).unique())
+                customers_with_sales = sum(1 for _, c in customers_df.iterrows() 
+                                          if safe_str(c.get(customer_col, "")) in sales_customers)
         
-        sales_date_col = get_date_column(sales_df)
-        if sales_date_col:
-            try:
-                cutoff_date = datetime.now() - timedelta(days=90)
-                recent_customers = set()
-                
-                if sales_customer_col:
-                    sales_df[sales_date_col] = pd.to_datetime(sales_df[sales_date_col], errors="coerce")
-                    recent_sales = sales_df[sales_df[sales_date_col] >= cutoff_date]
-                    
-                    if not recent_sales.empty:
-                        recent_customers = set(recent_sales[sales_customer_col].astype(str).unique())
-                
-                for _, customer in customers_df.iterrows():
-                    customer_name = safe_str(customer.get(customer_col, ""))
-                    
-                    has_recent = False
-                    for name in recent_customers:
-                        if name and customer_name and (name in customer_name or customer_name in name):
-                            has_recent = True
-                            break
-                    
-                    if has_recent:
-                        active_customers += 1
-                    else:
-                        churned_customers += 1
-            except:
-                active_customers = 0
-                churned_customers = total_customers
-        else:
-            if "last_purchase_date" in customers_df.columns:
-                try:
-                    customers_df["last_purchase_date"] = pd.to_datetime(
-                        customers_df["last_purchase_date"], errors="coerce"
-                    )
-                    cutoff_date = datetime.now() - timedelta(days=90)
-                    active_customers = len(customers_df[customers_df["last_purchase_date"] >= cutoff_date])
-                    churned_customers = total_customers - active_customers
-                except:
-                    active_customers = 0
-                    churned_customers = total_customers
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total Customers", total_customers)
         with col2:
-            st.metric("Active Customers", active_customers)
+            st.metric("Customers with Sales", customers_with_sales)
         with col3:
-            st.metric("Churned Customers", churned_customers)
-        with col4:
-            churn_rate = (churned_customers / total_customers * 100) if total_customers > 0 else 0
-            st.metric("Churn Rate", f"{churn_rate:.1f}%")
+            st.metric("Customers without Sales", total_customers - customers_with_sales)
         
         st.markdown("---")
         st.markdown("### Model Status")
@@ -749,24 +600,26 @@ def churn_prediction_dashboard():
             if st.button("Quick Train Model", use_container_width=True):
                 with st.spinner("Training model..."):
                     rfm_df = calculate_rfm_metrics(
-                        load_customer_transactions() if not load_customer_transactions().empty else pd.DataFrame(),
-                        sales_df,
-                        customers_df
-                    )
-                    features_df = calculate_customer_features(
-                        customers_df, rfm_df, loyalty_df, sales_df
+                        pd.DataFrame(), sales_df, customers_df
                     )
                     
-                    if not features_df.empty:
-                        success, message = st.session_state.churn_model.train(features_df)
-                        if success:
-                            st.session_state.churn_model_trained = True
-                            st.success(f"{message}")
-                            st.rerun()
-                        else:
-                            st.error(f"{message}")
+                    if rfm_df.empty:
+                        st.error("Could not calculate RFM metrics.")
                     else:
-                        st.error("Could not prepare features")
+                        features_df = calculate_customer_features(
+                            customers_df, rfm_df, loyalty_df, sales_df
+                        )
+                        
+                        if features_df.empty:
+                            st.error("Could not prepare features.")
+                        else:
+                            success, message = st.session_state.churn_model.train(features_df)
+                            if success:
+                                st.session_state.churn_model_trained = True
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
     
     # ==============================
     # TAB 2: TRAIN MODEL
@@ -789,47 +642,28 @@ def churn_prediction_dashboard():
         - Payment method diversity
         """)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            test_size = st.slider("Test Size", 0.1, 0.4, 0.3, 0.05)
-            random_state = st.number_input("Random Seed", 1, 100, 42, step=1)
-        
-        with col2:
-            st.markdown("### Data Overview")
-            customer_count = len(customers_df)
-            sales_count = len(sales_df)
-            st.write(f"**Customers:** {customer_count}")
-            st.write(f"**Sales Records:** {sales_count}")
-            if customer_col:
-                st.write(f"**Customer Column:** {customer_col}")
-        
         if st.button("Train Model", type="primary", use_container_width=True):
             with st.spinner("Training model..."):
                 rfm_df = calculate_rfm_metrics(
-                    load_customer_transactions() if not load_customer_transactions().empty else pd.DataFrame(),
-                    sales_df,
-                    customers_df
+                    pd.DataFrame(), sales_df, customers_df
                 )
                 
                 if rfm_df.empty:
-                    st.error("Could not calculate RFM metrics. Please ensure you have sales data.")
+                    st.error("Could not calculate RFM metrics.")
                 else:
                     features_df = calculate_customer_features(
                         customers_df, rfm_df, loyalty_df, sales_df
                     )
                     
                     if features_df.empty:
-                        st.error("Could not prepare features. Please check your data.")
+                        st.error("Could not prepare features.")
                     else:
                         st.session_state.churn_model = ChurnPredictor()
-                        success, message = st.session_state.churn_model.train(
-                            features_df, test_size=test_size, random_state=random_state
-                        )
+                        success, message = st.session_state.churn_model.train(features_df)
                         
                         if success:
                             st.session_state.churn_model_trained = True
-                            st.success(f"{message}")
+                            st.success(message)
                             st.balloons()
                             
                             metrics = st.session_state.churn_model.performance_metrics
@@ -842,20 +676,8 @@ def churn_prediction_dashboard():
                                 st.metric("Recall", f"{metrics.get('recall', 0)*100:.1f}%")
                             with col4:
                                 st.metric("F1 Score", f"{metrics.get('f1', 0)*100:.1f}%")
-                            
-                            cm = metrics.get("confusion_matrix", [[0, 0], [0, 0]])
-                            if cm:
-                                st.markdown("### Confusion Matrix")
-                                cm_df = pd.DataFrame(
-                                    cm,
-                                    index=["Actual Active", "Actual Churned"],
-                                    columns=["Predicted Active", "Predicted Churned"]
-                                )
-                                st.dataframe(cm_df, use_container_width=True)
-                                if "roc_auc" in metrics:
-                                    st.caption(f"ROC AUC: {metrics['roc_auc']:.3f}")
                         else:
-                            st.error(f"{message}")
+                            st.error(message)
     
     # ==============================
     # TAB 3: AT-RISK CUSTOMERS
@@ -869,9 +691,7 @@ def churn_prediction_dashboard():
             if st.button("Identify At-Risk Customers", type="primary", use_container_width=True):
                 with st.spinner("Analyzing customers..."):
                     rfm_df = calculate_rfm_metrics(
-                        load_customer_transactions() if not load_customer_transactions().empty else pd.DataFrame(),
-                        sales_df,
-                        customers_df
+                        pd.DataFrame(), sales_df, customers_df
                     )
                     
                     if not rfm_df.empty:
@@ -886,9 +706,9 @@ def churn_prediction_dashboard():
                                 st.session_state.churn_results = results.sort_values(
                                     "churn_probability", ascending=False
                                 )
-                                st.success(f"{message}")
+                                st.success(message)
                             else:
-                                st.error(f"{message}")
+                                st.error(message)
             
             if st.session_state.churn_results is not None:
                 results_df = st.session_state.churn_results
@@ -899,8 +719,6 @@ def churn_prediction_dashboard():
                         "Filter by Risk Level",
                         ["All", "HIGH", "MEDIUM", "LOW", "VERY LOW"]
                     )
-                with col2:
-                    st.caption("Sort by probability (highest risk first)")
                 
                 filtered_df = results_df.copy()
                 if risk_filter != "All":
@@ -908,7 +726,6 @@ def churn_prediction_dashboard():
                 
                 high_risk = len(results_df[results_df["risk_level"] == "HIGH"])
                 medium_risk = len(results_df[results_df["risk_level"] == "MEDIUM"])
-                low_risk = len(results_df[results_df["risk_level"] == "LOW"])
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -916,7 +733,7 @@ def churn_prediction_dashboard():
                 with col2:
                     st.warning(f"Medium Risk: {medium_risk}")
                 with col3:
-                    st.info(f"Low Risk: {low_risk}")
+                    st.info(f"Total Analyzed: {len(results_df)}")
                 
                 st.markdown("---")
                 
@@ -940,14 +757,6 @@ def churn_prediction_dashboard():
                             ),
                             "monetary": st.column_config.NumberColumn("Total Spent", format="$%.2f")
                         }
-                    )
-                    
-                    csv = filtered_df[available_cols].to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="Download At-Risk Customers (CSV)",
-                        data=csv,
-                        file_name=f"at_risk_customers_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
                     )
     
     # ==============================
@@ -974,86 +783,25 @@ def churn_prediction_dashboard():
                         if not customer_results.empty:
                             selected_customer = customer_results.iloc[0]
                             customer_name = safe_str(selected_customer.get(customer_col, ""))
-                            customer_phone = safe_str(selected_customer.get("phone", ""))
                             
-                            rfm_df = calculate_rfm_metrics(
-                                load_customer_transactions() if not load_customer_transactions().empty else pd.DataFrame(),
-                                sales_df,
-                                customers_df
-                            )
+                            st.markdown("### Customer Found")
+                            st.write(f"**Name:** {customer_name}")
+                            st.write(f"**Phone:** {safe_str(selected_customer.get('phone', ''))}")
                             
-                            if not rfm_df.empty:
-                                features_df = calculate_customer_features(
-                                    customers_df, rfm_df, loyalty_df, sales_df
-                                )
-                                
-                                customer_data = features_df[features_df["customer_name"] == customer_name]
-                                
-                                if not customer_data.empty:
-                                    row = customer_data.iloc[0].to_dict()
-                                    prediction = st.session_state.churn_model.predict(row)
-                                    
-                                    if prediction:
-                                        st.markdown("### Customer Risk Assessment")
-                                        
-                                        col1, col2, col3 = st.columns(3)
-                                        with col1:
-                                            st.metric("Customer", customer_name)
-                                        with col2:
-                                            st.metric("Phone", customer_phone)
-                                        with col3:
-                                            risk_color = {
-                                                "HIGH": "🔴",
-                                                "MEDIUM": "🟡",
-                                                "LOW": "🟢",
-                                                "VERY LOW": "✅"
-                                            }.get(prediction["risk_level"], "❓")
-                                            st.metric("Risk Level", f"{risk_color} {prediction['risk_level']}")
-                                        
-                                        st.markdown("### Churn Probability")
-                                        
-                                        fig_gauge = go.Figure(go.Indicator(
-                                            mode="gauge+number",
-                                            value=prediction["probability"],
-                                            title={"text": "Churn Probability"},
-                                            gauge={
-                                                "axis": {"range": [0, 100]},
-                                                "bar": {"color": "red" if prediction["probability"] > 40 else "orange" if prediction["probability"] > 20 else "green"},
-                                                "steps": [
-                                                    {"range": [0, 20], "color": "lightgreen"},
-                                                    {"range": [20, 40], "color": "yellow"},
-                                                    {"range": [40, 70], "color": "orange"},
-                                                    {"range": [70, 100], "color": "red"}
-                                                ]
-                                            }
-                                        ))
-                                        fig_gauge.update_layout(height=250)
-                                        st.plotly_chart(fig_gauge, use_container_width=True)
-                                        
-                                        st.markdown("### Recommendation")
-                                        st.info(prediction["recommendation"])
-                                        
-                                        with st.expander("Customer Details"):
-                                            details_cols = ["recency_days", "frequency", "monetary", "avg_order_value"]
-                                            details = {col: row.get(col, 0) for col in details_cols}
-                                            
-                                            col1, col2 = st.columns(2)
-                                            with col1:
-                                                st.write(f"**Days Since Last Purchase:** {details['recency_days']}")
-                                                st.write(f"**Total Purchases:** {details['frequency']}")
-                                            with col2:
-                                                st.write(f"**Total Spent:** ${details['monetary']:.2f}")
-                                                st.write(f"**Avg Order Value:** ${details['avg_order_value']:.2f}")
-                                    else:
-                                        st.warning("Could not generate prediction")
-                                else:
-                                    st.warning("No feature data available for this customer")
-                        else:
-                            st.warning("Customer not found")
+                            # Check if customer has sales
+                            sales_customer_col = get_customer_column(sales_df)
+                            has_sales = False
+                            if sales_customer_col:
+                                has_sales = any(sales_df[sales_customer_col].astype(str).str.contains(
+                                    customer_name, case=False, na=False
+                                ))
+                            
+                            if has_sales:
+                                st.success("This customer has sales records")
+                            else:
+                                st.warning("This customer has no sales records yet")
                     except Exception as e:
-                        st.error(f"Error searching customer: {str(e)}")
-            else:
-                st.warning("Customer column not found in data")
+                        st.error(f"Error: {str(e)}")
 
 
 # ==============================
