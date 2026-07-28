@@ -19,9 +19,9 @@ def welcome_page():
     
     # Get current time for greeting
     current_hour = datetime.now().hour
-    if current_hour < 10:
+    if current_hour < 12:
         greeting = "Good Morning"
-    elif current_hour < 15:
+    elif current_hour < 18:
         greeting = "Good Afternoon"
     else:
         greeting = "Good Evening"
