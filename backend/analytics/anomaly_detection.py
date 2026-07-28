@@ -919,23 +919,37 @@ def anomaly_detection_dashboard():
                 st.success("No anomalies found matching the filters!")
     
     # ==============================
-    # TAB 3: TRENDS & PATTERNS - FIXED
+    # TAB 3: TRENDS & PATTERNS - FIXED WITH DEDUPLICATION
     # ==============================
     with tab3:
         st.markdown("## Trends & Patterns")
+        st.caption("Sales trends with unduplicated revenue (each receipt counted once)")
         
         if sales_df is None or sales_df.empty:
             st.warning("No sales data available for trend analysis.")
         else:
             date_col = get_date_column(sales_df)
             amount_col = get_amount_column(sales_df)
+            receipt_col = "receipt_no" if "receipt_no" in sales_df.columns else None
             
             if date_col is None or amount_col is None:
                 st.warning("Required columns (date or amount) not found in sales data.")
             else:
+                # ==============================
+                # FIX: Deduplicate by receipt_no
+                # ==============================
+                working_df = sales_df.copy()
+                
+                if receipt_col:
+                    # Remove duplicate receipts to avoid revenue inflation
+                    working_df = working_df.drop_duplicates(subset=[receipt_col])
+                    st.caption(f"📊 Using {len(working_df)} unique receipts (deduplicated)")
+                else:
+                    st.caption("⚠️ No receipt_no column found - using all rows")
+                
                 # Convert to list of dicts for safe processing
                 sales_data = []
-                for _, row in sales_df.iterrows():
+                for _, row in working_df.iterrows():
                     try:
                         date_val = pd.to_datetime(row[date_col], errors='coerce')
                         if pd.notna(date_val):
@@ -1048,13 +1062,22 @@ def anomaly_detection_dashboard():
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
-                col1, col2, col3 = st.columns(3)
+                # ==============================
+                # FIX: Correct metrics from unduplicated data
+                # ==============================
+                total_revenue = sum(sales_values)
+                avg_daily = safe_mean(sales_values)
+                total_days = len(sales_values)
+                
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Avg Daily Sales", f"${safe_mean(sales_values):,.2f}")
+                    st.metric("Total Revenue", f"${total_revenue:,.2f}")
                 with col2:
-                    trend = "Increasing" if sales_values[-1] > sales_values[0] else "Decreasing"
-                    st.metric("Trend", trend)
+                    st.metric("Avg Daily Sales", f"${avg_daily:,.2f}")
                 with col3:
+                    trend = "📈 Increasing" if sales_values[-1] > sales_values[0] else "📉 Decreasing"
+                    st.metric("Trend", trend)
+                with col4:
                     st.metric("Anomalies Found", len(anomaly_points))
                 
                 # Day of Week Pattern
@@ -1086,6 +1109,22 @@ def anomaly_detection_dashboard():
                 fig2.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
                 fig2.update_layout(height=300)
                 st.plotly_chart(fig2, use_container_width=True)
+                
+                # Additional stats
+                st.markdown("### Summary Statistics")
+                
+                stats_data = {
+                    "Metric": ["Total Days", "Average Daily Sales", "Highest Day", "Lowest Day", "Total Revenue"],
+                    "Value": [
+                        total_days,
+                        f"${avg_daily:,.2f}",
+                        f"${max(sales_values):,.2f}",
+                        f"${min(sales_values):,.2f}",
+                        f"${total_revenue:,.2f}"
+                    ]
+                }
+                stats_df = pd.DataFrame(stats_data)
+                st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
 
 # ==============================
