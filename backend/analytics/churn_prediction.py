@@ -105,16 +105,6 @@ def get_amount_column(df):
     return None
 
 
-def get_payment_method_column(df):
-    """Find payment method column"""
-    if df is None or df.empty:
-        return None
-    for col in ["payment_method", "payment_type", "payment"]:
-        if col in df.columns:
-            return col
-    return None
-
-
 def get_receipt_column(df):
     """Find receipt number column"""
     if df is None or df.empty:
@@ -290,9 +280,10 @@ def calculate_rfm_metrics(sales_df, customers_df):
     return pd.DataFrame(rfm_data)
 
 
-def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
+def calculate_customer_features(customers_df, rfm_df, loyalty_df):
     """
     Build comprehensive feature set for each customer.
+    SIMPLIFIED: Only use features that are reliably available
     """
     if customers_df.empty:
         return pd.DataFrame()
@@ -331,6 +322,7 @@ def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
             except:
                 loyalty_points = 0.0
         
+        # Only use features we can reliably calculate
         features.append({
             "customer_name": customer_name,
             "phone": customer_phone,
@@ -365,16 +357,35 @@ class ChurnPredictor:
         if features_df.empty:
             return None, None, None, None
         
+        # Define the exact features used for training
         self.feature_columns = [
-            "recency_days", "frequency", "monetary", "avg_order_value", "loyalty_points"
+            "recency_days", 
+            "frequency", 
+            "monetary", 
+            "avg_order_value", 
+            "loyalty_points"
         ]
         
+        # Verify all features exist
+        missing_cols = [col for col in self.feature_columns if col not in features_df.columns]
+        if missing_cols:
+            st.error(f"Missing columns in training data: {missing_cols}")
+            return None, None, None, None
+        
         X = features_df[self.feature_columns].copy()
+        
+        # Convert to numeric
         for col in X.columns:
             X[col] = pd.to_numeric(X[col], errors="coerce").fillna(0)
         
+        # Get target
+        if "is_churned" not in features_df.columns:
+            st.error("Target column 'is_churned' not found")
+            return None, None, None, None
+            
         y = pd.to_numeric(features_df["is_churned"], errors="coerce").fillna(1).values
         
+        # Scale features
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
         
@@ -398,13 +409,18 @@ class ChurnPredictor:
         if n_active == 0:
             return False, "No active customers found. Need both active and churned customers."
         
+        # Split data
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state, stratify=y
         )
         
         self.model = RandomForestClassifier(
-            n_estimators=100, max_depth=10, min_samples_split=5,
-            min_samples_leaf=2, random_state=random_state, class_weight="balanced"
+            n_estimators=100, 
+            max_depth=10, 
+            min_samples_split=5,
+            min_samples_leaf=2, 
+            random_state=random_state, 
+            class_weight="balanced"
         )
         
         self.model.fit(X_train, y_train)
@@ -435,12 +451,21 @@ class ChurnPredictor:
             return None, "Model not trained yet"
         
         try:
+            # Ensure we have the exact same columns as training
+            missing_cols = [col for col in self.feature_columns if col not in features_df.columns]
+            if missing_cols:
+                return None, f"Missing columns: {missing_cols}"
+            
             X = features_df[self.feature_columns].copy()
+            
+            # Convert to numeric
             for col in X.columns:
                 X[col] = pd.to_numeric(X[col], errors="coerce").fillna(0)
             
+            # Scale
             X_scaled = self.scaler.transform(X)
             
+            # Predict
             probabilities = self.model.predict_proba(X_scaled)[:, 1]
             predictions = self.model.predict(X_scaled)
             
@@ -580,6 +605,25 @@ def churn_prediction_dashboard():
                     st.metric("Recall", f"{metrics.get('recall', 0)*100:.1f}%")
                 with col4:
                     st.metric("F1 Score", f"{metrics.get('f1', 0)*100:.1f}%")
+                
+                if st.session_state.churn_model.feature_importance:
+                    st.markdown("### Feature Importance")
+                    imp_df = pd.DataFrame({
+                        "Feature": list(st.session_state.churn_model.feature_importance.keys()),
+                        "Importance": list(st.session_state.churn_model.feature_importance.values())
+                    }).sort_values("Importance", ascending=False)
+                    
+                    fig = px.bar(
+                        imp_df,
+                        x="Importance",
+                        y="Feature",
+                        orientation="h",
+                        title="What Drives Churn?",
+                        color="Importance",
+                        color_continuous_scale="Reds"
+                    )
+                    fig.update_layout(height=350)
+                    st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("⚠️ Model not trained yet.")
             
@@ -588,7 +632,7 @@ def churn_prediction_dashboard():
                     with st.spinner("Training model..."):
                         rfm_df = calculate_rfm_metrics(sales_df, customers_df)
                         if not rfm_df.empty:
-                            features_df = calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df)
+                            features_df = calculate_customer_features(customers_df, rfm_df, loyalty_df)
                             if not features_df.empty:
                                 success, message = st.session_state.churn_model.train(features_df)
                                 if success:
@@ -631,7 +675,7 @@ def churn_prediction_dashboard():
                 with st.spinner("Training model..."):
                     rfm_df = calculate_rfm_metrics(sales_df, customers_df)
                     if not rfm_df.empty:
-                        features_df = calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df)
+                        features_df = calculate_customer_features(customers_df, rfm_df, loyalty_df)
                         if not features_df.empty:
                             st.session_state.churn_model = ChurnPredictor()
                             success, message = st.session_state.churn_model.train(features_df)
@@ -657,7 +701,7 @@ def churn_prediction_dashboard():
                 with st.spinner("Analyzing customers..."):
                     rfm_df = calculate_rfm_metrics(sales_df, customers_df)
                     if not rfm_df.empty:
-                        features_df = calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df)
+                        features_df = calculate_customer_features(customers_df, rfm_df, loyalty_df)
                         if not features_df.empty:
                             results, message = st.session_state.churn_model.predict_batch(features_df)
                             if results is not None:
