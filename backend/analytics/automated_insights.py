@@ -459,6 +459,7 @@ class InsightsGenerator:
             except:
                 pass
         
+        # FORCE SET total_expenses in metrics
         self.metrics["total_expenses"] = total_expenses
         
         # Monthly expenses (last 30 days)
@@ -505,7 +506,7 @@ class InsightsGenerator:
             })
         
         # ==============================
-        # FIX 2: Revenue and Profit - ALWAYS use unduplicated revenue
+        # FIX 2: Revenue and Profit - FORCE CALCULATION
         # ==============================
         total_revenue = 0
         
@@ -523,53 +524,54 @@ class InsightsGenerator:
                     if "date" in sales_undup.columns:
                         sales_undup = sales_undup.drop_duplicates(subset=["date", amount_col])
                     total_revenue = safe_float(sales_undup[amount_col].sum())
-                
-                # CRITICAL FIX: Always use the unduplicated revenue for profit calculation
-                self.metrics["total_revenue"] = total_revenue
-                
-                # Calculate profit using unduplicated revenue
-                profit = total_revenue - total_expenses
-                margin = (profit / total_revenue * 100) if total_revenue > 0 else 0
-                
-                self.metrics["profit"] = profit
-                self.metrics["profit_margin"] = margin
-                
-                if total_revenue > 0:
-                    insights.append({
-                        "type": "financial",
-                        "message": f"Total revenue: ${total_revenue:,.2f}",
-                        "priority": "info",
-                        "detail": f"Based on {len(sales_undup)} unique receipts"
-                    })
-                    
-                    insights.append({
-                        "type": "financial",
-                        "message": f"Total expenses: ${total_expenses:,.2f}",
-                        "priority": "info",
-                        "detail": f"Profit: ${profit:,.2f}"
-                    })
-                
-                if margin < 10 and total_revenue > 0:
-                    insights.append({
-                        "type": "financial",
-                        "message": f"Low profit margin: {margin:.1f}%",
-                        "priority": "medium",
-                        "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
-                    })
-                elif margin > 20 and total_revenue > 0:
-                    insights.append({
-                        "type": "financial",
-                        "message": f"Healthy profit margin: {margin:.1f}%",
-                        "priority": "success",
-                        "detail": f"Profit: ${profit:,.2f}"
-                    })
-                elif total_revenue > 0:
-                    insights.append({
-                        "type": "financial",
-                        "message": f"Profit margin: {margin:.1f}%",
-                        "priority": "info",
-                        "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
-                    })
+        
+        # FORCE SET total_revenue in metrics
+        self.metrics["total_revenue"] = total_revenue
+        
+        # FORCE CALCULATE profit using unduplicated revenue
+        profit = total_revenue - total_expenses
+        margin = (profit / total_revenue * 100) if total_revenue > 0 else 0
+        
+        # FORCE SET profit and margin in metrics (overwriting any previous values)
+        self.metrics["profit"] = profit
+        self.metrics["profit_margin"] = margin
+        
+        if total_revenue > 0:
+            insights.append({
+                "type": "financial",
+                "message": f"Total revenue: ${total_revenue:,.2f}",
+                "priority": "info",
+                "detail": f"Based on {len(sales_undup)} unique receipts"
+            })
+            
+            insights.append({
+                "type": "financial",
+                "message": f"Total expenses: ${total_expenses:,.2f}",
+                "priority": "info",
+                "detail": f"Profit: ${profit:,.2f}"
+            })
+        
+        if margin < 10 and total_revenue > 0:
+            insights.append({
+                "type": "financial",
+                "message": f"Low profit margin: {margin:.1f}%",
+                "priority": "medium",
+                "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
+            })
+        elif margin > 20 and total_revenue > 0:
+            insights.append({
+                "type": "financial",
+                "message": f"Healthy profit margin: {margin:.1f}%",
+                "priority": "success",
+                "detail": f"Profit: ${profit:,.2f}"
+            })
+        elif total_revenue > 0:
+            insights.append({
+                "type": "financial",
+                "message": f"Profit margin: {margin:.1f}%",
+                "priority": "info",
+                "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
+            })
         else:
             self.metrics["total_revenue"] = 0
             self.metrics["profit"] = 0
