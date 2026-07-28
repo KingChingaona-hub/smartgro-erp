@@ -29,7 +29,6 @@ DATA_DIR = Path("data")
 CASH_FILE = DATA_DIR / "cash_register.csv"
 CASH_FILE.parent.mkdir(exist_ok=True)
 
-# New files
 PETTY_CASH_FILE = DATA_DIR / "petty_cash.csv"
 BANK_DEPOSITS_FILE = DATA_DIR / "bank_deposits.csv"
 CASH_FLOAT_FILE = DATA_DIR / "cash_float.csv"
@@ -56,7 +55,6 @@ def init_cash_register():
         ])
         df.to_csv(CASH_FILE, index=False)
     
-    # Initialize petty cash file
     if not PETTY_CASH_FILE.exists():
         df = pd.DataFrame(columns=[
             "date",
@@ -71,7 +69,6 @@ def init_cash_register():
         ])
         df.to_csv(PETTY_CASH_FILE, index=False)
     
-    # Initialize bank deposits file
     if not BANK_DEPOSITS_FILE.exists():
         df = pd.DataFrame(columns=[
             "date",
@@ -85,7 +82,6 @@ def init_cash_register():
         ])
         df.to_csv(BANK_DEPOSITS_FILE, index=False)
     
-    # Initialize cash float file
     if not CASH_FLOAT_FILE.exists():
         df = pd.DataFrame(columns=[
             "date",
@@ -254,7 +250,6 @@ def record_petty_cash(description, amount, category, shift_id="", approved_by=""
     if not shift_id:
         shift_id = st.session_state.get("active_shift_id", "")
     
-    # Record in main cash register
     df = load_cash()
     
     new_row = {
@@ -274,7 +269,6 @@ def record_petty_cash(description, amount, category, shift_id="", approved_by=""
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_cash(df)
     
-    # Record in petty cash log
     petty_df = load_petty_cash()
     petty_new_row = {
         "date": datetime.now(),
@@ -335,7 +329,6 @@ def record_bank_deposit(amount, bank_name, shift_id="", reference_no="", notes="
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_cash(df)
     
-    # Record in bank deposits log
     deposit_df = load_bank_deposits()
     deposit_new_row = {
         "date": datetime.now(),
@@ -454,10 +447,10 @@ def record_cash_expense(amount, description, shift_id=""):
 
 
 # ==============================
-# GET CASH SUMMARY (FIXED - Corrected variance calculation)
+# GET CASH SUMMARY (FIXED - Returns TODAY'S data only)
 # ==============================
-def get_cash_summary(shift_id=None):
-    """Get comprehensive cash summary for a shift or all time"""
+def get_cash_summary(shift_id=None, date=None):
+    """Get comprehensive cash summary for today or a specific shift"""
     df = load_cash()
     
     if df.empty:
@@ -477,8 +470,32 @@ def get_cash_summary(shift_id=None):
             "net_cash_flow": 0
         }
     
+    # If shift_id provided, filter by shift
     if shift_id:
         df = df[df["shift_id"] == shift_id]
+    else:
+        # Otherwise, filter by today's date
+        if date is None:
+            date = datetime.now().date()
+        df["date_only"] = df["date"].dt.date
+        df = df[df["date_only"] == date]
+    
+    if df.empty:
+        return {
+            "opening_cash": 0,
+            "cash_sales": 0,
+            "credit_sales": 0,
+            "debt_payments": 0,
+            "petty_cash": 0,
+            "deposits": 0,
+            "expenses": 0,
+            "closing_cash": 0,
+            "expected_cash": 0,
+            "variance": 0,
+            "total_revenue": 0,
+            "transactions_count": 0,
+            "net_cash_flow": 0
+        }
     
     df["amount"] = df["amount"].apply(to_float)
     
@@ -513,7 +530,7 @@ def get_cash_summary(shift_id=None):
 
 
 # ==============================
-# GET DAILY REPORT (FIXED - Branch filtering)
+# GET DAILY REPORT
 # ==============================
 def get_daily_report(date=None, branch_id=None):
     """Get cash report for a specific date and branch"""
@@ -628,7 +645,7 @@ def get_cashier_performance(branch_id=None):
 # GET BRANCH CASH SUMMARY
 # ==============================
 def get_branch_cash_summary(branch_id=None):
-    """Get cash summary for a specific branch"""
+    """Get cash summary for a specific branch (all time)"""
     if branch_id is None:
         branch_id, _ = get_current_branch_info()
     
@@ -658,6 +675,83 @@ def get_branch_cash_summary(branch_id=None):
         "total_expenses": to_float(df[df["type"] == "EXPENSE"]["amount"].sum()),
         "total_revenue": to_float(df[df["type"].isin(["CASH_SALE", "CREDIT_SALE"])]["amount"].sum()),
         "transaction_count": len(df[df["type"].isin(["CASH_SALE", "CREDIT_SALE"])])
+    }
+
+
+# ==============================
+# GET TODAY'S CASH SUMMARY (Helper function for dashboard)
+# ==============================
+def get_today_cash_summary(branch_id=None):
+    """Get cash summary for today only"""
+    if branch_id is None:
+        branch_id, _ = get_current_branch_info()
+    
+    df = load_cash()
+    
+    if df.empty:
+        return {
+            "opening_cash": 0,
+            "cash_sales": 0,
+            "credit_sales": 0,
+            "debt_payments": 0,
+            "petty_cash": 0,
+            "deposits": 0,
+            "expenses": 0,
+            "closing_cash": 0,
+            "expected_cash": 0,
+            "variance": 0,
+            "total_revenue": 0,
+            "transactions_count": 0
+        }
+    
+    today = datetime.now().date()
+    df["date_only"] = df["date"].dt.date
+    df = df[df["date_only"] == today]
+    df = df[df["branch_id"] == branch_id]
+    
+    if df.empty:
+        return {
+            "opening_cash": 0,
+            "cash_sales": 0,
+            "credit_sales": 0,
+            "debt_payments": 0,
+            "petty_cash": 0,
+            "deposits": 0,
+            "expenses": 0,
+            "closing_cash": 0,
+            "expected_cash": 0,
+            "variance": 0,
+            "total_revenue": 0,
+            "transactions_count": 0
+        }
+    
+    df["amount"] = df["amount"].apply(to_float)
+    
+    opening = df[df["type"] == "OPENING"]["amount"].sum()
+    cash_sales = df[df["type"] == "CASH_SALE"]["amount"].sum()
+    credit_sales = df[df["type"] == "CREDIT_SALE"]["amount"].sum()
+    debt_payments = df[df["type"] == "DEBT_PAYMENT"]["amount"].sum()
+    petty_cash = df[df["type"] == "PETTY_CASH"]["amount"].sum()
+    deposits = df[df["type"] == "DEPOSIT"]["amount"].sum()
+    expenses = df[df["type"] == "EXPENSE"]["amount"].sum()
+    closing = df[df["type"] == "CLOSING"]["amount"].sum()
+    
+    expected_cash = opening + cash_sales + debt_payments + petty_cash + deposits + expenses
+    variance = closing - expected_cash if closing != 0 else 0
+    
+    return {
+        "opening_cash": opening,
+        "cash_sales": cash_sales,
+        "credit_sales": credit_sales,
+        "debt_payments": debt_payments,
+        "petty_cash": abs(petty_cash),
+        "deposits": abs(deposits),
+        "expenses": abs(expenses),
+        "closing_cash": closing if closing != 0 else expected_cash,
+        "expected_cash": expected_cash,
+        "variance": variance,
+        "total_revenue": cash_sales + credit_sales,
+        "transactions_count": len(df[df["type"].isin(["CASH_SALE", "CREDIT_SALE"])])
     }
 
 
