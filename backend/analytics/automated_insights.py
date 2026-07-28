@@ -28,6 +28,7 @@ from backend.core.db_adapter import (
     to_float
 )
 from backend.integrations.email_reports import get_email_config, send_email
+from backend.modules.expenses import load_expenses as load_expenses_direct
 
 
 # ==============================
@@ -72,8 +73,34 @@ def get_amount_column(df):
     return None
 
 
+def get_receipt_column(df):
+    """Find receipt number column"""
+    if df is None or df.empty:
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_total_expenses(expenses_df):
+    """Calculate total expenses safely"""
+    if expenses_df is None or expenses_df.empty:
+        return 0.0
+    
+    if "amount" in expenses_df.columns:
+        return safe_float(expenses_df["amount"].sum())
+    
+    # Try to find amount column by name
+    for col in ["amount", "total", "value"]:
+        if col in expenses_df.columns:
+            return safe_float(expenses_df[col].sum())
+    
+    return 0.0
+
+
 # ==============================
-# INSIGHTS GENERATOR
+# INSIGHTS GENERATOR - FIXED
 # ==============================
 
 class InsightsGenerator:
@@ -92,7 +119,7 @@ class InsightsGenerator:
         sales_df = load_sales()
         products_df = load_products()
         customers_df = load_customers()
-        expenses_df = load_expenses()
+        expenses_df = load_expenses_direct()  # Use direct loader
         debtors_df = load_debtors()
         
         today = datetime.now().date()
@@ -105,7 +132,7 @@ class InsightsGenerator:
         self.recommendations = []
         self.alerts = []
         
-        # 1. Sales Insights
+        # 1. Sales Insights - WITH DEDUPLICATION
         sales_insights = self._analyze_sales(sales_df, today, yesterday, week_ago, month_ago)
         self.insights.extend(sales_insights)
         
@@ -117,7 +144,7 @@ class InsightsGenerator:
         customer_insights = self._analyze_customers(customers_df, sales_df)
         self.insights.extend(customer_insights)
         
-        # 4. Financial Insights
+        # 4. Financial Insights - FIXED with correct expenses
         financial_insights = self._analyze_financials(expenses_df, sales_df, debtors_df)
         self.insights.extend(financial_insights)
         
@@ -127,7 +154,7 @@ class InsightsGenerator:
         return self._format_report()
     
     def _analyze_sales(self, sales_df, today, yesterday, week_ago, month_ago):
-        """Analyze sales data"""
+        """Analyze sales data - WITH DEDUPLICATION"""
         insights = []
         
         if sales_df.empty:
@@ -135,6 +162,7 @@ class InsightsGenerator:
         
         date_col = get_date_column(sales_df)
         amount_col = get_amount_column(sales_df)
+        receipt_col = get_receipt_column(sales_df)
         
         if date_col is None or amount_col is None:
             return [{"type": "sales", "message": "Sales data incomplete", "priority": "info"}]
@@ -144,6 +172,12 @@ class InsightsGenerator:
         
         if sales_df.empty:
             return [{"type": "sales", "message": "No valid sales dates", "priority": "info"}]
+        
+        # ==============================
+        # FIX: Deduplicate by receipt_no
+        # ==============================
+        if receipt_col and receipt_col in sales_df.columns:
+            sales_df = sales_df.drop_duplicates(subset=[receipt_col])
         
         # Today's sales
         today_sales = sales_df[sales_df[date_col].dt.date == today]
@@ -176,7 +210,7 @@ class InsightsGenerator:
                 if growth > 20:
                     insights.append({
                         "type": "sales",
-                        "message": f"Sales up {growth:.0f}% compared to yesterday!",
+                        "message": f"Sales up {growth:.0f}% compared to yesterday",
                         "priority": "high",
                         "detail": f"Today: ${today_revenue:,.2f} vs Yesterday: ${yesterday_revenue:,.2f}"
                     })
@@ -215,7 +249,7 @@ class InsightsGenerator:
                 "type": "sales",
                 "message": f"Weekly sales: ${week_revenue:,.2f}",
                 "priority": "info",
-                "detail": f"Last 7 days performance"
+                "detail": "Last 7 days performance"
             })
         
         return insights
@@ -230,7 +264,19 @@ class InsightsGenerator:
         # Stock levels
         total_products = len(products_df)
         out_of_stock = len(products_df[products_df["stock"] == 0])
-        low_stock = len(products_df[products_df["stock"] <= products_df["reorder_level"]])
+        
+        # Find reorder level column
+        reorder_col = None
+        for col in ["reorder_level", "reorder_point", "min_stock"]:
+            if col in products_df.columns:
+                reorder_col = col
+                break
+        
+        if reorder_col:
+            low_stock = len(products_df[products_df["stock"] <= products_df[reorder_col]])
+        else:
+            # If no reorder level, consider stock < 5 as low
+            low_stock = len(products_df[(products_df["stock"] > 0) & (products_df["stock"] < 5)])
         
         self.metrics["total_products"] = total_products
         self.metrics["out_of_stock"] = out_of_stock
@@ -242,7 +288,7 @@ class InsightsGenerator:
             names = ", ".join(out_of_stock_products)
             insights.append({
                 "type": "products",
-                "message": f"{out_of_stock} products OUT OF STOCK",
+                "message": f"{out_of_stock} products out of stock",
                 "priority": "critical",
                 "detail": f"Affected: {names}" + ("..." if len(out_of_stock_products) > 3 else "")
             })
@@ -265,15 +311,23 @@ class InsightsGenerator:
         
         # Top selling products
         if not sales_df.empty and "name" in sales_df.columns:
-            top_products = sales_df.groupby("name")["items"].sum().nlargest(3)
-            if not top_products.empty:
-                top_names = top_products.index.tolist()
-                insights.append({
-                    "type": "products",
-                    "message": f"Top selling products: {', '.join(top_names)}",
-                    "priority": "info",
-                    "detail": "Focus on these best-sellers"
-                })
+            # Deduplicate sales for product analysis
+            receipt_col = get_receipt_column(sales_df)
+            if receipt_col and receipt_col in sales_df.columns:
+                sales_products = sales_df.drop_duplicates(subset=[receipt_col])
+            else:
+                sales_products = sales_df
+            
+            if "items" in sales_products.columns:
+                top_products = sales_products.groupby("name")["items"].sum().nlargest(3)
+                if not top_products.empty:
+                    top_names = top_products.index.tolist()
+                    insights.append({
+                        "type": "products",
+                        "message": f"Top selling products: {', '.join(top_names)}",
+                        "priority": "info",
+                        "detail": "Focus on these best-sellers"
+                    })
         
         return insights
     
@@ -288,10 +342,16 @@ class InsightsGenerator:
         self.metrics["total_customers"] = total_customers
         
         # New customers (last 30 days)
-        if "last_purchase_date" in customers_df.columns:
-            customers_df["last_purchase_date"] = pd.to_datetime(customers_df["last_purchase_date"], errors="coerce")
+        date_col = None
+        for col in ["created_at", "join_date", "date_joined", "last_purchase_date"]:
+            if col in customers_df.columns:
+                date_col = col
+                break
+        
+        if date_col:
+            customers_df[date_col] = pd.to_datetime(customers_df[date_col], errors="coerce")
             month_ago = datetime.now() - timedelta(days=30)
-            new_customers = len(customers_df[customers_df["last_purchase_date"] >= month_ago])
+            new_customers = len(customers_df[customers_df[date_col] >= month_ago])
             self.metrics["new_customers"] = new_customers
             
             if new_customers > 0:
@@ -303,99 +363,174 @@ class InsightsGenerator:
                 })
         
         # Customer retention
-        if not sales_df.empty and "customer" in sales_df.columns:
-            repeat_customers = sales_df.groupby("customer").filter(lambda x: len(x) > 1)["customer"].nunique()
-            self.metrics["repeat_customers"] = repeat_customers
+        if not sales_df.empty:
+            customer_col = None
+            for col in ["customer", "customer_name", "client"]:
+                if col in sales_df.columns:
+                    customer_col = col
+                    break
             
-            if repeat_customers > 0:
-                retention_rate = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
-                if retention_rate < 20:
-                    insights.append({
-                        "type": "customers",
-                        "message": f"Low retention rate: {retention_rate:.1f}%",
-                        "priority": "medium",
-                        "detail": "Consider loyalty programs to improve retention"
-                    })
+            if customer_col:
+                # Deduplicate sales for customer analysis
+                receipt_col = get_receipt_column(sales_df)
+                if receipt_col and receipt_col in sales_df.columns:
+                    sales_customers = sales_df.drop_duplicates(subset=[receipt_col])
                 else:
-                    insights.append({
-                        "type": "customers",
-                        "message": f"Customer retention: {retention_rate:.1f}%",
-                        "priority": "success",
-                        "detail": f"{repeat_customers} repeat customers"
-                    })
+                    sales_customers = sales_df
+                
+                repeat_customers = sales_customers.groupby(customer_col).filter(lambda x: len(x) > 1)[customer_col].nunique()
+                self.metrics["repeat_customers"] = repeat_customers
+                
+                if repeat_customers > 0:
+                    retention_rate = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
+                    if retention_rate < 20:
+                        insights.append({
+                            "type": "customers",
+                            "message": f"Low retention rate: {retention_rate:.1f}%",
+                            "priority": "medium",
+                            "detail": "Consider loyalty programs to improve retention"
+                        })
+                    else:
+                        insights.append({
+                            "type": "customers",
+                            "message": f"Customer retention: {retention_rate:.1f}%",
+                            "priority": "success",
+                            "detail": f"{repeat_customers} repeat customers"
+                        })
         
         return insights
     
     def _analyze_financials(self, expenses_df, sales_df, debtors_df):
-        """Analyze financial data"""
+        """Analyze financial data - FIXED with correct expenses"""
         insights = []
         
-        # Expenses
-        if not expenses_df.empty and "amount" in expenses_df.columns:
-            total_expenses = safe_float(expenses_df["amount"].sum())
-            self.metrics["total_expenses"] = total_expenses
-            
-            # Monthly expenses
+        # ==============================
+        # FIX: Expenses - Use direct loader and calculate correctly
+        # ==============================
+        total_expenses = get_total_expenses(expenses_df)
+        self.metrics["total_expenses"] = total_expenses
+        
+        # Monthly expenses (last 30 days)
+        monthly_expenses = 0
+        if expenses_df is not None and not expenses_df.empty:
             date_col = get_date_column(expenses_df)
             if date_col:
                 expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
+                expenses_df = expenses_df.dropna(subset=[date_col])
                 month_ago = datetime.now() - timedelta(days=30)
-                monthly_expenses = safe_float(expenses_df[expenses_df[date_col] >= month_ago]["amount"].sum())
+                monthly_expenses = safe_float(expenses_df[expenses_df[date_col] >= month_ago]["amount"].sum()) if "amount" in expenses_df.columns else 0
                 self.metrics["monthly_expenses"] = monthly_expenses
-                
-                if monthly_expenses > 0:
-                    insights.append({
-                        "type": "financial",
-                        "message": f"Monthly expenses: ${monthly_expenses:,.2f}",
-                        "priority": "info",
-                        "detail": f"Total expenses: ${total_expenses:,.2f}"
-                    })
         
-        # Revenue vs Expenses
+        if monthly_expenses > 0:
+            insights.append({
+                "type": "financial",
+                "message": f"Monthly expenses: ${monthly_expenses:,.2f}",
+                "priority": "info",
+                "detail": f"Total expenses: ${total_expenses:,.2f}"
+            })
+        elif total_expenses > 0:
+            insights.append({
+                "type": "financial",
+                "message": f"Total expenses: ${total_expenses:,.2f}",
+                "priority": "info",
+                "detail": "Expenses recorded in system"
+            })
+        else:
+            insights.append({
+                "type": "financial",
+                "message": "No expenses recorded",
+                "priority": "info",
+                "detail": "Start recording expenses in the Expenses module"
+            })
+        
+        # ==============================
+        # FIX: Revenue and Profit - Use unduplicated revenue
+        # ==============================
         if not sales_df.empty:
             amount_col = get_amount_column(sales_df)
+            receipt_col = get_receipt_column(sales_df)
+            
             if amount_col:
-                total_revenue = safe_float(sales_df[amount_col].sum())
+                # Deduplicate sales for revenue calculation
+                if receipt_col and receipt_col in sales_df.columns:
+                    sales_undup = sales_df.drop_duplicates(subset=[receipt_col])
+                else:
+                    sales_undup = sales_df
+                
+                total_revenue = safe_float(sales_undup[amount_col].sum())
                 self.metrics["total_revenue"] = total_revenue
                 
                 # Calculate profit
-                total_expenses = self.metrics.get("total_expenses", 0)
-                if total_revenue > 0 and total_expenses > 0:
-                    profit = total_revenue - total_expenses
-                    margin = (profit / total_revenue * 100)
-                    self.metrics["profit"] = profit
-                    self.metrics["profit_margin"] = margin
-                    
-                    if margin < 10:
-                        insights.append({
-                            "type": "financial",
-                            "message": f"Low profit margin: {margin:.1f}%",
-                            "priority": "medium",
-                            "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
-                        })
-                    else:
-                        insights.append({
-                            "type": "financial",
-                            "message": f"Profit margin: {margin:.1f}%",
-                            "priority": "success",
-                            "detail": f"Profit: ${profit:,.2f}"
-                        })
+                profit = total_revenue - total_expenses
+                margin = (profit / total_revenue * 100) if total_revenue > 0 else 0
+                self.metrics["profit"] = profit
+                self.metrics["profit_margin"] = margin
+                
+                if total_revenue > 0:
+                    insights.append({
+                        "type": "financial",
+                        "message": f"Total revenue: ${total_revenue:,.2f}",
+                        "priority": "info",
+                        "detail": f"Based on unduplicated receipts"
+                    })
+                
+                if margin < 10 and total_revenue > 0:
+                    insights.append({
+                        "type": "financial",
+                        "message": f"Low profit margin: {margin:.1f}%",
+                        "priority": "medium",
+                        "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
+                    })
+                elif margin > 20 and total_revenue > 0:
+                    insights.append({
+                        "type": "financial",
+                        "message": f"Healthy profit margin: {margin:.1f}%",
+                        "priority": "success",
+                        "detail": f"Profit: ${profit:,.2f}"
+                    })
+                elif total_revenue > 0:
+                    insights.append({
+                        "type": "financial",
+                        "message": f"Profit margin: {margin:.1f}%",
+                        "priority": "info",
+                        "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
+                    })
+        else:
+            self.metrics["total_revenue"] = 0
+            self.metrics["profit"] = 0
+            self.metrics["profit_margin"] = 0
+            insights.append({
+                "type": "financial",
+                "message": "No sales data for financial analysis",
+                "priority": "info",
+                "detail": "Complete some sales to see financial metrics"
+            })
         
         # Debtors
-        if not debtors_df.empty and "balance" in debtors_df.columns:
-            total_debt = safe_float(debtors_df["balance"].sum())
-            self.metrics["total_debt"] = total_debt
+        if not debtors_df.empty:
+            balance_col = None
+            for col in ["balance", "outstanding", "amount_due"]:
+                if col in debtors_df.columns:
+                    balance_col = col
+                    break
             
-            overdue = len(debtors_df[debtors_df["balance"] > 0])  # Simplified
-            self.metrics["debtors_count"] = overdue
-            
-            if total_debt > 0:
-                insights.append({
-                    "type": "financial",
-                    "message": f"Outstanding debt: ${total_debt:,.2f}",
-                    "priority": "medium" if total_debt > 1000 else "info",
-                    "detail": f"{overdue} customers with outstanding balance"
-                })
+            if balance_col:
+                total_debt = safe_float(debtors_df[balance_col].sum())
+                self.metrics["total_debt"] = total_debt
+                
+                debtors_count = len(debtors_df[debtors_df[balance_col] > 0])
+                self.metrics["debtors_count"] = debtors_count
+                
+                if total_debt > 0:
+                    insights.append({
+                        "type": "financial",
+                        "message": f"Outstanding debt: ${total_debt:,.2f}",
+                        "priority": "medium" if total_debt > 1000 else "info",
+                        "detail": f"{debtors_count} customers with outstanding balance"
+                    })
+            else:
+                self.metrics["total_debt"] = 0
+                self.metrics["debtors_count"] = 0
         
         return insights
     
@@ -414,23 +549,37 @@ class InsightsGenerator:
                 })
         
         # Debt alerts
-        if not debtors_df.empty and "balance" in debtors_df.columns:
-            high_debt = debtors_df[debtors_df["balance"] > 1000]
-            if not high_debt.empty:
-                alerts.append({
-                    "type": "debt",
-                    "message": f"{len(high_debt)} customers with high debt (>$1000)",
-                    "severity": "warning"
-                })
+        if not debtors_df.empty:
+            balance_col = None
+            for col in ["balance", "outstanding", "amount_due"]:
+                if col in debtors_df.columns:
+                    balance_col = col
+                    break
+            
+            if balance_col:
+                high_debt = debtors_df[debtors_df[balance_col] > 1000]
+                if not high_debt.empty:
+                    alerts.append({
+                        "type": "debt",
+                        "message": f"{len(high_debt)} customers with high debt (>$1000)",
+                        "severity": "warning"
+                    })
         
         # Sales alerts
         if not sales_df.empty:
             date_col = get_date_column(sales_df)
-            amount_col = get_amount_column(sales_df)
-            if date_col and amount_col:
+            receipt_col = get_receipt_column(sales_df)
+            
+            if date_col:
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 today = datetime.now().date()
-                today_sales = sales_df[sales_df[date_col].dt.date == today]
+                
+                # Deduplicate for today's sales check
+                if receipt_col and receipt_col in sales_df.columns:
+                    today_sales = sales_df[sales_df[date_col].dt.date == today].drop_duplicates(subset=[receipt_col])
+                else:
+                    today_sales = sales_df[sales_df[date_col].dt.date == today]
+                
                 if today_sales.empty:
                     alerts.append({
                         "type": "sales",
@@ -699,7 +848,7 @@ def generate_insights_email_html(insights_data):
             ("Products", f"{metrics.get('total_products', 0)}"),
             ("Customers", f"{metrics.get('total_customers', 0)}"),
             ("Low Stock", f"{metrics.get('low_stock', 0)}"),
-            ("Expenses", f"${metrics.get('total_expenses', 0):,.2f}"),
+            ("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}"),
             ("Profit", f"${metrics.get('profit', 0):,.2f}"),
             ("Debt", f"${metrics.get('total_debt', 0):,.2f}")
         ]
@@ -899,7 +1048,7 @@ def automated_insights_dashboard():
                 with col1:
                     st.metric("Low Stock", metrics.get('low_stock', 0))
                 with col2:
-                    st.metric("Expenses", f"${metrics.get('total_expenses', 0):,.2f}")
+                    st.metric("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}")
                 with col3:
                     st.metric("Profit", f"${metrics.get('profit', 0):,.2f}")
                 with col4:
@@ -912,12 +1061,12 @@ def automated_insights_dashboard():
                 for insight in insights:
                     priority = insight.get("priority", "info")
                     icon = {
-                        "critical": "🚨",
-                        "high": "⚠️",
-                        "medium": "📌",
-                        "info": "ℹ️",
-                        "success": "✅"
-                    }.get(priority, "ℹ️")
+                        "critical": "[CRITICAL]",
+                        "high": "[HIGH]",
+                        "medium": "[MEDIUM]",
+                        "info": "[INFO]",
+                        "success": "[OK]"
+                    }.get(priority, "[INFO]")
                     
                     if priority in ["critical", "high"]:
                         st.error(f"{icon} **{insight.get('message', '')}**")

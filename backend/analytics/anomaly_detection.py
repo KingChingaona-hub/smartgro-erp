@@ -945,7 +945,7 @@ def anomaly_detection_dashboard():
                     working_df = working_df.drop_duplicates(subset=[receipt_col])
                     st.caption(f"📊 Using {len(working_df)} unique receipts (deduplicated)")
                 else:
-                    st.caption("⚠️ No receipt_no column found - using all rows")
+                    st.caption("No receipt_no column found - using all rows")
                 
                 # Convert to list of dicts for safe processing
                 sales_data = []
