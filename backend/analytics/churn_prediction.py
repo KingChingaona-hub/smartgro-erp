@@ -133,14 +133,12 @@ def count_unique_customers_from_sales(sales_df):
     
     receipt_col = get_receipt_column(sales_df)
     
-    # Use receipt-level deduplication if possible
     if receipt_col:
         unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
         customers = unique_receipts[customer_col].astype(str).str.strip()
     else:
         customers = sales_df[customer_col].astype(str).str.strip()
     
-    # Filter out invalid customers
     valid_customers = customers[
         ~customers.str.lower().str.contains('walk-in', na=False) &
         ~customers.str.lower().str.contains('unknown', na=False) &
@@ -176,17 +174,14 @@ def get_customers_from_sales(sales_df):
     
     receipt_col = get_receipt_column(sales_df)
     
-    # Use receipt-level deduplication
     if receipt_col:
         unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
         customer_data = unique_receipts[[customer_col]].copy()
     else:
         customer_data = sales_df[[customer_col]].copy()
     
-    # Rename column
     customer_data.columns = ["customer_name"]
     
-    # Add phone if available
     if phone_col and phone_col in sales_df.columns:
         if receipt_col:
             phone_data = sales_df.drop_duplicates(subset=[receipt_col])[[phone_col]].copy()
@@ -196,7 +191,6 @@ def get_customers_from_sales(sales_df):
     else:
         customer_data["phone"] = ""
     
-    # Clean data
     customer_data = customer_data.drop_duplicates(subset=["customer_name"])
     customer_data = customer_data[
         ~customer_data["customer_name"].astype(str).str.lower().str.contains('walk-in', na=False) &
@@ -233,7 +227,6 @@ def calculate_rfm_metrics(sales_df, customers_df):
         if not customer_name or customer_name.strip() == "":
             continue
         
-        # Find sales for this customer
         customer_sales = pd.DataFrame()
         if not sales_df.empty and sales_customer_col:
             try:
@@ -282,8 +275,7 @@ def calculate_rfm_metrics(sales_df, customers_df):
 
 def calculate_customer_features(customers_df, rfm_df, loyalty_df):
     """
-    Build comprehensive feature set for each customer.
-    SIMPLIFIED: Only use features that are reliably available
+    Build feature set for each customer using only 5 core features.
     """
     if customers_df.empty:
         return pd.DataFrame()
@@ -322,7 +314,6 @@ def calculate_customer_features(customers_df, rfm_df, loyalty_df):
             except:
                 loyalty_points = 0.0
         
-        # Only use features we can reliably calculate
         features.append({
             "customer_name": customer_name,
             "phone": customer_phone,
@@ -348,16 +339,6 @@ class ChurnPredictor:
     def __init__(self):
         self.model = None
         self.scaler = None
-        self.feature_columns = []
-        self.model_trained = False
-        self.performance_metrics = {}
-        self.feature_importance = {}
-    
-    def prepare_data(self, features_df):
-        if features_df.empty:
-            return None, None, None, None
-        
-        # Define the exact features used for training
         self.feature_columns = [
             "recency_days", 
             "frequency", 
@@ -365,27 +346,29 @@ class ChurnPredictor:
             "avg_order_value", 
             "loyalty_points"
         ]
+        self.model_trained = False
+        self.performance_metrics = {}
+        self.feature_importance = {}
+    
+    def prepare_data(self, features_df):
+        """Prepare data for training with only 5 features"""
+        if features_df.empty:
+            return None, None, None, None
         
-        # Verify all features exist
         missing_cols = [col for col in self.feature_columns if col not in features_df.columns]
         if missing_cols:
-            st.error(f"Missing columns in training data: {missing_cols}")
             return None, None, None, None
         
         X = features_df[self.feature_columns].copy()
         
-        # Convert to numeric
         for col in X.columns:
             X[col] = pd.to_numeric(X[col], errors="coerce").fillna(0)
         
-        # Get target
         if "is_churned" not in features_df.columns:
-            st.error("Target column 'is_churned' not found")
             return None, None, None, None
             
         y = pd.to_numeric(features_df["is_churned"], errors="coerce").fillna(1).values
         
-        # Scale features
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
         
@@ -409,7 +392,6 @@ class ChurnPredictor:
         if n_active == 0:
             return False, "No active customers found. Need both active and churned customers."
         
-        # Split data
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state, stratify=y
         )
@@ -444,28 +426,24 @@ class ChurnPredictor:
         if hasattr(self.model, "feature_importances_"):
             self.feature_importance = dict(zip(self.feature_columns, self.model.feature_importances_))
         
-        return True, f"✅ Model trained on {len(X)} customers."
+        return True, f"Model trained on {len(X)} customers."
     
     def predict_batch(self, features_df):
         if not self.model_trained:
             return None, "Model not trained yet"
         
         try:
-            # Ensure we have the exact same columns as training
             missing_cols = [col for col in self.feature_columns if col not in features_df.columns]
             if missing_cols:
                 return None, f"Missing columns: {missing_cols}"
             
             X = features_df[self.feature_columns].copy()
             
-            # Convert to numeric
             for col in X.columns:
                 X[col] = pd.to_numeric(X[col], errors="coerce").fillna(0)
             
-            # Scale
             X_scaled = self.scaler.transform(X)
             
-            # Predict
             probabilities = self.model.predict_proba(X_scaled)[:, 1]
             predictions = self.model.predict(X_scaled)
             
@@ -503,7 +481,6 @@ def churn_prediction_dashboard():
         st.error("Access Denied. Only owners and managers can access churn prediction.")
         return
     
-    # Load data
     with st.spinner("Loading data..."):
         sales_df = load_sales()
         customers_df = load_customers()
@@ -513,33 +490,24 @@ def churn_prediction_dashboard():
         st.warning("No sales data available. Complete some transactions first.")
         return
     
-    # ==============================
-    # COUNT UNIQUE CUSTOMERS FROM SALES
-    # ==============================
     customer_count, customer_names = count_unique_customers_from_sales(sales_df)
     
-    # Show customer count
-    st.sidebar.markdown("### 👥 Customer Analysis")
-    st.sidebar.write(f"**Unique Customers (excluding Walk-in):** {customer_count}")
+    st.sidebar.markdown("### Customer Analysis")
+    st.sidebar.write(f"Unique Customers (excluding Walk-in): {customer_count}")
     
     if customer_count > 0 and customer_count <= 10:
-        st.sidebar.warning(f"⚠️ Only {customer_count} customers found. Need at least 10 for training.")
+        st.sidebar.warning(f"Only {customer_count} customers found. Need at least 10 for training.")
     
-    # Show sample customers
     if customer_names:
         sample = customer_names[:5] if len(customer_names) > 5 else customer_names
-        st.sidebar.write(f"**Sample Customers:** {', '.join(sample)}")
+        st.sidebar.write(f"Sample Customers: {', '.join(sample)}")
         if len(customer_names) > 5:
             st.sidebar.caption(f"... and {len(customer_names) - 5} more")
     
-    # ==============================
-    # FIX: Use customers from sales if needed
-    # ==============================
     if customers_df.empty or len(customers_df) < 5:
-        st.info("📊 Extracting customers from sales data...")
+        st.info("Extracting customers from sales data...")
         customers_df = get_customers_from_sales(sales_df)
     
-    # Filter out Walk-in
     customer_col = get_customer_column(customers_df)
     if customer_col:
         customers_df = customers_df[
@@ -553,24 +521,17 @@ def churn_prediction_dashboard():
         st.warning("No valid customers found. Please record customer names during checkout (avoid 'Walk-in').")
         return
     
-    # Initialize model
     if "churn_model" not in st.session_state:
         st.session_state.churn_model = ChurnPredictor()
         st.session_state.churn_model_trained = False
         st.session_state.churn_results = None
     
-    # ==============================
-    # TABS
-    # ==============================
     tab1, tab2, tab3 = st.tabs([
         "Overview",
         "Train Model",
         "At-Risk Customers"
     ])
     
-    # ==============================
-    # TAB 1: OVERVIEW
-    # ==============================
     with tab1:
         st.markdown("## Churn Prediction Overview")
         
@@ -585,14 +546,14 @@ def churn_prediction_dashboard():
             st.metric("Customers without Sales", total_customers - customer_count)
         
         if customer_count < 10:
-            st.warning(f"⚠️ Only {customer_count} customers with sales. Need at least 10 for training.")
-            st.info("💡 Tip: When recording sales, enter a customer name instead of 'Walk-in'.")
+            st.warning(f"Only {customer_count} customers with sales. Need at least 10 for training.")
+            st.info("Tip: When recording sales, enter a customer name instead of 'Walk-in'.")
         
         st.markdown("---")
         st.markdown("### Model Status")
         
         if st.session_state.churn_model_trained:
-            st.success("✅ Model is trained and ready")
+            st.success("Model is trained and ready")
             
             metrics = st.session_state.churn_model.performance_metrics
             if metrics:
@@ -625,7 +586,7 @@ def churn_prediction_dashboard():
                     fig.update_layout(height=350)
                     st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("⚠️ Model not trained yet.")
+            st.warning("Model not trained yet.")
             
             if customer_count >= 10:
                 if st.button("Quick Train Model", use_container_width=True):
@@ -644,16 +605,13 @@ def churn_prediction_dashboard():
             else:
                 st.info(f"Need {10 - customer_count} more customers with sales to train the model.")
     
-    # ==============================
-    # TAB 2: TRAIN MODEL
-    # ==============================
     with tab2:
         st.markdown("## Train Churn Prediction Model")
         
         st.info("""
         Train a machine learning model to predict which customers are likely to churn.
         
-        **Features used:**
+        Features used:
         - Recency (days since last purchase)
         - Frequency (number of purchases)
         - Monetary (total spent)
@@ -664,11 +622,11 @@ def churn_prediction_dashboard():
         st.markdown("### Customer Data Status")
         
         if customer_count > 0:
-            st.write(f"**Customers with sales:** {customer_count}")
-            st.write(f"**Total customers:** {len(customers_df)}")
+            st.write(f"Customers with sales: {customer_count}")
+            st.write(f"Total customers: {len(customers_df)}")
             
             if customer_count < 10:
-                st.warning(f"⚠️ Need {10 - customer_count} more customers with sales.")
+                st.warning(f"Need {10 - customer_count} more customers with sales.")
         
         if customer_count >= 10:
             if st.button("Train Model", type="primary", use_container_width=True):
@@ -688,9 +646,6 @@ def churn_prediction_dashboard():
         else:
             st.info("Add more customers with sales to enable training.")
     
-    # ==============================
-    # TAB 3: AT-RISK CUSTOMERS
-    # ==============================
     with tab3:
         st.markdown("## At-Risk Customers")
         
