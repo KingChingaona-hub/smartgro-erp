@@ -372,7 +372,7 @@ def expenses_dashboard():
                             notes=rec_notes
                         )
                         st.success(f"Recurring expense '{rec_description}' added!")
-                        st.rerun()
+                        #st.rerun()
                     else:
                         st.error("Please enter description and amount")
         

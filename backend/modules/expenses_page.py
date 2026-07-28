@@ -32,6 +32,10 @@ def expenses_page():
         st.session_state.category_added = False
     if "category_message" not in st.session_state:
         st.session_state.category_message = ""
+    if "delete_success" not in st.session_state:
+        st.session_state.delete_success = False
+    if "delete_message" not in st.session_state:
+        st.session_state.delete_message = ""
 
     # ==============================
     # DISPLAY MESSAGES FROM SESSION STATE
@@ -46,6 +50,11 @@ def expenses_page():
         st.success(f"{st.session_state.category_message}")
         st.session_state.category_added = False
         st.session_state.category_message = ""
+    
+    if st.session_state.delete_success and st.session_state.delete_message:
+        st.success(f"{st.session_state.delete_message}")
+        st.session_state.delete_success = False
+        st.session_state.delete_message = ""
 
     # ==============================
     # LOAD CATEGORIES
@@ -131,7 +140,7 @@ def expenses_page():
                 st.error("Please enter description and amount")
 
     # ==============================
-    # ADD NEW CATEGORY
+    # ADD NEW CATEGORY - FIXED
     # ==============================
     with st.expander("Add New Category"):
         with st.form(key="add_category_form", clear_on_submit=True):
@@ -155,6 +164,7 @@ def expenses_page():
                             st.session_state.category_added = True
                             st.session_state.category_message = f"Category '{new_category.strip()}' added successfully!"
                             st.success(f"Category '{new_category.strip()}' added!")
+                            # Use rerun to refresh the page
                             st.rerun()
                         else:
                             st.error("Failed to add category. Please try again.")
@@ -182,16 +192,19 @@ def expenses_page():
             st.metric("Total All Time", f"${total_all:,.2f}")
     
     # ==============================
-    # TABLE & DELETE
+    # TABLE & DELETE - FIXED
     # ==============================
     st.markdown("---")
     st.subheader("Expenses Records")
     
     if not df.empty:
-        # Create display version
+        # Create display version with proper formatting
         df_display = df.copy()
         df_display["date_display"] = pd.to_datetime(df_display["date"]).dt.strftime("%Y-%m-%d %H:%M")
         df_sorted = df_display.sort_values("date", ascending=False)
+        
+        # Reset index for display
+        df_sorted = df_sorted.reset_index(drop=True)
         
         st.dataframe(
             df_sorted[["date_display", "category", "description", "amount", "vendor", "payment_method"]],
@@ -204,113 +217,75 @@ def expenses_page():
         )
         
         # ==============================
-        # DELETE RECORD - FIXED with unique keys
+        # DELETE RECORD - IMPROVED with unique key per record
         # ==============================
         with st.expander("Delete Expense Record"):
             st.warning("This action cannot be undone")
             
             if not df.empty:
-                # Method 1: Delete by selection
+                # Create a clean list of records for deletion
+                df_for_delete = df.sort_values("date", ascending=False).reset_index(drop=True)
+                
+                # Create display options with unique IDs
+                record_options = []
+                record_indices = []
+                
+                for idx, row in df_for_delete.iterrows():
+                    date_str = pd.to_datetime(row["date"]).strftime("%Y-%m-%d %H:%M")
+                    display_text = f"{date_str} - {row['category']} - {row['description'][:25]}... - ${row['amount']:.2f}"
+                    record_options.append(display_text)
+                    record_indices.append(idx)
+                
                 st.markdown("### Select Record to Delete")
                 
-                record_options = []
-                record_data = []
-                
-                df_sorted_for_select = df.sort_values("date", ascending=False)
-                
-                for idx, row in df_sorted_for_select.iterrows():
-                    date_str = pd.to_datetime(row["date"]).strftime("%Y-%m-%d %H:%M")
-                    display_text = f"{date_str} - {row['category']} - {row['description'][:20]}... - ${row['amount']:.2f}"
-                    record_options.append(display_text)
-                    
-                    record_data.append({
-                        "date": row["date"],
-                        "category": row["category"],
-                        "amount": row["amount"],
-                        "description": row.get("description", ""),
-                        "expense_type": row.get("expense_type", ""),
-                        "vendor": row.get("vendor", "")
-                    })
-                
-                selected_record = st.selectbox(
-                    "Select Record to Delete", 
+                selected_display = st.selectbox(
+                    "Choose a record to delete", 
                     record_options, 
                     key="delete_select_expense"
                 )
                 
-                if selected_record:
-                    selected_idx = record_options.index(selected_record)
-                    record_to_delete = record_data[selected_idx]
+                if selected_display:
+                    selected_idx = record_options.index(selected_display)
+                    actual_row = df_for_delete.iloc[selected_idx]
                     
+                    # Show record details
                     st.info(f"""
-                    **You are about to delete:**
-                    - Date: {pd.to_datetime(record_to_delete['date']).strftime('%Y-%m-%d %H:%M')}
-                    - Category: {record_to_delete['category']}
-                    - Amount: ${record_to_delete['amount']:.2f}
-                    - Description: {record_to_delete['description'][:50]}
+                    **Record to delete:**
+                    - **Date:** {pd.to_datetime(actual_row['date']).strftime('%Y-%m-%d %H:%M')}
+                    - **Category:** {actual_row['category']}
+                    - **Description:** {actual_row['description']}
+                    - **Amount:** ${actual_row['amount']:.2f}
+                    - **Vendor:** {actual_row.get('vendor', 'N/A')}
                     """)
                     
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("Confirm Delete", type="secondary", use_container_width=True, key="confirm_delete_expense"):
+                            # Try both methods to ensure deletion
                             success = delete_expense_by_id(
-                                date_str=record_to_delete["date"],
-                                category=record_to_delete["category"],
-                                amount=record_to_delete["amount"],
-                                description=record_to_delete["description"],
-                                expense_type=record_to_delete["expense_type"],
-                                vendor=record_to_delete["vendor"]
+                                date_str=actual_row["date"],
+                                category=actual_row["category"],
+                                amount=actual_row["amount"],
+                                description=actual_row.get("description", ""),
+                                expense_type=actual_row.get("expense_type", ""),
+                                vendor=actual_row.get("vendor", "")
                             )
                             
+                            # If first method fails, try by index
+                            if not success:
+                                success = delete_expense(actual_row.name)
+                            
                             if success:
+                                st.session_state.delete_success = True
+                                st.session_state.delete_message = "Expense record deleted successfully!"
                                 st.success("Expense record deleted successfully!")
                                 st.rerun()
                             else:
-                                st.error("Failed to delete record. Please try the alternative method below.")
+                                st.error("Failed to delete record. Please refresh and try again.")
                     
                     with col2:
                         if st.button("Cancel", use_container_width=True, key="cancel_delete_expense"):
                             st.info("Deletion cancelled")
-                
-                # ==============================
-                # ALTERNATIVE: Delete by Index
-                # ==============================
-                st.markdown("---")
-                st.markdown("### Alternative: Delete by Row Number")
-                st.caption("If the above doesn't work, use this method:")
-                
-                # Show index options
-                index_options = []
-                for idx, row in df_sorted_for_select.iterrows():
-                    date_str = pd.to_datetime(row["date"]).strftime("%Y-%m-%d %H:%M")
-                    index_options.append(f"Row {idx} - {date_str} - {row['category']} - ${row['amount']:.2f}")
-                
-                if index_options:
-                    selected_index_record = st.selectbox(
-                        "Select Record by Row Number", 
-                        index_options, 
-                        key="delete_index_select_expense"
-                    )
-                    
-                    if selected_index_record:
-                        # Extract the index from the selection
-                        actual_idx = int(selected_index_record.split(" - ")[0].replace("Row ", ""))
-                        
-                        st.info(f"You are about to delete: {selected_index_record}")
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("Delete by Index", type="secondary", use_container_width=True, key="confirm_delete_index_expense"):
-                                success = delete_expense(actual_idx)
-                                if success:
-                                    st.success("Expense record deleted successfully!")
-                                    st.rerun()
-                                else:
-                                    st.error("Failed to delete record")
-                        
-                        with col2:
-                            if st.button("Cancel", use_container_width=True, key="cancel_delete_index_expense"):
-                                st.info("Deletion cancelled")
         
         # Export
         st.markdown("---")
@@ -324,7 +299,7 @@ def expenses_page():
             key="download_expenses_csv"
         )
     else:
-        st.info("No expenses recorded yet.")
+        st.info("No expenses recorded yet. Use the form above to add your first expense.")
 
 
 # ==============================
