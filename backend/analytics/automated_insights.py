@@ -83,20 +83,44 @@ def get_receipt_column(df):
     return None
 
 
-def get_total_expenses(expenses_df):
-    """Calculate total expenses safely"""
-    if expenses_df is None or expenses_df.empty:
-        return 0.0
+def get_unique_id_column(df):
+    """Find a unique identifier column"""
+    if df is None or df.empty:
+        return None
+    for col in ["id", "expense_id", "receipt_no", "transaction_id", "uuid"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def deduplicate_dataframe(df, subset_cols=None):
+    """
+    Deduplicate a dataframe using the best available method.
+    Returns deduplicated dataframe.
+    """
+    if df is None or df.empty:
+        return df
     
-    if "amount" in expenses_df.columns:
-        return safe_float(expenses_df["amount"].sum())
+    df = df.copy()
     
-    # Try to find amount column by name
-    for col in ["amount", "total", "value"]:
-        if col in expenses_df.columns:
-            return safe_float(expenses_df[col].sum())
+    # Try to find a unique identifier column
+    unique_col = get_unique_id_column(df)
     
-    return 0.0
+    if unique_col:
+        return df.drop_duplicates(subset=[unique_col])
+    
+    # If no unique column, try deduplicating by combination of fields
+    if subset_cols is None:
+        subset_cols = []
+        for col in ["date", "category", "amount", "description", "vendor"]:
+            if col in df.columns:
+                subset_cols.append(col)
+    
+    if len(subset_cols) >= 2:
+        return df.drop_duplicates(subset=subset_cols)
+    
+    # If all else fails, return original
+    return df
 
 
 # ==============================
@@ -144,7 +168,7 @@ class InsightsGenerator:
         customer_insights = self._analyze_customers(customers_df, sales_df)
         self.insights.extend(customer_insights)
         
-        # 4. Financial Insights - FIXED with correct expenses
+        # 4. Financial Insights - FIXED with deduplication
         financial_insights = self._analyze_financials(expenses_df, sales_df, debtors_df)
         self.insights.extend(financial_insights)
         
@@ -401,16 +425,30 @@ class InsightsGenerator:
         return insights
     
     def _analyze_financials(self, expenses_df, sales_df, debtors_df):
-        """Analyze financial data - FIXED with correct expenses"""
+        """Analyze financial data - FIXED with correct unduplicated revenue and expenses"""
         insights = []
         
         # ==============================
-        # FIX: Expenses - Use direct loader and calculate correctly
+        # FIX 1: Expenses - Deduplicate first
         # ==============================
-        total_expenses = get_total_expenses(expenses_df)
+        total_expenses = 0
+        if expenses_df is not None and not expenses_df.empty:
+            # Deduplicate expenses
+            expenses_clean = deduplicate_dataframe(expenses_df)
+            
+            # Calculate total expenses from deduplicated data
+            amount_col = None
+            for col in ["amount", "total", "value", "expense_amount"]:
+                if col in expenses_clean.columns:
+                    amount_col = col
+                    break
+            
+            if amount_col:
+                total_expenses = safe_float(expenses_clean[amount_col].sum())
+        
         self.metrics["total_expenses"] = total_expenses
         
-        # Monthly expenses (last 30 days)
+        # Monthly expenses (last 30 days) - with deduplication
         monthly_expenses = 0
         if expenses_df is not None and not expenses_df.empty:
             date_col = get_date_column(expenses_df)
@@ -418,8 +456,21 @@ class InsightsGenerator:
                 expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
                 expenses_df = expenses_df.dropna(subset=[date_col])
                 month_ago = datetime.now() - timedelta(days=30)
-                monthly_expenses = safe_float(expenses_df[expenses_df[date_col] >= month_ago]["amount"].sum()) if "amount" in expenses_df.columns else 0
-                self.metrics["monthly_expenses"] = monthly_expenses
+                
+                expenses_month = expenses_df[expenses_df[date_col] >= month_ago].copy()
+                if not expenses_month.empty:
+                    # Deduplicate monthly expenses
+                    expenses_month = deduplicate_dataframe(expenses_month)
+                    
+                    amount_col = None
+                    for col in ["amount", "total", "value", "expense_amount"]:
+                        if col in expenses_month.columns:
+                            amount_col = col
+                            break
+                    
+                    if amount_col:
+                        monthly_expenses = safe_float(expenses_month[amount_col].sum())
+                        self.metrics["monthly_expenses"] = monthly_expenses
         
         if monthly_expenses > 0:
             insights.append({
@@ -444,8 +495,9 @@ class InsightsGenerator:
             })
         
         # ==============================
-        # FIX: Revenue and Profit - Use unduplicated revenue
+        # FIX 2: Revenue - Use unduplicated revenue only
         # ==============================
+        total_revenue = 0
         if not sales_df.empty:
             amount_col = get_amount_column(sales_df)
             receipt_col = get_receipt_column(sales_df)
@@ -455,12 +507,13 @@ class InsightsGenerator:
                 if receipt_col and receipt_col in sales_df.columns:
                     sales_undup = sales_df.drop_duplicates(subset=[receipt_col])
                 else:
-                    sales_undup = sales_df
+                    # Try deduplicating by date and amount combination
+                    sales_undup = deduplicate_dataframe(sales_df, ["date", amount_col])
                 
                 total_revenue = safe_float(sales_undup[amount_col].sum())
                 self.metrics["total_revenue"] = total_revenue
                 
-                # Calculate profit
+                # Calculate profit with deduplicated expenses
                 profit = total_revenue - total_expenses
                 margin = (profit / total_revenue * 100) if total_revenue > 0 else 0
                 self.metrics["profit"] = profit
@@ -472,6 +525,13 @@ class InsightsGenerator:
                         "message": f"Total revenue: ${total_revenue:,.2f}",
                         "priority": "info",
                         "detail": f"Based on unduplicated receipts"
+                    })
+                    
+                    insights.append({
+                        "type": "financial",
+                        "message": f"Total expenses: ${total_expenses:,.2f}",
+                        "priority": "info",
+                        "detail": f"Profit: ${profit:,.2f}"
                     })
                 
                 if margin < 10 and total_revenue > 0:
