@@ -17,12 +17,12 @@ from backend.modules.expenses import (
     add_recurring_expense,
     process_recurring_expenses,
     add_expense_category,
-    load_recurring_expenses  # FIXED: Added this import
+    load_recurring_expenses
 )
 
 
 def expenses_dashboard():
-    """Enhanced Expenses Dashboard with Budgeting and Analytics - FIXED: No infinite loops"""
+    """Enhanced Expenses Dashboard with Budgeting and Analytics"""
     
     st.title("Expenses Management Dashboard")
     st.caption("Track spending, manage budgets, and control costs")
@@ -40,6 +40,8 @@ def expenses_dashboard():
         st.session_state.dashboard_category_added = False
     if "dashboard_category_message" not in st.session_state:
         st.session_state.dashboard_category_message = ""
+    if "dashboard_rerun_flag" not in st.session_state:
+        st.session_state.dashboard_rerun_flag = False
 
     # ==============================
     # DISPLAY MESSAGES FROM SESSION STATE
@@ -70,7 +72,7 @@ def expenses_dashboard():
     ])
     
     # ==============================
-    # TAB 1: RECORD EXPENSE - FIXED
+    # TAB 1: RECORD EXPENSE
     # ==============================
     with tab1:
         st.markdown("## Record New Expense")
@@ -138,7 +140,7 @@ def expenses_dashboard():
                             if success:
                                 st.session_state.dashboard_category_added = True
                                 st.session_state.dashboard_category_message = f"Category '{new_category.strip()}' added successfully!"
-                                st.success(f"Category '{new_category.strip()}' added!")
+                                # Use st.rerun() once after setting session state
                                 st.rerun()
                             else:
                                 st.error("Failed to add category. Please try again.")
@@ -250,7 +252,7 @@ def expenses_dashboard():
             st.info("No budget data available. Set budgets above.")
     
     # ==============================
-    # TAB 3: EXPENSE ANALYTICS
+    # TAB 3: EXPENSE ANALYTICS - FIXED
     # ==============================
     with tab3:
         st.markdown("## Expense Analytics")
@@ -258,10 +260,12 @@ def expenses_dashboard():
         # Date range filter
         col1, col2 = st.columns(2)
         with col1:
-            filter_year = st.selectbox("Year", [2024, 2025, 2026], index=1, key="analytics_year")
+            filter_year = st.selectbox("Year", list(range(2020, datetime.now().year + 2)), index=datetime.now().year - 2020, key="analytics_year")
         with col2:
-            filter_month = st.selectbox("Month", ["All", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], key="analytics_month")
+            month_options = ["All"] + list(range(1, 13))
+            filter_month = st.selectbox("Month", month_options, key="analytics_month")
         
+        # Handle month filter properly
         month_filter = None if filter_month == "All" else filter_month
         
         # Category breakdown
@@ -295,6 +299,8 @@ def expenses_dashboard():
             fig_bar.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
             fig_bar.update_layout(height=400)
             st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("No expense data for the selected period")
         
         # Monthly trend
         st.markdown("### Expense Trend")
@@ -312,6 +318,8 @@ def expenses_dashboard():
             )
             fig_trend.update_layout(height=350)
             st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.info("No trend data available")
         
         # Top expenses
         st.markdown("### Largest Expenses")
@@ -324,6 +332,8 @@ def expenses_dashboard():
                 use_container_width=True,
                 hide_index=True
             )
+        else:
+            st.info("No expenses found for the selected period")
     
     # ==============================
     # TAB 4: RECURRING EXPENSES
@@ -390,7 +400,7 @@ def expenses_dashboard():
             st.info("No recurring expenses set up")
     
     # ==============================
-    # TAB 5: ALL EXPENSES
+    # TAB 5: ALL EXPENSES - FIXED (No delete button issue)
     # ==============================
     with tab5:
         st.markdown("## All Expense Records")
@@ -408,7 +418,7 @@ def expenses_dashboard():
                 cat_filter = st.selectbox("Category", ["All"] + categories, key="cat_filter_dash")
             
             with col3:
-                sort_by = st.selectbox("Sort By", ["Date (Newest)", "Amount (Highest)", "Amount (Lowest)"], key="sort_expenses_dash")
+                sort_by = st.selectbox("Sort By", ["Date (Newest)", "Date (Oldest)", "Amount (Highest)", "Amount (Lowest)"], key="sort_expenses_dash")
             
             filtered_df = expenses_df.copy()
             
@@ -425,6 +435,8 @@ def expenses_dashboard():
                 filtered_df = filtered_df.sort_values("amount", ascending=False)
             elif sort_by == "Amount (Lowest)":
                 filtered_df = filtered_df.sort_values("amount", ascending=True)
+            elif sort_by == "Date (Oldest)":
+                filtered_df = filtered_df.sort_values("date", ascending=True)
             else:
                 filtered_df = filtered_df.sort_values("date", ascending=False)
             
