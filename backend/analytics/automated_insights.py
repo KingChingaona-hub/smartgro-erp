@@ -124,7 +124,7 @@ def deduplicate_dataframe(df, subset_cols=None):
 
 
 # ==============================
-# INSIGHTS GENERATOR - FIXED
+# INSIGHTS GENERATOR
 # ==============================
 
 class InsightsGenerator:
@@ -505,9 +505,10 @@ class InsightsGenerator:
             })
         
         # ==============================
-        # FIX 2: Revenue - STRONG DEDUPLICATION BY RECEIPT_NO
+        # FIX 2: Revenue and Profit - ALWAYS use unduplicated revenue
         # ==============================
         total_revenue = 0
+        
         if not sales_df.empty:
             amount_col = get_amount_column(sales_df)
             receipt_col = get_receipt_column(sales_df)
@@ -515,22 +516,21 @@ class InsightsGenerator:
             if amount_col:
                 # STRONG FIX: Deduplicate by receipt_no
                 if receipt_col and receipt_col in sales_df.columns:
-                    # Get unique receipts only
                     sales_undup = sales_df.drop_duplicates(subset=[receipt_col])
                     total_revenue = safe_float(sales_undup[amount_col].sum())
                 else:
-                    # If no receipt_no, try deduplicating by date + amount
-                    # But this is less reliable
                     sales_undup = sales_df.copy()
                     if "date" in sales_undup.columns:
                         sales_undup = sales_undup.drop_duplicates(subset=["date", amount_col])
                     total_revenue = safe_float(sales_undup[amount_col].sum())
                 
+                # CRITICAL FIX: Always use the unduplicated revenue for profit calculation
                 self.metrics["total_revenue"] = total_revenue
                 
-                # Calculate profit
+                # Calculate profit using unduplicated revenue
                 profit = total_revenue - total_expenses
                 margin = (profit / total_revenue * 100) if total_revenue > 0 else 0
+                
                 self.metrics["profit"] = profit
                 self.metrics["profit_margin"] = margin
                 
@@ -539,16 +539,15 @@ class InsightsGenerator:
                         "type": "financial",
                         "message": f"Total revenue: ${total_revenue:,.2f}",
                         "priority": "info",
-                        "detail": f"Based on unduplicated receipts"
+                        "detail": f"Based on {len(sales_undup)} unique receipts"
                     })
                     
-                    if total_expenses > 0:
-                        insights.append({
-                            "type": "financial",
-                            "message": f"Total expenses: ${total_expenses:,.2f}",
-                            "priority": "info",
-                            "detail": f"Profit: ${profit:,.2f}"
-                        })
+                    insights.append({
+                        "type": "financial",
+                        "message": f"Total expenses: ${total_expenses:,.2f}",
+                        "priority": "info",
+                        "detail": f"Profit: ${profit:,.2f}"
+                    })
                 
                 if margin < 10 and total_revenue > 0:
                     insights.append({
