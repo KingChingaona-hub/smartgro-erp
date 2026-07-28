@@ -506,7 +506,7 @@ class InsightsGenerator:
             })
         
         # ==============================
-        # FIX 2: Revenue and Profit - FORCE CALCULATION
+        # FIX 2: Revenue - FORCE CALCULATION with deduplication
         # ==============================
         total_revenue = 0
         
@@ -528,14 +528,6 @@ class InsightsGenerator:
         # FORCE SET total_revenue in metrics
         self.metrics["total_revenue"] = total_revenue
         
-        # FORCE CALCULATE profit using unduplicated revenue
-        profit = total_revenue - total_expenses
-        margin = (profit / total_revenue * 100) if total_revenue > 0 else 0
-        
-        # FORCE SET profit and margin in metrics (overwriting any previous values)
-        self.metrics["profit"] = profit
-        self.metrics["profit_margin"] = margin
-        
         if total_revenue > 0:
             insights.append({
                 "type": "financial",
@@ -543,39 +535,7 @@ class InsightsGenerator:
                 "priority": "info",
                 "detail": f"Based on {len(sales_undup)} unique receipts"
             })
-            
-            insights.append({
-                "type": "financial",
-                "message": f"Total expenses: ${total_expenses:,.2f}",
-                "priority": "info",
-                "detail": f"Profit: ${profit:,.2f}"
-            })
-        
-        if margin < 10 and total_revenue > 0:
-            insights.append({
-                "type": "financial",
-                "message": f"Low profit margin: {margin:.1f}%",
-                "priority": "medium",
-                "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
-            })
-        elif margin > 20 and total_revenue > 0:
-            insights.append({
-                "type": "financial",
-                "message": f"Healthy profit margin: {margin:.1f}%",
-                "priority": "success",
-                "detail": f"Profit: ${profit:,.2f}"
-            })
-        elif total_revenue > 0:
-            insights.append({
-                "type": "financial",
-                "message": f"Profit margin: {margin:.1f}%",
-                "priority": "info",
-                "detail": f"Revenue: ${total_revenue:,.2f}, Expenses: ${total_expenses:,.2f}"
-            })
         else:
-            self.metrics["total_revenue"] = 0
-            self.metrics["profit"] = 0
-            self.metrics["profit_margin"] = 0
             insights.append({
                 "type": "financial",
                 "message": "No sales data for financial analysis",
@@ -926,7 +886,6 @@ def generate_insights_email_html(insights_data):
             ("Customers", f"{metrics.get('total_customers', 0)}"),
             ("Low Stock", f"{metrics.get('low_stock', 0)}"),
             ("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}"),
-            ("Profit", f"${metrics.get('profit', 0):,.2f}"),
             ("Debt", f"${metrics.get('total_debt', 0):,.2f}")
         ]
         
@@ -1127,8 +1086,6 @@ def automated_insights_dashboard():
                 with col2:
                     st.metric("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}")
                 with col3:
-                    st.metric("Profit", f"${metrics.get('profit', 0):,.2f}")
-                with col4:
                     st.metric("Debt", f"${metrics.get('total_debt', 0):,.2f}")
             
             # Insights
