@@ -153,7 +153,7 @@ from backend.modules.settings_page import settings_page
 from backend.modules.welcome_page import welcome_page
 
 # ==============================
-# CUSTOMER IMPORTS - REMOVED customer_app
+# CUSTOMER IMPORTS - REMOVED customer_app AND customer_insights_page
 # ==============================
 from backend.customers.customers_dashboard import customers_dashboard
 from backend.customers.retention_dashboard import customers_retention_dashboard
@@ -626,7 +626,7 @@ def main_app():
     st.sidebar.markdown("---")
     
     # ==============================
-    # FLAT ALPHABETICAL NAVIGATION - REMOVED Customer App
+    # FLAT ALPHABETICAL NAVIGATION - REMOVED Customer App AND Customer Insights
     # ==============================
     try:
         navigation_menu = get_navigation_menu(role)
@@ -642,8 +642,8 @@ def main_app():
     try:
         for category, items in navigation_menu.items():
             for item in items:
-                # Skip Customer App if it appears in navigation
-                if item == "Customer App":
+                # Skip Customer App and Customer Insights if they appear in navigation
+                if item in ["Customer App", "Customer Insights"]:
                     continue
                 all_items.append(item)
         
@@ -717,7 +717,7 @@ def main_app():
     #     print(f"Mobile actions error: {e}")
     
     # ==============================
-    # ROUTING ENGINE - REMOVED Customer App route
+    # ROUTING ENGINE - REMOVED Customer App AND Customer Insights routes
     # ==============================
     
     if selected_page:
@@ -826,11 +826,12 @@ def main_app():
             else:
                 st.error("You don't have permission to access this page")
 
-        elif page == "Customer Insights":
-            if can_access_feature(role, "customers"):
-                customer_insights_page()
-            else:
-                st.error("You don't have permission to access this page")
+        # REMOVED: Customer Insights (redundant)
+        # elif page == "Customer Insights":
+        #     if can_access_feature(role, "customers"):
+        #         customer_insights_page()
+        #     else:
+        #         st.error("You don't have permission to access this page")
 
         elif page == "Customer Insights 360":
             if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
