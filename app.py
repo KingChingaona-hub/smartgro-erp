@@ -107,6 +107,7 @@ from backend.core.theme_manager import (
     apply_no_theme,
     apply_page_theme
 )
+from backend.core.documents import documents_page
 from backend.core.animations import (
     init_animations,
     show_toast,
