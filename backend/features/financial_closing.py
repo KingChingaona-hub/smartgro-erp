@@ -304,7 +304,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
         else:
             new_customers = len(customers_df)
     
-    net_profit = total_revenue - total_expenses
+    net_income = total_revenue - total_expenses
     
     return {
         "start_date": start_date,
@@ -312,7 +312,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
         "total_revenue": total_revenue,
         "total_expenses": total_expenses,
         "expense_categories": expense_categories,
-        "net_profit": net_profit,
+        "net_income": net_income,  # Changed from net_profit to net_income
         "total_purchases": total_purchases,
         "transaction_count": transaction_count,
         "items_sold": items_sold,
@@ -350,12 +350,12 @@ def generate_closing_report_pdf(data):
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
     story.append(Spacer(1, 20))
     
-    # Summary Table with REAL data
+    # Summary Table with REAL data - Changed Net Profit to Net Income
     summary_data = [
         ["Metric", "Value"],
         ["Total Revenue", f"${data['total_revenue']:,.2f}"],
         ["Total Expenses", f"${data['total_expenses']:,.2f}"],
-        ["Net Profit", f"${data['net_profit']:,.2f}"],
+        ["Net Income", f"${data['net_income']:,.2f}"],  # Changed from Net Profit
         ["Total Purchases", f"${data['total_purchases']:,.2f}"],
         ["Transactions", f"{data['transaction_count']:,}"],
         ["Items Sold", f"{data['items_sold']:,}"],
@@ -592,13 +592,13 @@ def financial_closing_dashboard():
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Today's Revenue", f"${today_data['total_revenue']:,.2f}")
+            st.metric("Revenue", f"${today_data['total_revenue']:,.2f}")
         with col2:
-            st.metric("Today's Profit", f"${today_data['total_profit']:,.2f}")
+            st.metric("Expenses", f"${today_data['total_expenses']:,.2f}")
         with col3:
-            st.metric("Transactions", today_data['transaction_count'])
+            st.metric("Net Income", f"${today_data['net_income']:,.2f}")  # Changed from Profit
         with col4:
-            st.metric("Items Sold", today_data['items_sold'])
+            st.metric("Transactions", today_data['transaction_count'])
         
         st.markdown("---")
         st.warning("Performing daily closing will create a backup and generate a closing report.")
@@ -657,8 +657,8 @@ def financial_closing_dashboard():
         with col2:
             st.metric("Expenses", f"${month_data['total_expenses']:,.2f}")
         with col3:
-            net_color = "normal" if month_data['net_profit'] >= 0 else "inverse"
-            st.metric("Net Profit", f"${month_data['net_profit']:,.2f}", delta_color=net_color)
+            net_color = "normal" if month_data['net_income'] >= 0 else "inverse"
+            st.metric("Net Income", f"${month_data['net_income']:,.2f}", delta_color=net_color)
         with col4:
             st.metric("Transactions", month_data['transaction_count'])
         
