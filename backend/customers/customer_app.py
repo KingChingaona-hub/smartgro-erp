@@ -16,9 +16,7 @@ from backend.core.db_adapter import (
     save_customers, 
     get_current_branch, 
     BRANCH_DATA_DIR,
-    load_customer_transactions,
-    save_suggestions,
-    load_suggestions
+    load_customer_transactions
 )
 from backend.modules.loyalty import (
     load_loyalty, 
@@ -95,8 +93,6 @@ def init_customer_session():
         st.session_state.customer_phone = None
     if "customer_branch" not in st.session_state:
         st.session_state.customer_branch = None
-    if "suggestion_submitted" not in st.session_state:
-        st.session_state.suggestion_submitted = False
 
 
 def normalize_phone_for_storage(phone):
@@ -566,14 +562,11 @@ def customer_login_page():
     
     st.markdown("""
     <style>
-        /* Main container */
         .main-container {
             max-width: 500px;
             margin: 0 auto;
             padding: 20px;
         }
-        
-        /* Login card */
         .login-card {
             background: white;
             border-radius: 24px;
@@ -581,34 +574,27 @@ def customer_login_page():
             box-shadow: 0 20px 60px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.04);
             border: 1px solid rgba(0,0,0,0.04);
         }
-        
-        /* Logo section */
         .logo-section {
             text-align: center;
             margin-bottom: 30px;
         }
-        
         .logo-section h1 {
             font-size: 28px;
             font-weight: 700;
             color: #1a1a2e;
             margin: 10px 0 5px 0;
         }
-        
         .logo-section p {
             color: #6B7280;
             font-size: 14px;
             margin: 0;
         }
-        
-        /* Tabs styling */
         .stTabs [data-baseweb="tab-list"] {
             gap: 8px;
             background: #f8f9fa;
             border-radius: 12px;
             padding: 4px;
         }
-        
         .stTabs [data-baseweb="tab"] {
             border-radius: 10px;
             padding: 8px 24px;
@@ -617,14 +603,11 @@ def customer_login_page():
             color: #6B7280;
             transition: all 0.3s ease;
         }
-        
         .stTabs [data-baseweb="tab"][aria-selected="true"] {
             background: white;
             color: #1a1a2e;
             box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
-        
-        /* Input fields */
         .stTextInput > div > div > input {
             border-radius: 12px !important;
             border: 2px solid #e5e7eb !important;
@@ -632,13 +615,10 @@ def customer_login_page():
             font-size: 15px !important;
             transition: all 0.3s ease;
         }
-        
         .stTextInput > div > div > input:focus {
             border-color: #6366F1 !important;
             box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1) !important;
         }
-        
-        /* Buttons */
         .stButton > button {
             border-radius: 12px !important;
             padding: 12px 24px !important;
@@ -646,19 +626,11 @@ def customer_login_page():
             font-size: 15px !important;
             transition: all 0.3s ease !important;
         }
-        
-        .stButton > button:focus {
-            box-shadow: none !important;
-        }
-        
-        /* Success/Error messages */
         .stAlert {
             border-radius: 12px !important;
             border: none !important;
             padding: 14px 18px !important;
         }
-        
-        /* Info box */
         .info-box {
             background: #f8f9fa;
             border-radius: 12px;
@@ -668,14 +640,11 @@ def customer_login_page():
             color: #4a5568;
             border-left: 4px solid #6366F1;
         }
-        
         .divider {
             border: none;
             border-top: 1px solid #e5e7eb;
             margin: 20px 0;
         }
-        
-        /* Responsive */
         @media (max-width: 600px) {
             .login-card {
                 padding: 25px 20px;
@@ -687,7 +656,6 @@ def customer_login_page():
     st.markdown('<div class="main-container">', unsafe_allow_html=True)
     st.markdown('<div class="login-card">', unsafe_allow_html=True)
     
-    # Logo and Title
     st.markdown('<div class="logo-section">', unsafe_allow_html=True)
     try:
         st.image("aziellogo.png", width=120)
@@ -729,6 +697,7 @@ def customer_login_page():
         
         if st.button("Create Account", type="primary", use_container_width=True):
             if name and phone:
+                current_branch = get_current_branch()
                 success, message = register_customer(phone, name)
                 if success:
                     st.success(f"✅ {message}")
@@ -842,16 +811,6 @@ def customer_dashboard():
             padding: 2px 12px;
             border-radius: 20px;
         }
-        .suggestion-box {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 20px;
-            border: 1px solid #e5e7eb;
-        }
-        .suggestion-box textarea {
-            border-radius: 12px !important;
-            border: 2px solid #e5e7eb !important;
-        }
         .logout-btn {
             background: none !important;
             border: 2px solid #e5e7eb !important;
@@ -943,7 +902,6 @@ def customer_dashboard():
         st.markdown('<div class="section-title">🛍️ Products Available</div>', unsafe_allow_html=True)
         
         if not products_df.empty:
-            # Show products without stock quantities
             product_cols = st.columns(2)
             for idx, (_, product) in enumerate(products_df.head(4).iterrows()):
                 with product_cols[idx % 2]:
@@ -1061,53 +1019,6 @@ def customer_dashboard():
                 """, unsafe_allow_html=True)
     else:
         st.info("Start shopping to get personalized recommendations!")
-    
-    st.markdown("---")
-    
-    # Suggestions Section
-    st.markdown('<div class="section-title">💡 Send Us Your Suggestions</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="suggestion-box">', unsafe_allow_html=True)
-    
-    suggestion_text = st.text_area(
-        "What products or improvements would you like to see?",
-        placeholder="Tell us what you think...",
-        key="suggestion_input",
-        height=100
-    )
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.caption("Your feedback helps us serve you better!")
-    
-    with col2:
-        if st.button("Submit Suggestion", type="primary", use_container_width=True):
-            if suggestion_text and suggestion_text.strip():
-                try:
-                    from backend.core.db_adapter import save_suggestions, load_suggestions
-                    suggestions_df = load_suggestions()
-                    
-                    new_suggestion = pd.DataFrame([{
-                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "customer_name": customer.get("customer_name", "Anonymous"),
-                        "phone": display_phone,
-                        "suggestion": suggestion_text.strip(),
-                        "status": "New"
-                    }])
-                    
-                    suggestions_df = pd.concat([suggestions_df, new_suggestion], ignore_index=True)
-                    save_suggestions(suggestions_df)
-                    
-                    st.success("✅ Thank you for your suggestion! We value your feedback.")
-                    st.session_state.suggestion_submitted = True
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error submitting suggestion: {str(e)}")
-            else:
-                st.warning("⚠️ Please enter your suggestion before submitting.")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -1241,19 +1152,6 @@ def customer_insights_page():
         st.dataframe(top_customers, use_container_width=True, hide_index=True)
     else:
         st.info("No spending data available")
-    
-    # Show customer suggestions
-    st.markdown("---")
-    st.markdown("### Customer Suggestions")
-    
-    try:
-        suggestions_df = load_suggestions()
-        if not suggestions_df.empty:
-            st.dataframe(suggestions_df.sort_values("date", ascending=False), use_container_width=True, hide_index=True)
-        else:
-            st.info("No suggestions yet")
-    except:
-        st.info("Suggestions feature not available")
 
 
 # ==============================
