@@ -54,7 +54,7 @@ def safe_int(value, default=0):
 
 
 # ==============================
-# SAFE NAVIGATION - FIXED
+# SAFE NAVIGATION
 # ==============================
 def safe_rerun():
     """Safe rerun that works on all devices"""
@@ -667,10 +667,10 @@ def customer_login_page():
     
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
     
-    tab1, tab2 = st.tabs(["🔑 Sign In", "✨ Register"])
+    tab1, tab2 = st.tabs(["Sign In", "Register"])
     
     with tab1:
-        st.markdown('<div class="info-box">📱 Enter your phone number to access your account</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">Enter your phone number to access your account</div>', unsafe_allow_html=True)
         
         phone = st.text_input("Phone Number", placeholder="e.g., 0782905853", key="login_phone")
         
@@ -682,15 +682,15 @@ def customer_login_page():
                     st.session_state.customer_data = customer_data
                     st.session_state.customer_phone = phone
                     st.session_state.customer_branch = customer_data.get("branch", "HO")
-                    st.success(f"👋 Welcome back, {customer_data.get('customer_name')}!")
+                    st.success(f"Welcome back, {customer_data.get('customer_name')}!")
                     safe_rerun()
                 else:
-                    st.error("❌ Customer not found. Please register.")
+                    st.error("Customer not found. Please register.")
             else:
-                st.warning("⚠️ Please enter your phone number")
+                st.warning("Please enter your phone number")
     
     with tab2:
-        st.markdown('<div class="info-box">🎉 Create your account and earn 100 bonus points!</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">Create your account and earn 100 bonus points!</div>', unsafe_allow_html=True)
         
         name = st.text_input("Full Name", placeholder="John Doe", key="reg_name")
         phone = st.text_input("Phone Number", placeholder="e.g., 0772123456", key="reg_phone")
@@ -700,7 +700,7 @@ def customer_login_page():
                 current_branch = get_current_branch()
                 success, message = register_customer(phone, name)
                 if success:
-                    st.success(f"✅ {message}")
+                    st.success(f"{message}")
                     success, customer_data = authenticate_customer(phone)
                     if success:
                         st.session_state.customer_logged_in = True
@@ -709,9 +709,9 @@ def customer_login_page():
                         st.session_state.customer_branch = customer_data.get("branch", current_branch)
                         safe_rerun()
                 else:
-                    st.error(f"❌ {message}")
+                    st.error(f"{message}")
             else:
-                st.warning("⚠️ Please fill all fields")
+                st.warning("Please fill all fields")
     
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -831,11 +831,11 @@ def customer_dashboard():
     st.markdown(f"""
     <div class="dashboard-header">
         <div>
-            <div class="greeting-text">👋 {customer.get('customer_name', 'Valued Customer')}</div>
-            <div class="greeting-sub">📱 {display_phone} • 🏢 {customer.get('branch', 'HO')}</div>
+            <div class="greeting-text">Welcome, {customer.get('customer_name', 'Valued Customer')}</div>
+            <div class="greeting-sub">Phone: {display_phone} • Branch: {customer.get('branch', 'HO')}</div>
         </div>
         <div>
-            <button onclick="window.location.href='?logout=true'" style="background:none;border:2px solid #e5e7eb;border-radius:12px;padding:8px 20px;color:#4a5568;font-weight:500;cursor:pointer;">🚪 Logout</button>
+            <button onclick="window.location.href='?logout=true'" style="background:none;border:2px solid #e5e7eb;border-radius:12px;padding:8px 20px;color:#4a5568;font-weight:500;cursor:pointer;">Logout</button>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -847,9 +847,6 @@ def customer_dashboard():
     total_orders = safe_int(customer.get('total_orders', 0))
     points = customer.get('points', 0)
     tier = customer.get('tier', 'BRONZE')
-    
-    tier_icons = {"BRONZE": "🥉", "SILVER": "🥈", "GOLD": "🥇", "PLATINUM": "💎"}
-    tier_icon = tier_icons.get(tier, "🥉")
     
     with col1:
         st.markdown(f"""
@@ -875,7 +872,7 @@ def customer_dashboard():
     with col4:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-value">{tier_icon} {tier}</div>
+            <div class="metric-value">{tier}</div>
             <div class="metric-label">Tier</div>
         </div>
         """, unsafe_allow_html=True)
@@ -886,12 +883,12 @@ def customer_dashboard():
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown('<div class="section-title">💳 Loyalty Card</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Loyalty Card</div>', unsafe_allow_html=True)
         card_html, qr_base64 = generate_digital_loyalty_card(customer)
         st.markdown(card_html, unsafe_allow_html=True)
         
         st.download_button(
-            label="📥 Download QR Code",
+            label="Download QR Code",
             data=base64.b64decode(qr_base64),
             file_name=f"loyalty_qr_{display_phone}.png",
             mime="image/png",
@@ -899,7 +896,7 @@ def customer_dashboard():
         )
     
     with col2:
-        st.markdown('<div class="section-title">🛍️ Products Available</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Products Available</div>', unsafe_allow_html=True)
         
         if not products_df.empty:
             product_cols = st.columns(2)
@@ -924,7 +921,7 @@ def customer_dashboard():
     st.markdown("---")
     
     # Purchase History
-    st.markdown('<div class="section-title">📜 Purchase History</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Purchase History</div>', unsafe_allow_html=True)
     
     purchase_history = get_customer_purchase_history(phone, 20)
     
@@ -995,7 +992,7 @@ def customer_dashboard():
     st.markdown("---")
     
     # Recommendations
-    st.markdown('<div class="section-title">🎯 Recommended for You</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Recommended for You</div>', unsafe_allow_html=True)
     
     recommendations = get_customer_recommendations(phone)
     
@@ -1014,7 +1011,7 @@ def customer_dashboard():
                 <div class="product-item">
                     <div class="product-name">{product['name'][:25]}</div>
                     <div class="product-price">${product_price:.2f}</div>
-                    <span class="product-tag">⭐ Recommended</span>
+                    <span class="product-tag">Recommended</span>
                 </div>
                 """, unsafe_allow_html=True)
     else:
@@ -1023,7 +1020,7 @@ def customer_dashboard():
     st.markdown("---")
     
     # Redeem Points
-    st.markdown('<div class="section-title">🔄 Redeem Points</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Redeem Points</div>', unsafe_allow_html=True)
     
     current_points = customer.get('points', 0)
     points_value = current_points / 100
@@ -1031,12 +1028,12 @@ def customer_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.info(f"💎 Your {current_points} points are worth **${points_value:.2f}** discount!")
+        st.info(f"Your {current_points} points are worth ${points_value:.2f} discount!")
         st.caption("100 points = $1 discount")
     
     with col2:
         if current_points >= 100:
-            if st.button("🔄 Redeem Now", use_container_width=True):
+            if st.button("Redeem Now", use_container_width=True):
                 st.session_state.show_redeem = True
         
         if st.session_state.get("show_redeem", False):
@@ -1048,13 +1045,13 @@ def customer_dashboard():
                 value=min(500, current_points)
             )
             
-            if st.button("✅ Confirm Redemption", use_container_width=True):
+            if st.button("Confirm Redemption", use_container_width=True):
                 st.info(f"Show this screen at checkout to redeem {points_to_redeem} points for ${points_to_redeem/100:.2f} discount!")
     
     st.markdown("---")
     
     # Stay Connected
-    st.markdown('<div class="section-title">📱 Stay Connected</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Stay Connected</div>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     
@@ -1064,17 +1061,17 @@ def customer_dashboard():
             st.markdown(f"""
             <a href="{whatsapp_link}" target="_blank">
                 <button style="background:#25D366;color:white;border:none;border-radius:30px;padding:10px;width:100%;cursor:pointer;font-weight:600;">
-                    💬 WhatsApp
+                    WhatsApp
                 </button>
             </a>
             """, unsafe_allow_html=True)
     
     with col2:
-        if st.button("📞 Contact Support", use_container_width=True):
+        if st.button("Contact Support", use_container_width=True):
             st.info("Call us: +263 78 290 5853")
     
     with col3:
-        if st.button("🚪 Logout", use_container_width=True):
+        if st.button("Logout", use_container_width=True):
             logout_customer()
     
     st.markdown("""
