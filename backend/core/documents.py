@@ -161,7 +161,6 @@ def get_real_customer_data(customer_name):
     if customer_sales.empty:
         return None
     
-    # Use unduplicated receipts
     if receipt_col and receipt_col in customer_sales.columns:
         unique_receipts = customer_sales.drop_duplicates(subset=[receipt_col])
         total_orders = len(unique_receipts)
@@ -170,7 +169,6 @@ def get_real_customer_data(customer_name):
         total_orders = len(customer_sales)
         total_spent = to_float(customer_sales[amount_col].sum()) if amount_col else 0
     
-    # Get last purchase date
     last_purchase = None
     if date_col:
         customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
@@ -201,7 +199,7 @@ def get_real_product_data():
             "category": row.get("category", "Uncategorized")
         })
     
-    return products[:20]  # Limit to 20 products
+    return products[:20]
 
 
 def get_real_supplier_data():
@@ -224,7 +222,7 @@ def get_real_supplier_data():
 
 
 # ==============================
-# PDF GENERATION FUNCTIONS
+# PDF GENERATION FUNCTIONS - FIXED
 # ==============================
 
 def generate_proforma_invoice(data):
@@ -295,9 +293,12 @@ def generate_proforma_invoice(data):
     story.append(items_table)
     story.append(Spacer(1, 15))
     
+    # FIXED: Properly format tax rate in total table
+    tax_rate = data.get('tax_rate', 0)
+    
     total_data = [
         ["Subtotal:", f"${data.get('subtotal', 0):.2f}"],
-        ["Tax ({data.get('tax_rate', 0)}%):", f"${data.get('tax', 0):.2f}"],
+        [f"Tax ({tax_rate:.0f}%):", f"${data.get('tax', 0):.2f}"],
         ["Total:", f"${data.get('total', 0):.2f}"]
     ]
     
@@ -308,6 +309,8 @@ def generate_proforma_invoice(data):
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
         ('TEXTCOLOR', (2, 2), (1, 2), colors.HexColor('#1a237e')),
         ('FONTSIZE', (0, 2), (1, 2), 14),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(total_table)
     
