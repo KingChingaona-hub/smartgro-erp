@@ -162,9 +162,6 @@ def load_expenses_direct():
         if "amount" in df.columns:
             df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
         
-        print(f"Total expenses in file: ${df['amount'].sum():,.2f}")
-        print(f"Date range: {df['date'].min()} to {df['date'].max()}")
-        
         return df
     except Exception as e:
         print(f"Error loading expenses: {e}")
@@ -185,7 +182,7 @@ def get_period_data(period_type, year, month=None, quarter=None):
     products_df = load_products()
     
     # ==============================
-    # LOAD INCOME FROM INCOME TABLE - FIXED
+    # LOAD INCOME FROM INCOME TABLE
     # ==============================
     income_df = load_income()
     total_income = 0
@@ -225,14 +222,6 @@ def get_period_data(period_type, year, month=None, quarter=None):
                 if category_col_inc:
                     category_summary = period_income.groupby(category_col_inc)[amount_col_inc].sum().to_dict()
                     income_categories = {str(k): to_float(v) for k, v in category_summary.items()}
-                
-                print(f"Total Income from income table: ${total_income:,.2f}")
-            else:
-                print(f"No income found for period {start_date} to {end_date}")
-        else:
-            print(f"Missing date or amount column in income data")
-    else:
-        print("No income data found")
     
     # ============================================================
     # FIND COLUMNS IN SALES
@@ -279,13 +268,9 @@ def get_period_data(period_type, year, month=None, quarter=None):
             total_profit = profit
             items_sold = items
             transaction_count = transactions
-            
-            print(f"Total Revenue (unduplicated): ${total_revenue:,.2f}")
-            print(f"Transactions: {transaction_count}")
-            print(f"Items Sold: {items_sold}")
     
     # ============================================================
-    # EXPENSES DATA
+    # EXPENSES DATA - SHOW EXPENSES (REMOVED NET INCOME)
     # ============================================================
     total_expenses = 0
     expense_categories = {}
@@ -324,14 +309,6 @@ def get_period_data(period_type, year, month=None, quarter=None):
                 if category_col:
                     category_summary = period_expenses.groupby(category_col)[amount_col].sum().to_dict()
                     expense_categories = {str(k): to_float(v) for k, v in category_summary.items()}
-                
-                print(f"Total Expenses: ${total_expenses:,.2f}")
-    
-    # ============================================================
-    # NET INCOME = Total Income from Income Table - Total Expenses
-    # ============================================================
-    net_income = total_income - total_expenses
-    print(f"Net Income (Income - Expenses): ${net_income:,.2f}")
     
     # ============================================================
     # PURCHASES DATA
@@ -374,7 +351,6 @@ def get_period_data(period_type, year, month=None, quarter=None):
         "income_categories": income_categories,
         "total_expenses": total_expenses,
         "expense_categories": expense_categories,
-        "net_income": net_income,
         "total_purchases": total_purchases,
         "transaction_count": transaction_count,
         "items_sold": items_sold,
@@ -412,13 +388,12 @@ def generate_closing_report_pdf(data):
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
     story.append(Spacer(1, 20))
     
-    # Summary Table with REAL data
+    # Summary Table with REAL data - NO NET INCOME
     summary_data = [
         ["Metric", "Value"],
         ["Total Revenue", f"${data['total_revenue']:,.2f}"],
         ["Total Income", f"${data['total_income']:,.2f}"],
         ["Total Expenses", f"${data['total_expenses']:,.2f}"],
-        ["Net Income", f"${data['net_income']:,.2f}"],
         ["Total Purchases", f"${data['total_purchases']:,.2f}"],
         ["Transactions", f"{data['transaction_count']:,}"],
         ["Items Sold", f"{data['items_sold']:,}"],
@@ -575,7 +550,6 @@ def generate_tax_report(year, tax_period="annual"):
         
         if not period_sales.empty:
             if receipt_col and receipt_col in period_sales.columns:
-                # Deduplicate by receipt
                 unique_receipts = period_sales.drop_duplicates(subset=[receipt_col])
                 total_sales = to_float(unique_receipts[total_col].sum())
             else:
@@ -699,7 +673,7 @@ def financial_closing_dashboard():
         with col2:
             st.metric("Total Income", f"${today_data['total_income']:,.2f}")
         with col3:
-            st.metric("Net Income", f"${today_data['net_income']:,.2f}")
+            st.metric("Total Expenses", f"${today_data['total_expenses']:,.2f}")
         with col4:
             st.metric("Transactions", today_data['transaction_count'])
         
@@ -760,8 +734,7 @@ def financial_closing_dashboard():
         with col2:
             st.metric("Total Income", f"${month_data['total_income']:,.2f}")
         with col3:
-            net_color = "normal" if month_data['net_income'] >= 0 else "inverse"
-            st.metric("Net Income", f"${month_data['net_income']:,.2f}", delta_color=net_color)
+            st.metric("Total Expenses", f"${month_data['total_expenses']:,.2f}")
         with col4:
             st.metric("Transactions", month_data['transaction_count'])
         
