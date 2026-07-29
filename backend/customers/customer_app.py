@@ -290,7 +290,13 @@ def authenticate_customer(phone):
     customer["avg_transaction_value"] = total_spent / total_orders if total_orders > 0 else 0
     
     # Get last purchase date
-    if not sales_df.empty and date_col:
+    date_col = None
+    for col in ["date", "sale_date", "transaction_date"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    if date_col and not sales_df.empty:
         customer["last_purchase_date"] = sales_df.iloc[0].get(date_col, datetime.now())
         customer["days_since_last_purchase"] = (datetime.now() - customer["last_purchase_date"]).days if customer["last_purchase_date"] else 999
     
