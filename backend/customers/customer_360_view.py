@@ -104,6 +104,7 @@ def get_date_column(df):
 def extract_customers_from_sales(sales_df):
     """
     Extract unique customers from sales data using unduplicated receipts.
+    Uses customer_name as the primary identifier.
     """
     if sales_df is None or sales_df.empty:
         return pd.DataFrame()
@@ -134,7 +135,7 @@ def extract_customers_from_sales(sales_df):
     customer_data.columns = ["customer_name", "phone"]
     
     # Clean data - remove Walk-in and empty entries
-    customer_data = customer_data.drop_duplicates(subset=["customer_name", "phone"])
+    customer_data = customer_data.drop_duplicates(subset=["customer_name"])
     customer_data = customer_data[
         ~customer_data["customer_name"].astype(str).str.lower().str.contains('walk-in', na=False) &
         ~customer_data["customer_name"].astype(str).str.lower().str.contains('unknown', na=False) &
@@ -170,12 +171,14 @@ def get_combined_customers(customers_df, sales_df):
 
 
 # ==============================
-# CUSTOMER 360 ANALYTICS ENGINE
+# GET CUSTOMER PROFILE - FILTER BY NAME ONLY
 # ==============================
 
-def get_customer_complete_profile(phone, sales_df=None):
-    """Get complete 360° profile for a customer using unduplicated data"""
-    
+def get_customer_complete_profile(customer_name, sales_df=None):
+    """
+    Get complete 360° profile for a specific customer.
+    FILTERS BY CUSTOMER NAME ONLY (not phone).
+    """
     if sales_df is None:
         sales_df = load_sales()
     
@@ -184,115 +187,106 @@ def get_customer_complete_profile(phone, sales_df=None):
     debtors_df = load_debtors()
     
     customer_data = {}
-    phone_str = str(phone)
     
-    if not sales_df.empty:
-        phone_col = get_phone_column(sales_df)
-        customer_col = get_customer_column(sales_df)
-        receipt_col = get_receipt_column(sales_df)
-        amount_col = get_amount_column(sales_df)
-        date_col = get_date_column(sales_df)
-        
-        if phone_col and phone_col in sales_df.columns:
-            sales_df["phone_str"] = sales_df[phone_col].astype(str)
-            customer_sales = sales_df[sales_df["phone_str"] == phone_str]
-            
-            if not customer_sales.empty:
-                # Get customer name
-                if customer_col and customer_col in sales_df.columns:
-                    customer_data["customer_name"] = safe_str(customer_sales.iloc[0].get(customer_col, "Unknown"))
-                else:
-                    customer_data["customer_name"] = "Unknown"
-                
-                customer_data["phone"] = phone_str
-                
-                # ==============================
-                # FIX: Use unduplicated receipts for all calculations
-                # ==============================
-                if receipt_col and receipt_col in customer_sales.columns:
-                    unique_receipts = customer_sales.drop_duplicates(subset=[receipt_col])
-                    total_transactions = len(unique_receipts)
-                    total_spent = safe_float(unique_receipts[amount_col].sum()) if amount_col and amount_col in unique_receipts.columns else 0
-                    
-                    # Get items count from original sales (sum of items across all rows)
-                    if "items" in customer_sales.columns:
-                        total_items = safe_int(customer_sales["items"].sum())
-                    else:
-                        total_items = 0
-                else:
-                    unique_receipts = customer_sales
-                    total_transactions = len(customer_sales)
-                    total_spent = safe_float(customer_sales[amount_col].sum()) if amount_col and amount_col in customer_sales.columns else 0
-                    total_items = safe_int(customer_sales["items"].sum()) if "items" in customer_sales.columns else 0
-                
-                customer_data["total_transactions"] = total_transactions
-                customer_data["total_spent"] = total_spent
-                customer_data["total_orders"] = total_transactions
-                customer_data["avg_transaction_value"] = total_spent / total_transactions if total_transactions > 0 else 0
-                customer_data["total_items"] = total_items
-                
-                # Get last purchase date
-                if date_col:
-                    customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
-                    last_date = customer_sales[date_col].max()
-                    if pd.notna(last_date):
-                        customer_data["last_purchase_date"] = last_date
-                        customer_data["days_since_last_purchase"] = (datetime.now() - last_date).days
-                    else:
-                        customer_data["days_since_last_purchase"] = 999
-                else:
-                    customer_data["days_since_last_purchase"] = 999
-                
-                # Get payment methods
-                payment_col = None
-                for col in ["payment_method", "payment_type"]:
-                    if col in customer_sales.columns:
-                        payment_col = col
-                        break
-                
-                if payment_col:
-                    customer_data["payment_methods"] = customer_sales[payment_col].unique().tolist()
-                
-                # ==============================
-                # FIX: Store unduplicated purchase history
-                # ==============================
-                if receipt_col and receipt_col in customer_sales.columns:
-                    # Use unique receipts for purchase history
-                    history_data = unique_receipts.copy()
-                else:
-                    history_data = customer_sales.copy()
-                
-                # Convert to dict and store
-                customer_data["purchase_history"] = history_data.to_dict('records')
-    
-    if not customer_data and not customers_df.empty:
-        phone_col = get_phone_column(customers_df)
-        if phone_col and phone_col in customers_df.columns:
-            customers_df["phone_str"] = customers_df[phone_col].astype(str)
-            customer = customers_df[customers_df["phone_str"] == phone_str]
-            if not customer.empty:
-                row = customer.iloc[0]
-                customer_data["customer_name"] = safe_str(row.get("customer_name", "Unknown"))
-                customer_data["phone"] = phone_str
-                customer_data["total_spent"] = safe_float(row.get("total_spent", 0))
-                customer_data["total_orders"] = safe_int(row.get("total_orders", 0))
-                customer_data["total_transactions"] = customer_data["total_orders"]
-                customer_data["days_since_last_purchase"] = 999
-    
-    if not customer_data:
+    if sales_df.empty:
         return None
     
-    # Get loyalty info
-    loyalty_info = get_customer_loyalty_info(phone_str)
+    customer_col = get_customer_column(sales_df)
+    receipt_col = get_receipt_column(sales_df)
+    amount_col = get_amount_column(sales_df)
+    date_col = get_date_column(sales_df)
+    
+    if customer_col is None:
+        return None
+    
+    # ==============================
+    # FIX: Filter by customer name ONLY
+    # ==============================
+    customer_sales = sales_df[sales_df[customer_col].astype(str).str.lower() == customer_name.lower()]
+    
+    # If no exact match, try contains
+    if customer_sales.empty:
+        customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
+    
+    if customer_sales.empty:
+        return None
+    
+    # Get customer name from the first sale
+    customer_data["customer_name"] = safe_str(customer_sales.iloc[0].get(customer_col, customer_name))
+    
+    # Get phone from the first sale if available
+    phone_col = get_phone_column(sales_df)
+    if phone_col and phone_col in sales_df.columns:
+        customer_data["phone"] = safe_str(customer_sales.iloc[0].get(phone_col, ""))
+    else:
+        customer_data["phone"] = ""
+    
+    # ==============================
+    # Use unduplicated receipts for calculations
+    # ==============================
+    if receipt_col and receipt_col in customer_sales.columns:
+        unique_receipts = customer_sales.drop_duplicates(subset=[receipt_col])
+        total_transactions = len(unique_receipts)
+        total_spent = safe_float(unique_receipts[amount_col].sum()) if amount_col and amount_col in unique_receipts.columns else 0
+        
+        if "items" in customer_sales.columns:
+            total_items = safe_int(customer_sales["items"].sum())
+        else:
+            total_items = 0
+        
+        # Store purchase history with unique receipts
+        purchase_history = unique_receipts.copy()
+    else:
+        unique_receipts = customer_sales
+        total_transactions = len(customer_sales)
+        total_spent = safe_float(customer_sales[amount_col].sum()) if amount_col and amount_col in customer_sales.columns else 0
+        total_items = safe_int(customer_sales["items"].sum()) if "items" in customer_sales.columns else 0
+        purchase_history = customer_sales.copy()
+    
+    customer_data["total_transactions"] = total_transactions
+    customer_data["total_spent"] = total_spent
+    customer_data["total_orders"] = total_transactions
+    customer_data["avg_transaction_value"] = total_spent / total_transactions if total_transactions > 0 else 0
+    customer_data["total_items"] = total_items
+    
+    # Last purchase date
+    if date_col:
+        customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
+        last_date = customer_sales[date_col].max()
+        if pd.notna(last_date):
+            customer_data["last_purchase_date"] = last_date
+            customer_data["days_since_last_purchase"] = (datetime.now() - last_date).days
+        else:
+            customer_data["days_since_last_purchase"] = 999
+    else:
+        customer_data["days_since_last_purchase"] = 999
+    
+    # Payment methods
+    payment_col = None
+    for col in ["payment_method", "payment_type"]:
+        if col in customer_sales.columns:
+            payment_col = col
+            break
+    
+    if payment_col:
+        customer_data["payment_methods"] = customer_sales[payment_col].unique().tolist()
+    
+    # Store purchase history
+    customer_data["purchase_history"] = purchase_history.to_dict('records')
+    
+    # Get loyalty info by name
+    loyalty_info = get_customer_loyalty_info(customer_name)
     if loyalty_info:
         customer_data.update(loyalty_info)
     
-    # Get debt info
+    # Get debt info by name
     if not debtors_df.empty:
-        phone_col = get_phone_column(debtors_df)
-        if phone_col and phone_col in debtors_df.columns:
-            debtors_df["phone_str"] = debtors_df[phone_col].astype(str)
-            customer_debts = debtors_df[debtors_df["phone_str"] == phone_str]
+        debt_customer_col = get_customer_column(debtors_df)
+        if debt_customer_col and debt_customer_col in debtors_df.columns:
+            customer_debts = debtors_df[debtors_df[debt_customer_col].astype(str).str.lower() == customer_name.lower()]
+            
+            if customer_debts.empty:
+                customer_debts = debtors_df[debtors_df[debt_customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
             
             if not customer_debts.empty:
                 balance_col = None
@@ -307,13 +301,17 @@ def get_customer_complete_profile(phone, sales_df=None):
                     customer_data["debt_details"] = customer_debts.to_dict('records')
     
     # Get favorite products
-    if not transactions_df.empty and "phone" in transactions_df.columns:
-        transactions_df["phone_str"] = transactions_df["phone"].astype(str)
-        customer_transactions = transactions_df[transactions_df["phone_str"] == phone_str]
-        
-        if not customer_transactions.empty and "product_name" in customer_transactions.columns:
-            favorite_products = customer_transactions.groupby("product_name")["quantity"].sum().nlargest(5).to_dict()
-            customer_data["favorite_products"] = favorite_products
+    if not transactions_df.empty:
+        trans_customer_col = get_customer_column(transactions_df)
+        if trans_customer_col and trans_customer_col in transactions_df.columns:
+            customer_transactions = transactions_df[transactions_df[trans_customer_col].astype(str).str.lower() == customer_name.lower()]
+            
+            if customer_transactions.empty:
+                customer_transactions = transactions_df[transactions_df[trans_customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
+            
+            if not customer_transactions.empty and "product_name" in customer_transactions.columns:
+                favorite_products = customer_transactions.groupby("product_name")["quantity"].sum().nlargest(5).to_dict()
+                customer_data["favorite_products"] = favorite_products
     
     return customer_data
 
@@ -469,7 +467,7 @@ def get_personalized_recommendations(customer_data):
 
 
 def calculate_customer_lifetime_value(customer_data):
-    """Calculate Customer Lifetime Value (CLV) using unduplicated data"""
+    """Calculate Customer Lifetime Value (CLV)"""
     
     total_spent = safe_float(customer_data.get("total_spent", 0))
     total_orders = safe_int(customer_data.get("total_orders", 0))
@@ -480,11 +478,8 @@ def calculate_customer_lifetime_value(customer_data):
     if days_since is None or days_since < 1:
         days_since = 1
     
-    # Purchase frequency per year
     purchase_frequency = (total_orders / days_since) * 365 if total_orders > 0 and days_since > 0 else 0
-    
-    # Cap at reasonable values
-    purchase_frequency = min(purchase_frequency, 365)  # Max once per day
+    purchase_frequency = min(purchase_frequency, 365)
     
     customer_lifespan = 3
     
@@ -561,7 +556,7 @@ def customer_360_view():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        search_term = st.text_input("Search by Name or Phone", placeholder="Enter customer name or phone number...")
+        search_term = st.text_input("Search by Customer Name", placeholder="Enter customer name...")
     
     with col2:
         if st.button("Search", type="primary", use_container_width=True):
@@ -569,8 +564,7 @@ def customer_360_view():
     
     if search_term:
         filtered_customers = customer_list[
-            customer_list["customer_name"].str.contains(search_term, case=False) |
-            customer_list["phone"].str.contains(search_term)
+            customer_list["customer_name"].str.contains(search_term, case=False)
         ]
     else:
         filtered_customers = customer_list.head(20)
@@ -583,11 +577,11 @@ def customer_360_view():
     customer_map = {}
     
     for _, row in filtered_customers.iterrows():
-        phone_val = safe_str(row["phone"])
         name_val = safe_str(row["customer_name"])
-        display_text = f"{name_val} - {phone_val}"
+        phone_val = safe_str(row["phone"])
+        display_text = f"{name_val} - {phone_val}" if phone_val else name_val
         customer_options.append(display_text)
-        customer_map[display_text] = phone_val
+        customer_map[display_text] = name_val
     
     selected_display = st.selectbox(
         "Select Customer",
@@ -595,9 +589,12 @@ def customer_360_view():
     )
     
     if selected_display:
-        selected_customer = customer_map[selected_display]
+        selected_customer_name = customer_map[selected_display]
         
-        profile = get_customer_complete_profile(selected_customer, sales_df)
+        # ==============================
+        # FIX: Get profile using name only
+        # ==============================
+        profile = get_customer_complete_profile(selected_customer_name, sales_df)
         
         if profile:
             # ==============================
@@ -768,9 +765,10 @@ def customer_360_view():
             st.markdown("---")
             
             # ==============================
-            # PURCHASE HISTORY - FIXED
+            # PURCHASE HISTORY - FILTERED BY SELECTED CUSTOMER
             # ==============================
             st.markdown("## Purchase History")
+            st.caption(f"Showing all purchases for: {selected_customer_name}")
             
             purchase_history = profile.get("purchase_history", [])
             
@@ -779,7 +777,6 @@ def customer_360_view():
                 
                 # Standardize column names for display
                 display_cols = []
-                col_mapping = {}
                 
                 # Date column
                 date_col = None
@@ -822,7 +819,6 @@ def customer_360_view():
                 
                 if amount_col:
                     display_cols.append(amount_col)
-                    # Format the amount
                     history_df[amount_col] = history_df[amount_col].apply(safe_float)
                 
                 # Items
@@ -840,7 +836,6 @@ def customer_360_view():
                     display_cols.append(payment_col)
                 
                 if display_cols:
-                    # Show the data with proper formatting
                     st.dataframe(
                         history_df[display_cols],
                         use_container_width=True,
@@ -850,12 +845,11 @@ def customer_360_view():
                         } if amount_col else {}
                     )
                 else:
-                    # Show all columns if we couldn't find standard ones
                     st.dataframe(history_df, use_container_width=True, hide_index=True)
                 
-                st.caption(f"Showing {len(history_df)} purchases")
+                st.caption(f"Showing {len(history_df)} purchases for {selected_customer_name}")
             else:
-                st.info("No purchase history available")
+                st.info(f"No purchase history available for {selected_customer_name}")
             
             # ==============================
             # DEBT INFORMATION
@@ -895,17 +889,16 @@ def customer_insights_360():
         st.warning("No customer data available. Customers are recorded during sales.")
         return
     
-    # Overall metrics using unduplicated data
+    # Overall metrics
     st.markdown("## Overall Customer Metrics")
     
     total_customers = len(customer_list)
     
-    # Calculate metrics from unduplicated sales
-    total_revenue = 0
-    total_transactions = 0
-    
     receipt_col = get_receipt_column(sales_df)
     amount_col = get_amount_column(sales_df)
+    
+    total_revenue = 0
+    total_transactions = 0
     
     if not sales_df.empty and amount_col:
         if receipt_col and receipt_col in sales_df.columns:
@@ -927,7 +920,6 @@ def customer_insights_360():
     with col3:
         st.metric("Avg Customer Spend", f"${avg_spent:.2f}")
     with col4:
-        # Active customers (last 90 days)
         date_col = get_date_column(sales_df)
         phone_col = get_phone_column(sales_df)
         active_customers = 0
@@ -946,8 +938,8 @@ def customer_insights_360():
     
     segments = []
     for _, customer in customer_list.iterrows():
-        phone_str = safe_str(customer["phone"])
-        profile = get_customer_complete_profile(phone_str, sales_df)
+        name_val = safe_str(customer["customer_name"])
+        profile = get_customer_complete_profile(name_val, sales_df)
         if profile:
             segment = get_customer_segment(profile)
             segments.append(segment)
@@ -972,8 +964,8 @@ def customer_insights_360():
     
     at_risk_customers = []
     for _, customer in customer_list.iterrows():
-        phone_str = safe_str(customer["phone"])
-        profile = get_customer_complete_profile(phone_str, sales_df)
+        name_val = safe_str(customer["customer_name"])
+        profile = get_customer_complete_profile(name_val, sales_df)
         if profile:
             churn = predict_churn_risk(profile)
             if churn["risk_level"] in ["HIGH", "MEDIUM"]:
