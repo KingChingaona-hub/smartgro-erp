@@ -1,4 +1,4 @@
-# packages_customer.txt
-# System packages needed for Streamlit Cloud
-
+# packages.txt
 tzdata
+python3-setuptools
+build-essential
