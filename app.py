@@ -1,4 +1,4 @@
-# app.py - Fixed version with Customer App removed
+# app.py - Fixed version with Customer App removed and Mobile Mode disabled
 import os
 os.environ['TZ'] = 'Africa/Harare'
 try:
@@ -228,16 +228,16 @@ from backend.developer.api_developer import api_developer_dashboard
 # ==============================
 # MOBILE RESPONSIVE IMPORTS
 # ==============================
-from backend.core.responsive import (
-    is_mobile_device, 
-    apply_mobile_css, 
-    get_device_type, 
-    show_mobile_banner
-)
-from backend.core.mobile_quick_actions import (
-    show_mobile_quick_actions, 
-    show_mobile_bottom_nav
-)
+# from backend.core.responsive import (
+#     is_mobile_device, 
+#     apply_mobile_css, 
+#     get_device_type, 
+#     show_mobile_banner
+# )
+# from backend.core.mobile_quick_actions import (
+#     show_mobile_quick_actions, 
+#     show_mobile_bottom_nav
+# )
 
 # ==============================
 # DATE/TIME IMPORTS
@@ -547,14 +547,14 @@ def main_app():
         print(f"PWA setup error: {e}")
     
     # ==============================
-    # MOBILE RESPONSIVENESS
+    # MOBILE RESPONSIVENESS - DISABLED
     # ==============================
-    try:
-        if is_mobile_device():
-            apply_mobile_css()
-            show_mobile_banner()
-    except Exception as e:
-        print(f"Mobile responsiveness error: {e}")
+    # try:
+    #     if is_mobile_device():
+    #         apply_mobile_css()
+    #         show_mobile_banner()
+    # except Exception as e:
+    #     print(f"Mobile responsiveness error: {e}")
     
     role = st.session_state.get("role", "cashier")
     username = st.session_state.get("username", "User")
@@ -707,14 +707,14 @@ def main_app():
         print(f"Floating action button error: {e}")
     
     # ==============================
-    # MOBILE QUICK ACTIONS
+    # MOBILE QUICK ACTIONS - DISABLED
     # ==============================
-    try:
-        if is_mobile_device():
-            show_mobile_quick_actions()
-            show_mobile_bottom_nav()
-    except Exception as e:
-        print(f"Mobile actions error: {e}")
+    # try:
+    #     if is_mobile_device():
+    #         show_mobile_quick_actions()
+    #         show_mobile_bottom_nav()
+    # except Exception as e:
+    #     print(f"Mobile actions error: {e}")
     
     # ==============================
     # ROUTING ENGINE - REMOVED Customer App route
