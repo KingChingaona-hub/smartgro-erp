@@ -1,10 +1,11 @@
+# backend/customers/customers_dashboard.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 
-from backend.core.db_adapter import load_customers, load_sales
+from backend.core.db_adapter import load_customers, load_sales, load_products
 from backend.modules.loyalty import (
     load_loyalty,
     get_top_loyalty_customers,
@@ -17,41 +18,264 @@ from backend.utils.utils import generate_whatsapp_promotion
 from backend.utils.phone_utils import get_whatsapp_link
 
 
-def customers_dashboard():
-    """Enhanced Customer Intelligence Dashboard"""
+# ==============================
+# HELPER FUNCTIONS
+# ==============================
+
+def to_float(value):
+    """Safely convert value to float"""
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def safe_str(value, default=""):
+    """Safely convert value to string"""
+    if value is None:
+        return default
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def get_customer_column(df):
+    """Find customer name column"""
+    if df is None or df.empty:
+        return None
+    for col in ["customer_name", "customer", "name", "client_name"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_phone_column(df):
+    """Find phone column"""
+    if df is None or df.empty:
+        return None
+    for col in ["phone", "customer_phone", "contact", "mobile"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_amount_column(df):
+    """Find amount column"""
+    if df is None or df.empty:
+        return None
+    for col in ["final_total", "total", "amount", "spent"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_receipt_column(df):
+    """Find receipt number column"""
+    if df is None or df.empty:
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def extract_customers_from_sales(sales_df):
+    """
+    Extract unique customers from sales data.
+    This is the primary source for customers since they are recorded during checkout.
+    """
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
     
-    st.title("👥 Customer Intelligence Dashboard")
+    customer_col = get_customer_column(sales_df)
+    phone_col = get_phone_column(sales_df)
+    receipt_col = get_receipt_column(sales_df)
+    
+    if customer_col is None:
+        return pd.DataFrame()
+    
+    # Use receipt-level deduplication to get unique customers
+    if receipt_col and receipt_col in sales_df.columns:
+        unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
+        customer_data = unique_receipts[[customer_col]].copy()
+        
+        if phone_col and phone_col in sales_df.columns:
+            customer_data["phone"] = unique_receipts[phone_col].astype(str)
+        else:
+            customer_data["phone"] = ""
+    else:
+        customer_data = sales_df[[customer_col]].copy()
+        if phone_col and phone_col in sales_df.columns:
+            customer_data["phone"] = sales_df[phone_col].astype(str)
+        else:
+            customer_data["phone"] = ""
+    
+    customer_data.columns = ["customer_name", "phone"]
+    
+    # Clean data - remove Walk-in and empty entries
+    customer_data = customer_data.drop_duplicates(subset=["customer_name", "phone"])
+    customer_data = customer_data[
+        ~customer_data["customer_name"].astype(str).str.lower().str.contains('walk-in', na=False) &
+        ~customer_data["customer_name"].astype(str).str.lower().str.contains('unknown', na=False) &
+        (customer_data["customer_name"].astype(str).str.strip() != '') &
+        (customer_data["customer_name"].astype(str).str.strip() != 'nan') &
+        (customer_data["customer_name"].astype(str).str.strip() != 'None')
+    ]
+    
+    return customer_data
+
+
+def get_combined_customers(customers_df, sales_df):
+    """Combine customers from both table and sales data."""
+    sales_customers = extract_customers_from_sales(sales_df)
+    
+    if not sales_customers.empty:
+        return sales_customers
+    
+    if customers_df is not None and not customers_df.empty:
+        customer_col = get_customer_column(customers_df)
+        phone_col = get_phone_column(customers_df)
+        
+        if customer_col:
+            result = customers_df[[customer_col]].copy()
+            result.columns = ["customer_name"]
+            if phone_col and phone_col in customers_df.columns:
+                result["phone"] = customers_df[phone_col].astype(str)
+            else:
+                result["phone"] = ""
+            return result
+    
+    return pd.DataFrame()
+
+
+def get_customer_total_spent(customer_name, sales_df):
+    """Calculate total spent for a customer from sales data"""
+    if sales_df is None or sales_df.empty:
+        return 0
+    
+    customer_col = get_customer_column(sales_df)
+    amount_col = get_amount_column(sales_df)
+    receipt_col = get_receipt_column(sales_df)
+    
+    if customer_col is None or amount_col is None:
+        return 0
+    
+    customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
+    
+    if customer_sales.empty:
+        return 0
+    
+    # Use unduplicated receipts for accurate total
+    if receipt_col and receipt_col in customer_sales.columns:
+        unique_receipts = customer_sales.drop_duplicates(subset=[receipt_col])
+        return to_float(unique_receipts[amount_col].sum())
+    
+    return to_float(customer_sales[amount_col].sum())
+
+
+def get_customer_total_orders(customer_name, sales_df):
+    """Calculate total orders for a customer from sales data"""
+    if sales_df is None or sales_df.empty:
+        return 0
+    
+    customer_col = get_customer_column(sales_df)
+    receipt_col = get_receipt_column(sales_df)
+    
+    if customer_col is None:
+        return 0
+    
+    customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
+    
+    if customer_sales.empty:
+        return 0
+    
+    if receipt_col and receipt_col in customer_sales.columns:
+        return len(customer_sales.drop_duplicates(subset=[receipt_col]))
+    
+    return len(customer_sales)
+
+
+def get_customer_last_purchase(customer_name, sales_df):
+    """Get last purchase date for a customer"""
+    if sales_df is None or sales_df.empty:
+        return None
+    
+    customer_col = get_customer_column(sales_df)
+    date_col = None
+    for col in ["date", "sale_date", "transaction_date"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    if customer_col is None or date_col is None:
+        return None
+    
+    customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
+    
+    if customer_sales.empty:
+        return None
+    
+    customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
+    last_date = customer_sales[date_col].max()
+    
+    return last_date
+
+
+def get_customer_products(customer_name, sales_df):
+    """Get products purchased by a customer"""
+    if sales_df is None or sales_df.empty:
+        return []
+    
+    customer_col = get_customer_column(sales_df)
+    
+    if customer_col is None:
+        return []
+    
+    customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
+    
+    if customer_sales.empty:
+        return []
+    
+    name_col = None
+    for col in ["name", "product_name", "item_name"]:
+        if col in customer_sales.columns:
+            name_col = col
+            break
+    
+    if name_col is None:
+        return []
+    
+    return customer_sales[name_col].tolist()
+
+
+def customers_dashboard():
+    """Enhanced Customer Intelligence Dashboard - FIXED to use REAL data from sales"""
+    
+    st.title("Customer Intelligence Dashboard")
     st.caption("Track loyalty, spending patterns, and customer engagement")
     
+    # Load data
     customers_df = load_customers()
-    loyalty_df = load_loyalty()
     sales_df = load_sales()
+    loyalty_df = load_loyalty()
+    products_df = load_products()
     
     # ==============================
-    # INITIALIZE LOYALTY DATA IF EMPTY
+    # FIX: Extract customers from sales data
     # ==============================
-    if loyalty_df.empty and not customers_df.empty:
-        st.warning("Loyalty data is empty. Initializing loyalty records for existing customers...")
-        
-        loyalty_records = []
-        for _, customer in customers_df.iterrows():
-            loyalty_records.append({
-                "customer_name": customer.get("customer_name", "Unknown"),
-                "phone": str(customer.get("phone", "")),
-                "points": 0,
-                "tier": "BRONZE",
-                "total_spent": float(customer.get("total_spent", 0)),
-                "total_orders": int(customer.get("total_orders", 0)),
-                "last_visit": datetime.now().strftime("%Y-%m-%d"),
-                "birthday": "",
-                "joined_date": datetime.now().strftime("%Y-%m-%d")
-            })
-        
-        if loyalty_records:
-            loyalty_df = pd.DataFrame(loyalty_records)
-            save_loyalty(loyalty_df)
-            st.success(f"Created loyalty records for {len(loyalty_records)} customers!")
-            st.rerun()
+    real_customers = get_combined_customers(customers_df, sales_df)
+    
+    if real_customers.empty:
+        st.warning("No customer data found. Customers are recorded during sales checkout.")
+        st.info("Tip: When making a sale, enter a customer name (not 'Walk-in') to build customer profiles.")
+        return
+    
+    st.sidebar.markdown("### Customer Info")
+    st.sidebar.write(f"Total Customers: {len(real_customers)}")
+    st.sidebar.write(f"Total Sales: {len(sales_df)}")
     
     # ==============================
     # CUSTOMER LOYALTY SEARCH
@@ -61,211 +285,172 @@ def customers_dashboard():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        search_phone = st.text_input("Enter Customer Phone Number", placeholder="0712345678 or 782905853")
+        search_term = st.text_input("Search by Name or Phone", placeholder="Enter customer name or phone...")
     
     with col2:
-        if st.button("🔍 Search", use_container_width=True):
-            if search_phone:
-                customer_info = get_customer_loyalty_info(search_phone)
+        if st.button("Search", use_container_width=True):
+            if search_term:
+                # Search in real customers
+                results = real_customers[
+                    real_customers["customer_name"].str.contains(search_term, case=False) |
+                    real_customers["phone"].str.contains(search_term)
+                ]
                 
-                if customer_info:
-                    st.session_state.loyalty_customer = customer_info
-                    st.success(f"Found customer: {customer_info.get('customer_name', 'Unknown')}")
+                if not results.empty:
+                    st.session_state.search_results = results
+                    st.success(f"Found {len(results)} customers")
                 else:
-                    st.error("Customer not found in loyalty system")
-                    st.session_state.loyalty_customer = None
+                    st.error("No customers found")
+                    st.session_state.search_results = None
     
-    # Display loyalty info if found
-    if st.session_state.get("loyalty_customer"):
-        info = st.session_state.loyalty_customer
+    # Display search results
+    if st.session_state.get("search_results") is not None:
+        results = st.session_state.search_results
         
-        st.markdown("---")
-        st.markdown(f"## {info.get('customer_name', 'Unknown')}")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Tier", info.get('tier', '🥉 BRONZE'))
-        with col2:
-            st.metric("Points", f"{info.get('points', 0):,}")
-        with col3:
-            st.metric("Total Spent", f"${info.get('total_spent', 0):,.2f}")
-        with col4:
-            st.metric("Orders", info.get('total_orders', 0))
-        
-        with st.expander("Tier Benefits"):
-            benefits = info.get('benefits', {})
-            st.write(f"Points Multiplier: {benefits.get('points_multiplier', 1)}x")
-            st.write(f"Birthday Bonus: {benefits.get('birthday_bonus', 50)} points")
-            st.write(f"Tier Discount: {benefits.get('discount', 0)}%")
-            st.write(f"Free Delivery: {'Yes' if benefits.get('free_delivery', False) else 'No'}")
-        
-        points_to_next = info.get('points_to_next_tier', 0)
-        if points_to_next > 0:
-            st.progress(min(info.get('total_spent', 0) / 5000, 1.0))
-            st.caption(f"Spend ${points_to_next:.2f} more to reach next tier")
-        else:
-            st.success("You've reached the highest tier!")
+        if not results.empty:
+            for idx, customer in results.iterrows():
+                name = customer.get("customer_name", "Unknown")
+                phone = customer.get("phone", "")
+                
+                with st.expander(f"{name} - {phone}"):
+                    # Get customer metrics from sales
+                    total_spent = get_customer_total_spent(name, sales_df)
+                    total_orders = get_customer_total_orders(name, sales_df)
+                    last_purchase = get_customer_last_purchase(name, sales_df)
+                    products = get_customer_products(name, sales_df)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Spent", f"${total_spent:,.2f}")
+                    with col2:
+                        st.metric("Total Orders", total_orders)
+                    with col3:
+                        if last_purchase:
+                            days = (datetime.now() - last_purchase).days
+                            st.metric("Last Purchase", f"{days} days ago")
+                        else:
+                            st.metric("Last Purchase", "Never")
+                    
+                    if products:
+                        unique_products = list(set(products))[:5]
+                        st.write("**Products Purchased:**", ", ".join(unique_products))
     
     st.markdown("---")
     
     # ==============================
-    # KEY METRICS
+    # KEY METRICS - USING REAL DATA
     # ==============================
-    st.markdown("## Loyalty Program Metrics")
+    st.markdown("## Key Metrics")
     
-    total_customers = len(loyalty_df) if not loyalty_df.empty else 0
-    total_points = loyalty_df["points"].sum() if not loyalty_df.empty and "points" in loyalty_df.columns else 0
-    total_redeemable_value = total_points / 100 if total_points > 0 else 0
-    avg_points = loyalty_df["points"].mean() if not loyalty_df.empty and "points" in loyalty_df.columns else 0
+    total_customers = len(real_customers)
+    
+    # Calculate total spent from sales
+    amount_col = get_amount_column(sales_df)
+    receipt_col = get_receipt_column(sales_df)
+    
+    total_revenue = 0
+    if not sales_df.empty and amount_col:
+        if receipt_col and receipt_col in sales_df.columns:
+            unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
+            total_revenue = to_float(unique_receipts[amount_col].sum())
+        else:
+            total_revenue = to_float(sales_df[amount_col].sum())
+    
+    avg_spent = total_revenue / total_customers if total_customers > 0 else 0
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Loyalty Members", total_customers)
+        st.metric("Total Customers", total_customers)
     with col2:
-        st.metric("Total Points", f"{total_points:,.0f}")
+        st.metric("Total Revenue", f"${total_revenue:,.2f}")
     with col3:
-        st.metric("Redeemable Value", f"${total_redeemable_value:,.2f}")
+        st.metric("Avg Customer Spend", f"${avg_spent:.2f}")
     with col4:
-        st.metric("Avg Points/Customer", f"{avg_points:.0f}")
+        # Active customers (last 90 days)
+        active_customers = 0
+        date_col = None
+        for col in ["date", "sale_date", "transaction_date"]:
+            if col in sales_df.columns:
+                date_col = col
+                break
+        
+        if date_col and get_customer_column(sales_df):
+            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+            cutoff = datetime.now() - timedelta(days=90)
+            recent_sales = sales_df[sales_df[date_col] >= cutoff]
+            if not recent_sales.empty:
+                customer_col = get_customer_column(sales_df)
+                if customer_col:
+                    active_customers = recent_sales[customer_col].nunique()
+        st.metric("Active Customers (90 days)", active_customers)
     
     st.markdown("---")
     
     # ==============================
-    # TIER DISTRIBUTION
+    # TOP CUSTOMERS BY SPENDING
     # ==============================
-    st.markdown("## Customer Tier Distribution")
+    st.markdown("## Top Customers by Spending")
     
-    if not loyalty_df.empty and "tier" in loyalty_df.columns:
-        tier_counts = loyalty_df["tier"].value_counts().reset_index()
-        tier_counts.columns = ["Tier", "Count"]
+    if not sales_df.empty:
+        customer_col = get_customer_column(sales_df)
+        amount_col = get_amount_column(sales_df)
+        receipt_col = get_receipt_column(sales_df)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig_tier = px.pie(
-                tier_counts,
-                values="Count",
-                names="Tier",
-                title="Customer Tier Breakdown",
-                hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Set2
-            )
-            fig_tier.update_layout(height=350)
-            st.plotly_chart(fig_tier, use_container_width=True)
-        
-        with col2:
-            st.markdown("### Tier Benefits")
-            st.markdown("""
-            | Tier | Multiplier | Discount | Birthday Bonus |
-            |------|------------|----------|----------------|
-            | BRONZE | 1x | 0% | 50 points |
-            | SILVER | 1.2x | 5% | 100 points |
-            | GOLD | 1.5x | 10% | 200 points |
-            | PLATINUM | 2x | 15% | 500 points |
-            """)
-    else:
-        st.info("No tier data available. Add loyalty records to see distribution.")
-    
-    st.markdown("---")
-    
-    # ==============================
-    # TOP LOYALTY CUSTOMERS
-    # ==============================
-    st.markdown("## Top Loyalty Customers")
-    
-    top_customers = get_top_loyalty_customers(10)
-    
-    if not top_customers.empty:
-        fig_top = px.bar(
-            top_customers,
-            x="points",
-            y="customer_name",
-            orientation="h",
-            title="Top 10 Customers by Points",
-            color="tier",
-            color_discrete_sequence=px.colors.qualitative.Set1,
-            text="points"
-        )
-        fig_top.update_traces(texttemplate="%{text}", textposition="outside")
-        fig_top.update_layout(height=400, xaxis_title="Points", yaxis_title="")
-        st.plotly_chart(fig_top, use_container_width=True)
-    else:
-        st.info("No loyalty data available yet.")
-    
-    st.markdown("---")
-    
-    # ==============================
-    # BIRTHDAY REMINDERS
-    # ==============================
-    st.markdown("## Birthday This Month")
-    
-    birthday_customers = get_birthday_customers()
-    
-    if not birthday_customers.empty:
-        st.success(f"{len(birthday_customers)} customers celebrating birthdays this month!")
-        st.dataframe(birthday_customers, use_container_width=True, hide_index=True)
-        
-        if st.button("Send Birthday Greetings"):
-            st.info("Birthday messages would be sent here. (SMS/Email integration coming soon)")
-    else:
-        st.info("No birthdays this month or no birthday data available")
-    
-    st.markdown("---")
-    
-    # ==============================
-    # CUSTOMER SPENDING TRENDS
-    # ==============================
-    if not sales_df.empty and "customer" in sales_df.columns:
-        st.markdown("## Customer Spending Trends")
-        
-        customer_spending = sales_df.groupby("customer")["total"].sum().nlargest(10).reset_index()
-        
-        if not customer_spending.empty:
-            fig_spend = px.bar(
-                customer_spending,
-                x="total",
-                y="customer",
-                orientation="h",
-                title="Top 10 Customers by Spending",
-                color="total",
-                color_continuous_scale="Greens",
-                text="total"
-            )
-            fig_spend.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
-            fig_spend.update_layout(height=400, xaxis_title="Total Spent ($)", yaxis_title="")
-            st.plotly_chart(fig_spend, use_container_width=True)
+        if customer_col and amount_col:
+            # Use unique receipts for accurate spending
+            if receipt_col and receipt_col in sales_df.columns:
+                unique_sales = sales_df.drop_duplicates(subset=[receipt_col])
+            else:
+                unique_sales = sales_df
+            
+            customer_spending = unique_sales.groupby(customer_col)[amount_col].sum().nlargest(10).reset_index()
+            
+            if not customer_spending.empty:
+                fig_spend = px.bar(
+                    customer_spending,
+                    x=amount_col,
+                    y=customer_col,
+                    orientation="h",
+                    title="Top 10 Customers by Spending",
+                    color=amount_col,
+                    color_continuous_scale="Greens",
+                    text=amount_col
+                )
+                fig_spend.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
+                fig_spend.update_layout(height=400, xaxis_title="Total Spent ($)", yaxis_title="")
+                st.plotly_chart(fig_spend, use_container_width=True)
+            else:
+                st.info("No customer spending data available")
     else:
         st.info("No sales data available for spending trends")
     
     st.markdown("---")
     
     # ==============================
-    # ALL LOYALTY MEMBERS
+    # CUSTOMER LIST
     # ==============================
-    with st.expander("All Loyalty Members"):
-        if not loyalty_df.empty:
-            st.dataframe(loyalty_df, use_container_width=True, hide_index=True)
-            
-            csv = loyalty_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="Download Loyalty Data (CSV)",
-                data=csv,
-                file_name=f"loyalty_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
-        else:
-            st.info("No loyalty data available")
+    st.markdown("## All Customers")
+    
+    st.dataframe(real_customers, use_container_width=True, hide_index=True)
+    
+    csv = real_customers.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Customer Data (CSV)",
+        data=csv,
+        file_name=f"customers_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv"
+    )
+    
+    st.markdown("---")
     
     # ==============================
     # WHATSAPP BULK MESSAGING
     # ==============================
-    st.markdown("---")
     st.markdown("## WhatsApp Bulk Messaging")
     st.caption("Send promotions and notifications to customers via WhatsApp")
     
-    if customers_df.empty:
+    if real_customers.empty:
         st.warning("No customers available for messaging")
         return
     
@@ -274,35 +459,75 @@ def customers_dashboard():
     with col1:
         segment = st.selectbox(
             "Select Customer Segment",
-            ["All Customers", "VIP Customers", "Active Customers", "Inactive Customers", "Birthday This Month"],
+            ["All Customers", "High Spenders", "Recent Customers", "Inactive Customers"],
             key="whatsapp_segment"
         )
     
     with col2:
         message_type = st.selectbox(
             "Message Type",
-            ["Promotion", "Birthday Greeting", "General Announcement", "Custom Message"],
+            ["Promotion", "General Announcement", "Custom Message"],
             key="whatsapp_message_type"
         )
     
     # Get filtered customer list based on segment
-    filtered_customers = customers_df.copy()
+    filtered_customers = real_customers.copy()
     
-    if segment == "VIP Customers" and not loyalty_df.empty:
-        vip_phones = loyalty_df[loyalty_df["tier"] == "PLATINUM"]["phone"].astype(str).tolist()
-        filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(vip_phones)]
-    elif segment == "Active Customers" and not loyalty_df.empty:
-        active_phones = loyalty_df[loyalty_df["points"] > 100]["phone"].astype(str).tolist()
-        filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(active_phones)]
-    elif segment == "Inactive Customers" and not loyalty_df.empty:
-        inactive_phones = loyalty_df[loyalty_df["points"] == 0]["phone"].astype(str).tolist()
-        filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(inactive_phones)]
-    elif segment == "Birthday This Month":
-        if not birthday_customers.empty:
-            birthday_phones = birthday_customers["phone"].astype(str).tolist()
-            filtered_customers = filtered_customers[filtered_customers["phone"].astype(str).isin(birthday_phones)]
-        else:
-            filtered_customers = pd.DataFrame()
+    if segment == "High Spenders":
+        # Get customers who have spent more than average
+        avg_spent_calc = 0
+        customer_col = get_customer_column(sales_df)
+        amount_col = get_amount_column(sales_df)
+        receipt_col = get_receipt_column(sales_df)
+        
+        if customer_col and amount_col and not sales_df.empty:
+            if receipt_col and receipt_col in sales_df.columns:
+                unique_sales = sales_df.drop_duplicates(subset=[receipt_col])
+            else:
+                unique_sales = sales_df
+            
+            customer_spending = unique_sales.groupby(customer_col)[amount_col].sum()
+            avg_spent_calc = customer_spending.mean() if not customer_spending.empty else 0
+            
+            # Filter customers who spent more than average
+            high_spenders = customer_spending[customer_spending > avg_spent_calc].index.tolist()
+            filtered_customers = filtered_customers[filtered_customers["customer_name"].isin(high_spenders)]
+    
+    elif segment == "Recent Customers":
+        # Customers who purchased in last 30 days
+        date_col = None
+        customer_col = get_customer_column(sales_df)
+        for col in ["date", "sale_date", "transaction_date"]:
+            if col in sales_df.columns:
+                date_col = col
+                break
+        
+        if date_col and customer_col:
+            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+            cutoff = datetime.now() - timedelta(days=30)
+            recent_sales = sales_df[sales_df[date_col] >= cutoff]
+            recent_customers = recent_sales[customer_col].unique().tolist()
+            filtered_customers = filtered_customers[filtered_customers["customer_name"].isin(recent_customers)]
+    
+    elif segment == "Inactive Customers":
+        # Customers who haven't purchased in 90 days
+        date_col = None
+        customer_col = get_customer_column(sales_df)
+        for col in ["date", "sale_date", "transaction_date"]:
+            if col in sales_df.columns:
+                date_col = col
+                break
+        
+        if date_col and customer_col:
+            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+            cutoff = datetime.now() - timedelta(days=90)
+            inactive_sales = sales_df[sales_df[date_col] < cutoff]
+            inactive_customers = inactive_sales[customer_col].unique().tolist()
+            # Only if they have no recent sales
+            recent_sales = sales_df[sales_df[date_col] >= cutoff]
+            recent_customers = recent_sales[customer_col].unique().tolist()
+            inactive_customers = [c for c in inactive_customers if c not in recent_customers]
+            filtered_customers = filtered_customers[filtered_customers["customer_name"].isin(inactive_customers)]
     
     # Message input
     final_message = ""
@@ -314,16 +539,10 @@ def customers_dashboard():
         discount_code = st.text_input("Discount Code (optional)", placeholder="e.g., SAVE20", key="discount_code")
         
         if promo_message:
-            final_message = generate_whatsapp_promotion(promo_message, discount_code)
+            final_message = promo_message
+            if discount_code:
+                final_message += f"\n\nUse code: {discount_code}"
             st.info(f"Preview:\n\n{final_message}")
-    
-    elif message_type == "Birthday Greeting":
-        birthday_message = st.text_area("Birthday Message", height=100,
-                                        placeholder="e.g., Happy Birthday! Enjoy 15% OFF today!",
-                                        key="birthday_message")
-        final_message = birthday_message
-        if birthday_message:
-            st.info(f"Preview:\n\n{birthday_message}")
     
     elif message_type == "General Announcement":
         announcement = st.text_area("Announcement", height=100, key="announcement")
@@ -340,7 +559,7 @@ def customers_dashboard():
             st.info(f"Preview:\n\n{custom_message}")
     
     # Display customer count
-    customer_count = len(filtered_customers) if not filtered_customers.empty else 0
+    customer_count = len(filtered_customers)
     st.info(f"This message will be sent to **{customer_count}** customers")
     
     # Show filtered customers
@@ -355,7 +574,7 @@ def customers_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        send_button = st.button("Send Bulk WhatsApp", type="primary", use_container_width=True)
+        send_button = st.button("Generate WhatsApp Links", type="primary", use_container_width=True)
         
         if send_button:
             if filtered_customers.empty:
@@ -375,7 +594,6 @@ def customers_dashboard():
                         phone_clean = '263' + phone_clean
                     
                     name = customer.get("customer_name", "Customer")
-                    # Fix: Encode message properly without backslash in f-string
                     encoded_message = final_message.replace(' ', '%20').replace('\n', '%0A')
                     whatsapp_link = f"https://wa.me/{phone_clean}?text={encoded_message}"
                     whatsapp_links.append({
@@ -409,8 +627,8 @@ def customers_dashboard():
     
     with col2:
         # Export customer list for manual WhatsApp Broadcast
-        if not customers_df.empty:
-            csv_export = customers_df[["customer_name", "phone"]].to_csv(index=False).encode('utf-8')
+        if not real_customers.empty:
+            csv_export = real_customers[["customer_name", "phone"]].to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Customer List for WhatsApp Broadcast",
                 data=csv_export,
