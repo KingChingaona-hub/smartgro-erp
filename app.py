@@ -1,3 +1,4 @@
+# app.py - Fixed version
 import os
 os.environ['TZ'] = 'Africa/Harare'
 try:
@@ -6,19 +7,41 @@ try:
 except:
     pass
 
-
-# app.py - Add at the very top
 import streamlit as st
 
-# Handle mobile navigation
+# ==============================
+# HANDLE MOBILE NAVIGATION - FIXED
+# ==============================
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 
-# Navigation function
 def navigate_to(page):
+    """Navigate to a page using Streamlit's native method"""
     st.session_state.page = page
     st.rerun()
-    
+
+# ==============================
+# SESSION TIMEOUT - FIXED (No window.location.href)
+# ==============================
+def check_session_timeout():
+    """Check session timeout using Streamlit's native method"""
+    if "last_activity" in st.session_state:
+        idle_time = (datetime.now() - st.session_state.last_activity).seconds
+        if idle_time > 7200:  # 2 hours
+            # Clear session without using window.location.href
+            for key in list(st.session_state.keys()):
+                if key not in ["branch_selected", "branch_authenticated", "current_branch", 
+                               "user_branch", "stock_monitor_started", "stock_monitor_thread", 
+                               "current_theme", "auto_switch_theme", "welcome_seen"]:
+                    try:
+                        del st.session_state[key]
+                    except:
+                        pass
+            st.session_state.logged_in = False
+            st.rerun()
+            return True
+    return False
+
 from backend.core.config import get_current_time
 import traceback
 import sys
@@ -38,7 +61,7 @@ def safe_execute(func, *args, **kwargs):
         return None
 
 # ==============================
-# CORE SYSTEM IMPORTS - FIXED
+# CORE SYSTEM IMPORTS
 # ==============================
 from backend.core.db_adapter import (
     init_data_folder,
@@ -229,55 +252,21 @@ import pandas as pd
 import threading
 import time
 
-
-
 # ==============================
-# PAGE CONFIG
+# PAGE CONFIG - FIXED
 # ==============================
 st.set_page_config(
     page_title="AZIEL INVESTMENTS",
     page_icon="🏢",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # ==============================
-# PREVENT AUTO-REFRESH - JavaScript
+# REMOVED: window.location.href JavaScript
 # ==============================
-st.markdown("""
-<script>
-    window.addEventListener('load', function() {
-        if (window.performance) {
-            if (performance.navigation.type == 1) {
-                console.log('Manual refresh detected');
-            }
-        }
-    });
-    
-    document.addEventListener('visibilitychange', function() {
-        if (document.hidden) {
-        }
-    });
-    
-    let lastActivity = Date.now();
-    const TIMEOUT = 120 * 60 * 1000;
-    
-    function updateActivity() {
-        lastActivity = Date.now();
-    }
-    
-    document.addEventListener('click', updateActivity);
-    document.addEventListener('keydown', updateActivity);
-    document.addEventListener('scroll', updateActivity);
-    document.addEventListener('touchstart', updateActivity);
-    
-    setInterval(function() {
-        const inactiveTime = Date.now() - lastActivity;
-        if (inactiveTime > TIMEOUT) {
-            window.location.href = window.location.origin + '/?logout=true';
-        }
-    }, 60000);
-</script>
-""", unsafe_allow_html=True)
+# The JavaScript that was causing mobile navigation issues has been removed.
+# Session timeout is now handled by check_session_timeout() function above.
 
 # ==============================
 # AUTO-NOTIFICATION BACKGROUND THREAD
@@ -376,6 +365,12 @@ if "auto_switch_theme" not in st.session_state:
     st.session_state.auto_switch_theme = False
 
 # ==============================
+# SESSION TIMEOUT CHECK - FIXED
+# ==============================
+if st.session_state.logged_in:
+    check_session_timeout()
+
+# ==============================
 # BRANCH SELECTION PAGE
 # ==============================
 def branch_login_page():
@@ -451,7 +446,7 @@ def branch_login_page():
                     print(traceback.format_exc())
 
 # ==============================
-# LOGIN PAGE - FIXED WITH ERROR HANDLING
+# LOGIN PAGE - FIXED
 # ==============================
 def login_page():
     """Login page with proper error handling"""
@@ -493,12 +488,10 @@ def login_page():
 
             if login_btn:
                 try:
-                    # ===== FIX: Proper error handling for check_login =====
                     if not username or not password:
                         st.error("Please enter both username and password")
-                        pass
+                        return
                     
-                    # Call check_login with error handling
                     try:
                         success, role = check_login(username, password)
                     except Exception as e:
@@ -513,7 +506,6 @@ def login_page():
                         st.session_state.role = role
                         st.session_state.branch_name = branch_name
                         
-                        # Redirect based on role
                         if role == "cashier":
                             st.session_state.current_page = "POS"
                         else:
@@ -538,352 +530,12 @@ def login_page():
                     print(traceback.format_exc())
 
 # ==============================
-# DOCUMENTS PAGE
-# ==============================
-def documents_page():
-    """Professional Documents Generation Page"""
-    st.title("Professional Documents")
-    st.caption("Generate professional business documents")
-    
-    doc_type = st.selectbox(
-        "Select Document Type",
-        [
-            "Proforma Invoice",
-            "Delivery Note",
-            "Credit Note",
-            "Customer Statement",
-            "Purchase Order"
-        ]
-    )
-    
-    if doc_type == "Proforma Invoice":
-        st.subheader("Proforma Invoice Generator")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            customer = st.text_input("Customer Name", placeholder="Enter customer name")
-            customer_phone = st.text_input("Customer Phone", placeholder="Optional")
-        with col2:
-            invoice_no = st.text_input("Invoice Number", value=f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}")
-            valid_until = st.date_input("Valid Until", value=datetime.now() + timedelta(days=30))
-        
-        st.markdown("### Items")
-        items = []
-        num_items = st.number_input("Number of Items", min_value=1, max_value=20, value=1)
-        
-        for i in range(num_items):
-            st.markdown(f"**Item {i+1}**")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                name = st.text_input(f"Product Name", key=f"item_name_{i}")
-            with col2:
-                qty = st.number_input(f"Quantity", min_value=1, value=1, key=f"qty_{i}")
-            with col3:
-                price = st.number_input(f"Unit Price ($)", min_value=0.0, value=0.0, key=f"price_{i}")
-            
-            if name and price > 0:
-                items.append({
-                    "name": name,
-                    "quantity": qty,
-                    "price": price,
-                    "total": qty * price
-                })
-        
-        if items:
-            subtotal = sum(i['total'] for i in items)
-            tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, value=15.0)
-            tax = subtotal * (tax_rate / 100)
-            total = subtotal + tax
-            
-            st.markdown("### Summary")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Subtotal", f"${subtotal:.2f}")
-            with col2:
-                st.metric(f"Tax ({tax_rate}%)", f"${tax:.2f}")
-            with col3:
-                st.metric("Total", f"${total:.2f}")
-            
-            if st.button("Generate Proforma Invoice", type="primary", use_container_width=True):
-                try:
-                    data = {
-                        "invoice_no": invoice_no,
-                        "date": datetime.now().strftime("%Y-%m-%d"),
-                        "customer": customer or "Walk-in Customer",
-                        "valid_until": valid_until.strftime("%Y-%m-%d"),
-                        "items": items,
-                        "subtotal": subtotal,
-                        "tax_rate": tax_rate,
-                        "tax": tax,
-                        "total": total
-                    }
-                    with st.spinner("Generating PDF..."):
-                        pdf = generate_proforma_invoice(data)
-                        download_pdf_button(pdf, f"proforma_{invoice_no}.pdf", "Download Proforma Invoice")
-                        try:
-                            show_toast("Proforma Invoice generated successfully!", "success")
-                            show_confetti()
-                        except:
-                            pass
-                except Exception as e:
-                    st.error(f"Error generating invoice: {str(e)}")
-                    print(f"Invoice generation error: {e}")
-                    print(traceback.format_exc())
-    
-    elif doc_type == "Delivery Note":
-        st.subheader("Delivery Note Generator")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            customer = st.text_input("Customer Name", key="dn_customer")
-            address = st.text_area("Delivery Address", placeholder="Enter delivery address")
-        with col2:
-            note_no = st.text_input("Delivery Note Number", value=f"DN-{datetime.now().strftime('%Y%m%d%H%M%S')}")
-            delivery_date = st.date_input("Delivery Date", value=datetime.now())
-        
-        st.markdown("### Items to Deliver")
-        items = []
-        num_items = st.number_input("Number of Items", min_value=1, max_value=20, value=1, key="dn_items")
-        
-        for i in range(num_items):
-            col1, col2 = st.columns(2)
-            with col1:
-                name = st.text_input(f"Item Name", key=f"dn_item_name_{i}")
-            with col2:
-                qty = st.number_input(f"Quantity", min_value=1, value=1, key=f"dn_qty_{i}")
-            
-            if name:
-                items.append({"name": name, "quantity": qty})
-        
-        if st.button("Generate Delivery Note", type="primary", use_container_width=True):
-            try:
-                data = {
-                    "note_no": note_no,
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "customer": customer or "Walk-in Customer",
-                    "address": address or "Store Pickup",
-                    "items": items,
-                    "delivery_date": delivery_date.strftime("%Y-%m-%d")
-                }
-                with st.spinner("Generating PDF..."):
-                    pdf = generate_delivery_note(data)
-                    download_pdf_button(pdf, f"delivery_note_{note_no}.pdf", "Download Delivery Note")
-                    try:
-                        show_toast("Delivery Note generated successfully!", "success")
-                    except:
-                        pass
-            except Exception as e:
-                st.error(f"Error generating delivery note: {str(e)}")
-                print(f"Delivery note error: {e}")
-                print(traceback.format_exc())
-    
-    elif doc_type == "Credit Note":
-        st.subheader("Credit Note Generator")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            customer = st.text_input("Customer Name", key="cn_customer")
-            original_invoice = st.text_input("Original Invoice Number")
-        with col2:
-            note_no = st.text_input("Credit Note Number", value=f"CN-{datetime.now().strftime('%Y%m%d%H%M%S')}")
-            reason = st.selectbox("Reason for Credit", ["Product Return", "Price Adjustment", "Damaged Goods", "Other"])
-        
-        st.markdown("### Items to Credit")
-        items = []
-        num_items = st.number_input("Number of Items", min_value=1, max_value=20, value=1, key="cn_items")
-        total_refund = 0
-        
-        for i in range(num_items):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                name = st.text_input(f"Item Name", key=f"cn_item_name_{i}")
-            with col2:
-                qty = st.number_input(f"Quantity", min_value=1, value=1, key=f"cn_qty_{i}")
-            with col3:
-                refund = st.number_input(f"Refund Amount ($)", min_value=0.0, value=0.0, key=f"cn_refund_{i}")
-            
-            if name and refund > 0:
-                items.append({"name": name, "quantity": qty, "refund": refund})
-                total_refund += refund
-        
-        if items:
-            st.metric("Total Credit Amount", f"${total_refund:.2f}")
-        
-        if st.button("Generate Credit Note", type="primary", use_container_width=True):
-            try:
-                data = {
-                    "note_no": note_no,
-                    "invoice_no": original_invoice,
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "customer": customer or "Walk-in Customer",
-                    "items": items,
-                    "total": total_refund,
-                    "reason": reason
-                }
-                with st.spinner("Generating PDF..."):
-                    pdf = generate_credit_note(data)
-                    download_pdf_button(pdf, f"credit_note_{note_no}.pdf", "Download Credit Note")
-                    try:
-                        show_toast("Credit Note generated successfully!", "success")
-                    except:
-                        pass
-            except Exception as e:
-                st.error(f"Error generating credit note: {str(e)}")
-                print(f"Credit note error: {e}")
-                print(traceback.format_exc())
-    
-    elif doc_type == "Customer Statement":
-        st.subheader("Customer Statement Generator")
-        
-        try:
-            from backend.core.db_adapter import load_customers, load_sales
-            
-            customers_df = safe_execute(load_customers)
-            if customers_df is not None and not customers_df.empty:
-                customer_list = customers_df["customer_name"].tolist()
-                selected_customer = st.selectbox("Select Customer", customer_list)
-                
-                period = st.selectbox("Statement Period", ["Last 30 Days", "Last 90 Days", "Last 6 Months", "Last Year", "All Time"])
-                
-                if st.button("Generate Statement", type="primary", use_container_width=True):
-                    try:
-                        period_days = {
-                            "Last 30 Days": 30,
-                            "Last 90 Days": 90,
-                            "Last 6 Months": 180,
-                            "Last Year": 365,
-                            "All Time": 9999
-                        }
-                        
-                        sales_df = safe_execute(load_sales)
-                        if sales_df is not None:
-                            customer_sales = sales_df[sales_df["customer"] == selected_customer]
-                            
-                            if period != "All Time":
-                                cutoff_date = datetime.now() - timedelta(days=period_days[period])
-                                customer_sales = customer_sales[pd.to_datetime(customer_sales["date"]) >= cutoff_date]
-                            
-                            transactions = []
-                            for _, sale in customer_sales.iterrows():
-                                transactions.append({
-                                    "date": str(sale.get("date", ""))[:10],
-                                    "invoice": str(sale.get("receipt_no", "")),
-                                    "description": "Sale",
-                                    "debit": float(sale.get("final_total", 0)),
-                                    "credit": 0,
-                                    "balance": 0
-                                })
-                            
-                            data = {
-                                "customer": selected_customer,
-                                "phone": "",
-                                "period": period,
-                                "transactions": transactions,
-                                "opening_balance": 0,
-                                "total_debits": sum(t["debit"] for t in transactions),
-                                "total_credits": 0,
-                                "closing_balance": sum(t["debit"] for t in transactions)
-                            }
-                            
-                            pdf = generate_customer_statement(data)
-                            download_pdf_button(pdf, f"statement_{selected_customer}.pdf", "Download Statement")
-                            try:
-                                show_toast("Customer Statement generated successfully!", "success")
-                            except:
-                                pass
-                    except Exception as e:
-                        st.error(f"Error generating statement: {str(e)}")
-                        print(f"Statement generation error: {e}")
-                        print(traceback.format_exc())
-            else:
-                st.info("No customers found")
-        except Exception as e:
-            st.error(f"Error loading customer data: {str(e)}")
-            print(f"Customer data error: {e}")
-            print(traceback.format_exc())
-    
-    elif doc_type == "Purchase Order":
-        st.subheader("Purchase Order Generator")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            supplier = st.text_input("Supplier Name")
-            po_number = st.text_input("PO Number", value=f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}")
-        with col2:
-            delivery_date = st.date_input("Requested Delivery Date", value=datetime.now() + timedelta(days=7))
-            terms = st.text_input("Payment Terms", value="Net 30 Days")
-        
-        st.markdown("### Items to Order")
-        items = []
-        num_items = st.number_input("Number of Items", min_value=1, max_value=20, value=1, key="po_items")
-        total_cost = 0
-        
-        for i in range(num_items):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                name = st.text_input(f"Product Name", key=f"po_item_name_{i}")
-            with col2:
-                qty = st.number_input(f"Quantity", min_value=1, value=1, key=f"po_qty_{i}")
-            with col3:
-                cost = st.number_input(f"Unit Cost ($)", min_value=0.0, value=0.0, key=f"po_cost_{i}")
-            
-            if name and cost > 0:
-                items.append({"name": name, "quantity": qty, "cost": cost, "total": qty * cost})
-                total_cost += qty * cost
-        
-        if items:
-            st.metric("Total Order Value", f"${total_cost:.2f}")
-        
-        if st.button("Generate Purchase Order", type="primary", use_container_width=True):
-            try:
-                data = {
-                    "po_number": po_number,
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "supplier": supplier or "Unknown Supplier",
-                    "delivery_date": delivery_date.strftime("%Y-%m-%d"),
-                    "items": items,
-                    "total": total_cost,
-                    "terms": terms
-                }
-                with st.spinner("Generating PDF..."):
-                    pdf = generate_purchase_order(data)
-                    download_pdf_button(pdf, f"purchase_order_{po_number}.pdf", "Download Purchase Order")
-                    try:
-                        show_toast("Purchase Order generated successfully!", "success")
-                    except:
-                        pass
-            except Exception as e:
-                st.error(f"Error generating purchase order: {str(e)}")
-                print(f"Purchase order error: {e}")
-                print(traceback.format_exc())
-
-# ==============================
 # MAIN APP - FLAT ALPHABETICAL NAVIGATION
 # ==============================
 def main_app():
     # ==============================
-    # SESSION TIMEOUT MANAGEMENT
+    # SESSION TIMEOUT - Already handled above
     # ==============================
-    if "last_activity" not in st.session_state:
-        st.session_state.last_activity = datetime.now()
-    
-    idle_time = (datetime.now() - st.session_state.last_activity).seconds
-    if idle_time > 7200:
-        try:
-            keys_to_keep = ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
-                            "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme", "welcome_seen"]
-            for key in list(st.session_state.keys()):
-                if key not in keys_to_keep:
-                    del st.session_state[key]
-            st.session_state.logged_in = False
-            try:
-                show_toast("Session expired. Please login again.", "warning")
-            except:
-                pass
-            st.rerun()
-        except Exception as e:
-            print(f"Session timeout error: {e}")
-    
     st.session_state.last_activity = datetime.now()
     
     # ==============================
@@ -965,7 +617,7 @@ def main_app():
     st.sidebar.markdown("---")
     
     # ==============================
-    # THEME SELECTOR - Uses Streamlit Native Theming
+    # THEME SELECTOR
     # ==============================
     try:
         theme_selector()
@@ -1183,16 +835,14 @@ def main_app():
             else:
                 st.error("You don't have permission to access this page")
 
-        # ================= DEBTORS - CASHIERS CAN NOW ACCESS =================
+        # ================= DEBTORS =================
         elif page == "Debtors":
-            # Cashiers can now access debtors page
             if can_access_feature(role, "debtors"):
                 debtors_page()
             else:
                 st.error("You don't have permission to access this page")
 
         elif page == "Debtors Dashboard":
-            # Cashiers can now access debtors dashboard
             if can_access_feature(role, "debtors_dashboard"):
                 debtors_dashboard()
             else:
@@ -1497,7 +1147,6 @@ except Exception as e:
     print(f"App flow error: {e}")
     print(traceback.format_exc())
     
-    # Provide recovery options
     st.markdown("---")
     st.info("Please try refreshing the page or contact support if the issue persists.")
     
