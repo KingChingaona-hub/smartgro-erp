@@ -29,6 +29,7 @@ from backend.modules.loyalty import (
 from backend.utils.phone_utils import validate_zimbabwe_phone, get_whatsapp_link
 from backend.utils.utils import generate_whatsapp_receipt
 
+
 # ==============================
 # HELPER: Convert Decimal to float
 # ==============================
@@ -40,6 +41,16 @@ def to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def safe_int(value, default=0):
+    """Safely convert value to int"""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 # ==============================
@@ -110,6 +121,115 @@ def search_customer_by_phone(phone):
     return None, None
 
 
+# ==============================
+# GET REAL CUSTOMER DATA FROM SALES
+# ==============================
+
+def get_customer_sales_data(phone):
+    """
+    Get real customer data from sales history across all branches.
+    This calculates actual spent, orders, and purchase history.
+    """
+    cleaned_phone = re.sub(r'\D', '', str(phone))
+    search_phone = cleaned_phone[1:] if cleaned_phone.startswith('0') else cleaned_phone
+    
+    all_sales = []
+    branch_found = None
+    
+    if BRANCH_DATA_DIR.exists():
+        for branch_folder in BRANCH_DATA_DIR.iterdir():
+            if branch_folder.is_dir():
+                sales_file = branch_folder / "sales.csv"
+                if sales_file.exists():
+                    try:
+                        df = pd.read_csv(sales_file)
+                        if not df.empty:
+                            # Find phone column
+                            phone_col = None
+                            for col in ["customer_phone", "phone", "customer_phone_str"]:
+                                if col in df.columns:
+                                    phone_col = col
+                                    break
+                            
+                            if phone_col:
+                                for idx, row in df.iterrows():
+                                    db_phone = str(row.get(phone_col, "")).strip()
+                                    if db_phone.endswith('.0'):
+                                        db_phone = db_phone[:-2]
+                                    db_phone_clean = re.sub(r'\D', '', db_phone)
+                                    if db_phone_clean == search_phone:
+                                        row_dict = row.to_dict()
+                                        row_dict["branch"] = branch_folder.name
+                                        # Get customer name
+                                        name_col = None
+                                        for col in ["customer_name", "customer", "name"]:
+                                            if col in df.columns:
+                                                name_col = col
+                                                break
+                                        if name_col:
+                                            row_dict["customer_name_display"] = row.get(name_col, "Unknown")
+                                        all_sales.append(row_dict)
+                                        branch_found = branch_folder.name
+                    except Exception as e:
+                        print(f"Error reading sales: {e}")
+    
+    if not all_sales:
+        return None, None, 0, 0, pd.DataFrame()
+    
+    # Create DataFrame from sales
+    sales_df = pd.DataFrame(all_sales)
+    
+    # Find receipt column for deduplication
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
+    
+    # Find amount column
+    amount_col = None
+    for col in ["final_total", "total", "amount"]:
+        if col in sales_df.columns:
+            amount_col = col
+            break
+    
+    # Calculate metrics using unduplicated receipts
+    if receipt_col and receipt_col in sales_df.columns:
+        unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
+        total_orders = len(unique_receipts)
+        total_spent = to_float(unique_receipts[amount_col].sum()) if amount_col else 0
+    else:
+        total_orders = len(sales_df)
+        total_spent = to_float(sales_df[amount_col].sum()) if amount_col else 0
+    
+    # Get customer name
+    customer_name = "Valued Customer"
+    name_col = None
+    for col in ["customer_name", "customer", "name", "customer_name_display"]:
+        if col in sales_df.columns and not sales_df[col].isna().all():
+            name_col = col
+            break
+    
+    if name_col:
+        # Get the most common name
+        name_counts = sales_df[name_col].value_counts()
+        if not name_counts.empty:
+            customer_name = name_counts.index[0]
+    
+    # Sort by date for history
+    date_col = None
+    for col in ["date", "sale_date", "transaction_date"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    if date_col:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.sort_values(date_col, ascending=False)
+    
+    return customer_name, branch_found, total_spent, total_orders, sales_df
+
+
 def get_loyalty_for_customer(phone, branch):
     """Get loyalty data for a customer from their branch"""
     loyalty_file = BRANCH_DATA_DIR / branch / "loyalty_points.csv"
@@ -133,13 +253,51 @@ def get_loyalty_for_customer(phone, branch):
 
 
 def authenticate_customer(phone):
-    """Authenticate customer by phone number across all branches"""
+    """
+    Authenticate customer by phone number.
+    Uses REAL sales data to get customer information.
+    """
     cleaned_phone = re.sub(r'\D', '', str(phone))
+    
+    # First check if customer exists in customers table
     customer, found_branch = search_customer_by_phone(cleaned_phone)
     
-    if customer is None:
+    # Get REAL sales data
+    customer_name, sales_branch, total_spent, total_orders, sales_df = get_customer_sales_data(cleaned_phone)
+    
+    if customer is None and total_orders == 0:
         return False, None
     
+    # Build customer data from sales
+    if customer is None:
+        customer = {
+            "customer_name": customer_name or "Valued Customer",
+            "phone": normalize_phone_for_storage(cleaned_phone),
+            "found_in_branch": sales_branch or "HO",
+            "phone_display": normalize_phone_for_display(cleaned_phone)
+        }
+        found_branch = sales_branch or "HO"
+    else:
+        # Update with real sales data
+        customer["customer_name"] = customer_name or customer.get("customer_name", "Valued Customer")
+        customer["found_in_branch"] = sales_branch or customer.get("found_in_branch", "HO")
+        found_branch = customer.get("found_in_branch", sales_branch or "HO")
+    
+    # Add REAL sales metrics
+    customer["total_spent"] = total_spent
+    customer["total_orders"] = total_orders
+    customer["total_transactions"] = total_orders
+    customer["avg_transaction_value"] = total_spent / total_orders if total_orders > 0 else 0
+    
+    # Get last purchase date
+    if not sales_df.empty and date_col:
+        customer["last_purchase_date"] = sales_df.iloc[0].get(date_col, datetime.now())
+        customer["days_since_last_purchase"] = (datetime.now() - customer["last_purchase_date"]).days if customer["last_purchase_date"] else 999
+    
+    # Store purchase history
+    customer["purchase_history"] = sales_df.to_dict('records')
+    
+    # Get loyalty info
     loyalty_info = get_loyalty_for_customer(cleaned_phone, found_branch)
     
     if loyalty_info:
@@ -147,14 +305,27 @@ def authenticate_customer(phone):
             if key not in customer:
                 customer[key] = value
     else:
-        customer["points"] = 0
-        customer["tier"] = "🥉 BRONZE"
+        # Create loyalty record from sales data
+        customer["points"] = int(total_spent / 10)  # 1 point per $10 spent
+        customer["tier"] = get_tier_from_spent(total_spent)
         customer["last_visit"] = datetime.now().strftime("%Y-%m-%d")
         customer["joined_date"] = datetime.now().strftime("%Y-%m-%d")
     
     customer["branch"] = found_branch
     
     return True, customer
+
+
+def get_tier_from_spent(total_spent):
+    """Determine tier based on total spent"""
+    if total_spent >= 5000:
+        return "PLATINUM"
+    elif total_spent >= 2000:
+        return "GOLD"
+    elif total_spent >= 500:
+        return "SILVER"
+    else:
+        return "BRONZE"
 
 
 def register_customer(phone, name):
@@ -194,7 +365,7 @@ def register_customer(phone, name):
         "customer_name": name.strip().title(),
         "phone": storage_phone,
         "points": 100,
-        "tier": "🥉 BRONZE",
+        "tier": "BRONZE",
         "total_spent": 0,
         "total_orders": 0,
         "last_visit": datetime.now().strftime("%Y-%m-%d"),
@@ -227,24 +398,49 @@ def get_customer_purchase_history(phone, limit=20):
                 if sales_file.exists():
                     try:
                         df = pd.read_csv(sales_file)
-                        if not df.empty and "customer_phone" in df.columns:
-                            for idx, row in df.iterrows():
-                                db_phone = str(row.get("customer_phone", "")).strip()
-                                if db_phone.endswith('.0'):
-                                    db_phone = db_phone[:-2]
-                                db_phone_clean = re.sub(r'\D', '', db_phone)
-                                if db_phone_clean == search_phone:
-                                    row_dict = row.to_dict()
-                                    row_dict["branch"] = branch_folder.name
-                                    all_sales.append(row_dict)
+                        if not df.empty:
+                            phone_col = None
+                            for col in ["customer_phone", "phone", "customer_phone_str"]:
+                                if col in df.columns:
+                                    phone_col = col
+                                    break
+                            
+                            if phone_col:
+                                for idx, row in df.iterrows():
+                                    db_phone = str(row.get(phone_col, "")).strip()
+                                    if db_phone.endswith('.0'):
+                                        db_phone = db_phone[:-2]
+                                    db_phone_clean = re.sub(r'\D', '', db_phone)
+                                    if db_phone_clean == search_phone:
+                                        row_dict = row.to_dict()
+                                        row_dict["branch"] = branch_folder.name
+                                        all_sales.append(row_dict)
                     except Exception as e:
                         print(f"Error reading sales: {e}")
     
     if all_sales:
         result = pd.DataFrame(all_sales)
-        if "date" in result.columns:
-            result = result.sort_values("date", ascending=False).drop_duplicates(subset=["receipt_no"]).head(limit)
-        return result
+        date_col = None
+        for col in ["date", "sale_date", "transaction_date"]:
+            if col in result.columns:
+                date_col = col
+                break
+        
+        if date_col:
+            result[date_col] = pd.to_datetime(result[date_col], errors="coerce")
+            result = result.sort_values(date_col, ascending=False)
+        
+        # Deduplicate by receipt
+        receipt_col = None
+        for col in ["receipt_no", "receipt", "transaction_id"]:
+            if col in result.columns:
+                receipt_col = col
+                break
+        
+        if receipt_col:
+            result = result.drop_duplicates(subset=[receipt_col])
+        
+        return result.head(limit)
     
     return pd.DataFrame()
 
@@ -257,7 +453,6 @@ def get_customer_recommendations(phone):
     if sales_df.empty or products_df.empty:
         return pd.DataFrame()
     
-    # Determine product name column
     name_col = "name" if "name" in sales_df.columns else "product_name" if "product_name" in sales_df.columns else None
     
     if name_col is None:
@@ -266,11 +461,9 @@ def get_customer_recommendations(phone):
     cleaned_phone = re.sub(r'\D', '', str(phone))
     search_phone = cleaned_phone[1:] if cleaned_phone.startswith('0') else cleaned_phone
     
-    # Get customer's phone column
     phone_col = "customer_phone" if "customer_phone" in sales_df.columns else "phone" if "phone" in sales_df.columns else None
     
     if phone_col is None:
-        # Return top selling products if no customer phone column
         top_products = sales_df.groupby(name_col)["items"].sum().nlargest(5).reset_index()
         top_products.columns = ["name", "items"]
         return top_products
@@ -285,12 +478,10 @@ def get_customer_recommendations(phone):
             customer_sales = pd.concat([customer_sales, pd.DataFrame([row.to_dict()])])
     
     if customer_sales.empty:
-        # Return top selling products
         top_products = sales_df.groupby(name_col)["items"].sum().nlargest(5).reset_index()
         top_products.columns = ["name", "items"]
         return top_products
     
-    # Get customer's top products
     top_customer_products = customer_sales.groupby(name_col)["items"].sum().nlargest(3).reset_index()
     top_customer_products.columns = ["name", "items"]
     return top_customer_products
@@ -396,7 +587,7 @@ def customer_login_page():
                     st.session_state.customer_phone = phone
                     st.session_state.customer_branch = customer_data.get("branch", "HO")
                     st.success(f"Welcome back, {customer_data.get('customer_name')}!")
-                    #st.rerun()
+                    st.rerun()
                 else:
                     st.error("Customer not found. Please register.")
             else:
@@ -420,7 +611,7 @@ def customer_login_page():
                         st.session_state.customer_data = customer_data
                         st.session_state.customer_phone = phone
                         st.session_state.customer_branch = customer_data.get("branch", current_branch)
-                        #st.rerun()
+                        st.rerun()
                 else:
                     st.error(message)
             else:
@@ -430,9 +621,8 @@ def customer_login_page():
 
 
 def customer_dashboard():
-    """Customer app main dashboard"""
+    """Customer app main dashboard with REAL data from sales"""
     
-    # Load products at the start for recommendations
     products_df = load_products()
     
     customer = st.session_state.customer_data
@@ -446,7 +636,7 @@ def customer_dashboard():
     if customer.get("branch"):
         st.info(f"Registered Branch: {customer.get('branch')}")
     
-    # Display metrics
+    # Display REAL metrics from sales
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -454,9 +644,11 @@ def customer_dashboard():
     with col2:
         st.metric("Points", f"{customer.get('points', 0):,}")
     with col3:
-        st.metric("Total Spent", f"${to_float(customer.get('total_spent', 0)):,.2f}")
+        total_spent = to_float(customer.get('total_spent', 0))
+        st.metric("Total Spent", f"${total_spent:,.2f}")
     with col4:
-        st.metric("Orders", customer.get('total_orders', 0))
+        total_orders = safe_int(customer.get('total_orders', 0))
+        st.metric("Orders", total_orders)
     
     st.markdown("---")
     
@@ -492,7 +684,7 @@ def customer_dashboard():
     with col4:
         st.metric("Free Delivery", "YES" if benefits.get('free_delivery', False) else "NO")
     
-    # Next Tier Progress
+    # Next Tier Progress (based on REAL spent)
     st.markdown("### Next Tier Progress")
     
     current_spent = to_float(customer.get('total_spent', 0))
@@ -521,23 +713,78 @@ def customer_dashboard():
     
     st.markdown("---")
     
-    # Purchase History
+    # Purchase History - REAL data from sales
     st.markdown("## My Purchase History")
     
-    purchase_history = get_customer_purchase_history(phone, 10)
+    purchase_history = get_customer_purchase_history(phone, 20)
     
     if not purchase_history.empty:
-        display_cols = ["date", "receipt_no", "items", "total", "payment_method", "branch"]
-        available_cols = [col for col in display_cols if col in purchase_history.columns]
+        display_cols = []
         
-        st.dataframe(
-            purchase_history[available_cols],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "total": st.column_config.NumberColumn("Amount", format="$%.2f")
-            }
-        )
+        # Date column
+        date_col = None
+        for col in ["date", "sale_date", "transaction_date"]:
+            if col in purchase_history.columns:
+                date_col = col
+                break
+        
+        if date_col:
+            display_cols.append(date_col)
+            purchase_history[date_col] = pd.to_datetime(purchase_history[date_col], errors="coerce")
+            purchase_history[date_col] = purchase_history[date_col].dt.strftime("%Y-%m-%d %H:%M")
+        
+        # Receipt number
+        receipt_col = None
+        for col in ["receipt_no", "receipt", "transaction_id"]:
+            if col in purchase_history.columns:
+                receipt_col = col
+                break
+        
+        if receipt_col:
+            display_cols.append(receipt_col)
+        
+        # Amount
+        amount_col = None
+        for col in ["final_total", "total", "amount"]:
+            if col in purchase_history.columns:
+                amount_col = col
+                break
+        
+        if amount_col:
+            display_cols.append(amount_col)
+            purchase_history[amount_col] = purchase_history[amount_col].apply(to_float)
+        
+        # Items
+        if "items" in purchase_history.columns:
+            display_cols.append("items")
+        
+        # Payment method
+        payment_col = None
+        for col in ["payment_method", "payment_type"]:
+            if col in purchase_history.columns:
+                payment_col = col
+                break
+        
+        if payment_col:
+            display_cols.append(payment_col)
+        
+        # Branch
+        if "branch" in purchase_history.columns:
+            display_cols.append("branch")
+        
+        if display_cols:
+            st.dataframe(
+                purchase_history[display_cols],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    amount_col: st.column_config.NumberColumn("Amount", format="$%.2f") if amount_col else None
+                } if amount_col else {}
+            )
+        else:
+            st.dataframe(purchase_history, use_container_width=True, hide_index=True)
+        
+        st.caption(f"Showing {len(purchase_history)} purchases")
     else:
         st.info("No purchase history yet. Start shopping to earn points!")
     
@@ -552,7 +799,6 @@ def customer_dashboard():
         cols = st.columns(min(3, len(recommendations)))
         for idx, (_, product) in enumerate(recommendations.head(3).iterrows()):
             with cols[idx % len(cols)]:
-                # Get product price from products table
                 product_name = product['name']
                 product_price = 0
                 if not products_df.empty and "name" in products_df.columns:
@@ -628,7 +874,7 @@ def customer_dashboard():
         st.session_state.customer_data = None
         st.session_state.customer_phone = None
         st.session_state.customer_branch = None
-        #st.rerun()
+        st.rerun()
 
 
 # ==============================
