@@ -82,6 +82,26 @@ def get_receipt_column(df):
     return None
 
 
+def get_date_column(df):
+    """Find date column"""
+    if df is None or df.empty:
+        return None
+    for col in ["date", "sale_date", "transaction_date", "created_at"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_product_column(df):
+    """Find product name column"""
+    if df is None or df.empty:
+        return None
+    for col in ["name", "product_name", "item_name"]:
+        if col in df.columns:
+            return col
+    return None
+
+
 def extract_customers_from_sales(sales_df):
     """
     Extract unique customers from sales data.
@@ -204,11 +224,7 @@ def get_customer_last_purchase(customer_name, sales_df):
         return None
     
     customer_col = get_customer_column(sales_df)
-    date_col = None
-    for col in ["date", "sale_date", "transaction_date"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
+    date_col = get_date_column(sales_df)
     
     if customer_col is None or date_col is None:
         return None
@@ -239,11 +255,7 @@ def get_customer_products(customer_name, sales_df):
     if customer_sales.empty:
         return []
     
-    name_col = None
-    for col in ["name", "product_name", "item_name"]:
-        if col in customer_sales.columns:
-            name_col = col
-            break
+    name_col = get_product_column(customer_sales)
     
     if name_col is None:
         return []
@@ -369,26 +381,21 @@ def customers_dashboard():
     with col4:
         # Active customers (last 90 days)
         active_customers = 0
-        date_col = None
-        for col in ["date", "sale_date", "transaction_date"]:
-            if col in sales_df.columns:
-                date_col = col
-                break
+        date_col = get_date_column(sales_df)
+        customer_col = get_customer_column(sales_df)
         
-        if date_col and get_customer_column(sales_df):
+        if date_col and customer_col:
             sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
             cutoff = datetime.now() - timedelta(days=90)
             recent_sales = sales_df[sales_df[date_col] >= cutoff]
             if not recent_sales.empty:
-                customer_col = get_customer_column(sales_df)
-                if customer_col:
-                    active_customers = recent_sales[customer_col].nunique()
+                active_customers = recent_sales[customer_col].nunique()
         st.metric("Active Customers (90 days)", active_customers)
     
     st.markdown("---")
     
     # ==============================
-    # TOP CUSTOMERS BY SPENDING
+    # TOP CUSTOMERS BY SPENDING - FIXED
     # ==============================
     st.markdown("## Top Customers by Spending")
     
@@ -398,30 +405,46 @@ def customers_dashboard():
         receipt_col = get_receipt_column(sales_df)
         
         if customer_col and amount_col:
-            # Use unique receipts for accurate spending
-            if receipt_col and receipt_col in sales_df.columns:
-                unique_sales = sales_df.drop_duplicates(subset=[receipt_col])
-            else:
-                unique_sales = sales_df
-            
-            customer_spending = unique_sales.groupby(customer_col)[amount_col].sum().nlargest(10).reset_index()
-            
-            if not customer_spending.empty:
-                fig_spend = px.bar(
-                    customer_spending,
-                    x=amount_col,
-                    y=customer_col,
-                    orientation="h",
-                    title="Top 10 Customers by Spending",
-                    color=amount_col,
-                    color_continuous_scale="Greens",
-                    text=amount_col
-                )
-                fig_spend.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
-                fig_spend.update_layout(height=400, xaxis_title="Total Spent ($)", yaxis_title="")
-                st.plotly_chart(fig_spend, use_container_width=True)
-            else:
-                st.info("No customer spending data available")
+            try:
+                # Convert amount column to numeric
+                sales_df[amount_col] = pd.to_numeric(sales_df[amount_col], errors="coerce").fillna(0)
+                
+                # Use unique receipts for accurate spending
+                if receipt_col and receipt_col in sales_df.columns:
+                    unique_sales = sales_df.drop_duplicates(subset=[receipt_col])
+                else:
+                    unique_sales = sales_df
+                
+                # Group by customer and sum amounts
+                customer_spending = unique_sales.groupby(customer_col)[amount_col].sum().reset_index()
+                customer_spending.columns = ["customer", "total_spent"]
+                
+                # Convert to float and filter out zero/negative
+                customer_spending["total_spent"] = customer_spending["total_spent"].astype(float)
+                customer_spending = customer_spending[customer_spending["total_spent"] > 0]
+                
+                # Get top 10
+                top_customers = customer_spending.nlargest(10, "total_spent")
+                
+                if not top_customers.empty:
+                    fig_spend = px.bar(
+                        top_customers,
+                        x="total_spent",
+                        y="customer",
+                        orientation="h",
+                        title="Top 10 Customers by Spending",
+                        color="total_spent",
+                        color_continuous_scale="Greens",
+                        text="total_spent"
+                    )
+                    fig_spend.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
+                    fig_spend.update_layout(height=400, xaxis_title="Total Spent ($)", yaxis_title="")
+                    st.plotly_chart(fig_spend, use_container_width=True)
+                else:
+                    st.info("No customer spending data available")
+            except Exception as e:
+                st.error(f"Error calculating top customers: {str(e)}")
+                st.info("Please ensure sales data has valid numeric amounts")
     else:
         st.info("No sales data available for spending trends")
     
@@ -481,6 +504,9 @@ def customers_dashboard():
         receipt_col = get_receipt_column(sales_df)
         
         if customer_col and amount_col and not sales_df.empty:
+            # Convert to numeric
+            sales_df[amount_col] = pd.to_numeric(sales_df[amount_col], errors="coerce").fillna(0)
+            
             if receipt_col and receipt_col in sales_df.columns:
                 unique_sales = sales_df.drop_duplicates(subset=[receipt_col])
             else:
@@ -495,12 +521,8 @@ def customers_dashboard():
     
     elif segment == "Recent Customers":
         # Customers who purchased in last 30 days
-        date_col = None
+        date_col = get_date_column(sales_df)
         customer_col = get_customer_column(sales_df)
-        for col in ["date", "sale_date", "transaction_date"]:
-            if col in sales_df.columns:
-                date_col = col
-                break
         
         if date_col and customer_col:
             sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
@@ -511,12 +533,8 @@ def customers_dashboard():
     
     elif segment == "Inactive Customers":
         # Customers who haven't purchased in 90 days
-        date_col = None
+        date_col = get_date_column(sales_df)
         customer_col = get_customer_column(sales_df)
-        for col in ["date", "sale_date", "transaction_date"]:
-            if col in sales_df.columns:
-                date_col = col
-                break
         
         if date_col and customer_col:
             sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
