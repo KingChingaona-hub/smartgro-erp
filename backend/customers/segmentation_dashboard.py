@@ -471,6 +471,8 @@ def customers_segmentation_dashboard():
     at_risk_count = len(df[df["segment"] == "At Risk"])
     churned_count = len(df[df["segment"] == "Churned"])
     loyal_count = len(df[df["segment"] == "Loyal"])
+    regular_count = len(df[df["segment"] == "Regular"])
+    new_count = len(df[df["segment"] == "New"])
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -481,16 +483,16 @@ def customers_segmentation_dashboard():
     with col3:
         st.metric("Avg Customer Spend", f"${avg_spent:.2f}")
     with col4:
-        st.metric("VIP Customers", vip_count, delta=f"{vip_count/total_customers*100:.1f}%")
+        st.metric("VIP Customers", vip_count, delta=f"{vip_count/total_customers*100:.1f}%" if total_customers > 0 else "0%")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Loyal Customers", loyal_count, delta=f"{loyal_count/total_customers*100:.1f}%")
+        st.metric("Loyal Customers", loyal_count, delta=f"{loyal_count/total_customers*100:.1f}%" if total_customers > 0 else "0%")
     with col2:
-        st.metric("At Risk", at_risk_count, delta=f"{at_risk_count/total_customers*100:.1f}%", delta_color="inverse")
+        st.metric("At Risk", at_risk_count, delta=f"{at_risk_count/total_customers*100:.1f}%" if total_customers > 0 else "0%", delta_color="inverse")
     with col3:
-        st.metric("Churned", churned_count, delta=f"{churned_count/total_customers*100:.1f}%", delta_color="inverse")
+        st.metric("Churned", churned_count, delta=f"{churned_count/total_customers*100:.1f}%" if total_customers > 0 else "0%", delta_color="inverse")
     with col4:
         st.metric("Segments", len(summary))
     
@@ -573,6 +575,30 @@ def customers_segmentation_dashboard():
     st.markdown("---")
     
     # ==============================
+    # LOYAL CUSTOMERS
+    # ==============================
+    st.markdown("## Loyal Customers")
+    st.caption("Customers with 5+ orders or $500+ spend")
+    
+    loyal = df[df["segment"] == "Loyal"].sort_values("total_spent", ascending=False)
+    
+    if not loyal.empty:
+        st.success(f"Total Loyal Customers: {len(loyal)}")
+        st.dataframe(
+            loyal[["customer_name", "phone", "total_spent", "total_orders", "avg_order_value", "action"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "total_spent": st.column_config.NumberColumn("Total Spent", format="$%.2f"),
+                "avg_order_value": st.column_config.NumberColumn("Avg Order", format="$%.2f")
+            }
+        )
+    else:
+        st.info("No loyal customers yet")
+    
+    st.markdown("---")
+    
+    # ==============================
     # NEW CUSTOMERS
     # ==============================
     st.markdown("## New Customers")
@@ -619,14 +645,18 @@ def customers_segmentation_dashboard():
     st.markdown("---")
     
     # ==============================
-    # MARKETING INSIGHTS
+    # MARKETING INSIGHTS - FIXED
     # ==============================
     st.markdown("## Marketing Insights")
     
-    vip_pct = len(vip) / len(df) * 100 if len(df) > 0 else 0
-    risk_pct = len(at_risk) / len(df) * 100 if len(df) > 0 else 0
-    churned_pct = len(churned) / len(df) * 100 if len(df) > 0 else 0
-    loyal_pct = len(loyal) / len(df) * 100 if len(df) > 0 else 0
+    # Calculate percentages
+    total = len(df)
+    vip_pct = (vip_count / total * 100) if total > 0 else 0
+    risk_pct = (at_risk_count / total * 100) if total > 0 else 0
+    churned_pct = (churned_count / total * 100) if total > 0 else 0
+    loyal_pct = (loyal_count / total * 100) if total > 0 else 0
+    regular_pct = (regular_count / total * 100) if total > 0 else 0
+    new_pct = (new_count / total * 100) if total > 0 else 0
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -653,6 +683,17 @@ def customers_segmentation_dashboard():
         st.info("Action: Reward VIP customers with exclusive benefits")
     else:
         st.info("Growth stage business — focus on retention")
+    
+    # Show summary stats
+    st.markdown("### Segment Distribution Summary")
+    
+    summary_data = {
+        "Segment": ["VIP", "Loyal", "Regular", "New", "At Risk", "Churned"],
+        "Count": [vip_count, loyal_count, regular_count, new_count, at_risk_count, churned_count],
+        "Percentage": [f"{vip_pct:.1f}%", f"{loyal_pct:.1f}%", f"{regular_pct:.1f}%", f"{new_pct:.1f}%", f"{risk_pct:.1f}%", f"{churned_pct:.1f}%"]
+    }
+    
+    st.table(pd.DataFrame(summary_data))
     
     st.markdown("---")
     
