@@ -1,3 +1,4 @@
+# backend/analytics/debtors_dashboard.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -13,6 +14,56 @@ from backend.analytics.debtors_engine import (
     get_recoverable_debt,
     get_customer_debt_summary
 )
+
+
+def safe_str(value, default=""):
+    """Safely convert value to string"""
+    if value is None:
+        return default
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_float(value, default=0.0):
+    """Safely convert value to float"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_payment_history(payment_history):
+    """Safely convert payment history to DataFrame"""
+    if payment_history is None:
+        return pd.DataFrame()
+    
+    # If it's already a DataFrame
+    if isinstance(payment_history, pd.DataFrame):
+        return payment_history
+    
+    # If it's a list of dictionaries
+    if isinstance(payment_history, list):
+        if payment_history and isinstance(payment_history[0], dict):
+            return pd.DataFrame(payment_history)
+        return pd.DataFrame()
+    
+    # If it's a string (JSON or empty)
+    if isinstance(payment_history, str):
+        if payment_history.strip():
+            try:
+                import json
+                data = json.loads(payment_history)
+                if isinstance(data, list):
+                    return pd.DataFrame(data)
+            except:
+                pass
+        return pd.DataFrame()
+    
+    return pd.DataFrame()
 
 
 def debtors_dashboard():
@@ -68,7 +119,6 @@ def debtors_dashboard():
             st.dataframe(status_counts, use_container_width=True, hide_index=True)
         
         with col2:
-            # Show fully paid vs partially paid
             fully_paid = len(df[df["status"] == "PAID"])
             partially_paid = len(df[df["status"] == "NOT PAID"])
             total_debts = len(df)
@@ -87,7 +137,6 @@ def debtors_dashboard():
         risk_counts = df["risk_level"].value_counts().reset_index()
         risk_counts.columns = ["Risk Level", "Count"]
         
-        # Order risk levels
         risk_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"]
         risk_counts["Risk Level"] = pd.Categorical(risk_counts["Risk Level"], categories=risk_order, ordered=True)
         risk_counts = risk_counts.sort_values("Risk Level")
@@ -98,7 +147,6 @@ def debtors_dashboard():
             st.dataframe(risk_counts, use_container_width=True, hide_index=True)
         
         with col2:
-            # Critical risks
             critical = df[df["risk_level"] == "CRITICAL"]
             if not critical.empty:
                 st.error(f"{len(critical)} CRITICAL risk debtors need immediate attention!")
@@ -118,19 +166,17 @@ def debtors_dashboard():
     
     credit_scores = get_credit_score()
     if not credit_scores.empty and "credit_score" in credit_scores.columns:
-        # Show low credit scores first (highest risk)
         st.caption("Customers with lowest credit scores (highest risk) appear first")
         
-        # Add color coding for credit scores
         def color_score(val):
             if val <= 30:
-                return '🔴'
+                return "🔴"
             elif val <= 50:
-                return '🟠'
+                return "🟠"
             elif val <= 70:
-                return '🟡'
+                return "🟡"
             else:
-                return '🟢'
+                return "🟢"
         
         display_df = credit_scores[["customer_name", "credit_score", "balance", "risk_level"]].head(20).copy()
         display_df["Score"] = display_df["credit_score"].apply(color_score)
@@ -174,7 +220,6 @@ def debtors_dashboard():
             st.dataframe(aging_data, use_container_width=True, hide_index=True)
         
         with col2:
-            # Show aging chart as text-based bar chart
             max_amount = aging_data["Amount"].max()
             if max_amount > 0:
                 for _, row in aging_data.iterrows():
@@ -211,18 +256,17 @@ def debtors_dashboard():
     
     overdue = get_overdue_debtors()
     if not overdue.empty:
-        st.warning(f"⚠️ {len(overdue)} customers with overdue payments")
+        st.warning(f"{len(overdue)} customers with overdue payments")
         
-        # Show urgency based on days overdue
         def get_urgency(days):
             if days >= 90:
-                return "🔴 CRITICAL"
+                return "CRITICAL"
             elif days >= 60:
-                return "🟠 HIGH"
+                return "HIGH"
             elif days >= 30:
-                return "🟡 MEDIUM"
+                return "MEDIUM"
             else:
-                return "🟢 LOW"
+                return "LOW"
         
         overdue_display = overdue.copy()
         overdue_display["Urgency"] = overdue_display["days_overdue"].apply(get_urgency)
@@ -236,7 +280,6 @@ def debtors_dashboard():
             }
         )
         
-        # Show total overdue amount by urgency
         st.markdown("### Overdue Summary by Urgency")
         urgency_summary = overdue_display.groupby("Urgency").agg({
             "balance": "sum",
@@ -258,11 +301,9 @@ def debtors_dashboard():
     st.caption("View detailed debt history including items borrowed and payment status")
     
     if not df.empty:
-        # Get unique customers with outstanding balance first
         customers_with_debt = df[df["balance"] > 0]["customer_name"].unique().tolist()
         all_customers = df["customer_name"].unique().tolist()
         
-        # Show customers with debt first in the list
         customer_list = customers_with_debt + [c for c in all_customers if c not in customers_with_debt]
         
         selected_customer = st.selectbox("Select Customer", customer_list)
@@ -270,7 +311,6 @@ def debtors_dashboard():
         if selected_customer:
             customer_debts = df[df["customer_name"] == selected_customer]
             
-            # Display customer summary
             total_borrowed = customer_debts["total_amount"].sum()
             total_paid = customer_debts["amount_paid"].sum()
             outstanding = customer_debts["balance"].sum()
@@ -280,19 +320,16 @@ def debtors_dashboard():
             col2.metric("Total Paid", f"${total_paid:.2f}")
             col3.metric("Outstanding", f"${outstanding:.2f}")
             
-            # Payment progress
             progress = (total_paid / total_borrowed * 100) if total_borrowed > 0 else 0
             col4.metric("Payment Progress", f"{progress:.1f}%")
             
             st.progress(progress / 100, text=f"Payment Progress: {progress:.1f}%")
             
-            # Show each debt with its items
             st.markdown("### Individual Debts")
             
             for _, debt in customer_debts.iterrows():
                 debt_id_safe = str(debt['debt_id']).replace("-", "_")
                 
-                # Determine status color
                 if debt['balance'] <= 0:
                     status_icon = "✅"
                     status_color = "green"
@@ -310,27 +347,26 @@ def debtors_dashboard():
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.write(f"**Date Borrowed:** {debt.get('date_borrowed', 'N/A')}")
-                        st.write(f"**Expected Repayment:** {debt.get('expected_repayment_date', 'N/A')}")
-                        st.write(f"**Total Amount:** ${debt['total_amount']:.2f}")
-                        st.write(f"**Amount Paid:** ${debt['amount_paid']:.2f}")
+                        st.write(f"**Date Borrowed:** {safe_str(debt.get('date_borrowed', 'N/A'))}")
+                        st.write(f"**Expected Repayment:** {safe_str(debt.get('expected_repayment_date', 'N/A'))}")
+                        st.write(f"**Total Amount:** ${safe_float(debt['total_amount']):.2f}")
+                        st.write(f"**Amount Paid:** ${safe_float(debt['amount_paid']):.2f}")
                     
                     with col2:
-                        st.write(f"**Remaining Balance:** ${debt['balance']:.2f}")
-                        st.write(f"**Status:** {debt['status']}")
-                        st.write(f"**Risk Level:** {debt['risk_level']}")
+                        st.write(f"**Remaining Balance:** ${safe_float(debt['balance']):.2f}")
+                        st.write(f"**Status:** {safe_str(debt['status'])}")
+                        st.write(f"**Risk Level:** {safe_str(debt['risk_level'])}")
                         if debt.get('payment_plan') and debt['payment_plan'] != "None":
-                            st.write(f"**Payment Plan:** {debt['payment_plan']}")
+                            st.write(f"**Payment Plan:** {safe_str(debt['payment_plan'])}")
                             if debt.get('installment_amount'):
-                                st.write(f"**Installment:** ${debt['installment_amount']:.2f}")
+                                st.write(f"**Installment:** ${safe_float(debt['installment_amount']):.2f}")
                     
                     # Get items for this debt
                     items = get_debt_items(debt['debt_id'])
                     if not items.empty:
                         st.write("**Items Taken:**")
-                        # Add type column if available
                         if "type" in items.columns:
-                            items["Type"] = items["type"].map({"inventory": "📦 Inventory", "non_inventory": "📝 Non-Inventory"})
+                            items["Type"] = items["type"].map({"inventory": "Inventory", "non_inventory": "Non-Inventory"})
                             display_cols = ["product_name", "type", "quantity", "unit_price", "total_price"]
                         else:
                             display_cols = ["product_name", "quantity", "unit_price", "total_price"]
@@ -347,11 +383,19 @@ def debtors_dashboard():
                     else:
                         st.info("No items recorded for this debt")
                     
-                    # Show payment history if available
-                    if debt.get('payment_history'):
-                        st.write("**Payment History:**")
-                        payment_history = pd.DataFrame(debt['payment_history'])
-                        st.dataframe(payment_history, use_container_width=True, hide_index=True)
+                    # ==============================
+                    # FIX: Payment History - Safe handling
+                    # ==============================
+                    payment_history = debt.get('payment_history')
+                    if payment_history:
+                        try:
+                            history_df = safe_payment_history(payment_history)
+                            if not history_df.empty:
+                                st.write("**Payment History:**")
+                                st.dataframe(history_df, use_container_width=True, hide_index=True)
+                        except Exception as e:
+                            # If there's an error, just show a message
+                            st.caption("Payment history available")
     
     st.markdown("---")
     
@@ -384,7 +428,6 @@ def debtors_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        # Full debtors report
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="Download Full Debtors Report (CSV)",
@@ -395,7 +438,6 @@ def debtors_dashboard():
         )
     
     with col2:
-        # Overdue report
         if not overdue.empty:
             csv_overdue = overdue.to_csv(index=False).encode("utf-8")
             st.download_button(
