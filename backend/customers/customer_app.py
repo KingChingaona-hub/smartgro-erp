@@ -16,7 +16,9 @@ from backend.core.db_adapter import (
     save_customers, 
     get_current_branch, 
     BRANCH_DATA_DIR,
-    load_customer_transactions
+    load_customer_transactions,
+    save_suggestions,
+    load_suggestions
 )
 from backend.modules.loyalty import (
     load_loyalty, 
@@ -93,6 +95,8 @@ def init_customer_session():
         st.session_state.customer_phone = None
     if "customer_branch" not in st.session_state:
         st.session_state.customer_branch = None
+    if "suggestion_submitted" not in st.session_state:
+        st.session_state.suggestion_submitted = False
 
 
 def normalize_phone_for_storage(phone):
@@ -170,7 +174,6 @@ def get_customer_sales_data(phone):
                     try:
                         df = pd.read_csv(sales_file)
                         if not df.empty:
-                            # Find phone column
                             phone_col = None
                             for col in ["customer_phone", "phone", "customer_phone_str"]:
                                 if col in df.columns:
@@ -186,7 +189,6 @@ def get_customer_sales_data(phone):
                                     if db_phone_clean == search_phone:
                                         row_dict = row.to_dict()
                                         row_dict["branch"] = branch_folder.name
-                                        # Get customer name
                                         name_col = None
                                         for col in ["customer_name", "customer", "name"]:
                                             if col in df.columns:
@@ -202,24 +204,20 @@ def get_customer_sales_data(phone):
     if not all_sales:
         return None, None, 0, 0, pd.DataFrame()
     
-    # Create DataFrame from sales
     sales_df = pd.DataFrame(all_sales)
     
-    # Find receipt column for deduplication
     receipt_col = None
     for col in ["receipt_no", "receipt", "transaction_id"]:
         if col in sales_df.columns:
             receipt_col = col
             break
     
-    # Find amount column
     amount_col = None
     for col in ["final_total", "total", "amount"]:
         if col in sales_df.columns:
             amount_col = col
             break
     
-    # Calculate metrics using unduplicated receipts
     if receipt_col and receipt_col in sales_df.columns:
         unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
         total_orders = len(unique_receipts)
@@ -228,7 +226,6 @@ def get_customer_sales_data(phone):
         total_orders = len(sales_df)
         total_spent = to_float(sales_df[amount_col].sum()) if amount_col else 0
     
-    # Get customer name
     customer_name = "Valued Customer"
     name_col = None
     for col in ["customer_name", "customer", "name", "customer_name_display"]:
@@ -237,12 +234,10 @@ def get_customer_sales_data(phone):
             break
     
     if name_col:
-        # Get the most common name
         name_counts = sales_df[name_col].value_counts()
         if not name_counts.empty:
             customer_name = name_counts.index[0]
     
-    # Sort by date for history
     date_col = None
     for col in ["date", "sale_date", "transaction_date"]:
         if col in sales_df.columns:
@@ -285,16 +280,12 @@ def authenticate_customer(phone):
     """
     cleaned_phone = re.sub(r'\D', '', str(phone))
     
-    # First check if customer exists in customers table
     customer, found_branch = search_customer_by_phone(cleaned_phone)
-    
-    # Get REAL sales data
     customer_name, sales_branch, total_spent, total_orders, sales_df = get_customer_sales_data(cleaned_phone)
     
     if customer is None and total_orders == 0:
         return False, None
     
-    # Build customer data from sales
     if customer is None:
         customer = {
             "customer_name": customer_name or "Valued Customer",
@@ -304,18 +295,15 @@ def authenticate_customer(phone):
         }
         found_branch = sales_branch or "HO"
     else:
-        # Update with real sales data
         customer["customer_name"] = customer_name or customer.get("customer_name", "Valued Customer")
         customer["found_in_branch"] = sales_branch or customer.get("found_in_branch", "HO")
         found_branch = customer.get("found_in_branch", sales_branch or "HO")
     
-    # Add REAL sales metrics
     customer["total_spent"] = total_spent
     customer["total_orders"] = total_orders
     customer["total_transactions"] = total_orders
     customer["avg_transaction_value"] = total_spent / total_orders if total_orders > 0 else 0
     
-    # Get last purchase date
     date_col = None
     for col in ["date", "sale_date", "transaction_date"]:
         if col in sales_df.columns:
@@ -326,10 +314,8 @@ def authenticate_customer(phone):
         customer["last_purchase_date"] = sales_df.iloc[0].get(date_col, datetime.now())
         customer["days_since_last_purchase"] = (datetime.now() - customer["last_purchase_date"]).days if customer["last_purchase_date"] else 999
     
-    # Store purchase history
     customer["purchase_history"] = sales_df.to_dict('records')
     
-    # Get loyalty info
     loyalty_info = get_loyalty_for_customer(cleaned_phone, found_branch)
     
     if loyalty_info:
@@ -337,8 +323,7 @@ def authenticate_customer(phone):
             if key not in customer:
                 customer[key] = value
     else:
-        # Create loyalty record from sales data
-        customer["points"] = int(total_spent / 10)  # 1 point per $10 spent
+        customer["points"] = int(total_spent / 10)
         customer["tier"] = get_tier_from_spent(total_spent)
         customer["last_visit"] = datetime.now().strftime("%Y-%m-%d")
         customer["joined_date"] = datetime.now().strftime("%Y-%m-%d")
@@ -462,7 +447,6 @@ def get_customer_purchase_history(phone, limit=20):
             result[date_col] = pd.to_datetime(result[date_col], errors="coerce")
             result = result.sort_values(date_col, ascending=False)
         
-        # Deduplicate by receipt
         receipt_col = None
         for col in ["receipt_no", "receipt", "transaction_id"]:
             if col in result.columns:
@@ -578,39 +562,151 @@ def generate_digital_loyalty_card(customer_data):
 
 
 def customer_login_page():
-    """Customer login/register page"""
+    """Professional and clean customer login/register page"""
     
     st.markdown("""
     <style>
-        .customer-card {
-            background: white;
-            border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        /* Main container */
+        .main-container {
             max-width: 500px;
             margin: 0 auto;
+            padding: 20px;
         }
+        
+        /* Login card */
+        .login-card {
+            background: white;
+            border-radius: 24px;
+            padding: 40px 35px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.04);
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+        
+        /* Logo section */
+        .logo-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo-section h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a2e;
+            margin: 10px 0 5px 0;
+        }
+        
+        .logo-section p {
+            color: #6B7280;
+            font-size: 14px;
+            margin: 0;
+        }
+        
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 4px;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            border-radius: 10px;
+            padding: 8px 24px;
+            font-weight: 600;
+            font-size: 14px;
+            color: #6B7280;
+            transition: all 0.3s ease;
+        }
+        
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {
+            background: white;
+            color: #1a1a2e;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        
+        /* Input fields */
+        .stTextInput > div > div > input {
+            border-radius: 12px !important;
+            border: 2px solid #e5e7eb !important;
+            padding: 12px 16px !important;
+            font-size: 15px !important;
+            transition: all 0.3s ease;
+        }
+        
+        .stTextInput > div > div > input:focus {
+            border-color: #6366F1 !important;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1) !important;
+        }
+        
+        /* Buttons */
         .stButton > button {
-            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%) !important;
-            color: white !important;
+            border-radius: 12px !important;
+            padding: 12px 24px !important;
+            font-weight: 600 !important;
+            font-size: 15px !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .stButton > button:focus {
+            box-shadow: none !important;
+        }
+        
+        /* Success/Error messages */
+        .stAlert {
+            border-radius: 12px !important;
+            border: none !important;
+            padding: 14px 18px !important;
+        }
+        
+        /* Info box */
+        .info-box {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin: 8px 0;
+            font-size: 13px;
+            color: #4a5568;
+            border-left: 4px solid #6366F1;
+        }
+        
+        .divider {
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 20px 0;
+        }
+        
+        /* Responsive */
+        @media (max-width: 600px) {
+            .login-card {
+                padding: 25px 20px;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
     
-    st.markdown("<div class='customer-card'>", unsafe_allow_html=True)
+    st.markdown('<div class="main-container">', unsafe_allow_html=True)
+    st.markdown('<div class="login-card">', unsafe_allow_html=True)
     
+    # Logo and Title
+    st.markdown('<div class="logo-section">', unsafe_allow_html=True)
     try:
-        st.image("aziellogo.png", width=150)
+        st.image("aziellogo.png", width=120)
     except:
         pass
-    st.markdown("<h2 style='text-align:center;'>Customer Portal</h2>", unsafe_allow_html=True)
+    st.markdown('<h1>Welcome Back</h1>', unsafe_allow_html=True)
+    st.markdown('<p>Sign in to view your loyalty rewards and purchase history</p>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    tab1, tab2 = st.tabs(["Login", "Register"])
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["🔑 Sign In", "✨ Register"])
     
     with tab1:
+        st.markdown('<div class="info-box">📱 Enter your phone number to access your account</div>', unsafe_allow_html=True)
+        
         phone = st.text_input("Phone Number", placeholder="e.g., 0782905853", key="login_phone")
         
-        if st.button("Login", type="primary", use_container_width=True):
+        if st.button("Sign In", type="primary", use_container_width=True):
             if phone:
                 success, customer_data = authenticate_customer(phone)
                 if success:
@@ -618,25 +714,24 @@ def customer_login_page():
                     st.session_state.customer_data = customer_data
                     st.session_state.customer_phone = phone
                     st.session_state.customer_branch = customer_data.get("branch", "HO")
-                    st.success(f"Welcome back, {customer_data.get('customer_name')}!")
+                    st.success(f"👋 Welcome back, {customer_data.get('customer_name')}!")
                     safe_rerun()
                 else:
-                    st.error("Customer not found. Please register.")
+                    st.error("❌ Customer not found. Please register.")
             else:
-                st.error("Please enter your phone number")
+                st.warning("⚠️ Please enter your phone number")
     
     with tab2:
-        current_branch = get_current_branch()
-        st.info(f"Registering for branch: {current_branch}")
+        st.markdown('<div class="info-box">🎉 Create your account and earn 100 bonus points!</div>', unsafe_allow_html=True)
         
         name = st.text_input("Full Name", placeholder="John Doe", key="reg_name")
         phone = st.text_input("Phone Number", placeholder="e.g., 0772123456", key="reg_phone")
         
-        if st.button("Register", type="primary", use_container_width=True):
+        if st.button("Create Account", type="primary", use_container_width=True):
             if name and phone:
                 success, message = register_customer(phone, name)
                 if success:
-                    st.success(message)
+                    st.success(f"✅ {message}")
                     success, customer_data = authenticate_customer(phone)
                     if success:
                         st.session_state.customer_logged_in = True
@@ -645,15 +740,16 @@ def customer_login_page():
                         st.session_state.customer_branch = customer_data.get("branch", current_branch)
                         safe_rerun()
                 else:
-                    st.error(message)
+                    st.error(f"❌ {message}")
             else:
-                st.error("Please fill all fields")
+                st.warning("⚠️ Please fill all fields")
     
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def customer_dashboard():
-    """Customer app main dashboard with REAL data from sales"""
+    """Professional customer dashboard with clean design"""
     
     products_df = load_products()
     
@@ -662,98 +758,221 @@ def customer_dashboard():
     
     display_phone = normalize_phone_for_display(customer.get("phone", phone))
     
-    st.title("My Loyalty Dashboard")
-    st.caption(f"Welcome back, {customer.get('customer_name', 'Valued Customer')}!")
+    st.markdown("""
+    <style>
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .greeting-text {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .greeting-sub {
+            color: #6B7280;
+            font-size: 14px;
+        }
+        .metric-card {
+            background: white;
+            border-radius: 16px;
+            padding: 18px 20px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            border: 1px solid #f0f0f0;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .metric-label {
+            font-size: 13px;
+            color: #6B7280;
+            margin-top: 4px;
+        }
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin: 25px 0 15px 0;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            border: 1px solid #f0f0f0;
+        }
+        .product-item {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            border: 1px solid #f0f0f0;
+            transition: all 0.3s ease;
+        }
+        .product-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        }
+        .product-name {
+            font-weight: 600;
+            color: #1a1a2e;
+            font-size: 14px;
+        }
+        .product-price {
+            color: #22c55e;
+            font-size: 18px;
+            font-weight: 700;
+            margin: 5px 0;
+        }
+        .product-tag {
+            background: #e5e7eb;
+            color: #4a5568;
+            font-size: 11px;
+            padding: 2px 12px;
+            border-radius: 20px;
+        }
+        .suggestion-box {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #e5e7eb;
+        }
+        .suggestion-box textarea {
+            border-radius: 12px !important;
+            border: 2px solid #e5e7eb !important;
+        }
+        .logout-btn {
+            background: none !important;
+            border: 2px solid #e5e7eb !important;
+            color: #4a5568 !important;
+            border-radius: 12px !important;
+            padding: 8px 20px !important;
+            font-weight: 500 !important;
+        }
+        .logout-btn:hover {
+            background: #fee2e2 !important;
+            border-color: #f87171 !important;
+            color: #dc2626 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
     
-    if customer.get("branch"):
-        st.info(f"Registered Branch: {customer.get('branch')}")
+    # Header
+    st.markdown(f"""
+    <div class="dashboard-header">
+        <div>
+            <div class="greeting-text">👋 {customer.get('customer_name', 'Valued Customer')}</div>
+            <div class="greeting-sub">📱 {display_phone} • 🏢 {customer.get('branch', 'HO')}</div>
+        </div>
+        <div>
+            <button onclick="window.location.href='?logout=true'" style="background:none;border:2px solid #e5e7eb;border-radius:12px;padding:8px 20px;color:#4a5568;font-weight:500;cursor:pointer;">🚪 Logout</button>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Display REAL metrics from sales
+    # Metrics
     col1, col2, col3, col4 = st.columns(4)
     
-    with col1:
-        st.metric("Tier", customer.get('tier', 'BRONZE'))
-    with col2:
-        st.metric("Points", f"{customer.get('points', 0):,}")
-    with col3:
-        total_spent = to_float(customer.get('total_spent', 0))
-        st.metric("Total Spent", f"${total_spent:,.2f}")
-    with col4:
-        total_orders = safe_int(customer.get('total_orders', 0))
-        st.metric("Orders", total_orders)
-    
-    st.markdown("---")
-    
-    # Digital Loyalty Card
-    st.markdown("## Digital Loyalty Card")
-    
-    card_html, qr_base64 = generate_digital_loyalty_card(customer)
-    st.markdown(card_html, unsafe_allow_html=True)
-    
-    st.download_button(
-        label="Download QR Code",
-        data=base64.b64decode(qr_base64),
-        file_name=f"loyalty_qr_{display_phone}.png",
-        mime="image/png",
-        use_container_width=True
-    )
-    
-    st.markdown("---")
-    
-    # Tier Benefits
-    st.markdown("## Your Tier Benefits")
-    
+    total_spent = to_float(customer.get('total_spent', 0))
+    total_orders = safe_int(customer.get('total_orders', 0))
+    points = customer.get('points', 0)
     tier = customer.get('tier', 'BRONZE')
-    benefits = get_tier_benefits(tier)
     
-    col1, col2, col3, col4 = st.columns(4)
+    tier_icons = {"BRONZE": "🥉", "SILVER": "🥈", "GOLD": "🥇", "PLATINUM": "💎"}
+    tier_icon = tier_icons.get(tier, "🥉")
+    
     with col1:
-        st.metric("Points Multiplier", f"{benefits.get('points_multiplier', 1)}x")
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">${total_spent:,.2f}</div>
+            <div class="metric-label">Total Spent</div>
+        </div>
+        """, unsafe_allow_html=True)
     with col2:
-        st.metric("Tier Discount", f"{benefits.get('discount', 0)}%")
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{total_orders}</div>
+            <div class="metric-label">Orders</div>
+        </div>
+        """, unsafe_allow_html=True)
     with col3:
-        st.metric("Birthday Bonus", f"{benefits.get('birthday_bonus', 50)} pts")
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{points:,}</div>
+            <div class="metric-label">Points</div>
+        </div>
+        """, unsafe_allow_html=True)
     with col4:
-        st.metric("Free Delivery", "YES" if benefits.get('free_delivery', False) else "NO")
-    
-    # Next Tier Progress (based on REAL spent)
-    st.markdown("### Next Tier Progress")
-    
-    current_spent = to_float(customer.get('total_spent', 0))
-    if current_spent < 500:
-        next_tier = "SILVER"
-        next_amount = 500 - current_spent
-        progress = current_spent / 500
-    elif current_spent < 2000:
-        next_tier = "GOLD"
-        next_amount = 2000 - current_spent
-        progress = current_spent / 2000
-    elif current_spent < 5000:
-        next_tier = "PLATINUM"
-        next_amount = 5000 - current_spent
-        progress = current_spent / 5000
-    else:
-        next_tier = "PLATINUM (Max)"
-        next_amount = 0
-        progress = 1
-    
-    st.progress(min(progress, 1.0))
-    if next_amount > 0:
-        st.caption(f"Spend ${next_amount:,.2f} more to reach {next_tier}")
-    else:
-        st.caption("You've reached the highest tier! Congratulations!")
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{tier_icon} {tier}</div>
+            <div class="metric-label">Tier</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.markdown("---")
     
-    # Purchase History - REAL data from sales
-    st.markdown("## My Purchase History")
+    # Two columns: Loyalty Card + Products
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown('<div class="section-title">💳 Loyalty Card</div>', unsafe_allow_html=True)
+        card_html, qr_base64 = generate_digital_loyalty_card(customer)
+        st.markdown(card_html, unsafe_allow_html=True)
+        
+        st.download_button(
+            label="📥 Download QR Code",
+            data=base64.b64decode(qr_base64),
+            file_name=f"loyalty_qr_{display_phone}.png",
+            mime="image/png",
+            use_container_width=True
+        )
+    
+    with col2:
+        st.markdown('<div class="section-title">🛍️ Products Available</div>', unsafe_allow_html=True)
+        
+        if not products_df.empty:
+            # Show products without stock quantities
+            product_cols = st.columns(2)
+            for idx, (_, product) in enumerate(products_df.head(4).iterrows()):
+                with product_cols[idx % 2]:
+                    product_name = product.get("name", "Unknown Product")
+                    product_price = to_float(product.get("price", 0))
+                    
+                    st.markdown(f"""
+                    <div class="product-item">
+                        <div class="product-name">{product_name[:25]}</div>
+                        <div class="product-price">${product_price:.2f}</div>
+                        <span class="product-tag">In Stock</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            if len(products_df) > 4:
+                st.caption(f"Showing 4 of {len(products_df)} products available")
+        else:
+            st.info("No products available at the moment.")
+    
+    st.markdown("---")
+    
+    # Purchase History
+    st.markdown('<div class="section-title">📜 Purchase History</div>', unsafe_allow_html=True)
     
     purchase_history = get_customer_purchase_history(phone, 20)
     
     if not purchase_history.empty:
         display_cols = []
         
-        # Date column
         date_col = None
         for col in ["date", "sale_date", "transaction_date"]:
             if col in purchase_history.columns:
@@ -765,7 +984,6 @@ def customer_dashboard():
             purchase_history[date_col] = pd.to_datetime(purchase_history[date_col], errors="coerce")
             purchase_history[date_col] = purchase_history[date_col].dt.strftime("%Y-%m-%d %H:%M")
         
-        # Receipt number
         receipt_col = None
         for col in ["receipt_no", "receipt", "transaction_id"]:
             if col in purchase_history.columns:
@@ -775,7 +993,6 @@ def customer_dashboard():
         if receipt_col:
             display_cols.append(receipt_col)
         
-        # Amount
         amount_col = None
         for col in ["final_total", "total", "amount"]:
             if col in purchase_history.columns:
@@ -786,11 +1003,9 @@ def customer_dashboard():
             display_cols.append(amount_col)
             purchase_history[amount_col] = purchase_history[amount_col].apply(to_float)
         
-        # Items
         if "items" in purchase_history.columns:
             display_cols.append("items")
         
-        # Payment method
         payment_col = None
         for col in ["payment_method", "payment_type"]:
             if col in purchase_history.columns:
@@ -800,7 +1015,6 @@ def customer_dashboard():
         if payment_col:
             display_cols.append(payment_col)
         
-        # Branch
         if "branch" in purchase_history.columns:
             display_cols.append("branch")
         
@@ -823,7 +1037,7 @@ def customer_dashboard():
     st.markdown("---")
     
     # Recommendations
-    st.markdown("## Recommended for You")
+    st.markdown('<div class="section-title">🎯 Recommended for You</div>', unsafe_allow_html=True)
     
     recommendations = get_customer_recommendations(phone)
     
@@ -839,9 +1053,10 @@ def customer_dashboard():
                         product_price = to_float(product_match.iloc[0].get("price", 0))
                 
                 st.markdown(f"""
-                <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center;">
-                    <h4>{product['name'][:20]}</h4>
-                    <p style="font-size: 24px; color: green;">${product_price:.2f}</p>
+                <div class="product-item">
+                    <div class="product-name">{product['name'][:25]}</div>
+                    <div class="product-price">${product_price:.2f}</div>
+                    <span class="product-tag">⭐ Recommended</span>
                 </div>
                 """, unsafe_allow_html=True)
     else:
@@ -849,8 +1064,55 @@ def customer_dashboard():
     
     st.markdown("---")
     
+    # Suggestions Section
+    st.markdown('<div class="section-title">💡 Send Us Your Suggestions</div>', unsafe_allow_html=True)
+    
+    st.markdown('<div class="suggestion-box">', unsafe_allow_html=True)
+    
+    suggestion_text = st.text_area(
+        "What products or improvements would you like to see?",
+        placeholder="Tell us what you think...",
+        key="suggestion_input",
+        height=100
+    )
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.caption("Your feedback helps us serve you better!")
+    
+    with col2:
+        if st.button("Submit Suggestion", type="primary", use_container_width=True):
+            if suggestion_text and suggestion_text.strip():
+                try:
+                    from backend.core.db_adapter import save_suggestions, load_suggestions
+                    suggestions_df = load_suggestions()
+                    
+                    new_suggestion = pd.DataFrame([{
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "customer_name": customer.get("customer_name", "Anonymous"),
+                        "phone": display_phone,
+                        "suggestion": suggestion_text.strip(),
+                        "status": "New"
+                    }])
+                    
+                    suggestions_df = pd.concat([suggestions_df, new_suggestion], ignore_index=True)
+                    save_suggestions(suggestions_df)
+                    
+                    st.success("✅ Thank you for your suggestion! We value your feedback.")
+                    st.session_state.suggestion_submitted = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error submitting suggestion: {str(e)}")
+            else:
+                st.warning("⚠️ Please enter your suggestion before submitting.")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
     # Redeem Points
-    st.markdown("## Redeem Points")
+    st.markdown('<div class="section-title">🔄 Redeem Points</div>', unsafe_allow_html=True)
     
     current_points = customer.get('points', 0)
     points_value = current_points / 100
@@ -858,12 +1120,12 @@ def customer_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.info(f"Your {current_points} points are worth **${points_value:.2f}** discount!")
+        st.info(f"💎 Your {current_points} points are worth **${points_value:.2f}** discount!")
         st.caption("100 points = $1 discount")
     
     with col2:
         if current_points >= 100:
-            if st.button("Redeem Now", use_container_width=True):
+            if st.button("🔄 Redeem Now", use_container_width=True):
                 st.session_state.show_redeem = True
         
         if st.session_state.get("show_redeem", False):
@@ -875,36 +1137,40 @@ def customer_dashboard():
                 value=min(500, current_points)
             )
             
-            if st.button("Confirm Redemption", use_container_width=True):
+            if st.button("✅ Confirm Redemption", use_container_width=True):
                 st.info(f"Show this screen at checkout to redeem {points_to_redeem} points for ${points_to_redeem/100:.2f} discount!")
     
     st.markdown("---")
     
     # Stay Connected
-    st.markdown("## Stay Connected")
+    st.markdown('<div class="section-title">📱 Stay Connected</div>', unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         whatsapp_link = get_whatsapp_link(display_phone, "I want to receive loyalty updates and offers!")
         if whatsapp_link:
             st.markdown(f"""
             <a href="{whatsapp_link}" target="_blank">
-                <button style="background:#25D366;color:white;border:none;border-radius:30px;padding:10px;width:100%;cursor:pointer;">
-                    Get Offers on WhatsApp
+                <button style="background:#25D366;color:white;border:none;border-radius:30px;padding:10px;width:100%;cursor:pointer;font-weight:600;">
+                    💬 WhatsApp
                 </button>
             </a>
             """, unsafe_allow_html=True)
     
     with col2:
-        if st.button("Contact Support", use_container_width=True):
+        if st.button("📞 Contact Support", use_container_width=True):
             st.info("Call us: +263 78 290 5853")
     
-    st.markdown("---")
+    with col3:
+        if st.button("🚪 Logout", use_container_width=True):
+            logout_customer()
     
-    # Logout - FIXED: Using safe logout
-    if st.button("Logout", use_container_width=True):
-        logout_customer()
+    st.markdown("""
+    <div style="text-align:center;color:#6B7280;font-size:12px;margin-top:20px;padding-top:15px;border-top:1px solid #e5e7eb;">
+        Aziel Investments • SmartGro ERP • Version 3.0
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ==============================
@@ -975,6 +1241,19 @@ def customer_insights_page():
         st.dataframe(top_customers, use_container_width=True, hide_index=True)
     else:
         st.info("No spending data available")
+    
+    # Show customer suggestions
+    st.markdown("---")
+    st.markdown("### Customer Suggestions")
+    
+    try:
+        suggestions_df = load_suggestions()
+        if not suggestions_df.empty:
+            st.dataframe(suggestions_df.sort_values("date", ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.info("No suggestions yet")
+    except:
+        st.info("Suggestions feature not available")
 
 
 # ==============================
