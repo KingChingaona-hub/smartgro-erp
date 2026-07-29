@@ -6,8 +6,20 @@ try:
 except:
     pass
 
-from backend.core.config import get_current_time
+
+# app.py - Add at the very top
 import streamlit as st
+
+# Handle mobile navigation
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
+
+# Navigation function
+def navigate_to(page):
+    st.session_state.page = page
+    st.rerun()
+    
+from backend.core.config import get_current_time
 import traceback
 import sys
 
