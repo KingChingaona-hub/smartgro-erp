@@ -7,6 +7,10 @@ import random
 def welcome_page():
     """Professional welcome page shown after successful login"""
     
+    # Check if already seen - exit early to prevent loops
+    if st.session_state.get("welcome_seen", False):
+        return
+    
     # Get user info
     username = st.session_state.get("username", "User")
     role = st.session_state.get("role", "cashier")
@@ -592,9 +596,7 @@ def welcome_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # ====================
-    # ABOUT SECTION - "About" removed, only "SmartGro ERP" shown
-    # ====================
+    # About Section
     st.markdown("""
     <div class="section-heading">
         <h2>
@@ -623,9 +625,7 @@ def welcome_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # ====================
-    # KEY FEATURES SECTION - "Key" removed, only "Features" shown
-    # ====================
+    # Features Section
     st.markdown("""
     <div class="section-heading">
         <h2>
@@ -701,7 +701,7 @@ def welcome_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # Get Started
+    # Get Started Section
     st.markdown("""
     <div class="get-started-section">
         <h3>Ready to take control of your business?</h3>
@@ -709,17 +709,21 @@ def welcome_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # Get Started Button
+    # Get Started Button - FIXED: Use session state without st.rerun()
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("Get Started 🚀", type="primary", use_container_width=True):
+            # Set welcome_seen to True
             st.session_state.welcome_seen = True
+            # Set default page based on role
             if st.session_state.get("role") == "cashier":
                 st.session_state.current_page = "POS"
             else:
                 st.session_state.current_page = "Stock Dashboard"
+            # Use st.rerun() only once
+            st.rerun()
     
-    # Footer with clickable links
+    # Footer with clickable links - FIXED: Use session state without st.rerun()
     st.markdown('<div class="welcome-footer">', unsafe_allow_html=True)
     st.markdown('<div class="footer-links">', unsafe_allow_html=True)
     
@@ -748,7 +752,7 @@ def welcome_page():
                     st.session_state.footer_section = None
                 else:
                     st.session_state.footer_section = section["key"]
-                #st.rerun()
+                # NO st.rerun() here - this prevents the mobile navigation loop!
     
     st.markdown('</div>', unsafe_allow_html=True)
     
