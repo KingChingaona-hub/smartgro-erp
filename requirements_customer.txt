@@ -1,0 +1,9 @@
+# requirements_customer.txt
+# Minimal dependencies for customer portal only
+
+streamlit>=1.28.0
+pandas>=1.5.0
+plotly>=5.14.0
+qrcode>=7.4.0
+Pillow>=9.5.0
+numpy>=1.24.0
