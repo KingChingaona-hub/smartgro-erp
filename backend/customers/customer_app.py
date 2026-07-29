@@ -54,6 +54,32 @@ def safe_int(value, default=0):
 
 
 # ==============================
+# SAFE NAVIGATION - FIXED
+# ==============================
+def safe_rerun():
+    """Safe rerun that works on all devices"""
+    try:
+        st.rerun()
+    except:
+        pass
+
+
+def navigate_to(page):
+    """Safe navigation for customer app"""
+    st.session_state.page = page
+    safe_rerun()
+
+
+def logout_customer():
+    """Safe logout for customer"""
+    st.session_state.customer_logged_in = False
+    st.session_state.customer_data = None
+    st.session_state.customer_phone = None
+    st.session_state.customer_branch = None
+    safe_rerun()
+
+
+# ==============================
 # CUSTOMER APP SESSION
 # ==============================
 
@@ -593,7 +619,7 @@ def customer_login_page():
                     st.session_state.customer_phone = phone
                     st.session_state.customer_branch = customer_data.get("branch", "HO")
                     st.success(f"Welcome back, {customer_data.get('customer_name')}!")
-                    st.rerun()
+                    safe_rerun()
                 else:
                     st.error("Customer not found. Please register.")
             else:
@@ -617,7 +643,7 @@ def customer_login_page():
                         st.session_state.customer_data = customer_data
                         st.session_state.customer_phone = phone
                         st.session_state.customer_branch = customer_data.get("branch", current_branch)
-                        st.rerun()
+                        safe_rerun()
                 else:
                     st.error(message)
             else:
@@ -875,12 +901,10 @@ def customer_dashboard():
             st.info("Call us: +263 78 290 5853")
     
     st.markdown("---")
+    
+    # Logout - FIXED: Using safe logout
     if st.button("Logout", use_container_width=True):
-        st.session_state.customer_logged_in = False
-        st.session_state.customer_data = None
-        st.session_state.customer_phone = None
-        st.session_state.customer_branch = None
-        st.rerun()
+        logout_customer()
 
 
 # ==============================
