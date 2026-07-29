@@ -1,4 +1,4 @@
-# app.py - Fixed version
+# app.py - Fixed version with Customer App removed
 import os
 os.environ['TZ'] = 'Africa/Harare'
 try:
@@ -153,14 +153,13 @@ from backend.modules.settings_page import settings_page
 from backend.modules.welcome_page import welcome_page
 
 # ==============================
-# CUSTOMER IMPORTS
+# CUSTOMER IMPORTS - REMOVED customer_app
 # ==============================
 from backend.customers.customers_dashboard import customers_dashboard
 from backend.customers.retention_dashboard import customers_retention_dashboard
 from backend.customers.segmentation_dashboard import customers_segmentation_dashboard
 from backend.customers.lifecycle_dashboard import customers_lifecycle_dashboard
 from backend.customers.customer_360_view import customer_360_view, customer_insights_360
-from backend.customers.customer_app import customer_app, customer_insights_page
 
 # ==============================
 # ANALYTICS IMPORTS
@@ -627,7 +626,7 @@ def main_app():
     st.sidebar.markdown("---")
     
     # ==============================
-    # FLAT ALPHABETICAL NAVIGATION
+    # FLAT ALPHABETICAL NAVIGATION - REMOVED Customer App
     # ==============================
     try:
         navigation_menu = get_navigation_menu(role)
@@ -643,6 +642,9 @@ def main_app():
     try:
         for category, items in navigation_menu.items():
             for item in items:
+                # Skip Customer App if it appears in navigation
+                if item == "Customer App":
+                    continue
                 all_items.append(item)
         
         all_items = sorted(all_items)
@@ -715,7 +717,7 @@ def main_app():
         print(f"Mobile actions error: {e}")
     
     # ==============================
-    # ROUTING ENGINE
+    # ROUTING ENGINE - REMOVED Customer App route
     # ==============================
     
     if selected_page:
@@ -814,8 +816,9 @@ def main_app():
             else:
                 st.error("You don't have permission to access this page")
 
-        elif page == "Customer App":
-            customer_app()
+        # REMOVED: Customer App
+        # elif page == "Customer App":
+        #     customer_app()
 
         elif page == "Customer Dashboard":
             if can_access_feature(role, "customers"):
