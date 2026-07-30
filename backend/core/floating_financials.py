@@ -727,30 +727,28 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Step 5: Find gas product - GET COST PRICE (UPDATED to include stock)
+        # Step 5: Find gas product - GET COST PRICE (SIMPLE VERSION - 3 columns)
         gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
         gas_cost = 0.0
         gas_name = "Gas Product"
         product_found = False
-        current_stock = 0
         
         try:
-            # Get barcode, cost, name, and stock
+            # Get barcode, cost, name (3 columns - same as working version)
             cur.execute("""
-                SELECT barcode, cost, name, stock FROM products 
+                SELECT barcode, cost, name FROM products 
                 WHERE branch_id = %s 
                 AND (barcode LIKE 'GAS%' OR LOWER(name) LIKE '%gas%')
                 LIMIT 1
             """, (branch_id,))
             product = cur.fetchone()
             
-            if product and len(product) >= 4:
+            if product and len(product) >= 3:
                 gas_barcode = product[0] if product[0] else gas_barcode
                 gas_cost = float(product[1]) if product[1] else 0.0
                 gas_name = product[2] if product[2] else "Gas Product"
-                current_stock = float(product[3]) if product[3] else 0
                 product_found = True
-                logger.info(f"Gas product found: {gas_name}, Cost: ${gas_cost:.2f}/KG, Stock: {current_stock} KGs")
+                logger.info(f"Gas product found: {gas_name}, Cost: ${gas_cost:.2f}/KG")
             else:
                 logger.warning("No gas product found with GAS barcode or name containing 'gas'")
                 return False, "Gas product not found. Please create a product with barcode starting with 'GAS' and set the cost price."
@@ -813,24 +811,32 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
             conn.rollback()
             return False, f"Error creating sales record: {str(e)}"
         
-        # Step 9: Deduct from inventory
-        try:
-            new_stock = current_stock - float(kgs)
-            
-            if new_stock < 0:
-                conn.rollback()
-                return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
-            
-            cur.execute("""
-                UPDATE products 
-                SET stock = %s 
-                WHERE branch_id = %s AND barcode = %s
-            """, (new_stock, branch_id, gas_barcode))
-            logger.info(f"Inventory updated: {gas_name} stock from {current_stock} to {new_stock} KGs")
-        except Exception as e:
-            logger.error(f"Error deducting inventory: {e}")
-            conn.rollback()
-            return False, f"Error updating inventory: {str(e)}"
+        # Step 9: Deduct from inventory (get stock separately)
+        if product_found:
+            try:
+                # Get current stock
+                cur.execute("""
+                    SELECT stock FROM products 
+                    WHERE branch_id = %s AND barcode = %s
+                """, (branch_id, gas_barcode))
+                stock_record = cur.fetchone()
+                
+                if stock_record and len(stock_record) >= 1:
+                    current_stock = float(stock_record[0]) if stock_record[0] else 0
+                    new_stock = current_stock - float(kgs)
+                    
+                    if new_stock < 0:
+                        conn.rollback()
+                        return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
+                    
+                    cur.execute("""
+                        UPDATE products 
+                        SET stock = %s 
+                        WHERE branch_id = %s AND barcode = %s
+                    """, (new_stock, branch_id, gas_barcode))
+                    logger.info(f"Inventory updated: {gas_name} stock from {current_stock} to {new_stock} KGs")
+            except Exception as e:
+                logger.warning(f"Error deducting inventory: {e}")
         
         # Step 10: Update gas sale status
         try:
