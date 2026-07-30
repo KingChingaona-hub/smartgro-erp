@@ -1,5 +1,5 @@
 # backend/core/floating_financials.py
-# FIXED VERSION - Uses direct connection like the test
+# FIXED VERSION - Uses direct connection with performance optimizations
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -607,10 +607,14 @@ def get_overdue_credits(branch_id=None, days=30):
         return pd.DataFrame()
 
 # ==============================
-# GAS SALES
+# GAS SALES - UPDATED
 # ==============================
 
-def create_gas_sale(customer_name, kgs, price_per_kg, description="", branch_id=None):
+def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", branch_id=None):
+    """
+    Create a gas sale where user enters amount paid and price per KG
+    System calculates KGs = amount_paid / price_per_kg
+    """
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -618,17 +622,20 @@ def create_gas_sale(customer_name, kgs, price_per_kg, description="", branch_id=
     if not valid:
         return False, f"Invalid customer name: {msg}", None
     
-    valid, qty, msg = validate_quantity(kgs)
+    valid, amount_clean, msg = validate_amount(amount_paid)
     if not valid:
-        return False, f"Invalid KGs: {msg}", None
-    if qty <= 0:
-        return False, "KGs must be greater than 0", None
+        return False, f"Invalid amount: {msg}", None
+    if amount_clean <= 0:
+        return False, "Amount must be greater than 0", None
     
     valid, price, msg = validate_amount(price_per_kg)
     if not valid:
         return False, f"Invalid price: {msg}", None
     if price <= 0:
         return False, "Price must be greater than 0", None
+    
+    # Calculate KGs from amount paid
+    kgs_calculated = amount_clean / price
     
     if description:
         valid, desc_clean = validate_description(description, 500)
@@ -645,7 +652,6 @@ def create_gas_sale(customer_name, kgs, price_per_kg, description="", branch_id=
         
         gas_sale_id = f"GAS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        total_amount = qty * price
         
         cur.execute("""
             INSERT INTO floating_gas_sales (
@@ -655,20 +661,23 @@ def create_gas_sale(customer_name, kgs, price_per_kg, description="", branch_id=
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             gas_sale_id, branch_id, customer_name,
-            qty, price, total_amount, description,
+            kgs_calculated, price, amount_clean, description,
             "PENDING", now, now
         ))
         
         conn.commit()
         cur.close()
         conn.close()
-        return True, f"Gas sale recorded successfully. ID: {gas_sale_id}", gas_sale_id
+        return True, f"Gas sale recorded. KGs: {kgs_calculated:.2f} at ${price:.2f}/KG", gas_sale_id
         
     except Exception as e:
         logger.error(f"Error recording gas sale: {e}")
         return False, f"Error: {str(e)}", None
 
-def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
+def deduct_gas_from_inventory(branch_id, kgs):
+    """
+    Deduct gas KGs from the gas product inventory
+    """
     try:
         conn = get_db_connection()
         if conn is None:
@@ -676,7 +685,60 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         
         cur = conn.cursor()
         
-        cur.execute("SELECT status FROM floating_gas_sales WHERE gas_sale_id = %s", (gas_sale_id,))
+        # Find the gas product - check for barcode containing 'GAS' or name containing 'gas'
+        cur.execute("""
+            SELECT barcode, stock, name FROM products 
+            WHERE branch_id = %s 
+            AND (barcode LIKE 'GAS%' OR LOWER(name) LIKE '%gas%')
+            LIMIT 1
+        """, (branch_id,))
+        
+        product = cur.fetchone()
+        
+        if not product:
+            cur.close()
+            conn.close()
+            return False, "Gas product not found. Please create a gas product with barcode starting with 'GAS'"
+        
+        barcode, current_stock, name = product
+        current_stock = float(current_stock)
+        new_stock = current_stock - kgs
+        
+        if new_stock < 0:
+            cur.close()
+            conn.close()
+            return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
+        
+        cur.execute("""
+            UPDATE products 
+            SET stock = %s 
+            WHERE branch_id = %s AND barcode = %s
+        """, (new_stock, branch_id, barcode))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True, f"Gas stock updated. {name}: {current_stock:.2f} -> {new_stock:.2f} KGs"
+        
+    except Exception as e:
+        logger.error(f"Error deducting gas from inventory: {e}")
+        return False, f"Error: {str(e)}"
+
+def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
+    """
+    Transfer a gas sale from float to POS and deduct from inventory
+    """
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return False, "Database connection failed"
+        
+        cur = conn.cursor()
+        
+        # Get gas sale record including kgs and branch_id
+        cur.execute("""
+            SELECT status, kgs, branch_id FROM floating_gas_sales WHERE gas_sale_id = %s
+        """, (gas_sale_id,))
         record = cur.fetchone()
         
         if not record:
@@ -684,7 +746,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
             conn.close()
             return False, "Gas sale record not found"
         
-        status = record[0]
+        status, kgs, branch_id = record
         
         if status == "TRANSFERRED_TO_POS":
             cur.close()
@@ -693,16 +755,26 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # Deduct gas from inventory
+        deduct_success, deduct_message = deduct_gas_from_inventory(branch_id, float(kgs))
+        
+        if not deduct_success:
+            cur.close()
+            conn.close()
+            return False, f"Inventory deduction failed: {deduct_message}"
+        
+        # Update gas sale status
         cur.execute("""
             UPDATE floating_gas_sales 
             SET status = %s, pos_receipt_no = %s, transfer_note = %s, transferred_at = %s
             WHERE gas_sale_id = %s
-        """, ("TRANSFERRED_TO_POS", pos_receipt_no or "", transfer_note or "Transferred to POS", now, gas_sale_id))
+        """, ("TRANSFERRED_TO_POS", pos_receipt_no or "", 
+              transfer_note or f"Transferred to POS - KGs: {float(kgs):.2f}", now, gas_sale_id))
         
         conn.commit()
         cur.close()
         conn.close()
-        return True, f"Transferred successfully. Receipt: {pos_receipt_no or 'N/A'}"
+        return True, f"Transferred {float(kgs):.2f} KGs. {deduct_message}"
         
     except Exception as e:
         logger.error(f"Error transferring gas to POS: {e}")
