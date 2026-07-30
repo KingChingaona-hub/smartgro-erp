@@ -681,6 +681,9 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
     2. Deduct from inventory
     3. Update gas sale status
     """
+    conn = None
+    cur = None
+    
     try:
         import streamlit as st
         
@@ -698,15 +701,11 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         record = cur.fetchone()
         
         if not record:
-            cur.close()
-            conn.close()
             return False, "Gas sale record not found"
         
         status, kgs, price_per_kg, total_amount, customer_name, branch_id, sale_date = record
         
         if status == "TRANSFERRED_TO_POS":
-            cur.close()
-            conn.close()
             return False, "Already transferred to POS"
         
         # Generate receipt number if not provided
@@ -716,7 +715,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # ============================================================
-        # 1. FIND GAS PRODUCT
+        # 1. FIND GAS PRODUCT - FIXED: Handle None properly
         # ============================================================
         cur.execute("""
             SELECT barcode, cost, name FROM products 
@@ -726,13 +725,22 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         """, (branch_id,))
         product = cur.fetchone()
         
-        gas_barcode = product[0] if product else f"GAS-{datetime.now().strftime('%Y%m%d')}"
-        gas_cost = float(product[1]) if product and product[1] else 0.0
-        gas_name = product[2] if product and product[2] else "Gas Product"
+        if product:
+            gas_barcode = product[0] if product[0] else f"GAS-{datetime.now().strftime('%Y%m%d')}"
+            gas_cost = float(product[1]) if product[1] else 0.0
+            gas_name = product[2] if product[2] else "Gas Product"
+        else:
+            gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
+            gas_cost = 0.0
+            gas_name = "Gas Product"
         
         # Calculate profit
         total_cost = gas_cost * float(kgs)
         profit = float(total_amount) - total_cost
+        
+        # Get session values safely
+        shift_id = st.session_state.get("active_shift_id", "") if hasattr(st, 'session_state') else ""
+        cashier = st.session_state.get("username", "system") if hasattr(st, 'session_state') else "system"
         
         # ============================================================
         # 2. CREATE SALES RECORD
@@ -756,29 +764,34 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
             customer_name,
             "",  # customer_phone
             float(total_amount),
-            st.session_state.get("active_shift_id", ""),
-            st.session_state.get("username", "system")
+            shift_id,
+            cashier
         ))
         
         # ============================================================
-        # 3. DEDUCT FROM INVENTORY
+        # 3. DEDUCT FROM INVENTORY (only if product exists)
         # ============================================================
         if product:
-            barcode, current_stock, name = product
-            current_stock = float(current_stock)
-            new_stock = current_stock - float(kgs)
-            
-            if new_stock < 0:
-                conn.rollback()
-                cur.close()
-                conn.close()
-                return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
-            
+            # Re-fetch current stock
             cur.execute("""
-                UPDATE products 
-                SET stock = %s 
+                SELECT stock FROM products 
                 WHERE branch_id = %s AND barcode = %s
-            """, (new_stock, branch_id, barcode))
+            """, (branch_id, gas_barcode))
+            stock_record = cur.fetchone()
+            
+            if stock_record:
+                current_stock = float(stock_record[0])
+                new_stock = current_stock - float(kgs)
+                
+                if new_stock < 0:
+                    conn.rollback()
+                    return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
+                
+                cur.execute("""
+                    UPDATE products 
+                    SET stock = %s 
+                    WHERE branch_id = %s AND barcode = %s
+                """, (new_stock, branch_id, gas_barcode))
         
         # ============================================================
         # 4. UPDATE GAS SALE STATUS
@@ -791,16 +804,28 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
               transfer_note or f"Transferred to POS - KGs: {float(kgs):.2f}", now, gas_sale_id))
         
         conn.commit()
-        cur.close()
-        conn.close()
         
         return True, f"Gas sale transferred to POS. Receipt: {pos_receipt_no}, KGs: {float(kgs):.2f}, Amount: ${float(total_amount):.2f}"
         
     except Exception as e:
         logger.error(f"Error transferring gas to POS: {e}")
         if conn:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except:
+                pass
         return False, f"Error: {str(e)}"
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 def get_gas_sales(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
     if branch_id is None:
