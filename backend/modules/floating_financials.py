@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - FIXED VERSION
+# backend/modules/floating_financials.py - UPDATED VERSION
 
 import streamlit as st
 import pandas as pd
@@ -350,11 +350,9 @@ def credit_management_tab():
             with col6:
                 if balance > 0:
                     if st.button(f"Pay", key=f"pay_credit_{credit_id}"):
-                        # Store which credit we're paying
                         st.session_state[f"paying_credit_{credit_id}"] = True
                         st.rerun()
             
-            # Payment form - shown when payment button is clicked
             if st.session_state.get(f"paying_credit_{credit_id}", False):
                 with st.container(border=True):
                     st.subheader(f"Record Payment for {customer_name}")
@@ -391,7 +389,6 @@ def credit_management_tab():
                             )
                             if success:
                                 show_toast(message, "success")
-                                # Clear the payment state
                                 st.session_state[f"paying_credit_{credit_id}"] = False
                                 st.rerun()
                             else:
@@ -413,7 +410,7 @@ def credit_management_tab():
 
 
 def gas_sales_tab():
-    """Gas Sales Float Tab"""
+    """Gas Sales Float Tab - User enters amount, system calculates KGs"""
     
     summary = get_gas_sales_summary()
     
@@ -435,29 +432,36 @@ def gas_sales_tab():
         
         with col1:
             new_gas_customer = st.text_input("Customer Name", key="new_gas_customer")
-            new_gas_kgs = st.number_input("KGs", min_value=0.01, step=0.01, key="new_gas_kgs")
             new_gas_price = st.number_input("Price per KG ($)", min_value=0.01, step=0.01, key="new_gas_price")
+            new_gas_amount = st.number_input("Amount Customer Pays ($)", min_value=0.01, step=0.01, key="new_gas_amount")
         
         with col2:
             new_gas_desc = st.text_area("Description (Optional)", key="new_gas_desc")
+            
+            # Auto-calculate KGs
+            if new_gas_price > 0 and new_gas_amount > 0:
+                calculated_kgs = new_gas_amount / new_gas_price
+                st.info(f"Calculated KGs: **{calculated_kgs:.2f}** (${new_gas_price:.2f}/KG)")
+            else:
+                st.info("Enter price and amount to calculate KGs")
         
         if st.button("Record Gas Sale", key="btn_record_gas", use_container_width=True):
             if not new_gas_customer:
                 st.error("Customer name is required")
-            elif new_gas_kgs <= 0:
-                st.error("KGs must be greater than 0")
             elif new_gas_price <= 0:
-                st.error("Price must be greater than 0")
+                st.error("Price per KG must be greater than 0")
+            elif new_gas_amount <= 0:
+                st.error("Amount must be greater than 0")
             else:
                 success, message, gas_sale_id = create_gas_sale(
                     customer_name=new_gas_customer,
-                    kgs=new_gas_kgs,
+                    amount_paid=new_gas_amount,
                     price_per_kg=new_gas_price,
                     description=new_gas_desc
                 )
                 
                 if success:
-                    show_toast("Gas sale recorded successfully!", "success")
+                    show_toast(message, "success")
                     st.rerun()
                 else:
                     st.error(message)
