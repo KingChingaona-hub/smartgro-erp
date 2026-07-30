@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - FIXED VERSION (No emojis, with proper error handling)
+# backend/modules/floating_financials.py - FIXED VERSION (With proper column existence checks)
 
 import streamlit as st
 import pandas as pd
@@ -172,15 +172,15 @@ def change_management_tab():
     # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
-            # Safely get values with defaults
-            customer_name = row.get('customer_name', 'Unknown')
-            change_id = row.get('change_id', 'N/A')
-            phone = row.get('phone', '')
-            amount = float(row.get('amount', 0))
-            amount_collected = float(row.get('amount_collected', 0))
-            balance = float(row.get('balance', 0))
-            status = row.get('status', 'UNCOLLECTED')
-            collection_count = row.get('collection_count', 0)
+            # Safely get values with defaults - check if columns exist
+            customer_name = row.get('customer_name', 'Unknown') if 'customer_name' in df.columns else 'Unknown'
+            change_id = row.get('change_id', 'N/A') if 'change_id' in df.columns else 'N/A'
+            phone = row.get('phone', '') if 'phone' in df.columns else ''
+            amount = float(row.get('amount', 0)) if 'amount' in df.columns else 0
+            amount_collected = float(row.get('amount_collected', 0)) if 'amount_collected' in df.columns else 0
+            balance = float(row.get('balance', 0)) if 'balance' in df.columns else 0
+            status = row.get('status', 'UNCOLLECTED') if 'status' in df.columns else 'UNCOLLECTED'
+            collection_count = row.get('collection_count', 0) if 'collection_count' in df.columns else 0
             
             col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 1.5, 1])
             
@@ -236,11 +236,14 @@ def change_management_tab():
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Change", f"${df['amount'].sum():,.2f}")
+        amount_sum = df['amount'].sum() if 'amount' in df.columns else 0
+        st.metric("Total Change", f"${amount_sum:,.2f}")
     with col2:
-        st.metric("Total Collected", f"${df['amount_collected'].sum():,.2f}")
+        collected_sum = df['amount_collected'].sum() if 'amount_collected' in df.columns else 0
+        st.metric("Total Collected", f"${collected_sum:,.2f}")
     with col3:
-        st.metric("Total Balance", f"${df['balance'].sum():,.2f}")
+        balance_sum = df['balance'].sum() if 'balance' in df.columns else 0
+        st.metric("Total Balance", f"${balance_sum:,.2f}")
 
 
 # ==============================
@@ -369,18 +372,18 @@ def credit_management_tab():
     # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
-            # Safely get values with defaults
-            customer_name = row.get('customer_name', 'Unknown')
-            credit_id = row.get('credit_id', 'N/A')
-            phone = row.get('phone', '')
-            credit_type = row.get('credit_type', 'OTHER')
-            description = row.get('description', '')
-            expected_repayment = row.get('expected_repayment_date', '')
-            amount = float(row.get('amount', 0))
-            amount_paid = float(row.get('amount_paid', 0))
-            balance = float(row.get('balance', 0))
-            status = row.get('status', 'ACTIVE')
-            payment_count = row.get('payment_count', 0)
+            # Safely get values with defaults - check if columns exist
+            customer_name = row.get('customer_name', 'Unknown') if 'customer_name' in df.columns else 'Unknown'
+            credit_id = row.get('credit_id', 'N/A') if 'credit_id' in df.columns else 'N/A'
+            phone = row.get('phone', '') if 'phone' in df.columns else ''
+            credit_type = row.get('credit_type', 'OTHER') if 'credit_type' in df.columns else 'OTHER'
+            description = row.get('description', '') if 'description' in df.columns else ''
+            expected_repayment = row.get('expected_repayment_date', '') if 'expected_repayment_date' in df.columns else ''
+            amount = float(row.get('amount', 0)) if 'amount' in df.columns else 0
+            amount_paid = float(row.get('amount_paid', 0)) if 'amount_paid' in df.columns else 0
+            balance = float(row.get('balance', 0)) if 'balance' in df.columns else 0
+            status = row.get('status', 'ACTIVE') if 'status' in df.columns else 'ACTIVE'
+            payment_count = row.get('payment_count', 0) if 'payment_count' in df.columns else 0
             
             col1, col2, col3, col4, col5, col6 = st.columns([2, 1.2, 1.2, 1.2, 1.2, 0.8])
             
@@ -484,11 +487,14 @@ def credit_management_tab():
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Credit", f"${df['amount'].sum():,.2f}")
+        amount_sum = df['amount'].sum() if 'amount' in df.columns else 0
+        st.metric("Total Credit", f"${amount_sum:,.2f}")
     with col2:
-        st.metric("Total Paid", f"${df['amount_paid'].sum():,.2f}")
+        paid_sum = df['amount_paid'].sum() if 'amount_paid' in df.columns else 0
+        st.metric("Total Paid", f"${paid_sum:,.2f}")
     with col3:
-        st.metric("Total Balance", f"${df['balance'].sum():,.2f}")
+        balance_sum = df['balance'].sum() if 'balance' in df.columns else 0
+        st.metric("Total Balance", f"${balance_sum:,.2f}")
 
 
 # ==============================
@@ -575,36 +581,50 @@ def gas_sales_tab():
                 st.metric("Transactions", daily_summary['transactions'])
             
             # Show pending sales
-            pending_sales = daily_summary['all_sales'][daily_summary['all_sales']['status'] == "PENDING"]
-            if not pending_sales.empty:
-                st.dataframe(
-                    pending_sales[['customer_name', 'kgs', 'price_per_kg', 'total_amount']],
-                    use_container_width=True,
-                    hide_index=True
-                )
+            all_sales = daily_summary['all_sales']
+            if not all_sales.empty and 'status' in all_sales.columns:
+                pending_sales = all_sales[all_sales['status'] == "PENDING"]
+                if not pending_sales.empty:
+                    # Only show columns that exist
+                    display_cols = []
+                    for col in ['customer_name', 'kgs', 'price_per_kg', 'total_amount']:
+                        if col in pending_sales.columns:
+                            display_cols.append(col)
+                    if display_cols:
+                        st.dataframe(
+                            pending_sales[display_cols],
+                            use_container_width=True,
+                            hide_index=True
+                        )
             
             pos_receipt = st.text_input("POS Receipt Number (Optional)", key="pos_receipt_transfer")
             transfer_note = st.text_area("Transfer Note", key="transfer_note")
             
             if st.button("Transfer All Pending to POS", key="btn_transfer_all", use_container_width=True):
-                if pending_sales.empty:
+                if all_sales.empty:
                     st.warning("No pending sales to transfer")
                 else:
-                    success_count = 0
-                    for _, sale in pending_sales.iterrows():
-                        success, message = transfer_gas_to_pos(
-                            gas_sale_id=sale['gas_sale_id'],
-                            pos_receipt_no=pos_receipt,
-                            transfer_note=transfer_note or f"Daily transfer - {today}"
-                        )
-                        if success:
-                            success_count += 1
-                    
-                    if success_count > 0:
-                        show_toast(f"{success_count} gas sales transferred to POS successfully!", "success")
-                        st.rerun()
+                    pending_sales = all_sales[all_sales['status'] == "PENDING"] if 'status' in all_sales.columns else pd.DataFrame()
+                    if pending_sales.empty:
+                        st.warning("No pending sales to transfer")
                     else:
-                        st.error("Failed to transfer gas sales")
+                        success_count = 0
+                        for _, sale in pending_sales.iterrows():
+                            gas_sale_id = sale.get('gas_sale_id', '') if 'gas_sale_id' in pending_sales.columns else ''
+                            if gas_sale_id:
+                                success, message = transfer_gas_to_pos(
+                                    gas_sale_id=gas_sale_id,
+                                    pos_receipt_no=pos_receipt,
+                                    transfer_note=transfer_note or f"Daily transfer - {today}"
+                                )
+                                if success:
+                                    success_count += 1
+                        
+                        if success_count > 0:
+                            show_toast(f"{success_count} gas sales transferred to POS successfully!", "success")
+                            st.rerun()
+                        else:
+                            st.error("Failed to transfer gas sales")
     
     st.divider()
     
@@ -648,14 +668,14 @@ def gas_sales_tab():
     # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
-            # Safely get values with defaults
-            customer_name = row.get('customer_name', 'Unknown')
-            gas_sale_id = row.get('gas_sale_id', 'N/A')
-            description = row.get('description', '')
-            kgs = float(row.get('kgs', 0))
-            price_per_kg = float(row.get('price_per_kg', 0))
-            total_amount = float(row.get('total_amount', 0))
-            status = row.get('status', 'PENDING')
+            # Safely get values with defaults - check if columns exist
+            customer_name = row.get('customer_name', 'Unknown') if 'customer_name' in df.columns else 'Unknown'
+            gas_sale_id = row.get('gas_sale_id', 'N/A') if 'gas_sale_id' in df.columns else 'N/A'
+            description = row.get('description', '') if 'description' in df.columns else ''
+            kgs = float(row.get('kgs', 0)) if 'kgs' in df.columns else 0
+            price_per_kg = float(row.get('price_per_kg', 0)) if 'price_per_kg' in df.columns else 0
+            total_amount = float(row.get('total_amount', 0)) if 'total_amount' in df.columns else 0
+            status = row.get('status', 'PENDING') if 'status' in df.columns else 'PENDING'
             
             col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1.5, 1])
             
@@ -698,9 +718,14 @@ def gas_sales_tab():
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total KGs", f"{df['kgs'].sum():,.2f}")
+        kgs_sum = df['kgs'].sum() if 'kgs' in df.columns else 0
+        st.metric("Total KGs", f"{kgs_sum:,.2f}")
     with col2:
-        st.metric("Total Amount", f"${df['total_amount'].sum():,.2f}")
+        amount_sum = df['total_amount'].sum() if 'total_amount' in df.columns else 0
+        st.metric("Total Amount", f"${amount_sum:,.2f}")
     with col3:
-        pending = len(df[df['status'] == 'PENDING'])
+        if 'status' in df.columns:
+            pending = len(df[df['status'] == 'PENDING'])
+        else:
+            pending = 0
         st.metric("Pending Transfers", pending)
