@@ -727,27 +727,55 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Step 5: Get gas product barcode and name (simplified - just get barcode and name)
-        gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
-        gas_name = "Gas Product"
+        # Step 5: Find gas product by name "Gas"
+        gas_barcode = None
+        gas_name = "Gas"
+        current_stock = 0
+        product_found = False
         
         try:
+            # Look for product with name exactly "Gas" or containing "Gas"
             cur.execute("""
-                SELECT barcode, name FROM products 
+                SELECT barcode, name, stock FROM products 
                 WHERE branch_id = %s 
-                AND (barcode LIKE 'GAS%' OR LOWER(name) LIKE '%gas%')
+                AND (name = 'Gas' OR name ILIKE '%Gas%' OR name ILIKE '%gas%')
                 LIMIT 1
             """, (branch_id,))
             product = cur.fetchone()
             
-            if product and len(product) >= 2:
-                gas_barcode = product[0] if product[0] else gas_barcode
-                gas_name = product[1] if product[1] else "Gas Product"
-                logger.info(f"Gas product found: {gas_name}, Barcode: {gas_barcode}")
+            if product and len(product) >= 3:
+                gas_barcode = product[0]
+                gas_name = product[1] if product[1] else "Gas"
+                current_stock = float(product[2]) if product[2] else 0
+                product_found = True
+                logger.info(f"Gas product found: {gas_name}, Barcode: {gas_barcode}, Stock: {current_stock} KGs")
             else:
-                logger.warning("No gas product found, using defaults")
+                # If not found by name, try barcode pattern
+                cur.execute("""
+                    SELECT barcode, name, stock FROM products 
+                    WHERE branch_id = %s 
+                    AND barcode LIKE 'GAS%'
+                    LIMIT 1
+                """, (branch_id,))
+                product = cur.fetchone()
+                
+                if product and len(product) >= 3:
+                    gas_barcode = product[0]
+                    gas_name = product[1] if product[1] else "Gas"
+                    current_stock = float(product[2]) if product[2] else 0
+                    product_found = True
+                    logger.info(f"Gas product found by barcode: {gas_name}, Barcode: {gas_barcode}, Stock: {current_stock} KGs")
+                else:
+                    logger.warning("No gas product found in inventory. Please create a product named 'Gas'.")
+                    # Use default but mark as not found
+                    gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
+                    gas_name = "Gas"
+                    product_found = False
         except Exception as e:
-            logger.warning(f"Error finding gas product: {e}, using defaults")
+            logger.error(f"Error finding gas product: {e}")
+            gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
+            gas_name = "Gas"
+            product_found = False
         
         # Step 6: Get session values safely
         shift_id = ""
@@ -759,7 +787,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         except:
             pass
         
-        # Step 7: Create sales record (profit will be calculated by POS system)
+        # Step 7: Create sales record
         try:
             cur.execute("""
                 INSERT INTO sales (
@@ -789,31 +817,37 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
             conn.rollback()
             return False, f"Error creating sales record: {str(e)}"
         
-        # Step 8: Deduct from inventory
-        try:
-            # Get current stock
-            cur.execute("""
-                SELECT stock FROM products 
-                WHERE branch_id = %s AND barcode = %s
-            """, (branch_id, gas_barcode))
-            stock_record = cur.fetchone()
-            
-            if stock_record and len(stock_record) >= 1:
-                current_stock = float(stock_record[0]) if stock_record[0] else 0
-                new_stock = current_stock - float(kgs)
-                
-                if new_stock < 0:
-                    conn.rollback()
-                    return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
-                
+        # Step 8: Deduct from inventory (only if product was found)
+        if product_found and gas_barcode:
+            try:
+                # Re-get current stock to avoid race conditions
                 cur.execute("""
-                    UPDATE products 
-                    SET stock = %s 
+                    SELECT stock FROM products 
                     WHERE branch_id = %s AND barcode = %s
-                """, (new_stock, branch_id, gas_barcode))
-                logger.info(f"Inventory updated: stock from {current_stock} to {new_stock} KGs")
-        except Exception as e:
-            logger.warning(f"Error updating inventory: {e}")
+                """, (branch_id, gas_barcode))
+                stock_record = cur.fetchone()
+                
+                if stock_record and len(stock_record) >= 1:
+                    current_stock = float(stock_record[0]) if stock_record[0] else 0
+                    new_stock = current_stock - float(kgs)
+                    
+                    if new_stock < 0:
+                        conn.rollback()
+                        return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
+                    
+                    cur.execute("""
+                        UPDATE products 
+                        SET stock = %s 
+                        WHERE branch_id = %s AND barcode = %s
+                    """, (new_stock, branch_id, gas_barcode))
+                    logger.info(f"Inventory updated: {gas_name} stock from {current_stock} to {new_stock} KGs")
+                else:
+                    logger.warning(f"No stock record found for barcode: {gas_barcode}")
+            except Exception as e:
+                logger.error(f"Error deducting inventory: {e}")
+                # Don't rollback, just log the error
+        else:
+            logger.warning(f"Product 'Gas' not found, stock not deducted. Please create a product named 'Gas' in inventory.")
         
         # Step 9: Update gas sale status
         try:
