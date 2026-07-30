@@ -715,7 +715,59 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # ============================================================
-        # 1. FIND GAS PRODUCT - FIXED: Handle None properly
+        # 1. FIND GAS PRODUCT - FIXED: Use real dictionary cursor
+        # ============================================================
+        # Use RealDictCursor to get column names
+        cur.close()
+        conn.close()
+        
+        # Reconnect with RealDictCursor
+        database_url = get_db_url()
+        if database_url:
+            parsed = urlparse(database_url)
+            conn = psycopg2.connect(
+                host=parsed.hostname,
+                port=parsed.port or 5432,
+                database=parsed.path.lstrip('/'),
+                user=parsed.username,
+                password=parsed.password,
+                sslmode='require',
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
+        else:
+            return False, "Database connection failed"
+        
+        cur = conn.cursor()
+        
+        # Get gas sale record with all details using dict
+        cur.execute("""
+            SELECT status, kgs, price_per_kg, total_amount, customer_name, branch_id, sale_date
+            FROM floating_gas_sales WHERE gas_sale_id = %s
+        """, (gas_sale_id,))
+        record = cur.fetchone()
+        
+        if not record:
+            return False, "Gas sale record not found"
+        
+        status = record.get('status')
+        kgs = record.get('kgs')
+        price_per_kg = record.get('price_per_kg')
+        total_amount = record.get('total_amount')
+        customer_name = record.get('customer_name')
+        branch_id = record.get('branch_id')
+        sale_date = record.get('sale_date')
+        
+        if status == "TRANSFERRED_TO_POS":
+            return False, "Already transferred to POS"
+        
+        # Generate receipt number if not provided
+        if not pos_receipt_no:
+            pos_receipt_no = f"GAS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # ============================================================
+        # 2. FIND GAS PRODUCT - Using dict cursor
         # ============================================================
         cur.execute("""
             SELECT barcode, cost, name FROM products 
@@ -726,9 +778,9 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         product = cur.fetchone()
         
         if product:
-            gas_barcode = product[0] if product[0] else f"GAS-{datetime.now().strftime('%Y%m%d')}"
-            gas_cost = float(product[1]) if product[1] else 0.0
-            gas_name = product[2] if product[2] else "Gas Product"
+            gas_barcode = product.get('barcode', f"GAS-{datetime.now().strftime('%Y%m%d')}")
+            gas_cost = float(product.get('cost', 0)) if product.get('cost') else 0.0
+            gas_name = product.get('name', 'Gas Product') if product.get('name') else "Gas Product"
         else:
             gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
             gas_cost = 0.0
@@ -743,7 +795,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         cashier = st.session_state.get("username", "system") if hasattr(st, 'session_state') else "system"
         
         # ============================================================
-        # 2. CREATE SALES RECORD
+        # 3. CREATE SALES RECORD
         # ============================================================
         cur.execute("""
             INSERT INTO sales (
@@ -769,7 +821,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         ))
         
         # ============================================================
-        # 3. DEDUCT FROM INVENTORY (only if product exists)
+        # 4. DEDUCT FROM INVENTORY (only if product exists)
         # ============================================================
         if product:
             # Re-fetch current stock
@@ -780,7 +832,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
             stock_record = cur.fetchone()
             
             if stock_record:
-                current_stock = float(stock_record[0])
+                current_stock = float(stock_record.get('stock', 0))
                 new_stock = current_stock - float(kgs)
                 
                 if new_stock < 0:
@@ -794,7 +846,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
                 """, (new_stock, branch_id, gas_barcode))
         
         # ============================================================
-        # 4. UPDATE GAS SALE STATUS
+        # 5. UPDATE GAS SALE STATUS
         # ============================================================
         cur.execute("""
             UPDATE floating_gas_sales 
