@@ -727,7 +727,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Step 5: Find gas product and get cost (FIXED - includes stock)
+        # Step 5: Find gas product - GET COST PRICE (UPDATED to include stock)
         gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
         gas_cost = 0.0
         gas_name = "Gas Product"
@@ -758,7 +758,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
             logger.error(f"Error finding gas product: {e}")
             return False, f"Error finding gas product: {str(e)}"
         
-        # Step 6: Calculate profit correctly (FIXED)
+        # Step 6: Calculate profit correctly using cost price
         # Profit = Total Amount - (Cost Price × KGs)
         total_cost = gas_cost * float(kgs)
         profit = float(total_amount) - total_cost
@@ -783,7 +783,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         except:
             pass
         
-        # Step 8: Create sales record
+        # Step 8: Create sales record with correct profit
         try:
             cur.execute("""
                 INSERT INTO sales (
@@ -799,7 +799,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
                 f"Gas - {gas_name}",
                 float(kgs),
                 float(total_amount),
-                profit,
+                profit,  # This is now correctly calculated
                 "CASH",
                 customer_name,
                 "",  # customer_phone
@@ -807,7 +807,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
                 shift_id,
                 cashier
             ))
-            logger.info(f"Sales record created: {pos_receipt_no}")
+            logger.info(f"Sales record created: {pos_receipt_no} with profit: ${profit:.2f}")
         except Exception as e:
             logger.error(f"Error creating sales record: {e}")
             conn.rollback()
