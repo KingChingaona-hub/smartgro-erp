@@ -8,12 +8,27 @@ from datetime import datetime, timedelta
 from backend.core.db_adapter import get_db_cursor, get_current_branch
 from backend.core.validation import (
     validate_amount, validate_customer_name, validate_phone,
-    validate_quantity, validate_description
+    validate_quantity
 )
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
+
+# ==============================
+# HELPER VALIDATION FUNCTION
+# ==============================
+
+def validate_description(text, max_length=500, min_length=1):
+    """Validate description text"""
+    if text is None:
+        return True, ""
+    text = str(text).strip()
+    if len(text) < min_length:
+        return False, f"Description must be at least {min_length} character(s) long"
+    if len(text) > max_length:
+        return False, f"Description cannot exceed {max_length} characters"
+    return True, text
 
 # ==============================
 # CONSTANTS
@@ -82,9 +97,9 @@ def create_change_record(
         phone = phone_clean
     
     if description:
-        valid, desc_clean, msg = validate_description(description)
+        valid, desc_clean = validate_description(description, 500)
         if not valid:
-            return False, f"Invalid description: {msg}", None
+            return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
     
     try:
@@ -322,9 +337,9 @@ def create_credit_record(
         phone = phone_clean
     
     if description:
-        valid, desc_clean, msg = validate_description(description)
+        valid, desc_clean = validate_description(description, 500)
         if not valid:
-            return False, f"Invalid description: {msg}", None
+            return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
     
     if credit_type not in CREDIT_TYPES:
@@ -606,9 +621,9 @@ def create_gas_sale(
         return False, "Price must be greater than 0", None
     
     if description:
-        valid, desc_clean, msg = validate_description(description)
+        valid, desc_clean = validate_description(description, 500)
         if not valid:
-            return False, f"Invalid description: {msg}", None
+            return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
     
     try:
@@ -813,10 +828,7 @@ def init_floating_financials_tables():
                     status VARCHAR(30) DEFAULT 'UNCOLLECTED',
                     description TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_floating_changes_branch (branch_id),
-                    INDEX idx_floating_changes_status (status),
-                    INDEX idx_floating_changes_created (created_at)
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
@@ -831,8 +843,7 @@ def init_floating_financials_tables():
                     balance_after DECIMAL(15,2) NOT NULL DEFAULT 0,
                     note TEXT,
                     collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (change_id) REFERENCES floating_changes(change_id),
-                    INDEX idx_change_collections_change (change_id)
+                    FOREIGN KEY (change_id) REFERENCES floating_changes(change_id)
                 )
             """)
             
@@ -852,11 +863,7 @@ def init_floating_financials_tables():
                     description TEXT,
                     expected_repayment_date DATE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_floating_credits_branch (branch_id),
-                    INDEX idx_floating_credits_status (status),
-                    INDEX idx_floating_credits_type (credit_type),
-                    INDEX idx_floating_credits_created (created_at)
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
@@ -872,8 +879,7 @@ def init_floating_financials_tables():
                     payment_method VARCHAR(30) DEFAULT 'CASH',
                     note TEXT,
                     paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (credit_id) REFERENCES floating_credits(credit_id),
-                    INDEX idx_credit_payments_credit (credit_id)
+                    FOREIGN KEY (credit_id) REFERENCES floating_credits(credit_id)
                 )
             """)
             
@@ -893,10 +899,7 @@ def init_floating_financials_tables():
                     transfer_note TEXT,
                     sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     transferred_at TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_floating_gas_branch (branch_id),
-                    INDEX idx_floating_gas_status (status),
-                    INDEX idx_floating_gas_date (sale_date)
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
