@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - FIXED VERSION (With proper column existence checks)
+# backend/modules/floating_financials.py - FIXED VERSION
 
 import streamlit as st
 import pandas as pd
@@ -36,21 +36,16 @@ from backend.core.animations import show_toast, show_confetti, animated_metric
 def floating_financials_page():
     """Main Floating Financials Dashboard"""
     
-    # Apply theme
     apply_page_theme("floating_financials")
     
     st.title("Floating Financials")
     st.caption("Manage change, credits, and gas sales in one place")
     
-    # Check permissions
     role = st.session_state.get("role", "cashier")
     if not can_access_feature(role, "floating_financials"):
         st.error("You don't have permission to access this page")
         return
     
-    # ==============================
-    # TABS
-    # ==============================
     tab1, tab2, tab3 = st.tabs([
         "Change Management",
         "Credit Management",
@@ -67,16 +62,9 @@ def floating_financials_page():
         gas_sales_tab()
 
 
-# ==============================
-# CHANGE MANAGEMENT TAB
-# ==============================
-
 def change_management_tab():
-    """Change Management Tab - Track uncollected change"""
+    """Change Management Tab"""
     
-    # ==============================
-    # SUMMARY CARDS
-    # ==============================
     summary = get_change_summary()
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -86,19 +74,14 @@ def change_management_tab():
     with col2:
         animated_metric("Collected", f"${summary['total_collected']:,.2f}")
     with col3:
-        balance = summary['total_balance']
-        animated_metric("Balance", f"${balance:,.2f}")
+        animated_metric("Balance", f"${summary['total_balance']:,.2f}")
     with col4:
-        uncollected = summary['uncollected_count']
-        animated_metric("Uncollected", f"{uncollected}")
+        animated_metric("Uncollected", f"{summary['uncollected_count']}")
     with col5:
         animated_metric("Total Records", f"{summary['total_count']}")
     
     st.divider()
     
-    # ==============================
-    # CREATE NEW CHANGE
-    # ==============================
     with st.expander("Record New Uncollected Change", expanded=False):
         col1, col2 = st.columns(2)
         
@@ -132,9 +115,6 @@ def change_management_tab():
     
     st.divider()
     
-    # ==============================
-    # FILTERS
-    # ==============================
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -153,9 +133,6 @@ def change_management_tab():
     with col4:
         filter_date_to = st.date_input("Date To", value=None, key="change_date_to")
     
-    # ==============================
-    # CHANGE LIST
-    # ==============================
     df = get_change_records(
         status=None if filter_status == "ALL" else filter_status,
         customer_name=filter_customer if filter_customer else None,
@@ -167,20 +144,15 @@ def change_management_tab():
         st.info("No change records found")
         return
     
-    # ==============================
-    # DISPLAY CHANGE RECORDS
-    # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
-            # Safely get values with defaults - check if columns exist
-            customer_name = row.get('customer_name', 'Unknown') if 'customer_name' in df.columns else 'Unknown'
-            change_id = row.get('change_id', 'N/A') if 'change_id' in df.columns else 'N/A'
-            phone = row.get('phone', '') if 'phone' in df.columns else ''
-            amount = float(row.get('amount', 0)) if 'amount' in df.columns else 0
-            amount_collected = float(row.get('amount_collected', 0)) if 'amount_collected' in df.columns else 0
-            balance = float(row.get('balance', 0)) if 'balance' in df.columns else 0
-            status = row.get('status', 'UNCOLLECTED') if 'status' in df.columns else 'UNCOLLECTED'
-            collection_count = row.get('collection_count', 0) if 'collection_count' in df.columns else 0
+            customer_name = row.get('customer_name', 'Unknown')
+            change_id = row.get('change_id', 'N/A')
+            phone = row.get('phone', '')
+            amount = float(row.get('amount', 0))
+            amount_collected = float(row.get('amount_collected', 0))
+            balance = float(row.get('balance', 0))
+            status = row.get('status', 'UNCOLLECTED')
             
             col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 1.5, 1])
             
@@ -198,8 +170,6 @@ def change_management_tab():
             
             with col4:
                 st.metric("Balance", f"${balance:,.2f}")
-                
-                # Status badge
                 if status == "COLLECTED":
                     st.success("COLLECTED")
                 elif status == "PARTIAL_COLLECTED":
@@ -219,43 +189,20 @@ def change_management_tab():
                             st.rerun()
                         else:
                             st.error(message)
-                
-                if st.button(f"History", key=f"history_{change_id}"):
-                    st.session_state[f"show_collections_{change_id}"] = True
-            
-            # Show collection history
-            if st.session_state.get(f"show_collections_{change_id}", False):
-                st.caption("Collection History")
-                st.info(f"Total collections: {collection_count}")
-                if st.button(f"Hide", key=f"hide_{change_id}"):
-                    st.session_state[f"show_collections_{change_id}"] = False
     
-    # ==============================
-    # TOTAL SUMMARY
-    # ==============================
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        amount_sum = df['amount'].sum() if 'amount' in df.columns else 0
-        st.metric("Total Change", f"${amount_sum:,.2f}")
+        st.metric("Total Change", f"${df['amount'].sum():,.2f}" if 'amount' in df.columns else "$0.00")
     with col2:
-        collected_sum = df['amount_collected'].sum() if 'amount_collected' in df.columns else 0
-        st.metric("Total Collected", f"${collected_sum:,.2f}")
+        st.metric("Total Collected", f"${df['amount_collected'].sum():,.2f}" if 'amount_collected' in df.columns else "$0.00")
     with col3:
-        balance_sum = df['balance'].sum() if 'balance' in df.columns else 0
-        st.metric("Total Balance", f"${balance_sum:,.2f}")
+        st.metric("Total Balance", f"${df['balance'].sum():,.2f}" if 'balance' in df.columns else "$0.00")
 
-
-# ==============================
-# CREDIT MANAGEMENT TAB
-# ==============================
 
 def credit_management_tab():
-    """Credit Management Tab - Track temporary credits/loans"""
+    """Credit Management Tab"""
     
-    # ==============================
-    # SUMMARY CARDS
-    # ==============================
     summary = get_credit_summary()
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -265,20 +212,14 @@ def credit_management_tab():
     with col2:
         animated_metric("Total Paid", f"${summary['total_paid']:,.2f}")
     with col3:
-        balance = summary['total_balance']
-        animated_metric("Balance", f"${balance:,.2f}")
+        animated_metric("Balance", f"${summary['total_balance']:,.2f}")
     with col4:
-        active = summary['active_count']
-        animated_metric("Active Loans", f"{active}")
+        animated_metric("Active Loans", f"{summary['active_count']}")
     with col5:
-        overdue = summary['overdue_count']
-        animated_metric("Overdue", f"{overdue}")
+        animated_metric("Overdue", f"{summary['overdue_count']}")
     
     st.divider()
     
-    # ==============================
-    # CREATE NEW CREDIT
-    # ==============================
     with st.expander("Record New Credit/Loan", expanded=False):
         col1, col2 = st.columns(2)
         
@@ -289,7 +230,7 @@ def credit_management_tab():
         
         with col2:
             new_credit_phone = st.text_input("Phone (Optional)", key="new_credit_phone")
-            new_credit_desc = st.text_area("Description (e.g., what was borrowed)", key="new_credit_desc")
+            new_credit_desc = st.text_area("Description", key="new_credit_desc")
             new_credit_repayment = st.date_input("Expected Repayment Date", key="new_credit_repayment", 
                                                 value=datetime.now() + timedelta(days=30))
         
@@ -317,9 +258,10 @@ def credit_management_tab():
     
     st.divider()
     
-    # ==============================
-    # FILTERS
-    # ==============================
+    overdue = get_overdue_credits(days=30)
+    if not overdue.empty:
+        st.warning(f"{len(overdue)} credit(s) are overdue!")
+    
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
@@ -345,16 +287,6 @@ def credit_management_tab():
     with col5:
         filter_credit_date_to = st.date_input("Date To", value=None, key="credit_date_to")
     
-    # ==============================
-    # OVERDUE CREDITS ALERT
-    # ==============================
-    overdue = get_overdue_credits(days=30)
-    if not overdue.empty:
-        st.warning(f"{len(overdue)} credit(s) are overdue! Check the list below.")
-    
-    # ==============================
-    # CREDIT LIST
-    # ==============================
     df = get_credit_records(
         status=None if filter_credit_status == "ALL" else filter_credit_status,
         credit_type=None if filter_credit_type == "ALL" else filter_credit_type,
@@ -367,23 +299,18 @@ def credit_management_tab():
         st.info("No credit records found")
         return
     
-    # ==============================
-    # DISPLAY CREDIT RECORDS
-    # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
-            # Safely get values with defaults - check if columns exist
-            customer_name = row.get('customer_name', 'Unknown') if 'customer_name' in df.columns else 'Unknown'
-            credit_id = row.get('credit_id', 'N/A') if 'credit_id' in df.columns else 'N/A'
-            phone = row.get('phone', '') if 'phone' in df.columns else ''
-            credit_type = row.get('credit_type', 'OTHER') if 'credit_type' in df.columns else 'OTHER'
-            description = row.get('description', '') if 'description' in df.columns else ''
-            expected_repayment = row.get('expected_repayment_date', '') if 'expected_repayment_date' in df.columns else ''
-            amount = float(row.get('amount', 0)) if 'amount' in df.columns else 0
-            amount_paid = float(row.get('amount_paid', 0)) if 'amount_paid' in df.columns else 0
-            balance = float(row.get('balance', 0)) if 'balance' in df.columns else 0
-            status = row.get('status', 'ACTIVE') if 'status' in df.columns else 'ACTIVE'
-            payment_count = row.get('payment_count', 0) if 'payment_count' in df.columns else 0
+            customer_name = row.get('customer_name', 'Unknown')
+            credit_id = row.get('credit_id', 'N/A')
+            phone = row.get('phone', '')
+            credit_type = row.get('credit_type', 'OTHER')
+            description = row.get('description', '')
+            expected_repayment = row.get('expected_repayment_date', '')
+            amount = float(row.get('amount', 0))
+            amount_paid = float(row.get('amount_paid', 0))
+            balance = float(row.get('balance', 0))
+            status = row.get('status', 'ACTIVE')
             
             col1, col2, col3, col4, col5, col6 = st.columns([2, 1.2, 1.2, 1.2, 1.2, 0.8])
             
@@ -395,7 +322,7 @@ def credit_management_tab():
                 if credit_type:
                     st.caption(f"Type: {credit_type.replace('_', ' ').title()}")
                 if description:
-                    st.caption(f"Description: {description}")
+                    st.caption(f"Desc: {description}")
                 if expected_repayment:
                     st.caption(f"Due: {expected_repayment}")
             
@@ -409,7 +336,6 @@ def credit_management_tab():
                 st.metric("Balance", f"${balance:,.2f}")
             
             with col5:
-                # Status badge
                 if status == "PAID":
                     st.success("PAID")
                 elif status == "PARTIAL_PAID":
@@ -423,18 +349,17 @@ def credit_management_tab():
             
             with col6:
                 if balance > 0:
-                    if st.button(f"Pay", key=f"pay_credit_{credit_id}", help="Record Payment"):
-                        st.session_state[f"pay_credit_{credit_id}"] = True
-                
-                if st.button(f"History", key=f"history_credit_{credit_id}", help="View History"):
-                    st.session_state[f"show_credit_history_{credit_id}"] = True
+                    if st.button(f"Pay", key=f"pay_credit_{credit_id}"):
+                        # Store which credit we're paying
+                        st.session_state[f"paying_credit_{credit_id}"] = True
+                        st.rerun()
             
-            # ==============================
-            # PAYMENT MODAL
-            # ==============================
-            if st.session_state.get(f"pay_credit_{credit_id}", False):
-                with st.expander(f"Record Payment for {customer_name}", expanded=True):
+            # Payment form - shown when payment button is clicked
+            if st.session_state.get(f"paying_credit_{credit_id}", False):
+                with st.container(border=True):
+                    st.subheader(f"Record Payment for {customer_name}")
                     col_a, col_b, col_c = st.columns(3)
+                    
                     with col_a:
                         payment_amount = st.number_input(
                             "Amount to Pay ($)",
@@ -443,16 +368,19 @@ def credit_management_tab():
                             step=0.01,
                             key=f"pay_amount_{credit_id}"
                         )
+                    
                     with col_b:
                         payment_method = st.selectbox(
                             "Payment Method",
-                            ["CASH", "BANK", "MOBILE_MONEY", "ECO_CASH"],
+                            ["CASH", "BANK", "MOBILE_MONEY", "ECOCASH"],
                             key=f"pay_method_{credit_id}"
                         )
+                    
                     with col_c:
                         payment_note = st.text_input("Note", key=f"pay_note_{credit_id}")
                     
                     col_d, col_e = st.columns(2)
+                    
                     with col_d:
                         if st.button(f"Confirm Payment", key=f"confirm_pay_{credit_id}", use_container_width=True):
                             success, message = record_credit_payment(
@@ -463,50 +391,30 @@ def credit_management_tab():
                             )
                             if success:
                                 show_toast(message, "success")
-                                st.session_state[f"pay_credit_{credit_id}"] = False
+                                # Clear the payment state
+                                st.session_state[f"paying_credit_{credit_id}"] = False
                                 st.rerun()
                             else:
                                 st.error(message)
+                    
                     with col_e:
                         if st.button(f"Cancel", key=f"cancel_pay_{credit_id}", use_container_width=True):
-                            st.session_state[f"pay_credit_{credit_id}"] = False
+                            st.session_state[f"paying_credit_{credit_id}"] = False
                             st.rerun()
-            
-            # ==============================
-            # PAYMENT HISTORY
-            # ==============================
-            if st.session_state.get(f"show_credit_history_{credit_id}", False):
-                st.caption(f"Payment History for {customer_name}")
-                st.info(f"Total payments: {payment_count}")
-                if st.button(f"Hide History", key=f"hide_credit_history_{credit_id}"):
-                    st.session_state[f"show_credit_history_{credit_id}"] = False
     
-    # ==============================
-    # TOTAL SUMMARY
-    # ==============================
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        amount_sum = df['amount'].sum() if 'amount' in df.columns else 0
-        st.metric("Total Credit", f"${amount_sum:,.2f}")
+        st.metric("Total Credit", f"${df['amount'].sum():,.2f}" if 'amount' in df.columns else "$0.00")
     with col2:
-        paid_sum = df['amount_paid'].sum() if 'amount_paid' in df.columns else 0
-        st.metric("Total Paid", f"${paid_sum:,.2f}")
+        st.metric("Total Paid", f"${df['amount_paid'].sum():,.2f}" if 'amount_paid' in df.columns else "$0.00")
     with col3:
-        balance_sum = df['balance'].sum() if 'balance' in df.columns else 0
-        st.metric("Total Balance", f"${balance_sum:,.2f}")
+        st.metric("Total Balance", f"${df['balance'].sum():,.2f}" if 'balance' in df.columns else "$0.00")
 
-
-# ==============================
-# GAS SALES TAB
-# ==============================
 
 def gas_sales_tab():
-    """Gas Sales Float Tab - Track gas sales before POS transfer"""
+    """Gas Sales Float Tab"""
     
-    # ==============================
-    # SUMMARY CARDS
-    # ==============================
     summary = get_gas_sales_summary()
     
     col1, col2, col3, col4 = st.columns(4)
@@ -516,16 +424,12 @@ def gas_sales_tab():
     with col2:
         animated_metric("Total Amount", f"${summary['total_amount']:,.2f}")
     with col3:
-        pending = summary['pending_count']
-        animated_metric("Pending", f"{pending}")
+        animated_metric("Pending", f"{summary['pending_count']}")
     with col4:
         animated_metric("Transferred", f"{summary['transferred_count']}")
     
     st.divider()
     
-    # ==============================
-    # RECORD NEW GAS SALE
-    # ==============================
     with st.expander("Record New Gas Sale", expanded=False):
         col1, col2 = st.columns(2)
         
@@ -560,9 +464,6 @@ def gas_sales_tab():
     
     st.divider()
     
-    # ==============================
-    # DAILY TRANSFER SECTION
-    # ==============================
     with st.expander("Transfer Gas to POS (Daily)", expanded=True):
         today = datetime.now().strftime("%Y-%m-%d")
         daily_summary = get_daily_gas_summary(date=today)
@@ -580,12 +481,10 @@ def gas_sales_tab():
             with col3:
                 st.metric("Transactions", daily_summary['transactions'])
             
-            # Show pending sales
-            all_sales = daily_summary['all_sales']
-            if not all_sales.empty and 'status' in all_sales.columns:
-                pending_sales = all_sales[all_sales['status'] == "PENDING"]
+            pending_sales = daily_summary['all_sales']
+            if not pending_sales.empty and 'status' in pending_sales.columns:
+                pending_sales = pending_sales[pending_sales['status'] == "PENDING"]
                 if not pending_sales.empty:
-                    # Only show columns that exist
                     display_cols = []
                     for col in ['customer_name', 'kgs', 'price_per_kg', 'total_amount']:
                         if col in pending_sales.columns:
@@ -601,36 +500,29 @@ def gas_sales_tab():
             transfer_note = st.text_area("Transfer Note", key="transfer_note")
             
             if st.button("Transfer All Pending to POS", key="btn_transfer_all", use_container_width=True):
-                if all_sales.empty:
+                if pending_sales.empty:
                     st.warning("No pending sales to transfer")
                 else:
-                    pending_sales = all_sales[all_sales['status'] == "PENDING"] if 'status' in all_sales.columns else pd.DataFrame()
-                    if pending_sales.empty:
-                        st.warning("No pending sales to transfer")
+                    success_count = 0
+                    for _, sale in pending_sales.iterrows():
+                        gas_sale_id = sale.get('gas_sale_id', '')
+                        if gas_sale_id:
+                            success, message = transfer_gas_to_pos(
+                                gas_sale_id=gas_sale_id,
+                                pos_receipt_no=pos_receipt,
+                                transfer_note=transfer_note or f"Daily transfer - {today}"
+                            )
+                            if success:
+                                success_count += 1
+                    
+                    if success_count > 0:
+                        show_toast(f"{success_count} gas sales transferred!", "success")
+                        st.rerun()
                     else:
-                        success_count = 0
-                        for _, sale in pending_sales.iterrows():
-                            gas_sale_id = sale.get('gas_sale_id', '') if 'gas_sale_id' in pending_sales.columns else ''
-                            if gas_sale_id:
-                                success, message = transfer_gas_to_pos(
-                                    gas_sale_id=gas_sale_id,
-                                    pos_receipt_no=pos_receipt,
-                                    transfer_note=transfer_note or f"Daily transfer - {today}"
-                                )
-                                if success:
-                                    success_count += 1
-                        
-                        if success_count > 0:
-                            show_toast(f"{success_count} gas sales transferred to POS successfully!", "success")
-                            st.rerun()
-                        else:
-                            st.error("Failed to transfer gas sales")
+                        st.error("Failed to transfer gas sales")
     
     st.divider()
     
-    # ==============================
-    # FILTERS
-    # ==============================
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -649,9 +541,6 @@ def gas_sales_tab():
     with col4:
         filter_gas_date_to = st.date_input("Date To", value=None, key="gas_date_to")
     
-    # ==============================
-    # GAS SALES LIST
-    # ==============================
     df = get_gas_sales(
         status=None if filter_gas_status == "ALL" else filter_gas_status,
         customer_name=filter_gas_customer if filter_gas_customer else None,
@@ -663,19 +552,15 @@ def gas_sales_tab():
         st.info("No gas sales records found")
         return
     
-    # ==============================
-    # DISPLAY GAS SALES
-    # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
-            # Safely get values with defaults - check if columns exist
-            customer_name = row.get('customer_name', 'Unknown') if 'customer_name' in df.columns else 'Unknown'
-            gas_sale_id = row.get('gas_sale_id', 'N/A') if 'gas_sale_id' in df.columns else 'N/A'
-            description = row.get('description', '') if 'description' in df.columns else ''
-            kgs = float(row.get('kgs', 0)) if 'kgs' in df.columns else 0
-            price_per_kg = float(row.get('price_per_kg', 0)) if 'price_per_kg' in df.columns else 0
-            total_amount = float(row.get('total_amount', 0)) if 'total_amount' in df.columns else 0
-            status = row.get('status', 'PENDING') if 'status' in df.columns else 'PENDING'
+            customer_name = row.get('customer_name', 'Unknown')
+            gas_sale_id = row.get('gas_sale_id', 'N/A')
+            description = row.get('description', '')
+            kgs = float(row.get('kgs', 0))
+            price_per_kg = float(row.get('price_per_kg', 0))
+            total_amount = float(row.get('total_amount', 0))
+            status = row.get('status', 'PENDING')
             
             col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1.5, 1])
             
@@ -683,7 +568,7 @@ def gas_sales_tab():
                 st.markdown(f"**{customer_name}**")
                 st.caption(f"ID: {gas_sale_id}")
                 if description:
-                    st.caption(f"Description: {description}")
+                    st.caption(f"Desc: {description}")
             
             with col2:
                 st.metric("KGs", f"{kgs:,.2f}")
@@ -712,20 +597,12 @@ def gas_sales_tab():
                 else:
                     st.info("COMPLETED")
     
-    # ==============================
-    # TOTAL SUMMARY
-    # ==============================
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        kgs_sum = df['kgs'].sum() if 'kgs' in df.columns else 0
-        st.metric("Total KGs", f"{kgs_sum:,.2f}")
+        st.metric("Total KGs", f"{df['kgs'].sum():,.2f}" if 'kgs' in df.columns else "0.00")
     with col2:
-        amount_sum = df['total_amount'].sum() if 'total_amount' in df.columns else 0
-        st.metric("Total Amount", f"${amount_sum:,.2f}")
+        st.metric("Total Amount", f"${df['total_amount'].sum():,.2f}" if 'total_amount' in df.columns else "$0.00")
     with col3:
-        if 'status' in df.columns:
-            pending = len(df[df['status'] == 'PENDING'])
-        else:
-            pending = 0
+        pending = len(df[df['status'] == 'PENDING']) if 'status' in df.columns else 0
         st.metric("Pending Transfers", pending)
