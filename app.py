@@ -154,6 +154,11 @@ from backend.modules.settings_page import settings_page
 from backend.modules.welcome_page import welcome_page
 
 # ==============================
+# FLOATING FINANCIALS IMPORT
+# ==============================
+from backend.modules.floating_financials import floating_financials_page
+
+# ==============================
 # CUSTOMER IMPORTS - REMOVED customer_app AND customer_insights_page
 # ==============================
 from backend.customers.customers_dashboard import customers_dashboard
@@ -889,6 +894,13 @@ def main_app():
         elif page == "Financial Closing":
             if can_access_feature(role, "financial_closing") or role in ["owner", "manager"]:
                 financial_closing_dashboard()
+            else:
+                st.error("You don't have permission to access this page")
+
+        # ================= FLOATING FINANCIALS =================
+        elif page == "Floating Financials":
+            if can_access_feature(role, "floating_financials"):
+                floating_financials_page()
             else:
                 st.error("You don't have permission to access this page")
 

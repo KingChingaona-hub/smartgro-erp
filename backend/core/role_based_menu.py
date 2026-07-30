@@ -17,6 +17,10 @@ def _get_permission_key(item):
     elif item == "Recommendation Engine":
         return "recommendation_engine"
     
+    # FLOATING FINANCIALS
+    elif item == "Floating Financials":
+        return "floating_financials"
+    
     # Existing mappings
     elif item == "Branch Management":
         return "branch_management"
@@ -224,6 +228,9 @@ def get_visible_modules(role):
         # Multi-Tenant
         "Multi-Tenant": "multi_tenant",
         
+        # FLOATING FINANCIALS
+        "Floating Financials": "floating_financials",
+        
         # Administration (Owner only)
         "Branch Management": "branch_management",
         "Branch Performance": "branch_performance",
@@ -254,6 +261,7 @@ def get_navigation_menu(role):
             "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Scanner"],
             "👥 Customers": ["Customer Dashboard", "Customer App"],
             "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+            "💳 Floating Financials": ["Floating Financials"],  # ADDED
             "📊 Reports": ["Reports Dashboard"],
             "📱 Mobile": ["Mobile Dashboard"],
             "🎤 Voice": ["Voice Commands"]
@@ -270,6 +278,7 @@ def get_navigation_menu(role):
             "💰 Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
             "👥 Customers": ["Customer Dashboard", "Customer 360 View", "Customer Insights", "Customer App", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard"],
             "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+            "💳 Floating Financials": ["Floating Financials"],  # ADDED
             "📊 Analytics": [
                 "Reports Dashboard",
                 "Business Advisor",
@@ -298,6 +307,7 @@ def get_navigation_menu(role):
             "💰 Finance": ["Cash Dashboard", "Income", "Income Dashboard", "Expenses", "Expenses Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
             "👥 Customers": ["Customer Dashboard", "Customer 360 View", "Customer Insights", "Customer App", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard"],
             "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+            "💳 Floating Financials": ["Floating Financials"],  # ADDED
             "📊 Analytics": [
                 "Reports Dashboard",
                 "Business Advisor",
@@ -335,6 +345,7 @@ def get_navigation_menu(role):
         "📦 Stock": ["Stock Dashboard", "Inventory"],
         "👥 Customers": ["Customer Dashboard"],
         "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+        "💳 Floating Financials": ["Floating Financials"],  # ADDED
         "📊 Reports": ["Reports Dashboard"]
     }
 
@@ -350,6 +361,7 @@ def get_mobile_menu(role):
         "Finance": ["Cash Dashboard", "P&L", "Financial Closing", "Payment Gateway", "Accounting Sync"],
         "Customers": ["Customer Dashboard", "Customer App", "Customer 360 View"],
         "Credit & Debtors": ["Debtors", "Debtors Dashboard"],
+        "Floating Financials": ["Floating Financials"],  # ADDED
         "Intelligence": ["Demand Forecasting", "Live Dashboard", "Security Dashboard", "Language Management"],
         "Analytics": [
             "Profit Center Analysis", 
@@ -428,6 +440,7 @@ def get_mobile_navigation_html(role, current_page):
         {"icon": "📊", "label": "Optimizer", "page": "Inventory Optimizer"},
         {"icon": "🛍️", "label": "Recommend", "page": "Recommendation Engine"},
         {"icon": "💰", "label": "Debtors", "page": "Debtors"},
+        {"icon": "💳", "label": "Float", "page": "Floating Financials"},  # ADDED
         {"icon": "⚙️", "label": "More", "page": None}
     ]
     

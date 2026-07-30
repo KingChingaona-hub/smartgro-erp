@@ -76,7 +76,9 @@ ROLES = {
             "multi_tenant", "api_developer",
             # NEW DATA SCIENCE MODULES
             "anomaly_detection", "automated_insights", "churn_prediction",
-            "inventory_optimizer", "recommendation_engine"
+            "inventory_optimizer", "recommendation_engine",
+            # FLOATING FINANCIALS
+            "floating_financials"
         ],
         "description": "Can manage operations but not system settings",
         "mobile_access": True,
@@ -89,7 +91,9 @@ ROLES = {
             "pos", "view_inventory", "create_customer", "view_sales_history",
             "mobile_dashboard", "voice_commands", "barcode_scanner",
             # ===== ADDED: Cashier can now access debtors =====
-            "debtors", "debtors_dashboard", "record_debt_payment"
+            "debtors", "debtors_dashboard", "record_debt_payment",
+            # FLOATING FINANCIALS - Cashier can access
+            "floating_financials"
         ],
         "description": "Can process sales and manage debtors",
         "mobile_access": True,
@@ -246,7 +250,12 @@ def can_access_feature(role, feature):
         "ecommerce_sync": ["manager", "owner"],
         "sms_gateway": ["manager", "owner"],
         "automated_followup": ["manager", "owner"],
-        "workflow_approvals": ["manager", "owner"]
+        "workflow_approvals": ["manager", "owner"],
+        
+        # ==============================
+        # FLOATING FINANCIALS - NEW
+        # ==============================
+        "floating_financials": ["owner", "manager", "cashier"],
     }
     
     allowed_roles = feature_permissions.get(feature, [])
