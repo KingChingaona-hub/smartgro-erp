@@ -1,4 +1,4 @@
-# backend/core/floating_financials.py - FIXED VERSION (With proper column handling)
+# backend/core/floating_financials.py - FIXED VERSION (With proper connection handling)
 
 import pandas as pd
 import streamlit as st
@@ -60,6 +60,44 @@ GAS_SALE_STATUSES = [
 ]
 
 # ==============================
+# DATABASE HELPER FUNCTIONS
+# ==============================
+
+def ensure_tables_exist():
+    """Ensure all floating financials tables exist"""
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                logger.error("Database connection failed")
+                return False
+            
+            # Check if tables exist
+            tables = ['floating_changes', 'floating_change_collections', 'floating_credits', 'floating_credit_payments', 'floating_gas_sales']
+            all_exist = True
+            
+            for table in tables:
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = %s
+                    )
+                """, (table,))
+                exists = cur.fetchone()
+                if not exists or not exists[0]:
+                    all_exist = False
+                    break
+            
+            if all_exist:
+                return True
+            
+            # If tables don't exist, create them
+            return init_floating_financials_tables()
+            
+    except Exception as e:
+        logger.error(f"Error checking tables: {e}")
+        return False
+
+# ==============================
 # CHANGE MANAGEMENT FUNCTIONS
 # ==============================
 
@@ -101,14 +139,23 @@ def create_change_record(
         description = desc_clean
     
     try:
+        # Ensure tables exist
+        if not ensure_tables_exist():
+            return False, "Database tables not ready. Please try again.", None
+        
         change_id = f"CHG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        # Use a direct connection approach to avoid generator issues
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return False, "Database connection failed", None
             
-            # Check if table exists, create if not
+            cur = conn.cursor()
+            
+            # Check if table exists
             cur.execute("""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
@@ -117,7 +164,8 @@ def create_change_record(
             """)
             table_exists = cur.fetchone()
             if not table_exists or not table_exists[0]:
-                return False, "Table 'floating_changes' does not exist. Please run database migration.", None
+                cur.close()
+                return False, "Table 'floating_changes' does not exist. Please run migration.", None
             
             cur.execute("""
                 INSERT INTO floating_changes (
@@ -132,7 +180,8 @@ def create_change_record(
             ))
             
             conn.commit()
-            return True, f"Change record created successfully. ID: {change_id}", change_id
+            cur.close()
+            return True, f"Change recorded successfully. ID: {change_id}", change_id
             
     except Exception as e:
         logger.error(f"Error creating change record: {e}")
@@ -156,33 +205,32 @@ def collect_change(
         return False, "Amount must be greater than 0"
     
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return False, "Database connection failed"
+            
+            cur = conn.cursor()
             
             # Get current change record
             cur.execute("""
-                SELECT * FROM floating_changes WHERE change_id = %s
+                SELECT status, balance, amount_collected FROM floating_changes WHERE change_id = %s
             """, (change_id,))
             record = cur.fetchone()
             
             if not record:
+                cur.close()
                 return False, "Change record not found"
             
-            # Handle dict or tuple result
-            if isinstance(record, dict):
-                status = record.get('status', 'UNCOLLECTED')
-                current_balance = float(record.get('balance', 0))
-                current_collected = float(record.get('amount_collected', 0))
-            else:
-                # Tuple - need to know column positions
-                # This is a fallback - ideally we should use dict
-                status = 'UNCOLLECTED'
-                current_balance = 0
-                current_collected = 0
+            status, current_balance, current_collected = record
             
             if status == "COLLECTED":
+                cur.close()
                 return False, "This change has already been fully collected"
+            
+            current_balance = float(current_balance)
+            current_collected = float(current_collected)
             
             if amount_clean > current_balance:
                 amount_clean = current_balance
@@ -194,10 +242,8 @@ def collect_change(
             if new_balance <= 0:
                 status = "COLLECTED"
                 new_balance = 0
-            elif amount_clean > 0:
-                status = "PARTIAL_COLLECTED"
             else:
-                status = "UNCOLLECTED"
+                status = "PARTIAL_COLLECTED"
             
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
@@ -223,7 +269,8 @@ def collect_change(
             ))
             
             conn.commit()
-            return True, f"Successfully collected {amount_clean:.2f}. Remaining balance: {new_balance:.2f}"
+            cur.close()
+            return True, f"Successfully collected {amount_clean:.2f}. Remaining: {new_balance:.2f}"
             
     except Exception as e:
         logger.error(f"Error collecting change: {e}")
@@ -242,9 +289,13 @@ def get_change_records(
         branch_id = get_current_branch()
     
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return pd.DataFrame()
+            
+            cur = conn.cursor()
             
             # Check if table exists
             cur.execute("""
@@ -255,13 +306,14 @@ def get_change_records(
             """)
             table_exists = cur.fetchone()
             if not table_exists or not table_exists[0]:
+                cur.close()
                 return pd.DataFrame()
             
             query = """
                 SELECT 
                     c.*,
                     (SELECT COUNT(*) FROM floating_change_collections WHERE change_id = c.change_id) as collection_count,
-                    (SELECT SUM(amount) FROM floating_change_collections WHERE change_id = c.change_id) as total_collected_sum
+                    (SELECT COALESCE(SUM(amount), 0) FROM floating_change_collections WHERE change_id = c.change_id) as total_collected_sum
                 FROM floating_changes c
                 WHERE c.branch_id = %s
             """
@@ -287,8 +339,12 @@ def get_change_records(
             
             cur.execute(query, params)
             rows = cur.fetchall()
+            cur.close()
+            
             if rows:
-                df = pd.DataFrame(rows)
+                # Get column names
+                col_names = [desc[0] for desc in cur.description]
+                df = pd.DataFrame(rows, columns=col_names)
                 # Ensure float columns
                 for col in ["amount", "amount_collected", "balance"]:
                     if col in df.columns:
@@ -386,12 +442,19 @@ def create_credit_record(
         credit_type = "OTHER"
     
     try:
+        if not ensure_tables_exist():
+            return False, "Database tables not ready. Please try again.", None
+        
         credit_id = f"CRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return False, "Database connection failed", None
+            
+            cur = conn.cursor()
             
             cur.execute("""
                 INSERT INTO floating_credits (
@@ -406,7 +469,8 @@ def create_credit_record(
             ))
             
             conn.commit()
-            return True, f"Credit record created successfully. ID: {credit_id}", credit_id
+            cur.close()
+            return True, f"Credit recorded successfully. ID: {credit_id}", credit_id
             
     except Exception as e:
         logger.error(f"Error creating credit record: {e}")
@@ -430,33 +494,36 @@ def record_credit_payment(
         return False, "Amount must be greater than 0"
     
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return False, "Database connection failed"
+            
+            cur = conn.cursor()
             
             # Get current credit record
             cur.execute("""
-                SELECT * FROM floating_credits WHERE credit_id = %s
+                SELECT status, balance, amount_paid FROM floating_credits WHERE credit_id = %s
             """, (credit_id,))
             record = cur.fetchone()
             
             if not record:
+                cur.close()
                 return False, "Credit record not found"
             
-            if isinstance(record, dict):
-                status = record.get('status', 'ACTIVE')
-                current_balance = float(record.get('balance', 0))
-                current_paid = float(record.get('amount_paid', 0))
-            else:
-                status = 'ACTIVE'
-                current_balance = 0
-                current_paid = 0
+            status, current_balance, current_paid = record
             
             if status == "PAID":
+                cur.close()
                 return False, "This credit has already been fully paid"
             
             if status == "WRITTEN_OFF":
+                cur.close()
                 return False, "This credit has been written off"
+            
+            current_balance = float(current_balance)
+            current_paid = float(current_paid)
             
             if amount_clean > current_balance:
                 amount_clean = current_balance
@@ -495,7 +562,8 @@ def record_credit_payment(
             ))
             
             conn.commit()
-            return True, f"Payment of {amount_clean:.2f} recorded. Remaining balance: {new_balance:.2f}"
+            cur.close()
+            return True, f"Payment of {amount_clean:.2f} recorded. Remaining: {new_balance:.2f}"
             
     except Exception as e:
         logger.error(f"Error recording credit payment: {e}")
@@ -515,15 +583,19 @@ def get_credit_records(
         branch_id = get_current_branch()
     
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return pd.DataFrame()
+            
+            cur = conn.cursor()
             
             query = """
                 SELECT 
                     c.*,
                     (SELECT COUNT(*) FROM floating_credit_payments WHERE credit_id = c.credit_id) as payment_count,
-                    (SELECT SUM(amount) FROM floating_credit_payments WHERE credit_id = c.credit_id) as total_paid_sum
+                    (SELECT COALESCE(SUM(amount), 0) FROM floating_credit_payments WHERE credit_id = c.credit_id) as total_paid_sum
                 FROM floating_credits c
                 WHERE c.branch_id = %s
             """
@@ -553,8 +625,11 @@ def get_credit_records(
             
             cur.execute(query, params)
             rows = cur.fetchall()
+            cur.close()
+            
             if rows:
-                df = pd.DataFrame(rows)
+                col_names = [desc[0] for desc in cur.description]
+                df = pd.DataFrame(rows, columns=col_names)
                 for col in ["amount", "amount_paid", "balance"]:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -585,7 +660,6 @@ def get_credit_summary(branch_id: str = None) -> dict:
             "total_count": 0
         }
     
-    # Check if status column exists
     if 'status' in df.columns:
         active_count = len(df[df["status"] == "ACTIVE"])
         partial_count = len(df[df["status"] == "PARTIAL_PAID"])
@@ -620,9 +694,13 @@ def get_overdue_credits(branch_id: str = None, days: int = 30) -> pd.DataFrame:
     cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return pd.DataFrame()
+            
+            cur = conn.cursor()
             
             query = """
                 SELECT * FROM floating_credits 
@@ -635,8 +713,11 @@ def get_overdue_credits(branch_id: str = None, days: int = 30) -> pd.DataFrame:
             
             cur.execute(query, (branch_id, cutoff_date))
             rows = cur.fetchall()
+            cur.close()
+            
             if rows:
-                df = pd.DataFrame(rows)
+                col_names = [desc[0] for desc in cur.description]
+                df = pd.DataFrame(rows, columns=col_names)
                 for col in ["amount", "amount_paid", "balance"]:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -689,13 +770,20 @@ def create_gas_sale(
         description = desc_clean
     
     try:
+        if not ensure_tables_exist():
+            return False, "Database tables not ready. Please try again.", None
+        
         gas_sale_id = f"GAS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         total_amount = qty * price
         
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return False, "Database connection failed", None
+            
+            cur = conn.cursor()
             
             cur.execute("""
                 INSERT INTO floating_gas_sales (
@@ -710,6 +798,7 @@ def create_gas_sale(
             ))
             
             conn.commit()
+            cur.close()
             return True, f"Gas sale recorded successfully. ID: {gas_sale_id}", gas_sale_id
             
     except Exception as e:
@@ -727,25 +816,28 @@ def transfer_gas_to_pos(
     Returns: (success, message)
     """
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return False, "Database connection failed"
+            
+            cur = conn.cursor()
             
             # Get gas sale record
             cur.execute("""
-                SELECT * FROM floating_gas_sales WHERE gas_sale_id = %s
+                SELECT status FROM floating_gas_sales WHERE gas_sale_id = %s
             """, (gas_sale_id,))
             record = cur.fetchone()
             
             if not record:
+                cur.close()
                 return False, "Gas sale record not found"
             
-            if isinstance(record, dict):
-                status = record.get('status', 'PENDING')
-            else:
-                status = 'PENDING'
+            status = record[0]
             
             if status == "TRANSFERRED_TO_POS":
+                cur.close()
                 return False, "This gas sale has already been transferred to POS"
             
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -760,6 +852,7 @@ def transfer_gas_to_pos(
                   transfer_note or "Transferred to POS", now, gas_sale_id))
             
             conn.commit()
+            cur.close()
             return True, f"Gas sale transferred to POS successfully. Receipt: {pos_receipt_no or 'N/A'}"
             
     except Exception as e:
@@ -779,9 +872,13 @@ def get_gas_sales(
         branch_id = get_current_branch()
     
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 return pd.DataFrame()
+            
+            cur = conn.cursor()
             
             query = "SELECT * FROM floating_gas_sales WHERE branch_id = %s"
             params = [branch_id]
@@ -806,8 +903,11 @@ def get_gas_sales(
             
             cur.execute(query, params)
             rows = cur.fetchall()
+            cur.close()
+            
             if rows:
-                df = pd.DataFrame(rows)
+                col_names = [desc[0] for desc in cur.description]
+                df = pd.DataFrame(rows, columns=col_names)
                 for col in ["kgs", "price_per_kg", "total_amount"]:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -835,7 +935,6 @@ def get_gas_sales_summary(branch_id: str = None) -> dict:
             "total_count": 0
         }
     
-    # Check if status column exists
     if 'status' in df.columns:
         pending_count = len(df[df["status"] == "PENDING"])
         transferred_count = len(df[df["status"] == "TRANSFERRED_TO_POS"])
@@ -895,152 +994,106 @@ def get_daily_gas_summary(branch_id: str = None, date: str = None) -> dict:
 def init_floating_financials_tables():
     """Initialize database tables for floating financials"""
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
+        from backend.core.db_adapter import get_db_connection
+        
+        with get_db_connection() as conn:
+            if conn is None:
                 logger.error("Database connection failed")
                 return False
             
-            # Check if tables exist before creating
+            cur = conn.cursor()
+            
+            # Change Management Table
             cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_name = 'floating_changes'
+                CREATE TABLE IF NOT EXISTS floating_changes (
+                    id SERIAL PRIMARY KEY,
+                    change_id VARCHAR(50) UNIQUE NOT NULL,
+                    branch_id VARCHAR(10) NOT NULL,
+                    customer_name VARCHAR(100) NOT NULL,
+                    phone VARCHAR(20),
+                    amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    amount_collected DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    status VARCHAR(30) DEFAULT 'UNCOLLECTED',
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            changes_exists = cur.fetchone()
             
-            if not changes_exists or not changes_exists[0]:
-                # Change Management Table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS floating_changes (
-                        id SERIAL PRIMARY KEY,
-                        change_id VARCHAR(50) UNIQUE NOT NULL,
-                        branch_id VARCHAR(10) NOT NULL,
-                        customer_name VARCHAR(100) NOT NULL,
-                        phone VARCHAR(20),
-                        amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        amount_collected DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        balance DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        status VARCHAR(30) DEFAULT 'UNCOLLECTED',
-                        description TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                logger.info("Created floating_changes table")
-            
-            # Check Change Collections Table
+            # Change Collections Table
             cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_name = 'floating_change_collections'
+                CREATE TABLE IF NOT EXISTS floating_change_collections (
+                    id SERIAL PRIMARY KEY,
+                    collection_id VARCHAR(50) UNIQUE NOT NULL,
+                    change_id VARCHAR(50) NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    balance_before DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    balance_after DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    note TEXT,
+                    collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (change_id) REFERENCES floating_changes(change_id)
                 )
             """)
-            collections_exists = cur.fetchone()
             
-            if not collections_exists or not collections_exists[0]:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS floating_change_collections (
-                        id SERIAL PRIMARY KEY,
-                        collection_id VARCHAR(50) UNIQUE NOT NULL,
-                        change_id VARCHAR(50) NOT NULL,
-                        amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        balance_before DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        balance_after DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        note TEXT,
-                        collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (change_id) REFERENCES floating_changes(change_id)
-                    )
-                """)
-                logger.info("Created floating_change_collections table")
-            
-            # Check Credit Management Table
+            # Credit Management Table
             cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_name = 'floating_credits'
+                CREATE TABLE IF NOT EXISTS floating_credits (
+                    id SERIAL PRIMARY KEY,
+                    credit_id VARCHAR(50) UNIQUE NOT NULL,
+                    branch_id VARCHAR(10) NOT NULL,
+                    customer_name VARCHAR(100) NOT NULL,
+                    phone VARCHAR(20),
+                    amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    amount_paid DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    status VARCHAR(30) DEFAULT 'ACTIVE',
+                    credit_type VARCHAR(30) DEFAULT 'WORKMATE_LOAN',
+                    description TEXT,
+                    expected_repayment_date DATE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            credits_exists = cur.fetchone()
             
-            if not credits_exists or not credits_exists[0]:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS floating_credits (
-                        id SERIAL PRIMARY KEY,
-                        credit_id VARCHAR(50) UNIQUE NOT NULL,
-                        branch_id VARCHAR(10) NOT NULL,
-                        customer_name VARCHAR(100) NOT NULL,
-                        phone VARCHAR(20),
-                        amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        amount_paid DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        balance DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        status VARCHAR(30) DEFAULT 'ACTIVE',
-                        credit_type VARCHAR(30) DEFAULT 'WORKMATE_LOAN',
-                        description TEXT,
-                        expected_repayment_date DATE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                logger.info("Created floating_credits table")
-            
-            # Check Credit Payments Table
+            # Credit Payments Table
             cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_name = 'floating_credit_payments'
+                CREATE TABLE IF NOT EXISTS floating_credit_payments (
+                    id SERIAL PRIMARY KEY,
+                    payment_id VARCHAR(50) UNIQUE NOT NULL,
+                    credit_id VARCHAR(50) NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    balance_before DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    balance_after DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    payment_method VARCHAR(30) DEFAULT 'CASH',
+                    note TEXT,
+                    paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (credit_id) REFERENCES floating_credits(credit_id)
                 )
             """)
-            payments_exists = cur.fetchone()
             
-            if not payments_exists or not payments_exists[0]:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS floating_credit_payments (
-                        id SERIAL PRIMARY KEY,
-                        payment_id VARCHAR(50) UNIQUE NOT NULL,
-                        credit_id VARCHAR(50) NOT NULL,
-                        amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        balance_before DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        balance_after DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        payment_method VARCHAR(30) DEFAULT 'CASH',
-                        note TEXT,
-                        paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (credit_id) REFERENCES floating_credits(credit_id)
-                    )
-                """)
-                logger.info("Created floating_credit_payments table")
-            
-            # Check Gas Sales Float Table
+            # Gas Sales Float Table
             cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_name = 'floating_gas_sales'
+                CREATE TABLE IF NOT EXISTS floating_gas_sales (
+                    id SERIAL PRIMARY KEY,
+                    gas_sale_id VARCHAR(50) UNIQUE NOT NULL,
+                    branch_id VARCHAR(10) NOT NULL,
+                    customer_name VARCHAR(100) NOT NULL,
+                    kgs DECIMAL(10,2) NOT NULL DEFAULT 0,
+                    price_per_kg DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    description TEXT,
+                    status VARCHAR(30) DEFAULT 'PENDING',
+                    pos_receipt_no VARCHAR(50),
+                    transfer_note TEXT,
+                    sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    transferred_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            gas_exists = cur.fetchone()
-            
-            if not gas_exists or not gas_exists[0]:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS floating_gas_sales (
-                        id SERIAL PRIMARY KEY,
-                        gas_sale_id VARCHAR(50) UNIQUE NOT NULL,
-                        branch_id VARCHAR(10) NOT NULL,
-                        customer_name VARCHAR(100) NOT NULL,
-                        kgs DECIMAL(10,2) NOT NULL DEFAULT 0,
-                        price_per_kg DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        total_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-                        description TEXT,
-                        status VARCHAR(30) DEFAULT 'PENDING',
-                        pos_receipt_no VARCHAR(50),
-                        transfer_note TEXT,
-                        sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        transferred_at TIMESTAMP,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                logger.info("Created floating_gas_sales table")
             
             conn.commit()
+            cur.close()
             logger.info("Floating Financials tables created/verified successfully")
             return True
             
