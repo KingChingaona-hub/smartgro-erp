@@ -607,7 +607,7 @@ def get_overdue_credits(branch_id=None, days=30):
         return pd.DataFrame()
 
 # ==============================
-# GAS SALES - SIMPLE ROBUST VERSION
+# GAS SALES - SIMPLE ROBUST VERSION WITH FIXED PROFIT
 # ==============================
 
 def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", branch_id=None):
@@ -727,32 +727,51 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Step 5: Find gas product (with safe handling)
+        # Step 5: Find gas product and get cost (FIXED - includes stock)
         gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
         gas_cost = 0.0
         gas_name = "Gas Product"
         product_found = False
+        current_stock = 0
         
         try:
+            # Get barcode, cost, name, and stock
             cur.execute("""
-                SELECT barcode, cost, name FROM products 
+                SELECT barcode, cost, name, stock FROM products 
                 WHERE branch_id = %s 
                 AND (barcode LIKE 'GAS%' OR LOWER(name) LIKE '%gas%')
                 LIMIT 1
             """, (branch_id,))
             product = cur.fetchone()
             
-            if product and len(product) >= 3:
+            if product and len(product) >= 4:
                 gas_barcode = product[0] if product[0] else gas_barcode
                 gas_cost = float(product[1]) if product[1] else 0.0
                 gas_name = product[2] if product[2] else "Gas Product"
+                current_stock = float(product[3]) if product[3] else 0
                 product_found = True
+                logger.info(f"Gas product found: {gas_name}, Cost: ${gas_cost:.2f}/KG, Stock: {current_stock} KGs")
+            else:
+                logger.warning("No gas product found with GAS barcode or name containing 'gas'")
+                return False, "Gas product not found. Please create a product with barcode starting with 'GAS' and set the cost price."
         except Exception as e:
-            logger.warning(f"Error finding gas product: {e}, using defaults")
+            logger.error(f"Error finding gas product: {e}")
+            return False, f"Error finding gas product: {str(e)}"
         
-        # Step 6: Calculate profit
+        # Step 6: Calculate profit correctly (FIXED)
+        # Profit = Total Amount - (Cost Price × KGs)
         total_cost = gas_cost * float(kgs)
         profit = float(total_amount) - total_cost
+        
+        # Log the calculation for debugging
+        logger.info(f"=== GAS SALE CALCULATION ===")
+        logger.info(f"KGs: {kgs}")
+        logger.info(f"Price per KG: ${price_per_kg:.2f}")
+        logger.info(f"Total Amount: ${total_amount:.2f}")
+        logger.info(f"Cost per KG: ${gas_cost:.2f}")
+        logger.info(f"Total Cost: ${total_cost:.2f}")
+        logger.info(f"Profit: ${profit:.2f}")
+        logger.info(f"==============================")
         
         # Step 7: Get session values safely
         shift_id = ""
@@ -783,40 +802,35 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
                 profit,
                 "CASH",
                 customer_name,
-                "",
+                "",  # customer_phone
                 float(total_amount),
                 shift_id,
                 cashier
             ))
+            logger.info(f"Sales record created: {pos_receipt_no}")
         except Exception as e:
             logger.error(f"Error creating sales record: {e}")
             conn.rollback()
             return False, f"Error creating sales record: {str(e)}"
         
-        # Step 9: Deduct from inventory (only if product found)
-        if product_found:
-            try:
-                cur.execute("""
-                    SELECT stock FROM products 
-                    WHERE branch_id = %s AND barcode = %s
-                """, (branch_id, gas_barcode))
-                stock_record = cur.fetchone()
-                
-                if stock_record and len(stock_record) >= 1:
-                    current_stock = float(stock_record[0]) if stock_record[0] else 0
-                    new_stock = current_stock - float(kgs)
-                    
-                    if new_stock < 0:
-                        conn.rollback()
-                        return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
-                    
-                    cur.execute("""
-                        UPDATE products 
-                        SET stock = %s 
-                        WHERE branch_id = %s AND barcode = %s
-                    """, (new_stock, branch_id, gas_barcode))
-            except Exception as e:
-                logger.warning(f"Error deducting inventory: {e}, continuing...")
+        # Step 9: Deduct from inventory
+        try:
+            new_stock = current_stock - float(kgs)
+            
+            if new_stock < 0:
+                conn.rollback()
+                return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
+            
+            cur.execute("""
+                UPDATE products 
+                SET stock = %s 
+                WHERE branch_id = %s AND barcode = %s
+            """, (new_stock, branch_id, gas_barcode))
+            logger.info(f"Inventory updated: {gas_name} stock from {current_stock} to {new_stock} KGs")
+        except Exception as e:
+            logger.error(f"Error deducting inventory: {e}")
+            conn.rollback()
+            return False, f"Error updating inventory: {str(e)}"
         
         # Step 10: Update gas sale status
         try:
@@ -825,7 +839,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
                 SET status = %s, pos_receipt_no = %s, transfer_note = %s, transferred_at = %s
                 WHERE gas_sale_id = %s
             """, ("TRANSFERRED_TO_POS", pos_receipt_no, 
-                  transfer_note or f"Transferred to POS - KGs: {float(kgs):.2f}", now, gas_sale_id))
+                  transfer_note or f"Transferred to POS - KGs: {float(kgs):.2f}, Profit: ${profit:.2f}", now, gas_sale_id))
         except Exception as e:
             logger.error(f"Error updating gas sale status: {e}")
             conn.rollback()
@@ -834,7 +848,7 @@ def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
         # Step 11: Commit all changes
         conn.commit()
         
-        return True, f"Gas sale transferred to POS. Receipt: {pos_receipt_no}, KGs: {float(kgs):.2f}, Amount: ${float(total_amount):.2f}"
+        return True, f"Gas sale transferred to POS. Receipt: {pos_receipt_no}, KGs: {float(kgs):.2f}, Amount: ${float(total_amount):.2f}, Profit: ${profit:.2f}"
         
     except Exception as e:
         logger.error(f"Error transferring gas to POS: {e}")
