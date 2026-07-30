@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - FIXED VERSION (No emojis)
+# backend/modules/floating_financials.py - FIXED VERSION (No emojis, with proper error handling)
 
 import streamlit as st
 import pandas as pd
@@ -172,26 +172,34 @@ def change_management_tab():
     # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
+            # Safely get values with defaults
+            customer_name = row.get('customer_name', 'Unknown')
+            change_id = row.get('change_id', 'N/A')
+            phone = row.get('phone', '')
+            amount = float(row.get('amount', 0))
+            amount_collected = float(row.get('amount_collected', 0))
+            balance = float(row.get('balance', 0))
+            status = row.get('status', 'UNCOLLECTED')
+            collection_count = row.get('collection_count', 0)
+            
             col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 1.5, 1])
             
             with col1:
-                st.markdown(f"**{row['customer_name']}**")
-                st.caption(f"ID: {row['change_id']}")
-                if row.get('phone'):
-                    st.caption(f"Phone: {row['phone']}")
+                st.markdown(f"**{customer_name}**")
+                st.caption(f"ID: {change_id}")
+                if phone:
+                    st.caption(f"Phone: {phone}")
             
             with col2:
-                st.metric("Amount", f"${row['amount']:,.2f}")
+                st.metric("Amount", f"${amount:,.2f}")
             
             with col3:
-                st.metric("Collected", f"${row['amount_collected']:,.2f}")
+                st.metric("Collected", f"${amount_collected:,.2f}")
             
             with col4:
-                balance = float(row['balance'])
                 st.metric("Balance", f"${balance:,.2f}")
                 
                 # Status badge
-                status = row['status']
                 if status == "COLLECTED":
                     st.success("COLLECTED")
                 elif status == "PARTIAL_COLLECTED":
@@ -201,9 +209,9 @@ def change_management_tab():
             
             with col5:
                 if balance > 0:
-                    if st.button(f"Collect", key=f"collect_{row['change_id']}"):
+                    if st.button(f"Collect", key=f"collect_{change_id}"):
                         success, message = collect_change(
-                            change_id=row['change_id'],
+                            change_id=change_id,
                             amount=balance
                         )
                         if success:
@@ -212,15 +220,15 @@ def change_management_tab():
                         else:
                             st.error(message)
                 
-                if st.button(f"History", key=f"history_{row['change_id']}"):
-                    st.session_state[f"show_collections_{row['change_id']}"] = True
+                if st.button(f"History", key=f"history_{change_id}"):
+                    st.session_state[f"show_collections_{change_id}"] = True
             
             # Show collection history
-            if st.session_state.get(f"show_collections_{row['change_id']}", False):
+            if st.session_state.get(f"show_collections_{change_id}", False):
                 st.caption("Collection History")
-                st.info(f"Total collections: {row.get('collection_count', 0)}")
-                if st.button(f"Hide", key=f"hide_{row['change_id']}"):
-                    st.session_state[f"show_collections_{row['change_id']}"] = False
+                st.info(f"Total collections: {collection_count}")
+                if st.button(f"Hide", key=f"hide_{change_id}"):
+                    st.session_state[f"show_collections_{change_id}"] = False
     
     # ==============================
     # TOTAL SUMMARY
@@ -361,32 +369,44 @@ def credit_management_tab():
     # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
+            # Safely get values with defaults
+            customer_name = row.get('customer_name', 'Unknown')
+            credit_id = row.get('credit_id', 'N/A')
+            phone = row.get('phone', '')
+            credit_type = row.get('credit_type', 'OTHER')
+            description = row.get('description', '')
+            expected_repayment = row.get('expected_repayment_date', '')
+            amount = float(row.get('amount', 0))
+            amount_paid = float(row.get('amount_paid', 0))
+            balance = float(row.get('balance', 0))
+            status = row.get('status', 'ACTIVE')
+            payment_count = row.get('payment_count', 0)
+            
             col1, col2, col3, col4, col5, col6 = st.columns([2, 1.2, 1.2, 1.2, 1.2, 0.8])
             
             with col1:
-                st.markdown(f"**{row['customer_name']}**")
-                st.caption(f"ID: {row['credit_id']}")
-                if row.get('phone'):
-                    st.caption(f"Phone: {row['phone']}")
-                if row.get('credit_type'):
-                    st.caption(f"Type: {row['credit_type'].replace('_', ' ').title()}")
-                if row.get('description'):
-                    st.caption(f"Description: {row['description']}")
-                if row.get('expected_repayment_date'):
-                    st.caption(f"Due: {row['expected_repayment_date']}")
+                st.markdown(f"**{customer_name}**")
+                st.caption(f"ID: {credit_id}")
+                if phone:
+                    st.caption(f"Phone: {phone}")
+                if credit_type:
+                    st.caption(f"Type: {credit_type.replace('_', ' ').title()}")
+                if description:
+                    st.caption(f"Description: {description}")
+                if expected_repayment:
+                    st.caption(f"Due: {expected_repayment}")
             
             with col2:
-                st.metric("Amount", f"${row['amount']:,.2f}")
+                st.metric("Amount", f"${amount:,.2f}")
             
             with col3:
-                st.metric("Paid", f"${row['amount_paid']:,.2f}")
+                st.metric("Paid", f"${amount_paid:,.2f}")
             
             with col4:
-                st.metric("Balance", f"${row['balance']:,.2f}")
+                st.metric("Balance", f"${balance:,.2f}")
             
             with col5:
                 # Status badge
-                status = row['status']
                 if status == "PAID":
                     st.success("PAID")
                 elif status == "PARTIAL_PAID":
@@ -399,64 +419,64 @@ def credit_management_tab():
                     st.info("ACTIVE")
             
             with col6:
-                if row['balance'] > 0:
-                    if st.button(f"Pay", key=f"pay_credit_{row['credit_id']}", help="Record Payment"):
-                        st.session_state[f"pay_credit_{row['credit_id']}"] = True
+                if balance > 0:
+                    if st.button(f"Pay", key=f"pay_credit_{credit_id}", help="Record Payment"):
+                        st.session_state[f"pay_credit_{credit_id}"] = True
                 
-                if st.button(f"History", key=f"history_credit_{row['credit_id']}", help="View History"):
-                    st.session_state[f"show_credit_history_{row['credit_id']}"] = True
+                if st.button(f"History", key=f"history_credit_{credit_id}", help="View History"):
+                    st.session_state[f"show_credit_history_{credit_id}"] = True
             
             # ==============================
             # PAYMENT MODAL
             # ==============================
-            if st.session_state.get(f"pay_credit_{row['credit_id']}", False):
-                with st.expander(f"Record Payment for {row['customer_name']}", expanded=True):
+            if st.session_state.get(f"pay_credit_{credit_id}", False):
+                with st.expander(f"Record Payment for {customer_name}", expanded=True):
                     col_a, col_b, col_c = st.columns(3)
                     with col_a:
                         payment_amount = st.number_input(
                             "Amount to Pay ($)",
                             min_value=0.01,
-                            max_value=float(row['balance']),
+                            max_value=float(balance),
                             step=0.01,
-                            key=f"pay_amount_{row['credit_id']}"
+                            key=f"pay_amount_{credit_id}"
                         )
                     with col_b:
                         payment_method = st.selectbox(
                             "Payment Method",
                             ["CASH", "BANK", "MOBILE_MONEY", "ECO_CASH"],
-                            key=f"pay_method_{row['credit_id']}"
+                            key=f"pay_method_{credit_id}"
                         )
                     with col_c:
-                        payment_note = st.text_input("Note", key=f"pay_note_{row['credit_id']}")
+                        payment_note = st.text_input("Note", key=f"pay_note_{credit_id}")
                     
                     col_d, col_e = st.columns(2)
                     with col_d:
-                        if st.button(f"Confirm Payment", key=f"confirm_pay_{row['credit_id']}", use_container_width=True):
+                        if st.button(f"Confirm Payment", key=f"confirm_pay_{credit_id}", use_container_width=True):
                             success, message = record_credit_payment(
-                                credit_id=row['credit_id'],
+                                credit_id=credit_id,
                                 amount=payment_amount,
                                 payment_note=payment_note,
                                 payment_method=payment_method
                             )
                             if success:
                                 show_toast(message, "success")
-                                st.session_state[f"pay_credit_{row['credit_id']}"] = False
+                                st.session_state[f"pay_credit_{credit_id}"] = False
                                 st.rerun()
                             else:
                                 st.error(message)
                     with col_e:
-                        if st.button(f"Cancel", key=f"cancel_pay_{row['credit_id']}", use_container_width=True):
-                            st.session_state[f"pay_credit_{row['credit_id']}"] = False
+                        if st.button(f"Cancel", key=f"cancel_pay_{credit_id}", use_container_width=True):
+                            st.session_state[f"pay_credit_{credit_id}"] = False
                             st.rerun()
             
             # ==============================
             # PAYMENT HISTORY
             # ==============================
-            if st.session_state.get(f"show_credit_history_{row['credit_id']}", False):
-                st.caption(f"Payment History for {row['customer_name']}")
-                st.info(f"Total payments: {row.get('payment_count', 0)}")
-                if st.button(f"Hide History", key=f"hide_credit_history_{row['credit_id']}"):
-                    st.session_state[f"show_credit_history_{row['credit_id']}"] = False
+            if st.session_state.get(f"show_credit_history_{credit_id}", False):
+                st.caption(f"Payment History for {customer_name}")
+                st.info(f"Total payments: {payment_count}")
+                if st.button(f"Hide History", key=f"hide_credit_history_{credit_id}"):
+                    st.session_state[f"show_credit_history_{credit_id}"] = False
     
     # ==============================
     # TOTAL SUMMARY
@@ -628,30 +648,38 @@ def gas_sales_tab():
     # ==============================
     for _, row in df.iterrows():
         with st.container(border=True):
+            # Safely get values with defaults
+            customer_name = row.get('customer_name', 'Unknown')
+            gas_sale_id = row.get('gas_sale_id', 'N/A')
+            description = row.get('description', '')
+            kgs = float(row.get('kgs', 0))
+            price_per_kg = float(row.get('price_per_kg', 0))
+            total_amount = float(row.get('total_amount', 0))
+            status = row.get('status', 'PENDING')
+            
             col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1.5, 1])
             
             with col1:
-                st.markdown(f"**{row['customer_name']}**")
-                st.caption(f"ID: {row['gas_sale_id']}")
-                if row.get('description'):
-                    st.caption(f"Description: {row['description']}")
+                st.markdown(f"**{customer_name}**")
+                st.caption(f"ID: {gas_sale_id}")
+                if description:
+                    st.caption(f"Description: {description}")
             
             with col2:
-                st.metric("KGs", f"{row['kgs']:,.2f}")
+                st.metric("KGs", f"{kgs:,.2f}")
             
             with col3:
-                st.metric("Price/KG", f"${row['price_per_kg']:,.2f}")
+                st.metric("Price/KG", f"${price_per_kg:,.2f}")
             
             with col4:
-                st.metric("Total", f"${row['total_amount']:,.2f}")
+                st.metric("Total", f"${total_amount:,.2f}")
             
             with col5:
-                status = row['status']
                 if status == "PENDING":
                     st.warning("PENDING")
-                    if st.button(f"Transfer", key=f"transfer_gas_{row['gas_sale_id']}"):
+                    if st.button(f"Transfer", key=f"transfer_gas_{gas_sale_id}"):
                         success, message = transfer_gas_to_pos(
-                            gas_sale_id=row['gas_sale_id'],
+                            gas_sale_id=gas_sale_id,
                             transfer_note="Manual transfer"
                         )
                         if success:
