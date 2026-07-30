@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - UPDATED VERSION
+# backend/modules/floating_financials.py - Optimized version with limited reruns
 
 import streamlit as st
 import pandas as pd
@@ -82,18 +82,22 @@ def change_management_tab():
     
     st.divider()
     
-    with st.expander("Record New Uncollected Change", expanded=False):
+    # Use a form to prevent rerun on every input change
+    with st.form("record_change_form"):
+        st.markdown("### Record New Uncollected Change")
         col1, col2 = st.columns(2)
         
         with col1:
-            new_customer = st.text_input("Customer Name", key="new_change_customer")
-            new_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_change_amount")
+            new_customer = st.text_input("Customer Name")
+            new_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01)
         
         with col2:
-            new_phone = st.text_input("Phone (Optional)", key="new_change_phone")
-            new_desc = st.text_area("Description (Optional)", key="new_change_desc")
+            new_phone = st.text_input("Phone (Optional)")
+            new_desc = st.text_area("Description (Optional)")
         
-        if st.button("Record Change", key="btn_record_change", use_container_width=True):
+        submitted = st.form_submit_button("Record Change", use_container_width=True)
+        
+        if submitted:
             if not new_customer:
                 st.error("Customer name is required")
             elif new_amount <= 0:
@@ -109,12 +113,14 @@ def change_management_tab():
                 if success:
                     show_toast("Change recorded successfully!", "success")
                     show_confetti()
+                    # Only rerun if successful
                     st.rerun()
                 else:
                     st.error(message)
     
     st.divider()
     
+    # Filters - use session state to avoid reruns
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -133,12 +139,17 @@ def change_management_tab():
     with col4:
         filter_date_to = st.date_input("Date To", value=None, key="change_date_to")
     
-    df = get_change_records(
-        status=None if filter_status == "ALL" else filter_status,
-        customer_name=filter_customer if filter_customer else None,
-        date_from=filter_date_from.strftime("%Y-%m-%d") if filter_date_from else None,
-        date_to=filter_date_to.strftime("%Y-%m-%d") if filter_date_to else None
-    )
+    # Load data only when needed
+    @st.cache_data(ttl=60)  # Cache for 60 seconds
+    def load_change_records(status, customer, date_from, date_to):
+        return get_change_records(
+            status=None if status == "ALL" else status,
+            customer_name=customer if customer else None,
+            date_from=date_from.strftime("%Y-%m-%d") if date_from else None,
+            date_to=date_to.strftime("%Y-%m-%d") if date_to else None
+        )
+    
+    df = load_change_records(filter_status, filter_customer, filter_date_from, filter_date_to)
     
     if df.empty:
         st.info("No change records found")
@@ -179,16 +190,18 @@ def change_management_tab():
             
             with col5:
                 if balance > 0:
-                    if st.button(f"Collect", key=f"collect_{change_id}"):
-                        success, message = collect_change(
-                            change_id=change_id,
-                            amount=balance
-                        )
-                        if success:
-                            show_toast(message, "success")
-                            st.rerun()
-                        else:
-                            st.error(message)
+                    # Use a form for collect action
+                    with st.form(key=f"collect_form_{change_id}"):
+                        if st.form_submit_button("Collect", use_container_width=True):
+                            success, message = collect_change(
+                                change_id=change_id,
+                                amount=balance
+                            )
+                            if success:
+                                show_toast(message, "success")
+                                st.rerun()
+                            else:
+                                st.error(message)
     
     st.divider()
     col1, col2, col3 = st.columns(3)
@@ -220,21 +233,25 @@ def credit_management_tab():
     
     st.divider()
     
-    with st.expander("Record New Credit/Loan", expanded=False):
+    # Use form for credit creation
+    with st.form("record_credit_form"):
+        st.markdown("### Record New Credit/Loan")
         col1, col2 = st.columns(2)
         
         with col1:
-            new_credit_customer = st.text_input("Customer/Person Name", key="new_credit_customer")
-            new_credit_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_credit_amount")
-            new_credit_type = st.selectbox("Credit Type", CREDIT_TYPES, key="new_credit_type")
+            new_credit_customer = st.text_input("Customer/Person Name")
+            new_credit_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01)
+            new_credit_type = st.selectbox("Credit Type", CREDIT_TYPES)
         
         with col2:
-            new_credit_phone = st.text_input("Phone (Optional)", key="new_credit_phone")
-            new_credit_desc = st.text_area("Description", key="new_credit_desc")
-            new_credit_repayment = st.date_input("Expected Repayment Date", key="new_credit_repayment", 
+            new_credit_phone = st.text_input("Phone (Optional)")
+            new_credit_desc = st.text_area("Description")
+            new_credit_repayment = st.date_input("Expected Repayment Date", 
                                                 value=datetime.now() + timedelta(days=30))
         
-        if st.button("Record Credit", key="btn_record_credit", use_container_width=True):
+        submitted = st.form_submit_button("Record Credit", use_container_width=True)
+        
+        if submitted:
             if not new_credit_customer:
                 st.error("Customer/Person name is required")
             elif new_credit_amount <= 0:
@@ -287,13 +304,17 @@ def credit_management_tab():
     with col5:
         filter_credit_date_to = st.date_input("Date To", value=None, key="credit_date_to")
     
-    df = get_credit_records(
-        status=None if filter_credit_status == "ALL" else filter_credit_status,
-        credit_type=None if filter_credit_type == "ALL" else filter_credit_type,
-        customer_name=filter_credit_customer if filter_credit_customer else None,
-        date_from=filter_credit_date_from.strftime("%Y-%m-%d") if filter_credit_date_from else None,
-        date_to=filter_credit_date_to.strftime("%Y-%m-%d") if filter_credit_date_to else None
-    )
+    @st.cache_data(ttl=60)
+    def load_credit_records(status, credit_type, customer, date_from, date_to):
+        return get_credit_records(
+            status=None if status == "ALL" else status,
+            credit_type=None if credit_type == "ALL" else credit_type,
+            customer_name=customer if customer else None,
+            date_from=date_from.strftime("%Y-%m-%d") if date_from else None,
+            date_to=date_to.strftime("%Y-%m-%d") if date_to else None
+        )
+    
+    df = load_credit_records(filter_credit_status, filter_credit_type, filter_credit_customer, filter_credit_date_from, filter_credit_date_to)
     
     if df.empty:
         st.info("No credit records found")
@@ -351,53 +372,57 @@ def credit_management_tab():
                 if balance > 0:
                     if st.button(f"Pay", key=f"pay_credit_{credit_id}"):
                         st.session_state[f"paying_credit_{credit_id}"] = True
-                        st.rerun()
             
+            # Payment form - shown only when payment button is clicked
             if st.session_state.get(f"paying_credit_{credit_id}", False):
                 with st.container(border=True):
                     st.subheader(f"Record Payment for {customer_name}")
-                    col_a, col_b, col_c = st.columns(3)
                     
-                    with col_a:
-                        payment_amount = st.number_input(
-                            "Amount to Pay ($)",
-                            min_value=0.01,
-                            max_value=float(balance),
-                            step=0.01,
-                            key=f"pay_amount_{credit_id}"
-                        )
-                    
-                    with col_b:
-                        payment_method = st.selectbox(
-                            "Payment Method",
-                            ["CASH", "BANK", "MOBILE_MONEY", "ECOCASH"],
-                            key=f"pay_method_{credit_id}"
-                        )
-                    
-                    with col_c:
-                        payment_note = st.text_input("Note", key=f"pay_note_{credit_id}")
-                    
-                    col_d, col_e = st.columns(2)
-                    
-                    with col_d:
-                        if st.button(f"Confirm Payment", key=f"confirm_pay_{credit_id}", use_container_width=True):
-                            success, message = record_credit_payment(
-                                credit_id=credit_id,
-                                amount=payment_amount,
-                                payment_note=payment_note,
-                                payment_method=payment_method
+                    with st.form(key=f"payment_form_{credit_id}"):
+                        col_a, col_b, col_c = st.columns(3)
+                        
+                        with col_a:
+                            payment_amount = st.number_input(
+                                "Amount to Pay ($)",
+                                min_value=0.01,
+                                max_value=float(balance),
+                                step=0.01,
+                                key=f"pay_amount_{credit_id}"
                             )
-                            if success:
-                                show_toast(message, "success")
+                        
+                        with col_b:
+                            payment_method = st.selectbox(
+                                "Payment Method",
+                                ["CASH", "BANK", "MOBILE_MONEY", "ECOCASH"],
+                                key=f"pay_method_{credit_id}"
+                            )
+                        
+                        with col_c:
+                            payment_note = st.text_input("Note", key=f"pay_note_{credit_id}")
+                        
+                        col_d, col_e = st.columns(2)
+                        
+                        with col_d:
+                            confirm = st.form_submit_button("Confirm Payment", use_container_width=True)
+                            if confirm:
+                                success, message = record_credit_payment(
+                                    credit_id=credit_id,
+                                    amount=payment_amount,
+                                    payment_note=payment_note,
+                                    payment_method=payment_method
+                                )
+                                if success:
+                                    show_toast(message, "success")
+                                    st.session_state[f"paying_credit_{credit_id}"] = False
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        
+                        with col_e:
+                            cancel = st.form_submit_button("Cancel", use_container_width=True)
+                            if cancel:
                                 st.session_state[f"paying_credit_{credit_id}"] = False
                                 st.rerun()
-                            else:
-                                st.error(message)
-                    
-                    with col_e:
-                        if st.button(f"Cancel", key=f"cancel_pay_{credit_id}", use_container_width=True):
-                            st.session_state[f"paying_credit_{credit_id}"] = False
-                            st.rerun()
     
     st.divider()
     col1, col2, col3 = st.columns(3)
@@ -410,7 +435,7 @@ def credit_management_tab():
 
 
 def gas_sales_tab():
-    """Gas Sales Float Tab - User enters amount, system calculates KGs"""
+    """Gas Sales Float Tab"""
     
     summary = get_gas_sales_summary()
     
@@ -427,16 +452,18 @@ def gas_sales_tab():
     
     st.divider()
     
-    with st.expander("Record New Gas Sale", expanded=False):
+    # Use form for gas sale creation
+    with st.form("record_gas_form"):
+        st.markdown("### Record New Gas Sale")
         col1, col2 = st.columns(2)
         
         with col1:
-            new_gas_customer = st.text_input("Customer Name", key="new_gas_customer")
-            new_gas_price = st.number_input("Price per KG ($)", min_value=0.01, step=0.01, key="new_gas_price")
-            new_gas_amount = st.number_input("Amount Customer Pays ($)", min_value=0.01, step=0.01, key="new_gas_amount")
+            new_gas_customer = st.text_input("Customer Name")
+            new_gas_price = st.number_input("Price per KG ($)", min_value=0.01, step=0.01)
+            new_gas_amount = st.number_input("Amount Customer Pays ($)", min_value=0.01, step=0.01)
         
         with col2:
-            new_gas_desc = st.text_area("Description (Optional)", key="new_gas_desc")
+            new_gas_desc = st.text_area("Description (Optional)")
             
             # Auto-calculate KGs
             if new_gas_price > 0 and new_gas_amount > 0:
@@ -445,7 +472,9 @@ def gas_sales_tab():
             else:
                 st.info("Enter price and amount to calculate KGs")
         
-        if st.button("Record Gas Sale", key="btn_record_gas", use_container_width=True):
+        submitted = st.form_submit_button("Record Gas Sale", use_container_width=True)
+        
+        if submitted:
             if not new_gas_customer:
                 st.error("Customer name is required")
             elif new_gas_price <= 0:
@@ -468,6 +497,7 @@ def gas_sales_tab():
     
     st.divider()
     
+    # Daily transfer section
     with st.expander("Transfer Gas to POS (Daily)", expanded=True):
         today = datetime.now().strftime("%Y-%m-%d")
         daily_summary = get_daily_gas_summary(date=today)
@@ -500,33 +530,35 @@ def gas_sales_tab():
                             hide_index=True
                         )
             
-            pos_receipt = st.text_input("POS Receipt Number (Optional)", key="pos_receipt_transfer")
-            transfer_note = st.text_area("Transfer Note", key="transfer_note")
-            
-            if st.button("Transfer All Pending to POS", key="btn_transfer_all", use_container_width=True):
-                if pending_sales.empty:
-                    st.warning("No pending sales to transfer")
-                else:
-                    success_count = 0
-                    for _, sale in pending_sales.iterrows():
-                        gas_sale_id = sale.get('gas_sale_id', '')
-                        if gas_sale_id:
-                            success, message = transfer_gas_to_pos(
-                                gas_sale_id=gas_sale_id,
-                                pos_receipt_no=pos_receipt,
-                                transfer_note=transfer_note or f"Daily transfer - {today}"
-                            )
-                            if success:
-                                success_count += 1
-                    
-                    if success_count > 0:
-                        show_toast(f"{success_count} gas sales transferred!", "success")
-                        st.rerun()
+            with st.form("transfer_gas_form"):
+                pos_receipt = st.text_input("POS Receipt Number (Optional)")
+                transfer_note = st.text_area("Transfer Note")
+                
+                if st.form_submit_button("Transfer All Pending to POS", use_container_width=True):
+                    if pending_sales.empty:
+                        st.warning("No pending sales to transfer")
                     else:
-                        st.error("Failed to transfer gas sales")
+                        success_count = 0
+                        for _, sale in pending_sales.iterrows():
+                            gas_sale_id = sale.get('gas_sale_id', '')
+                            if gas_sale_id:
+                                success, message = transfer_gas_to_pos(
+                                    gas_sale_id=gas_sale_id,
+                                    pos_receipt_no=pos_receipt,
+                                    transfer_note=transfer_note or f"Daily transfer - {today}"
+                                )
+                                if success:
+                                    success_count += 1
+                        
+                        if success_count > 0:
+                            show_toast(f"{success_count} gas sales transferred!", "success")
+                            st.rerun()
+                        else:
+                            st.error("Failed to transfer gas sales")
     
     st.divider()
     
+    # Filters
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -545,12 +577,16 @@ def gas_sales_tab():
     with col4:
         filter_gas_date_to = st.date_input("Date To", value=None, key="gas_date_to")
     
-    df = get_gas_sales(
-        status=None if filter_gas_status == "ALL" else filter_gas_status,
-        customer_name=filter_gas_customer if filter_gas_customer else None,
-        date_from=filter_gas_date_from.strftime("%Y-%m-%d") if filter_gas_date_from else None,
-        date_to=filter_gas_date_to.strftime("%Y-%m-%d") if filter_gas_date_to else None
-    )
+    @st.cache_data(ttl=60)
+    def load_gas_sales(status, customer, date_from, date_to):
+        return get_gas_sales(
+            status=None if status == "ALL" else status,
+            customer_name=customer if customer else None,
+            date_from=date_from.strftime("%Y-%m-%d") if date_from else None,
+            date_to=date_to.strftime("%Y-%m-%d") if date_to else None
+        )
+    
+    df = load_gas_sales(filter_gas_status, filter_gas_customer, filter_gas_date_from, filter_gas_date_to)
     
     if df.empty:
         st.info("No gas sales records found")
@@ -586,16 +622,17 @@ def gas_sales_tab():
             with col5:
                 if status == "PENDING":
                     st.warning("PENDING")
-                    if st.button(f"Transfer", key=f"transfer_gas_{gas_sale_id}"):
-                        success, message = transfer_gas_to_pos(
-                            gas_sale_id=gas_sale_id,
-                            transfer_note="Manual transfer"
-                        )
-                        if success:
-                            show_toast(message, "success")
-                            st.rerun()
-                        else:
-                            st.error(message)
+                    with st.form(key=f"transfer_gas_{gas_sale_id}"):
+                        if st.form_submit_button("Transfer", use_container_width=True):
+                            success, message = transfer_gas_to_pos(
+                                gas_sale_id=gas_sale_id,
+                                transfer_note="Manual transfer"
+                            )
+                            if success:
+                                show_toast(message, "success")
+                                st.rerun()
+                            else:
+                                st.error(message)
                 elif status == "TRANSFERRED_TO_POS":
                     st.success("TRANSFERRED")
                 else:
