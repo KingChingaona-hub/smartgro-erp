@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - Complete rewrite with table format, no emojis, overdue removed from summary
+# backend/modules/floating_financials.py - Complete rewrite with table format, no emojis, overdue removed from summary, tab persistence
 
 import streamlit as st
 import pandas as pd
@@ -34,7 +34,7 @@ from backend.core.animations import show_toast, show_confetti, animated_metric
 
 
 def floating_financials_page():
-    """Main Floating Financials Dashboard"""
+    """Main Floating Financials Dashboard - with tab persistence"""
     
     apply_page_theme("floating_financials")
     
@@ -46,19 +46,48 @@ def floating_financials_page():
         st.error("You don't have permission to access this page")
         return
     
-    tab1, tab2, tab3 = st.tabs([
-        "Change Management",
-        "Credit Management",
-        "Gas Sales Float"
-    ])
+    # Tab names
+    tab_names = ["Change Management", "Credit Management", "Gas Sales Float"]
+    
+    # Initialize tab in session state if not exists
+    if "floating_tab" not in st.session_state:
+        st.session_state.floating_tab = 0
+    
+    # Check query params for tab
+    try:
+        params = st.query_params
+        if "tab" in params:
+            tab_param = params.get("tab")
+            if tab_param in tab_names:
+                st.session_state.floating_tab = tab_names.index(tab_param)
+    except:
+        pass
+    
+    # Create tabs
+    tab1, tab2, tab3 = st.tabs(tab_names)
     
     with tab1:
+        st.session_state.floating_tab = 0
+        try:
+            st.query_params["tab"] = "Change Management"
+        except:
+            pass
         change_management_tab()
     
     with tab2:
+        st.session_state.floating_tab = 1
+        try:
+            st.query_params["tab"] = "Credit Management"
+        except:
+            pass
         credit_management_tab()
     
     with tab3:
+        st.session_state.floating_tab = 2
+        try:
+            st.query_params["tab"] = "Gas Sales Float"
+        except:
+            pass
         gas_sales_tab()
 
 
