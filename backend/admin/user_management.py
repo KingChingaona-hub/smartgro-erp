@@ -1,9 +1,11 @@
 # backend/admin/user_management.py
+# User Management - Fixed user creation and login
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 from backend.core.db_adapter import load_users, save_users
-from backend.core.auth import hash_password, ROLES, init_users
+from backend.core.auth import hash_password, ROLES, init_users, check_login
 from backend.utils.phone_utils import validate_zimbabwe_phone, format_phone_display
 from backend.core.db_adapter import load_branches
 import random
@@ -85,12 +87,6 @@ def user_management_page():
                             st.session_state.um_message = "Failed to create default users."
                             st.session_state.um_message_type = "error"
                         st.session_state.um_loading = False
-                        #st.rerun()
-            
-            with col2:
-                if st.button("Refresh", use_container_width=True):
-                    st.cache_data.clear()
-                    #st.rerun()
             return
             
     except Exception as e:
@@ -227,86 +223,14 @@ def user_management_page():
             display_df["last_login"] = display_df["last_login"].fillna("Never")
             
             st.dataframe(display_df, use_container_width=True, hide_index=True)
-            
-            # Bulk operations
-            st.markdown("### Bulk Operations")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            selected_users = st.multiselect("Select users for bulk action", filtered_df["username"].tolist())
-            
-            if selected_users:
-                with col1:
-                    if st.button("Bulk Activate", use_container_width=True):
-                        for username in selected_users:
-                            idx = users_df[users_df["username"] == username].index[0]
-                            users_df.loc[idx, "active"] = True
-                        save_users(users_df)
-                        log_audit("BULK_ACTIVATE", f"Activated users: {', '.join(selected_users)}")
-                        st.session_state.um_force_refresh = True
-                        st.success(f"Activated {len(selected_users)} users")
-                        st.rerun()
-                
-                with col2:
-                    if st.button("Bulk Deactivate", use_container_width=True):
-                        for username in selected_users:
-                            idx = users_df[users_df["username"] == username].index[0]
-                            users_df.loc[idx, "active"] = False
-                        save_users(users_df)
-                        log_audit("BULK_DEACTIVATE", f"Deactivated users: {', '.join(selected_users)}")
-                        st.session_state.um_force_refresh = True
-                        st.success(f"Deactivated {len(selected_users)} users")
-                        #st.rerun()
-                
-                with col3:
-                    if st.button("Bulk Delete", use_container_width=True):
-                        confirm = st.checkbox("I understand this action CANNOT be undone")
-                        if confirm:
-                            for username in selected_users:
-                                if username == st.session_state.get("username"):
-                                    st.warning(f"Skipping current user: {username}")
-                                    continue
-                                if users_df[users_df["username"] == username]["role"].iloc[0] == "owner":
-                                    owners_count = len(users_df[users_df["role"] == "owner"])
-                                    if owners_count <= 1:
-                                        st.warning(f"Skipping last owner: {username}")
-                                        continue
-                                users_df = users_df[users_df["username"] != username]
-                            save_users(users_df)
-                            log_audit("BULK_DELETE", f"Deleted users: {', '.join(selected_users)}")
-                            st.session_state.um_force_refresh = True
-                            st.success(f"Deleted {len(selected_users)} users")
-                            #st.rerun()
-                
-                with col4:
-                    if st.button("Bulk Export", use_container_width=True):
-                        export_df = users_df[users_df["username"].isin(selected_users)]
-                        csv = export_df.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="Download CSV",
-                            data=csv,
-                            file_name=f"users_export_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-            
-            # Individual export
-            csv = filtered_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Export Filtered Users (CSV)",
-                data=csv,
-                file_name=f"users_export_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
     
     # ==============================
-    # TAB 2: ADD USER - FIXED CONTINUOUS RUNNING
+    # TAB 2: ADD USER - FIXED
     # ==============================
     with tab2:
         st.subheader("Add New User")
         st.caption("Create a new user account with proper validation")
         
-        # Check if user was just created
         if st.session_state.user_created:
             st.success(f"User '{st.session_state.user_created_name}' created successfully!")
             st.balloons()
@@ -342,9 +266,11 @@ def user_management_page():
             
             if submitted:
                 # Reload users to check for duplicates
-                users_df = load_users()
+                current_users = load_users()
                 errors = []
                 warnings = []
+                standardized_phone = ""
+                standardized_whatsapp = ""
                 
                 # Validation
                 if not new_username:
@@ -353,7 +279,7 @@ def user_management_page():
                     errors.append("Username must be at least 3 characters")
                 elif not re.match(r'^[a-zA-Z0-9_]+$', new_username):
                     errors.append("Username can only contain letters, numbers, and underscores")
-                elif new_username in users_df["username"].values:
+                elif not current_users.empty and new_username in current_users["username"].values:
                     errors.append(f"Username '{new_username}' already exists!")
                 
                 if not new_password:
@@ -385,7 +311,7 @@ def user_management_page():
                     valid, standardized_phone, msg = validate_zimbabwe_phone(new_phone)
                     if not valid:
                         errors.append(f"Phone: {msg}")
-                    elif standardized_phone in users_df["phone"].values:
+                    elif not current_users.empty and "phone" in current_users.columns and standardized_phone in current_users["phone"].values:
                         errors.append(f"Phone number {format_phone_display(standardized_phone)} already in use by another user")
                 
                 # WhatsApp validation
@@ -393,7 +319,7 @@ def user_management_page():
                     valid, standardized_whatsapp, msg = validate_zimbabwe_phone(new_whatsapp)
                     if not valid:
                         errors.append(f"WhatsApp: {msg}")
-                    elif "whatsapp" in users_df.columns and standardized_whatsapp in users_df["whatsapp"].values:
+                    elif "whatsapp" in current_users.columns and standardized_whatsapp in current_users["whatsapp"].values:
                         errors.append(f"WhatsApp number {format_phone_display(standardized_whatsapp)} already in use by another user")
                 
                 if errors:
@@ -405,9 +331,11 @@ def user_management_page():
                             st.warning(f"{warning}")
                     
                     try:
+                        # Hash the password
                         hashed_pw = hash_password(new_password)
                         
-                        new_user = pd.DataFrame([{
+                        # Create new user DataFrame
+                        new_user_data = {
                             "username": new_username,
                             "password": hashed_pw,
                             "role": new_role,
@@ -419,12 +347,24 @@ def user_management_page():
                             "mobile_enabled": new_mobile,
                             "two_factor_enabled": new_2fa,
                             "force_password_change": new_force_password,
-                            "last_login": ""
-                        }])
+                            "last_login": "",
+                            "last_mobile_login": "",
+                            "device_info": "",
+                            "session_token": "",
+                            "receive_alerts": True
+                        }
+                        
+                        new_user = pd.DataFrame([new_user_data])
                         
                         # IMPORTANT: Load fresh users before saving to avoid overwriting
-                        current_users = load_users()
-                        updated_users = pd.concat([current_users, new_user], ignore_index=True)
+                        fresh_users = load_users()
+                        
+                        if fresh_users.empty:
+                            updated_users = new_user
+                        else:
+                            updated_users = pd.concat([fresh_users, new_user], ignore_index=True)
+                        
+                        # Save to database
                         save_users(updated_users)
                         
                         log_audit("USER_CREATED", f"Created user: {new_username} ({new_role})")
@@ -434,11 +374,13 @@ def user_management_page():
                         st.session_state.user_created_name = new_username
                         st.session_state.um_force_refresh = True
                         
-                        # Force rerun to show success
-                        #st.rerun()
+                        st.success(f"User '{new_username}' created successfully!")
+                        st.rerun()
                         
                     except Exception as e:
                         st.error(f"Error creating user: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
     
     # ==============================
     # TAB 3: EDIT USER
@@ -488,7 +430,7 @@ def user_management_page():
                                     if not valid:
                                         st.error(f"Phone: {msg}")
                                         st.stop()
-                                    elif standardized_phone != user_data.get("phone") and standardized_phone in current_users["phone"].values:
+                                    elif standardized_phone != user_data.get("phone") and not current_users.empty and standardized_phone in current_users["phone"].values:
                                         st.error(f"Phone number already in use by another user")
                                         st.stop()
                                     current_users.loc[idx, "phone"] = standardized_phone
@@ -520,7 +462,7 @@ def user_management_page():
                                 log_audit("USER_UPDATED", f"Updated user: {edit_user}")
                                 st.session_state.um_force_refresh = True
                                 st.success(f"User '{edit_user}' updated successfully!")
-                                #st.rerun()
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Error updating user: {str(e)}")
                     
@@ -595,7 +537,7 @@ def user_management_page():
                                     log_audit("PASSWORD_CHANGED", f"Changed password for: {password_user}")
                                     st.session_state.um_force_refresh = True
                                     st.success(f"Password for '{password_user}' changed successfully!")
-                                    #st.rerun()
+                                    st.rerun()
                                 except Exception as e:
                                     st.error(f"Error changing password: {str(e)}")
                     
@@ -617,7 +559,7 @@ def user_management_page():
                                 st.info("Please provide this password to the user. They can change it later.")
                                 log_audit("PASSWORD_RESET", f"Generated new password for: {password_user}")
                                 st.session_state.um_force_refresh = True
-                                #st.rerun()
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Error generating password: {str(e)}")
         else:
@@ -666,7 +608,7 @@ def user_management_page():
                                 log_audit(f"USER_{new_status.upper()}", f"{new_status} user: {delete_user}")
                                 st.session_state.um_force_refresh = True
                                 st.success(f"User '{delete_user}' {new_status} successfully!")
-                                #st.rerun()
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Error updating user: {str(e)}")
                     
@@ -691,7 +633,7 @@ def user_management_page():
                                                 log_audit("USER_DELETED", f"Deleted user: {delete_user}")
                                                 st.session_state.um_force_refresh = True
                                                 st.success(f"User '{delete_user}' deleted permanently!")
-                                                #st.rerun()
+                                                st.rerun()
                                             except Exception as e:
                                                 st.error(f"Error deleting user: {str(e)}")
                                 else:
@@ -743,7 +685,7 @@ def user_management_page():
     if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.session_state.um_force_refresh = True
-        #st.rerun()
+        st.rerun()
 
 
 # ==============================
