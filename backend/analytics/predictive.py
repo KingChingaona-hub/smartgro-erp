@@ -1,3 +1,6 @@
+# backend/analytics/predictive.py
+# Predictive Analytics Dashboard - With proper deduplication
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -25,17 +28,14 @@ def convert_decimal_to_float(df):
     
     for col in df.columns:
         if df[col].dtype == object:
-            # Check if column contains Decimal values
             sample = df[col].iloc[0] if len(df) > 0 else None
             if sample is not None and isinstance(sample, Decimal):
                 df[col] = df[col].astype(float)
-            elif sample is not None and isinstance(sample, (int, float)):
-                pass  # Already numeric
     return df
 
 
 def get_sales_data():
-    """Load and prepare sales data with proper column handling"""
+    """Load and prepare sales data with proper column handling and deduplication"""
     sales_df = load_sales()
     
     if sales_df.empty:
@@ -61,6 +61,20 @@ def get_sales_data():
     # Rename to standard 'date' for consistency
     if date_col != "date":
         sales_df["date"] = sales_df[date_col]
+    
+    # Find receipt column for deduplication
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
+    
+    # ============================================================
+    # DEDUPLICATION: Use unique receipts to avoid duplicates
+    # ============================================================
+    if receipt_col:
+        # Drop duplicates by receipt number (keep first occurrence)
+        sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
     
     # Find total column
     total_col = None
@@ -89,7 +103,6 @@ def get_sales_data():
     elif not profit_col:
         sales_df["profit"] = 0
     
-    # Ensure profit is float
     sales_df["profit"] = sales_df["profit"].astype(float)
     
     # Find items column
@@ -104,7 +117,6 @@ def get_sales_data():
     elif not items_col:
         sales_df["items"] = 1
     
-    # Ensure items is int
     sales_df["items"] = sales_df["items"].astype(int)
     
     # Find product name column
@@ -119,16 +131,9 @@ def get_sales_data():
     elif not product_col:
         sales_df["name"] = "Unknown"
     
-    # Ensure name is string
     sales_df["name"] = sales_df["name"].astype(str)
     
     # Find receipt column
-    receipt_col = None
-    for col in ["receipt_no", "receipt", "transaction_id"]:
-        if col in sales_df.columns:
-            receipt_col = col
-            break
-    
     if receipt_col and receipt_col != "receipt_no":
         sales_df["receipt_no"] = sales_df[receipt_col].fillna("")
     elif not receipt_col:
@@ -144,7 +149,6 @@ def get_products_data():
     if products_df.empty:
         return pd.DataFrame()
     
-    # Convert Decimal columns to float
     products_df = convert_decimal_to_float(products_df)
     
     # Find product name column
@@ -265,6 +269,7 @@ def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
     if model_type == "Linear Regression":
         future_days = np.arange(last_day + 1, last_day + days + 1).reshape(-1, 1)
         predictions = model.predict(future_days)
+        model_type_used = "Linear Regression"
     else:
         # Random Forest predictions with future features
         feature_cols = ["day_of_week", "month", "day_of_month", "week_of_year", "quarter", "is_weekend", "days_since_start"]
@@ -282,11 +287,16 @@ def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
             }
             future_features.append([features[col] for col in feature_cols])
         predictions = model.predict(future_features)
+        model_type_used = "Random Forest"
     
     predictions = np.maximum(predictions, 0)  # No negative sales
     
     # Calculate confidence intervals (95%)
-    y_pred = model.predict(X if model_type == "Linear Regression" else X_rf)
+    if model_type == "Linear Regression":
+        y_pred = model.predict(X)
+    else:
+        y_pred = model.predict(X_rf)
+    
     residuals = y - y_pred
     std_residual = np.std(residuals)
     confidence_interval = 1.96 * std_residual
@@ -308,6 +318,19 @@ def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
     rmse = float(np.sqrt(mean_squared_error(y, y_pred)))
     r2 = float(r2_score(y, y_pred))
     
+    # Determine trend
+    if model_type == "Linear Regression":
+        trend = "increasing" if model.coef_[0] > 0 else "decreasing"
+    else:
+        # For Random Forest, check if recent predictions are trending up or down
+        if len(predictions) >= 3:
+            mid = len(predictions) // 2
+            first_half = np.mean(predictions[:mid])
+            second_half = np.mean(predictions[mid:])
+            trend = "increasing" if second_half > first_half else "decreasing"
+        else:
+            trend = "variable"
+    
     return {
         "forecast": forecast,
         "total_forecast": float(round(sum(predictions), 2)),
@@ -316,8 +339,8 @@ def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
         "rmse": rmse,
         "r2": r2,
         "confidence_interval": float(round(confidence_interval, 2)),
-        "model_type": model_type,
-        "trend": "increasing" if model.coef_[0] > 0 else "decreasing" if model_type == "Linear Regression" else "variable"
+        "model_type": model_type_used,
+        "trend": trend
     }
 
 
@@ -380,7 +403,7 @@ def get_product_trend(sales_df, product_name, days=30):
 def predictive_analytics_dashboard():
     """Main predictive analytics dashboard"""
     
-    st.title("🔮 Predictive Analytics Dashboard")
+    st.title("Predictive Analytics Dashboard")
     st.caption("AI-powered sales forecasting and business intelligence")
     
     # Load data
@@ -394,7 +417,7 @@ def predictive_analytics_dashboard():
     # ==============================
     # SIDEBAR FILTERS
     # ==============================
-    st.sidebar.header("🔍 Filters")
+    st.sidebar.header("Filters")
     
     # Date filter
     min_date = sales_df["date"].min().date()
@@ -438,7 +461,6 @@ def predictive_analytics_dashboard():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Product selection
             products = ["All Products"] + sorted(filtered_df["name"].unique().tolist())
             selected_product = st.selectbox("Select Product", products, key="forecast_product")
         
@@ -446,7 +468,7 @@ def predictive_analytics_dashboard():
             forecast_days = st.slider("Forecast Days", 7, 90, 30, key="forecast_days")
             model_type = st.selectbox("Forecast Model", ["Linear Regression", "Random Forest"], key="model_type")
         
-        if st.button("🔮 Generate Forecast", type="primary", use_container_width=True):
+        if st.button("Generate Forecast", type="primary", use_container_width=True):
             with st.spinner("Training AI model and generating forecast..."):
                 # Prepare data
                 daily_sales = prepare_time_series_data(filtered_df, selected_product)
@@ -558,7 +580,7 @@ def predictive_analytics_dashboard():
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 🏆 Top Products")
+            st.markdown("### Top Products")
             top_products = get_top_products(filtered_df, 10)
             
             if not top_products.empty:
@@ -592,7 +614,13 @@ def predictive_analytics_dashboard():
                 product_performance["total"] = product_performance["total"].astype(float)
                 product_performance["profit"] = product_performance["profit"].astype(float)
                 product_performance["items"] = product_performance["items"].astype(int)
-                product_performance["margin"] = (product_performance["profit"] / product_performance["total"] * 100).fillna(0)
+                
+                # Avoid division by zero
+                product_performance["margin"] = 0.0
+                mask = product_performance["total"] > 0
+                product_performance.loc[mask, "margin"] = (
+                    product_performance.loc[mask, "profit"] / product_performance.loc[mask, "total"] * 100
+                ).fillna(0)
                 
                 # Merge with product data for stock info
                 if not products_df.empty:
@@ -648,7 +676,8 @@ def predictive_analytics_dashboard():
             
             with col3:
                 profit = product_data['profit'].sum()
-                margin = (profit / product_data['total'].sum() * 100) if product_data['total'].sum() > 0 else 0
+                total_rev = product_data['total'].sum()
+                margin = (profit / total_rev * 100) if total_rev > 0 else 0
                 st.metric(
                     "Profit Margin",
                     f"{margin:.1f}%"
@@ -661,9 +690,9 @@ def predictive_analytics_dashboard():
                 fig = px.line(
                     product_trend,
                     x="date",
-                    y=["sales", "ma_3", "ma_7"] if "ma_3" in product_trend.columns else ["sales"],
+                    y="sales",
                     title=f"Sales Trend for {search_product}",
-                    labels={"value": "Sales ($)", "date": "Date", "variable": "Metric"}
+                    labels={"sales": "Sales ($)", "date": "Date"}
                 )
                 fig.update_layout(height=300)
                 st.plotly_chart(fig, use_container_width=True)
@@ -730,9 +759,13 @@ def predictive_analytics_dashboard():
             # Growth metrics
             if len(daily_total) >= 2:
                 # Calculate growth
-                first_half = daily_total.head(len(daily_total)//2)["sales"].mean()
-                second_half = daily_total.tail(len(daily_total)//2)["sales"].mean()
-                growth = ((second_half - first_half) / first_half * 100) if first_half > 0 else 0
+                half_len = len(daily_total) // 2
+                if half_len > 0:
+                    first_half = daily_total.head(half_len)["sales"].mean()
+                    second_half = daily_total.tail(half_len)["sales"].mean()
+                    growth = ((second_half - first_half) / first_half * 100) if first_half > 0 else 0
+                else:
+                    growth = 0
                 
                 col1, col2, col3 = st.columns(3)
                 
@@ -788,19 +821,18 @@ def predictive_analytics_dashboard():
         total_items = int(filtered_df["items"].sum())
         
         # Calculate growth rate
+        month_growth = 0
         if len(filtered_df) >= 2:
-            # Get monthly totals
-            filtered_df["month"] = filtered_df["date"].dt.to_period("M")
-            monthly = filtered_df.groupby("month")["total"].sum()
-            
-            if len(monthly) >= 2:
-                last_month = monthly.iloc[-1]
-                prev_month = monthly.iloc[-2]
-                month_growth = ((last_month - prev_month) / prev_month * 100) if prev_month > 0 else 0
-            else:
-                month_growth = 0
-        else:
-            month_growth = 0
+            try:
+                filtered_df["month"] = filtered_df["date"].dt.to_period("M")
+                monthly = filtered_df.groupby("month")["total"].sum()
+                
+                if len(monthly) >= 2:
+                    last_month = monthly.iloc[-1]
+                    prev_month = monthly.iloc[-2]
+                    month_growth = ((last_month - prev_month) / prev_month * 100) if prev_month > 0 else 0
+            except:
+                pass
         
         col1, col2, col3 = st.columns(3)
         
@@ -816,7 +848,7 @@ def predictive_analytics_dashboard():
             # Predict next month sales
             if len(filtered_df) >= 30:
                 daily = prepare_time_series_data(filtered_df)
-                if daily and len(daily) >= 30:
+                if daily is not None and len(daily) >= 30:
                     forecast = forecast_sales(daily, 30, "Linear Regression")
                     if forecast:
                         st.metric(
@@ -835,10 +867,11 @@ def predictive_analytics_dashboard():
             # Profitability prediction
             if total_sales > 0:
                 profit_margin = (total_profit / total_sales * 100)
+                status = "Good" if profit_margin > 20 else ("Fair" if profit_margin > 10 else "Low")
                 st.metric(
                     "Profit Margin",
                     f"{profit_margin:.1f}%",
-                    delta="Good" if profit_margin > 20 else ("Fair" if profit_margin > 10 else "Low"),
+                    delta=status,
                     delta_color="normal" if profit_margin > 15 else "inverse"
                 )
             else:
@@ -856,7 +889,7 @@ def predictive_analytics_dashboard():
         if not top_products.empty:
             top_names = top_products["name"].head(3).tolist()
             recommendations.append(
-                f"**Focus on Top Products**: {', '.join(top_names)} are your best sellers. "
+                f"Focus on Top Products: {', '.join(top_names)} are your best sellers. "
                 f"Consider increasing stock and marketing these products."
             )
         
@@ -864,37 +897,45 @@ def predictive_analytics_dashboard():
         all_products = filtered_df["name"].unique()
         if len(all_products) > 5:
             product_counts = filtered_df.groupby("name")["items"].sum()
-            slow_movers = product_counts[product_counts < product_counts.quantile(0.25)].index.tolist()[:3]
-            if slow_movers:
-                recommendations.append(
-                    f"**Slow Movers**: {', '.join(slow_movers)} have low sales. "
-                    f"Consider discounting or running promotions to clear stock."
-                )
+            if len(product_counts) > 0:
+                threshold = product_counts.quantile(0.25)
+                slow_movers = product_counts[product_counts < threshold].index.tolist()[:3]
+                if slow_movers:
+                    recommendations.append(
+                        f"Slow Movers: {', '.join(slow_movers)} have low sales. "
+                        f"Consider discounting or running promotions to clear stock."
+                    )
         
         # Check for seasonal patterns
         if len(filtered_df) >= 30:
             daily = prepare_time_series_data(filtered_df)
-            if daily and len(daily) >= 30:
+            if daily is not None and len(daily) >= 30:
                 # Check for weekend effect
                 weekend_avg = daily[daily["is_weekend"] == 1]["sales"].mean()
                 weekday_avg = daily[daily["is_weekend"] == 0]["sales"].mean()
                 
-                if weekend_avg > weekday_avg * 1.2:
+                if weekday_avg > 0 and weekend_avg > weekday_avg * 1.2:
                     recommendations.append(
-                        f"**Weekend Effect**: Sales are {weekend_avg/weekday_avg:.1f}x higher on weekends. "
+                        f"Weekend Effect: Sales are {weekend_avg/weekday_avg:.1f}x higher on weekends. "
                         f"Consider weekend promotions and staffing accordingly."
                     )
         
         # Check for profit optimization
-        product_margin = filtered_df.groupby("name").agg({"profit": "sum", "total": "sum"}).reset_index()
-        product_margin["margin"] = (product_margin["profit"] / product_margin["total"] * 100).fillna(0)
-        
-        low_margin = product_margin[product_margin["margin"] < 10]["name"].tolist()[:3]
-        if low_margin:
-            recommendations.append(
-                f"**Margin Improvement**: {', '.join(low_margin)} have low profit margins. "
-                f"Review pricing or find cheaper suppliers."
-            )
+        if not filtered_df.empty:
+            product_margin = filtered_df.groupby("name").agg({"profit": "sum", "total": "sum"}).reset_index()
+            if not product_margin.empty:
+                product_margin["margin"] = 0.0
+                mask = product_margin["total"] > 0
+                product_margin.loc[mask, "margin"] = (
+                    product_margin.loc[mask, "profit"] / product_margin.loc[mask, "total"] * 100
+                ).fillna(0)
+                
+                low_margin = product_margin[product_margin["margin"] < 10]["name"].tolist()[:3]
+                if low_margin:
+                    recommendations.append(
+                        f"Margin Improvement: {', '.join(low_margin)} have low profit margins. "
+                        f"Review pricing or find cheaper suppliers."
+                    )
         
         if recommendations:
             for rec in recommendations:
@@ -908,6 +949,9 @@ def predictive_analytics_dashboard():
         st.markdown("### Export Predictions")
         
         if st.button("Generate AI Report", type="primary"):
+            receipt_count = filtered_df["receipt_no"].nunique() if "receipt_no" in filtered_df.columns else len(filtered_df)
+            avg_transaction = total_sales / receipt_count if receipt_count > 0 else 0
+            
             report_data = {
                 "Metric": [
                     "Total Sales", "Total Profit", "Average Daily Sales",
@@ -916,10 +960,10 @@ def predictive_analytics_dashboard():
                 "Value": [
                     f"${total_sales:,.2f}",
                     f"${total_profit:,.2f}",
-                    f"${daily_total['sales'].mean():.2f}" if 'daily_total' in locals() else "N/A",
+                    f"${daily_total['sales'].mean():.2f}" if 'daily_total' in locals() and not daily_total.empty else "N/A",
                     f"{month_growth:.1f}%",
                     len(filtered_df["name"].unique()),
-                    f"${total_sales / len(filtered_df['receipt_no'].unique()):.2f}" if "receipt_no" in filtered_df.columns else "N/A"
+                    f"${avg_transaction:.2f}"
                 ]
             }
             report_df = pd.DataFrame(report_data)
