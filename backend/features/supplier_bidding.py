@@ -1,3 +1,6 @@
+# backend/features/supplier_bidding.py
+# Supplier Bidding System - With suppliers sourced from purchases
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -111,6 +114,143 @@ def save_bidding_settings(settings):
         json.dump(settings, f, indent=2)
 
 
+# ==============================
+# GET SUPPLIERS FROM PURCHASES
+# ==============================
+def get_suppliers_from_purchases():
+    """Extract unique suppliers from purchases data"""
+    purchases_df = load_purchases()
+    
+    if purchases_df.empty:
+        return pd.DataFrame()
+    
+    # Find supplier column
+    supplier_col = None
+    for col in ["supplier", "supplier_name", "vendor", "provider"]:
+        if col in purchases_df.columns:
+            supplier_col = col
+            break
+    
+    if supplier_col is None:
+        return pd.DataFrame()
+    
+    # Get unique suppliers
+    suppliers = purchases_df[supplier_col].dropna().unique().tolist()
+    suppliers = [str(s).strip() for s in suppliers if str(s).strip() and str(s).strip().lower() != "unknown"]
+    
+    if not suppliers:
+        return pd.DataFrame()
+    
+    # Create supplier records
+    supplier_records = []
+    for idx, name in enumerate(suppliers):
+        supplier_records.append({
+            "supplier_id": f"SUP{idx+1:03d}",
+            "supplier_name": name,
+            "contact_person": "",
+            "email": "",
+            "phone": "",
+            "address": "",
+            "payment_terms": "NET30",
+            "lead_time_days": 7,
+            "rating": 0,
+            "active": True,
+            "created_date": datetime.now().isoformat()
+        })
+    
+    return pd.DataFrame(supplier_records)
+
+
+def sync_suppliers_from_purchases():
+    """Sync suppliers from purchases to suppliers file"""
+    purchases_suppliers = get_suppliers_from_purchases()
+    existing_suppliers = load_suppliers()
+    
+    if purchases_suppliers.empty:
+        return
+    
+    if existing_suppliers.empty:
+        # No existing suppliers, just save the purchases suppliers
+        save_suppliers(purchases_suppliers)
+        return
+    
+    # Get existing supplier names
+    existing_names = existing_suppliers["supplier_name"].str.lower().tolist()
+    
+    # Add new suppliers from purchases
+    new_suppliers = []
+    for _, row in purchases_suppliers.iterrows():
+        if row["supplier_name"].lower() not in existing_names:
+            new_suppliers.append(row.to_dict())
+    
+    if new_suppliers:
+        new_df = pd.DataFrame(new_suppliers)
+        combined = pd.concat([existing_suppliers, new_df], ignore_index=True)
+        save_suppliers(combined)
+
+
+def get_supplier_suggestions():
+    """Get supplier name suggestions from purchases"""
+    purchases_df = load_purchases()
+    
+    if purchases_df.empty:
+        return []
+    
+    supplier_col = None
+    for col in ["supplier", "supplier_name", "vendor", "provider"]:
+        if col in purchases_df.columns:
+            supplier_col = col
+            break
+    
+    if supplier_col is None:
+        return []
+    
+    suppliers = purchases_df[supplier_col].dropna().unique().tolist()
+    suppliers = [str(s).strip() for s in suppliers if str(s).strip() and str(s).strip().lower() != "unknown"]
+    
+    return sorted(set(suppliers))
+
+
+def add_supplier_from_purchase(supplier_name):
+    """Add a supplier from purchase order"""
+    suppliers_df = load_suppliers()
+    
+    # Check if already exists
+    if not suppliers_df.empty:
+        existing = suppliers_df[suppliers_df["supplier_name"].str.lower() == supplier_name.lower()]
+        if not existing.empty:
+            return existing.iloc[0]["supplier_id"], "Supplier already exists"
+    
+    # Generate new ID
+    if suppliers_df.empty:
+        next_num = 1
+    else:
+        existing_ids = suppliers_df["supplier_id"].tolist()
+        numbers = [int(id.replace("SUP", "")) for id in existing_ids if id.startswith("SUP")]
+        next_num = max(numbers) + 1 if numbers else 1
+    
+    supplier_id = f"SUP{next_num:03d}"
+    
+    new_supplier = pd.DataFrame([{
+        "supplier_id": supplier_id,
+        "supplier_name": supplier_name,
+        "contact_person": "",
+        "email": "",
+        "phone": "",
+        "address": "",
+        "payment_terms": "NET30",
+        "lead_time_days": 7,
+        "rating": 0,
+        "active": True,
+        "created_date": datetime.now().isoformat()
+    }])
+    
+    suppliers_df = pd.concat([suppliers_df, new_supplier], ignore_index=True)
+    save_suppliers(suppliers_df)
+    
+    return supplier_id, None
+
+
 def generate_supplier_id():
     """Generate unique supplier ID"""
     suppliers_df = load_suppliers()
@@ -163,22 +303,18 @@ def delete_supplier(supplier_id):
     suppliers_df = load_suppliers()
     bids_df = load_bids()
     
-    # Check if supplier exists
     if suppliers_df[suppliers_df["supplier_id"] == supplier_id].empty:
         return False, "Supplier not found"
     
-    # Check if supplier has any accepted bids
     supplier_bids = bids_df[bids_df["supplier_id"] == supplier_id]
     accepted_bids = supplier_bids[supplier_bids["status"] == "ACCEPTED"]
     
     if not accepted_bids.empty:
         return False, f"Cannot delete supplier with {len(accepted_bids)} accepted bids. Reject bids first."
     
-    # Remove supplier
     suppliers_df = suppliers_df[suppliers_df["supplier_id"] != supplier_id]
     save_suppliers(suppliers_df)
     
-    # Remove all bids from this supplier
     if not supplier_bids.empty:
         bids_df = bids_df[bids_df["supplier_id"] != supplier_id]
         save_bids(bids_df)
@@ -202,12 +338,16 @@ def toggle_supplier_active(supplier_id):
 
 
 def create_bidding_opportunity(po_number, total_amount, supplier_ids=None):
-    """Create a bidding opportunity for a purchase order - FIXED: No duplication"""
+    """Create a bidding opportunity for a purchase order"""
     
     bids_df = load_bids()
     suppliers_df = load_suppliers()
     
-    # Check if bidding opportunity already exists for this PO
+    # Sync suppliers from purchases first
+    sync_suppliers_from_purchases()
+    suppliers_df = load_suppliers()
+    
+    # Check if bidding opportunity already exists
     existing_bids = bids_df[bids_df["po_number"] == po_number]
     if not existing_bids.empty:
         return 0, "Bidding opportunity already exists for this PO"
@@ -219,7 +359,7 @@ def create_bidding_opportunity(po_number, total_amount, supplier_ids=None):
         eligible_suppliers = suppliers_df[suppliers_df["active"] == True]
     
     if eligible_suppliers.empty:
-        return 0, "No eligible suppliers found"
+        return 0, "No eligible suppliers found. Please add suppliers first."
     
     # Create bid records for each supplier
     new_bids = []
@@ -253,15 +393,13 @@ def create_bidding_opportunity(po_number, total_amount, supplier_ids=None):
 
 
 def submit_bid(po_number, supplier_id, supplier_name, bid_amount, delivery_days, warranty_months, payment_terms, notes=""):
-    """Submit a bid for a purchase order - FIXED: Update existing not duplicate"""
+    """Submit a bid for a purchase order"""
     
     bids_df = load_bids()
     
-    # Check if supplier already has a bid for this PO
     existing = bids_df[(bids_df["po_number"] == po_number) & (bids_df["supplier_id"] == supplier_id)]
     
     if not existing.empty:
-        # Update existing bid
         idx = existing.index[0]
         bids_df.loc[idx, "bid_amount"] = bid_amount
         bids_df.loc[idx, "delivery_days"] = delivery_days
@@ -272,15 +410,12 @@ def submit_bid(po_number, supplier_id, supplier_name, bid_amount, delivery_days,
         save_bids(bids_df)
         return True, "Bid updated successfully"
     else:
-        # Check if this PO has reached max bids
         po_bids = bids_df[bids_df["po_number"] == po_number]
-        if len(po_bids) >= 20:  # Safety limit
+        if len(po_bids) >= 20:
             return False, "Maximum bids reached for this PO"
         
-        # Create new bid
         bid_id = hashlib.md5(f"{po_number}{supplier_id}{datetime.now().isoformat()}".encode()).hexdigest()[:16]
         
-        # Get original amount from purchase order
         purchases_df = load_purchases()
         po_data = purchases_df[purchases_df["po_number"] == po_number]
         original_amount = po_data["total_cost"].iloc[0] if not po_data.empty else bid_amount
@@ -317,33 +452,28 @@ def evaluate_bids(po_number):
     if po_bids.empty:
         return None, "No bids to evaluate"
     
-    # Calculate scores for each bid
     scores = []
     for _, bid in po_bids.iterrows():
         score = 100
         
-        # Price score (lower is better) - 50% weight
         min_bid = po_bids["bid_amount"].min()
         if min_bid > 0:
             price_score = (min_bid / bid["bid_amount"]) * 50
         else:
             price_score = 0
         
-        # Delivery score (faster is better) - 20% weight
         min_delivery = po_bids["delivery_days"].min()
         if min_delivery > 0:
             delivery_score = (min_delivery / bid["delivery_days"]) * 20
         else:
             delivery_score = 0
         
-        # Warranty score (longer is better) - 15% weight
         max_warranty = po_bids["warranty_months"].max()
         if max_warranty > 0:
             warranty_score = (bid["warranty_months"] / max_warranty) * 15
         else:
             warranty_score = 0
         
-        # Payment terms score - 15% weight
         payment_score = 15 if bid["payment_terms"] in ["NET15", "COD"] else 10
         
         total_score = price_score + delivery_score + warranty_score + payment_score
@@ -356,10 +486,8 @@ def evaluate_bids(po_number):
             "payment_score": payment_score
         })
     
-    # Sort by score (highest first)
     scores.sort(key=lambda x: x["score"], reverse=True)
     
-    # Auto-accept if settings allow
     best = scores[0]
     if settings.get("auto_accept_lowest_bid", True):
         original_amount = best["bid"]["original_amount"]
@@ -374,7 +502,7 @@ def evaluate_bids(po_number):
 
 
 def accept_bid(bid_id):
-    """Accept a specific bid - FIXED: Proper status updates"""
+    """Accept a specific bid"""
     
     bids_df = load_bids()
     purchases_df = load_purchases()
@@ -383,15 +511,12 @@ def accept_bid(bid_id):
     if len(idx) == 0:
         return False
     
-    # Update bid status
     bids_df.loc[idx[0], "status"] = "ACCEPTED"
     bids_df.loc[idx[0], "evaluated_date"] = datetime.now().isoformat()
     
-    # Reject all other bids for this PO
     po_number = bids_df.loc[idx[0], "po_number"]
     bids_df.loc[(bids_df["po_number"] == po_number) & (bids_df["bid_id"] != bid_id), "status"] = "REJECTED"
     
-    # Update purchase order with selected supplier
     purchases_df.loc[purchases_df["po_number"] == po_number, "supplier"] = bids_df.loc[idx[0], "supplier_name"]
     purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "APPROVED"
     
@@ -421,7 +546,6 @@ def get_bidding_summary():
     accepted = len(bids_df[bids_df["status"] == "ACCEPTED"])
     rejected = len(bids_df[bids_df["status"] == "REJECTED"])
     
-    # Calculate savings
     accepted_bids = bids_df[bids_df["status"] == "ACCEPTED"]
     if not accepted_bids.empty:
         savings = (accepted_bids["original_amount"] - accepted_bids["bid_amount"]).sum()
@@ -456,8 +580,9 @@ def supplier_management_page():
         return
     
     init_bidding_files()
+    sync_suppliers_from_purchases()
     
-    # Initialize session state for supplier management
+    # Initialize session state
     if "supplier_added" not in st.session_state:
         st.session_state.supplier_added = False
     if "supplier_button_clicked" not in st.session_state:
@@ -472,10 +597,31 @@ def supplier_management_page():
     with tab1:
         st.markdown("### Add New Supplier")
         
+        # Get supplier suggestions from purchases
+        supplier_suggestions = get_supplier_suggestions()
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            supplier_name = st.text_input("Supplier Name *", key="sup_name", placeholder="e.g., National Foods")
+            # Autocomplete for supplier name
+            if supplier_suggestions:
+                supplier_name = st.selectbox(
+                    "Supplier Name *",
+                    options=[""] + supplier_suggestions,
+                    key="sup_name_select",
+                    help="Select existing supplier from purchases or type new name"
+                )
+                # Allow typing new name
+                supplier_name_input = st.text_input(
+                    "Or type new supplier name",
+                    value="" if supplier_name else "",
+                    key="sup_name_input",
+                    placeholder="e.g., National Foods"
+                )
+                final_supplier_name = supplier_name if supplier_name else supplier_name_input
+            else:
+                final_supplier_name = st.text_input("Supplier Name *", key="sup_name", placeholder="e.g., National Foods")
+            
             contact_person = st.text_input("Contact Person *", key="sup_contact", placeholder="John Doe")
             email = st.text_input("Email", key="sup_email", placeholder="supplier@company.com")
         
@@ -490,9 +636,9 @@ def supplier_management_page():
             if not st.session_state.supplier_button_clicked:
                 st.session_state.supplier_button_clicked = True
                 
-                if supplier_name and contact_person:
+                if final_supplier_name and contact_person:
                     supplier_id, error = add_supplier(
-                        supplier_name=supplier_name,
+                        supplier_name=final_supplier_name,
                         contact_person=contact_person,
                         email=email,
                         phone=phone,
@@ -504,7 +650,7 @@ def supplier_management_page():
                     if error:
                         st.error(f"{error}")
                     else:
-                        st.success(f"Supplier {supplier_name} added! ID: {supplier_id}")
+                        st.success(f"Supplier {final_supplier_name} added! ID: {supplier_id}")
                         st.session_state.supplier_added = True
                         st.rerun()
                 else:
@@ -515,11 +661,9 @@ def supplier_management_page():
     with tab2:
         st.markdown("### Supplier List")
         
-        # Load fresh data
         suppliers_df = load_suppliers()
         
         if not suppliers_df.empty:
-            # Display suppliers with action buttons
             for idx, supplier in suppliers_df.iterrows():
                 col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 2, 2, 1, 1, 1, 1])
                 
@@ -541,12 +685,11 @@ def supplier_management_page():
                     st.write(stars)
                 
                 with col5:
-                    status = "🟢 Active" if supplier['active'] else "🔴 Inactive"
+                    status = "Active" if supplier['active'] else "Inactive"
                     st.write(status)
                 
                 with col6:
-                    # Toggle active button
-                    toggle_label = "🔇" if supplier['active'] else "🔊"
+                    toggle_label = "Deactivate" if supplier['active'] else "Activate"
                     if st.button(toggle_label, key=f"toggle_{supplier['supplier_id']}", help="Toggle active status"):
                         if not st.session_state.supplier_button_clicked:
                             st.session_state.supplier_button_clicked = True
@@ -555,16 +698,13 @@ def supplier_management_page():
                             st.session_state.supplier_button_clicked = False
                 
                 with col7:
-                    # Delete button
-                    if st.button("🗑️", key=f"delete_{supplier['supplier_id']}", help="Delete supplier"):
+                    if st.button("Delete", key=f"delete_{supplier['supplier_id']}", help="Delete supplier"):
                         if not st.session_state.supplier_button_clicked:
                             st.session_state.supplier_button_clicked = True
                             st.session_state.supplier_to_delete = supplier['supplier_id']
-                            #st.rerun()
                 
                 st.divider()
             
-            # Confirmation dialog for deletion - SHOW AT TOP
             if st.session_state.supplier_to_delete:
                 supplier_id = st.session_state.supplier_to_delete
                 supplier_name = suppliers_df[suppliers_df["supplier_id"] == supplier_id]["supplier_name"].iloc[0]
@@ -596,8 +736,6 @@ def supplier_management_page():
                         st.session_state.supplier_button_clicked = False
                         st.rerun()
             
-            # Download suppliers
-            st.markdown("---")
             csv = suppliers_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="Download Suppliers (CSV)",
@@ -611,24 +749,23 @@ def supplier_management_page():
 
 
 # ==============================
-# SUPPLIER BIDDING DASHBOARD - FIXED
+# SUPPLIER BIDDING DASHBOARD
 # ==============================
 def supplier_bidding_dashboard():
-    """Supplier Bidding System Dashboard - FIXED: No continuous running"""
+    """Supplier Bidding System Dashboard"""
     
     st.title("Supplier Bidding System")
     st.caption("Competitive bidding for purchase orders - get the best prices")
     
     role = st.session_state.get("role", "cashier")
     
-    # Only owner and managers can access bidding system
     if role not in ["owner", "manager"]:
         st.error("Access Denied. Only owners and managers can manage supplier bidding.")
         return
     
     init_bidding_files()
+    sync_suppliers_from_purchases()
     
-    # Initialize session state for bidding
     if "bid_created" not in st.session_state:
         st.session_state.bid_created = False
     if "bidding_button_clicked" not in st.session_state:
@@ -636,9 +773,6 @@ def supplier_bidding_dashboard():
     if "bid_submitted" not in st.session_state:
         st.session_state.bid_submitted = False
     
-    # ==============================
-    # TABS
-    # ==============================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Bidding Overview",
         "Create Bid Opportunity",
@@ -668,7 +802,6 @@ def supplier_bidding_dashboard():
         
         st.markdown("---")
         
-        # Recent bids
         st.markdown("### Recent Bids")
         
         bids_df = load_bids()
@@ -685,7 +818,6 @@ def supplier_bidding_dashboard():
         else:
             st.info("No bids yet. Create a bid opportunity to get started.")
         
-        # Savings chart
         if summary["total_savings"] > 0:
             st.markdown("### Savings Impact")
             
@@ -705,13 +837,12 @@ def supplier_bidding_dashboard():
                 st.plotly_chart(fig, use_container_width=True)
     
     # ==============================
-    # TAB 2: CREATE BID OPPORTUNITY - FIXED
+    # TAB 2: CREATE BID OPPORTUNITY
     # ==============================
     with tab2:
         st.markdown("## Create Bid Opportunity")
         st.caption("Create a competitive bidding opportunity for suppliers")
         
-        # Load pending purchase orders
         purchases_df = load_purchases()
         
         if purchases_df.empty:
@@ -720,7 +851,6 @@ def supplier_bidding_dashboard():
                 st.session_state.current_page = "Purchases"
                 st.rerun()
         else:
-            # Get POs that haven't been bid on yet
             bids_df = load_bids()
             pos_with_bids = bids_df["po_number"].unique().tolist() if not bids_df.empty else []
             pending_pos = purchases_df[~purchases_df["po_number"].isin(pos_with_bids)]
@@ -749,7 +879,6 @@ def supplier_bidding_dashboard():
                         items_count = len(purchases_df[purchases_df["po_number"] == selected_po])
                         st.write(f"**Items:** {items_count}")
                     
-                    # Select suppliers
                     suppliers_df = load_suppliers()
                     
                     if suppliers_df.empty:
@@ -789,7 +918,7 @@ def supplier_bidding_dashboard():
                                 st.session_state.bidding_button_clicked = False
     
     # ==============================
-    # TAB 3: EVALUATE BIDS - FIXED
+    # TAB 3: EVALUATE BIDS
     # ==============================
     with tab3:
         st.markdown("## Evaluate Bids")
@@ -801,14 +930,12 @@ def supplier_bidding_dashboard():
         if pending_bids.empty:
             st.info("No pending bids to evaluate")
         else:
-            # Group by PO
             pos_with_bids = pending_bids["po_number"].unique()
             
             for po_number in pos_with_bids:
                 po_bids = pending_bids[pending_bids["po_number"] == po_number]
                 
                 with st.expander(f"PO: {po_number} - {len(po_bids)} bids received"):
-                    # Display bids
                     bid_data = []
                     for _, bid in po_bids.iterrows():
                         reduction = ((bid["original_amount"] - bid["bid_amount"]) / bid["original_amount"] * 100) if bid["original_amount"] > 0 else 0
@@ -827,7 +954,6 @@ def supplier_bidding_dashboard():
                     bid_df = pd.DataFrame(bid_data)
                     st.dataframe(bid_df.drop(columns=["bid_id"]), use_container_width=True, hide_index=True)
                     
-                    # Evaluate button
                     if st.button(f"Evaluate Best Bid for {po_number}", key=f"eval_{po_number}"):
                         if not st.session_state.bidding_button_clicked:
                             st.session_state.bidding_button_clicked = True
@@ -839,7 +965,6 @@ def supplier_bidding_dashboard():
                                 st.warning(message)
                             st.session_state.bidding_button_clicked = False
                     
-                    # Manual accept
                     st.markdown("**Or manually accept a bid:**")
                     selected_bid = st.selectbox(
                         f"Select bid to accept",
@@ -920,7 +1045,7 @@ def supplier_bidding_dashboard():
 
 
 # ==============================
-# SUPPLIER PORTAL BIDDING (for suppliers)
+# SUPPLIER PORTAL BIDDING
 # ==============================
 def supplier_bidding_portal():
     """Portal for suppliers to view and submit bids"""
@@ -928,7 +1053,6 @@ def supplier_bidding_portal():
     st.title("Supplier Bidding Portal")
     st.caption("View bidding opportunities and submit your best offers")
     
-    # This would be accessed by suppliers through their login
     supplier_id = st.session_state.get("supplier_id", None)
     supplier_name = st.session_state.get("supplier_name", None)
     
@@ -937,7 +1061,6 @@ def supplier_bidding_portal():
         st.info("Demo Supplier Login - Coming Soon")
         return
     
-    # Initialize session state
     if "supplier_bid_submitted" not in st.session_state:
         st.session_state.supplier_bid_submitted = False
     if "supplier_bid_button_clicked" not in st.session_state:
@@ -945,14 +1068,10 @@ def supplier_bidding_portal():
     
     bids_df = load_bids()
     
-    # Get bids for this supplier
     supplier_bids = bids_df[bids_df["supplier_id"] == supplier_id]
-    
-    # Get open bidding opportunities (where this supplier hasn't bid yet)
     all_bids_for_supplier = bids_df[bids_df["supplier_id"] == supplier_id]
     bid_pos = all_bids_for_supplier["po_number"].tolist() if not all_bids_for_supplier.empty else []
     
-    # Load open POs
     purchases_df = load_purchases()
     open_pos = purchases_df[(purchases_df["status"] == "PENDING") & (~purchases_df["po_number"].isin(bid_pos))]
     
@@ -1002,7 +1121,6 @@ def supplier_bidding_portal():
                     
                     st.session_state.supplier_bid_button_clicked = False
     
-    # Show existing bids
     if not supplier_bids.empty:
         st.markdown("### Your Submitted Bids")
         st.dataframe(
