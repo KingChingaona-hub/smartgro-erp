@@ -1,3 +1,5 @@
+# backend/modules/pos.py - Updated with customer autocomplete
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -57,6 +59,82 @@ def init_session():
         st.session_state.receipt_style = "Standard"
     if "checkout_processing" not in st.session_state:
         st.session_state.checkout_processing = False
+    if "customer_search" not in st.session_state:
+        st.session_state.customer_search = ""
+    if "selected_customer" not in st.session_state:
+        st.session_state.selected_customer = None
+
+
+# ==============================
+# GET CUSTOMER SUGGESTIONS
+# ==============================
+@st.cache_data(ttl=60)
+def get_customer_suggestions():
+    """Get unique customer names from sales data for autocomplete"""
+    try:
+        sales_df = load_sales()
+        if sales_df.empty:
+            return []
+        
+        # Find customer name column
+        customer_col = None
+        for col in ["customer_name", "customer", "Customer", "customer_name_original"]:
+            if col in sales_df.columns:
+                customer_col = col
+                break
+        
+        if not customer_col:
+            return []
+        
+        # Get unique customer names, excluding null/empty
+        customers = sales_df[customer_col].dropna().unique().tolist()
+        customers = [c for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+        customers = sorted(set(customers))
+        
+        return customers
+    except Exception as e:
+        print(f"Error getting customer suggestions: {e}")
+        return []
+
+
+@st.cache_data(ttl=60)
+def get_customer_phone_suggestions():
+    """Get customer phone numbers from sales data"""
+    try:
+        sales_df = load_sales()
+        if sales_df.empty:
+            return {}
+        
+        # Find customer name and phone columns
+        customer_col = None
+        phone_col = None
+        
+        for col in ["customer_name", "customer", "Customer"]:
+            if col in sales_df.columns:
+                customer_col = col
+                break
+        
+        for col in ["customer_phone", "phone", "Phone", "customer_phone_number"]:
+            if col in sales_df.columns:
+                phone_col = col
+                break
+        
+        if not customer_col or not phone_col:
+            return {}
+        
+        # Create mapping of customer name to phone
+        customer_phones = {}
+        for _, row in sales_df.iterrows():
+            name = row.get(customer_col)
+            phone = row.get(phone_col)
+            if name and str(name).strip() and str(name).strip().lower() != "walk-in":
+                if phone and str(phone).strip():
+                    customer_phones[str(name).strip()] = str(phone).strip()
+        
+        return customer_phones
+    except Exception as e:
+        print(f"Error getting customer phone suggestions: {e}")
+        return {}
 
 
 # ==============================
@@ -128,7 +206,7 @@ def check_stock_available(products_df, cart):
             return False, f"{item['name']} not found"
         stock = float(product.iloc[0]["stock"])
         qty = float(item["qty"])
-        if qty > stock + 0.001:  # Small tolerance for floating point
+        if qty > stock + 0.001:
             return False, f"{item['name']} only has {stock:.2f} units available"
     return True, "OK"
 
@@ -227,7 +305,6 @@ def supports_decimal_quantity(product_name, category=""):
     name_lower = product_name.lower()
     category_lower = str(category).lower()
     
-    # Products that support decimal quantities
     decimal_products = [
         "gas", "kg", "bread", "loaf", "flour", "sugar", "rice", 
         "maize meal", "cooking oil", "milk", "liquid", "weight"
@@ -241,7 +318,7 @@ def supports_decimal_quantity(product_name, category=""):
 
 
 # ==============================
-# POS PAGE - WITH DECIMAL SUPPORT
+# POS PAGE - WITH CUSTOMER AUTOCOMPLETE
 # ==============================
 def pos_page():
     init_session()
@@ -281,11 +358,10 @@ def pos_page():
                 st.rerun()
     
     # ==============================
-    # QUICK ACTION BUTTONS
+    # QUICK ACTION PRODUCTS
     # ==============================
     st.markdown("## Quick Action Products")
     
-    # Load sales for quick products - cached
     sales_df = load_sales()
     if not sales_df.empty and "name" in sales_df.columns:
         top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
@@ -307,7 +383,7 @@ def pos_page():
                             found = False
                             for item in cart:
                                 if item["barcode"] == product["barcode"]:
-                                    item["qty"] = float(item["qty"]) + 1.0  # FIX: Keep as float
+                                    item["qty"] = float(item["qty"]) + 1.0
                                     item["total"] = float(item["qty"]) * float(item["price"])
                                     found = True
                                     break
@@ -338,7 +414,6 @@ def pos_page():
             st.rerun()
         return
     
-    # Add mode selector for decimal products
     col_search, col_qty, col_mode = st.columns([3, 1, 1])
     
     with col_search:
@@ -349,7 +424,6 @@ def pos_page():
         )
     
     with col_qty:
-        # Allow decimal quantities with step of 0.5
         quick_qty = st.number_input(
             "Qty", 
             min_value=0.0, 
@@ -360,7 +434,6 @@ def pos_page():
         )
     
     with col_mode:
-        # Add option to input by amount instead of quantity
         quick_mode = st.selectbox(
             "Mode",
             ["Quantity", "Amount ($)"],
@@ -383,8 +456,6 @@ def pos_page():
         
         if selected_product:
             product = filtered_df[filtered_df["name"] == selected_product].iloc[0]
-            
-            # Check if this product supports decimal quantities
             is_decimal = supports_decimal_quantity(
                 product["name"], 
                 product.get("category", "")
@@ -403,17 +474,14 @@ def pos_page():
             with col3:
                 st.write(f"**Category:** {product['category']}")
             
-            # Show decimal support info
             if is_decimal:
                 st.info("🔢 Decimal quantities supported (e.g., 0.5, 1.5, 2.0)")
                 st.caption("💡 Use 'Amount ($)' mode to buy by value instead of weight")
             
-            # Calculate quantity based on mode
             final_qty = quick_qty
             price_per_unit = float(product["price"])
             
             if quick_mode == "Amount ($)":
-                # User enters amount they want to spend
                 amount_to_spend = quick_qty
                 if amount_to_spend > 0 and price_per_unit > 0:
                     final_qty = amount_to_spend / price_per_unit
@@ -423,7 +491,6 @@ def pos_page():
             else:
                 final_qty = quick_qty
             
-            # For non-decimal products, ensure quantity is integer
             if not is_decimal:
                 final_qty = int(final_qty) if final_qty > 0 else 0
                 if final_qty != quick_qty:
@@ -440,13 +507,13 @@ def pos_page():
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
-                            new_qty = float(item["qty"]) + float(final_qty)  # FIX: Keep as float
+                            new_qty = float(item["qty"]) + float(final_qty)
                             if new_qty > product["stock"]:
                                 st.toast(f"Cart exceeds available stock ({product['stock']:.2f})")
                                 found = True
                                 break
                             item["qty"] = new_qty
-                            item["total"] = float(new_qty) * float(item["price"])  # FIX: Keep as float
+                            item["total"] = float(new_qty) * float(item["price"])
                             found = True
                             if is_decimal:
                                 st.toast(f"Updated: {product['name']} x{new_qty:.2f}")
@@ -460,8 +527,8 @@ def pos_page():
                             "name": product["name"],
                             "price": float(product["price"]),
                             "cost": float(product["cost"]),
-                            "qty": float(final_qty),  # FIX: Store as float
-                            "total": float(product["price"]) * float(final_qty)  # FIX: Keep as float
+                            "qty": float(final_qty),
+                            "total": float(product["price"]) * float(final_qty)
                         })
                         if is_decimal:
                             st.toast(f"Added: {product['name']} x{final_qty:.2f}")
@@ -490,7 +557,6 @@ def pos_page():
                             st.rerun()
         return
     
-    # Cart items with management - supports decimals
     st.write("### Cart Items")
     
     for idx, item in enumerate(cart):
@@ -498,7 +564,6 @@ def pos_page():
         
         with col1:
             st.write(f"**{item['name']}**")
-            # Show if it's a decimal quantity
             if isinstance(item["qty"], float) and item["qty"] % 1 != 0:
                 st.caption(f"🔢 {item['qty']:.2f} units")
         
@@ -530,7 +595,6 @@ def pos_page():
         st.divider()
     
     cart_df = pd.DataFrame(cart)
-    # Display with proper decimal formatting
     st.dataframe(
         cart_df[["name", "qty", "price", "total"]],
         use_container_width=True,
@@ -574,10 +638,15 @@ def pos_page():
     st.markdown("---")
     
     # ==============================
-    # CUSTOMER DETAILS
+    # CUSTOMER DETAILS WITH AUTOCOMPLETE - UPDATED
     # ==============================
     st.markdown("## Customer Details")
     
+    # Get customer suggestions from sales data
+    customer_suggestions = get_customer_suggestions()
+    customer_phones = get_customer_phone_suggestions()
+    
+    # Recent customers
     if st.session_state.recent_customers:
         st.markdown("**Recent Customers:**")
         recent_cols = st.columns(min(5, len(st.session_state.recent_customers)))
@@ -586,26 +655,65 @@ def pos_page():
                 if st.button(f"{customer['name'][:10]}", key=f"recent_customer_{idx}"):
                     st.session_state.customer_name_input = customer['name']
                     st.session_state.customer_phone_input = customer['phone']
+                    st.rerun()
     
     col1, col2 = st.columns(2)
+    
     with col1:
-        customer_name = st.text_input(
-            "Customer Name",
-            value=st.session_state.get("customer_name_input", ""),
-            key="customer_name"
+        # Customer name with autocomplete dropdown
+        st.markdown("**Customer Name**")
+        
+        # Default value
+        default_name = st.session_state.get("customer_name_input", "Walk-in")
+        
+        # Create selectbox with customer suggestions + "Walk-in" as default
+        all_options = ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
+        
+        # Find the index of the current selection
+        current_index = 0
+        if default_name in all_options:
+            current_index = all_options.index(default_name)
+        
+        selected_customer = st.selectbox(
+            "Select or type customer name",
+            options=all_options,
+            index=current_index,
+            key="customer_name_select",
+            label_visibility="collapsed",
+            placeholder="Walk-in"
         )
+        
+        # Store the selected name
+        customer_name = selected_customer
+        st.session_state.customer_name_input = customer_name
+    
     with col2:
+        # Customer phone - auto-filled if available
+        st.markdown("**Phone Number**")
+        
+        # Auto-fill phone if customer has one
+        auto_phone = ""
+        if customer_name != "Walk-in" and customer_name in customer_phones:
+            auto_phone = customer_phones[customer_name]
+        
         customer_phone = st.text_input(
             "Phone",
-            value=st.session_state.get("customer_phone_input", ""),
-            key="customer_phone"
+            value=auto_phone or st.session_state.get("customer_phone_input", ""),
+            key="customer_phone_input",
+            label_visibility="collapsed",
+            placeholder="Enter phone number"
         )
+        st.session_state.customer_phone_input = customer_phone
+    
+    # Update recent customers when new customer entered
+    if customer_name and customer_name != "Walk-in" and customer_phone:
+        add_recent_customer(customer_name, customer_phone)
     
     customer_display = customer_name.strip().title() if customer_name and customer_name.strip() else "Walk-in"
     customer_phone_clean = customer_phone.strip() if customer_phone else ""
     
-    if customer_name and customer_name.strip() and customer_phone and customer_phone.strip():
-        add_recent_customer(customer_name.strip().title(), customer_phone.strip())
+    # Display selected customer
+    st.caption(f"Customer: **{customer_display}**" + (f" | Phone: {customer_phone_clean}" if customer_phone_clean else ""))
     
     # ==============================
     # RECEIPT STYLE
@@ -701,7 +809,7 @@ def pos_page():
                         st.info(f"New total: ${final_total:.2f}")
     
     # ==============================
-    # CHECKOUT BUTTONS - USING BATCH
+    # CHECKOUT BUTTONS
     # ==============================
     col1, col2, col3, col4 = st.columns(4)
     
@@ -734,26 +842,21 @@ def pos_page():
             st.button("Processing...", key="checkout_btn", type="primary", use_container_width=True, disabled=True)
         else:
             if st.button("Checkout", key="checkout_btn", type="primary", use_container_width=True):
-                # Validate
                 if not can_checkout:
                     st.error("Checkout validation failed. Please check payment details.")
                     st.stop()
                 
-                # Check stock - quick (supports decimals)
                 products_df = get_products()
                 stock_ok, stock_message = check_stock_available(products_df, cart)
                 if not stock_ok:
                     st.error(f"STOCK ERROR: {stock_message}")
                     st.stop()
                 
-                # Generate receipt number
                 receipt_no = datetime.now().strftime("%Y%m%d%H%M%S")
                 st.session_state.receipt_no = receipt_no
                 
-                # Get shift ID
                 shift_id = st.session_state.branch_shift_id or st.session_state.get("shift_id", "")
                 
-                # Add loyalty points - only if customer has phone
                 points_earned = 0
                 if customer_phone_clean and payment_method != "CREDIT":
                     try:
@@ -766,10 +869,8 @@ def pos_page():
                     except:
                         points_earned = 0
                 
-                # Set processing flag to prevent double click
                 st.session_state.checkout_processing = True
                 
-                # Prepare checkout data for batch processing
                 checkout_data = {
                     "cart": cart.copy(),
                     "receipt_no": receipt_no,
@@ -781,14 +882,12 @@ def pos_page():
                     "cashier": st.session_state.get("username", "system")
                 }
                 
-                # USE BATCH CHECKOUT - ONE DATABASE TRANSACTION
                 success, message = process_checkout_batch(
                     branch_id=st.session_state.get("user_branch", "HO"),
                     checkout_data=checkout_data
                 )
                 
                 if success:
-                    # Generate receipt
                     selected_style = st.session_state.get("receipt_style", "Standard")
                     
                     if selected_style == "Premium (Boxed)":
@@ -824,7 +923,6 @@ def pos_page():
                             discount_amount, tax_amount, cash_received, change, final_total
                         )
                     
-                    # Store transaction data
                     st.session_state.last_cart = cart.copy()
                     st.session_state.last_subtotal = subtotal
                     st.session_state.last_receipt_no = receipt_no
@@ -877,7 +975,6 @@ def pos_page():
         else:
             st.text_area("Receipt Preview", st.session_state.receipt, height=300, key="receipt_preview")
         
-        # PDF Download
         pdf_file = generate_receipt_pdf(st.session_state.receipt)
         if pdf_file:
             st.download_button(
@@ -889,7 +986,6 @@ def pos_page():
                 use_container_width=True
             )
         
-        # WhatsApp
         customer_phone_data = st.session_state.get("last_customer_phone", "")
         if customer_phone_data:
             whatsapp_receipt = generate_whatsapp_receipt(
@@ -914,7 +1010,6 @@ def pos_page():
                 </a>
                 """, unsafe_allow_html=True)
         
-        # Print
         if selected_style != "HTML Print":
             print_html = f"""
             <html>
@@ -966,9 +1061,6 @@ def pos_page():
                         use_container_width=True
                     )
     
-    # ==============================
-    # REFRESH BUTTON
-    # ==============================
     st.markdown("---")
     if st.button("Refresh Page", key="refresh_page_btn", use_container_width=True):
         st.cache_data.clear()
