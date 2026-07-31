@@ -21,6 +21,9 @@ from backend.core.db_adapter import (
     to_float
 )
 
+# Import Floating Financials for debtors
+from backend.core.floating_financials import get_credit_records, get_change_records
+
 from backend.analytics.reports_engine import (
     get_sales_report_data,
     get_products_report_data,
@@ -115,13 +118,14 @@ def get_sales_data(date_from=None, date_to=None):
 
 
 def get_expenses_data(date_from=None, date_to=None):
-    """Get expenses data from expenses table"""
+    """Get expenses data from expenses table - FIXED"""
     try:
         expenses_df = load_expenses()
         
         if expenses_df.empty:
             return pd.DataFrame()
         
+        # Find date column
         date_col = find_column(expenses_df, ["expense_date", "date", "created_at"])
         
         if date_col:
@@ -133,12 +137,27 @@ def get_expenses_data(date_from=None, date_to=None):
             if date_to:
                 expenses_df = expenses_df[expenses_df[date_col] <= pd.to_datetime(date_to)]
         
+        # Find amount column
         amount_col = find_column(expenses_df, ["amount", "total", "expense_amount"])
         
-        if amount_col and amount_col != "amount":
+        if amount_col:
             expenses_df["amount"] = pd.to_numeric(expenses_df[amount_col], errors="coerce").fillna(0)
-        elif not amount_col:
+        else:
             expenses_df["amount"] = 0
+        
+        # Find category column
+        category_col = find_column(expenses_df, ["category", "expense_category", "type"])
+        if category_col:
+            expenses_df["category"] = expenses_df[category_col].fillna("Uncategorized")
+        else:
+            expenses_df["category"] = "Uncategorized"
+        
+        # Find description column
+        desc_col = find_column(expenses_df, ["description", "notes", "expense_description"])
+        if desc_col:
+            expenses_df["description"] = expenses_df[desc_col].fillna("")
+        else:
+            expenses_df["description"] = ""
         
         return expenses_df
     except Exception as e:
@@ -147,13 +166,14 @@ def get_expenses_data(date_from=None, date_to=None):
 
 
 def get_income_data(date_from=None, date_to=None):
-    """Get income data from income table"""
+    """Get income data from income table - FIXED"""
     try:
         income_df = load_income()
         
         if income_df.empty:
             return pd.DataFrame()
         
+        # Find date column
         date_col = find_column(income_df, ["income_date", "date", "created_at"])
         
         if date_col:
@@ -165,12 +185,27 @@ def get_income_data(date_from=None, date_to=None):
             if date_to:
                 income_df = income_df[income_df[date_col] <= pd.to_datetime(date_to)]
         
+        # Find amount column
         amount_col = find_column(income_df, ["amount", "total", "income_amount"])
         
-        if amount_col and amount_col != "amount":
+        if amount_col:
             income_df["amount"] = pd.to_numeric(income_df[amount_col], errors="coerce").fillna(0)
-        elif not amount_col:
+        else:
             income_df["amount"] = 0
+        
+        # Find source column
+        source_col = find_column(income_df, ["income_source", "source", "type"])
+        if source_col:
+            income_df["source"] = income_df[source_col].fillna("Other")
+        else:
+            income_df["source"] = "Other"
+        
+        # Find description column
+        desc_col = find_column(income_df, ["description", "notes"])
+        if desc_col:
+            income_df["description"] = income_df[desc_col].fillna("")
+        else:
+            income_df["description"] = ""
         
         return income_df
     except Exception as e:
@@ -211,7 +246,7 @@ def get_purchases_data(date_from=None, date_to=None):
 
 
 def get_customers_data():
-    """Get customers data from sales"""
+    """Get customers data from sales - FIXED profit source"""
     try:
         sales_df = load_sales()
         
@@ -223,23 +258,30 @@ def get_customers_data():
         if not customer_col:
             return pd.DataFrame()
         
-        customers = sales_df.groupby(customer_col).agg({
-            "total": "sum",
-            "profit": "sum"
-        }).reset_index()
-        
-        customers.columns = ["customer", "total_spent", "total_profit"]
-        
+        # Get unique customers and their total spending and profit
+        # Use receipt deduplication for accurate totals
         receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id"])
         
         if receipt_col:
-            transactions = sales_df.groupby(customer_col)[receipt_col].nunique().reset_index()
-            transactions.columns = ["customer", "transactions"]
-            customers = customers.merge(transactions, on="customer", how="left")
+            # Get unique receipts per customer
+            customers = sales_df.groupby(customer_col).agg({
+                "total": "sum",
+                "profit": "sum",
+                receipt_col: "nunique"
+            }).reset_index()
+            customers.columns = ["customer", "total_spent", "total_profit", "transactions"]
         else:
+            customers = sales_df.groupby(customer_col).agg({
+                "total": "sum",
+                "profit": "sum"
+            }).reset_index()
+            customers.columns = ["customer", "total_spent", "total_profit"]
             customers["transactions"] = 1
         
         customers = customers.sort_values("total_spent", ascending=False)
+        
+        # Filter out 'Walk-in' and empty
+        customers = customers[~customers["customer"].str.lower().isin(["walk-in", "", "none", "null"])]
         
         return customers
     except Exception as e:
@@ -247,21 +289,35 @@ def get_customers_data():
         return pd.DataFrame()
 
 
-def get_debtors_data():
-    """Get debtors data from debtors table"""
+def get_debtors_from_floating():
+    """Get debtors from Floating Financials - FIXED source"""
     try:
-        debtors_df = load_debtors()
+        # Get credits from floating financials
+        credits_df = get_credit_records()
         
-        if debtors_df.empty:
+        if credits_df.empty:
             return pd.DataFrame()
         
-        for col in ["total_amount", "amount_paid", "balance"]:
-            if col in debtors_df.columns:
-                debtors_df[col] = pd.to_numeric(debtors_df[col], errors="coerce").fillna(0)
+        # Filter to only those with balance > 0
+        credits_df = credits_df[credits_df["balance"] > 0]
         
-        return debtors_df
+        # Rename columns to match debtors format
+        result = []
+        for _, row in credits_df.iterrows():
+            result.append({
+                "customer_name": row.get("customer_name", "Unknown"),
+                "phone": row.get("phone", ""),
+                "total_amount": safe_float(row.get("amount", 0)),
+                "amount_paid": safe_float(row.get("amount_paid", 0)),
+                "balance": safe_float(row.get("balance", 0)),
+                "status": row.get("status", "ACTIVE"),
+                "expected_repayment_date": row.get("expected_repayment_date", ""),
+                "credit_id": row.get("credit_id", "")
+            })
+        
+        return pd.DataFrame(result)
     except Exception as e:
-        print(f"Error getting debtors data: {e}")
+        print(f"Error getting debtors from floating: {e}")
         return pd.DataFrame()
 
 
@@ -447,7 +503,7 @@ def reports_dashboard():
             st.info("No sales data available for the selected period")
     
     # ==============================
-    # EXPENSES REPORT - FIXED SOURCE
+    # EXPENSES REPORT - FIXED
     # ==============================
     if report_type == "Expenses" or report_type == "Combined":
         st.markdown("---")
@@ -462,48 +518,43 @@ def reports_dashboard():
             with col1:
                 st.metric("Total Expenses", f"${total_expenses:,.2f}")
             with col2:
-                category_col = find_column(expenses_data, ["category", "expense_category", "type"])
-                if category_col:
-                    st.metric("Categories", len(expenses_data[category_col].unique()))
+                st.metric("Categories", len(expenses_data["category"].unique()))
             with col3:
                 date_col = find_column(expenses_data, ["expense_date", "date"])
                 if date_col:
                     st.metric("Days with Expenses", len(expenses_data[date_col].dt.date.unique()))
             
             # Expenses by category
-            category_col = find_column(expenses_data, ["category", "expense_category", "type"])
-            if category_col:
-                by_category = expenses_data.groupby(category_col)["amount"].sum().reset_index()
-                by_category.columns = ["category", "amount"]
-                by_category = by_category.sort_values("amount", ascending=False)
+            by_category = expenses_data.groupby("category")["amount"].sum().reset_index()
+            by_category = by_category.sort_values("amount", ascending=False)
+            
+            if not by_category.empty:
+                col1, col2 = st.columns(2)
                 
-                if not by_category.empty:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        fig = px.pie(
-                            by_category,
-                            values="amount",
-                            names="category",
-                            title="Expenses by Category",
-                            color_discrete_sequence=px.colors.qualitative.Set3
-                        )
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
-                        fig = px.bar(
-                            by_category.head(10),
-                            x="category",
-                            y="amount",
-                            title="Expenses by Category",
-                            color="amount",
-                            color_continuous_scale="Reds",
-                            text="amount"
-                        )
-                        fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                with col1:
+                    fig = px.pie(
+                        by_category,
+                        values="amount",
+                        names="category",
+                        title="Expenses by Category",
+                        color_discrete_sequence=px.colors.qualitative.Set3
+                    )
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    fig = px.bar(
+                        by_category.head(10),
+                        x="category",
+                        y="amount",
+                        title="Expenses by Category",
+                        color="amount",
+                        color_continuous_scale="Reds",
+                        text="amount"
+                    )
+                    fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
             
             # Daily expenses trend
             date_col = find_column(expenses_data, ["expense_date", "date"])
@@ -544,10 +595,10 @@ def reports_dashboard():
                         href = f'<a href="data:application/pdf;base64,{b64}" download="expenses_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
         else:
-            st.info("No expenses data available for the selected period")
+            st.info("No expenses data available for the selected period. Please add expenses in the Expenses module.")
     
     # ==============================
-    # INCOME REPORT - NEW
+    # INCOME REPORT - FIXED
     # ==============================
     if report_type == "Income" or report_type == "Combined":
         st.markdown("---")
@@ -562,48 +613,43 @@ def reports_dashboard():
             with col1:
                 st.metric("Total Income", f"${total_income:,.2f}")
             with col2:
-                source_col = find_column(income_data, ["income_source", "source", "type"])
-                if source_col:
-                    st.metric("Income Sources", len(income_data[source_col].unique()))
+                st.metric("Income Sources", len(income_data["source"].unique()))
             with col3:
                 date_col = find_column(income_data, ["income_date", "date"])
                 if date_col:
                     st.metric("Days with Income", len(income_data[date_col].dt.date.unique()))
             
             # Income by source
-            source_col = find_column(income_data, ["income_source", "source", "type"])
-            if source_col:
-                by_source = income_data.groupby(source_col)["amount"].sum().reset_index()
-                by_source.columns = ["source", "amount"]
-                by_source = by_source.sort_values("amount", ascending=False)
+            by_source = income_data.groupby("source")["amount"].sum().reset_index()
+            by_source = by_source.sort_values("amount", ascending=False)
+            
+            if not by_source.empty:
+                col1, col2 = st.columns(2)
                 
-                if not by_source.empty:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        fig = px.pie(
-                            by_source,
-                            values="amount",
-                            names="source",
-                            title="Income by Source",
-                            color_discrete_sequence=px.colors.qualitative.Set3
-                        )
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
-                        fig = px.bar(
-                            by_source.head(10),
-                            x="source",
-                            y="amount",
-                            title="Income by Source",
-                            color="amount",
-                            color_continuous_scale="Greens",
-                            text="amount"
-                        )
-                        fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                with col1:
+                    fig = px.pie(
+                        by_source,
+                        values="amount",
+                        names="source",
+                        title="Income by Source",
+                        color_discrete_sequence=px.colors.qualitative.Set3
+                    )
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    fig = px.bar(
+                        by_source.head(10),
+                        x="source",
+                        y="amount",
+                        title="Income by Source",
+                        color="amount",
+                        color_continuous_scale="Greens",
+                        text="amount"
+                    )
+                    fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
             
             # Daily income trend
             date_col = find_column(income_data, ["income_date", "date"])
@@ -636,7 +682,7 @@ def reports_dashboard():
                     mime="text/csv"
                 )
         else:
-            st.info("No income data available for the selected period")
+            st.info("No income data available for the selected period. Please add income in the Income module.")
     
     # ==============================
     # PURCHASES REPORT
@@ -799,7 +845,7 @@ def reports_dashboard():
             st.info("No inventory data available")
     
     # ==============================
-    # CUSTOMERS REPORT
+    # CUSTOMERS REPORT - FIXED PROFIT
     # ==============================
     if report_type == "Customers" or report_type == "Combined":
         st.markdown("---")
@@ -866,20 +912,33 @@ def reports_dashboard():
             st.info("No customer data available")
     
     # ==============================
-    # DEBTORS REPORT
+    # DEBTORS REPORT - FROM FLOATING FINANCIALS
     # ==============================
     if report_type == "Debtors" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Debtors Report")
         
-        debtors_data = get_debtors_data()
+        # Get debtors from Floating Financials
+        debtors_data = get_debtors_from_floating()
         
         if not debtors_data.empty:
             total_debt = safe_float(debtors_data["total_amount"].sum())
             total_paid = safe_float(debtors_data["amount_paid"].sum())
             outstanding = safe_float(debtors_data["balance"].sum())
             debtors_count = len(debtors_data)
-            overdue_count = len(debtors_data[debtors_data["status"] == "OVERDUE"])
+            
+            # Count overdue (where expected_repayment_date < today)
+            today = datetime.now().date()
+            overdue_count = 0
+            for _, row in debtors_data.iterrows():
+                due_date = row.get("expected_repayment_date")
+                if due_date and pd.notna(due_date):
+                    try:
+                        due = pd.to_datetime(due_date).date()
+                        if due < today and safe_float(row.get("balance", 0)) > 0:
+                            overdue_count += 1
+                    except:
+                        pass
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -955,7 +1014,7 @@ def reports_dashboard():
                     mime="text/csv"
                 )
         else:
-            st.info("No debtors data available")
+            st.info("No debtors data available from Floating Financials")
     
     # ==============================
     # COMBINED DASHBOARD SUMMARY
@@ -970,7 +1029,7 @@ def reports_dashboard():
         income_data = get_income_data(start_datetime, end_datetime)
         purchases_data = get_purchases_data(start_datetime, end_datetime)
         customers_data = get_customers_data()
-        debtors_data = get_debtors_data()
+        debtors_data = get_debtors_from_floating()
         
         total_sales = safe_float(sales_data["total"].sum()) if not sales_data.empty else 0
         total_expenses = safe_float(expenses_data["amount"].sum()) if not expenses_data.empty else 0
