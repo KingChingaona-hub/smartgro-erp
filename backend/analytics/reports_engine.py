@@ -1,3 +1,5 @@
+# backend/analytics/reports_engine.py - UPDATED with correct income and expense sources
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -5,7 +7,18 @@ from decimal import Decimal
 import io
 import base64
 
-from backend.core.db_adapter import load_sales, load_products, load_customers, load_branches, load_expenses, load_purchases, load_debtors
+from backend.core.db_adapter import (
+    load_sales, 
+    load_products, 
+    load_customers, 
+    load_branches, 
+    load_expenses, 
+    load_purchases, 
+    load_debtors,
+    load_income,
+    to_float
+)
+
 
 # ==============================
 # CONSTANTS
@@ -59,7 +72,7 @@ def find_column(df, possible_names, default=None):
     for name in possible_names:
         if name in df.columns:
             return name
-    return default
+    return None
 
 
 def get_sales_report_data(start_date, end_date):
@@ -83,6 +96,11 @@ def get_sales_report_data(start_date, end_date):
     
     if date_col != "date":
         sales_df["date"] = sales_df[date_col]
+    
+    # Find receipt column for deduplication
+    receipt_col = find_column(sales_df, ['receipt_no', 'receipt', 'transaction_id', 'order_id', 'invoice'])
+    if receipt_col:
+        sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
     
     total_col = find_column(sales_df, ['total', 'final_total', 'amount', 'sale_amount', 'revenue'])
     if total_col is None:
@@ -126,12 +144,6 @@ def get_sales_report_data(start_date, end_date):
     else:
         sales_df["customer"] = sales_df[customer_col].fillna("Walk-in").astype(str)
     
-    receipt_col = find_column(sales_df, ['receipt_no', 'receipt', 'transaction_id', 'order_id', 'invoice'])
-    if receipt_col is None:
-        sales_df["receipt_no"] = sales_df.index.astype(str)
-    else:
-        sales_df["receipt_no"] = sales_df[receipt_col].fillna("").astype(str)
-    
     if start_date and end_date:
         try:
             start_dt = pd.to_datetime(start_date)
@@ -144,7 +156,7 @@ def get_sales_report_data(start_date, end_date):
 
 
 def get_expenses_report_data(start_date, end_date):
-    """Get expenses data for reporting"""
+    """Get expenses data for reporting - FIXED: uses expenses table"""
     expenses_df = load_expenses()
     
     if expenses_df.empty:
@@ -152,7 +164,7 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df = convert_decimal_to_float(expenses_df)
     
-    date_col = find_column(expenses_df, ['date', 'expense_date', 'created_at', 'transaction_date'])
+    date_col = find_column(expenses_df, ['expense_date', 'date', 'created_at', 'transaction_date'])
     if date_col is None:
         return pd.DataFrame()
     
@@ -173,7 +185,7 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df["amount"] = expenses_df["amount"].astype(float)
     
-    category_col = find_column(expenses_df, ['category', 'type', 'name', 'expense_type'])
+    category_col = find_column(expenses_df, ['category', 'type', 'expense_type', 'name'])
     if category_col is None:
         expenses_df["category"] = "Other"
     else:
@@ -190,6 +202,53 @@ def get_expenses_report_data(start_date, end_date):
     return expenses_df
 
 
+def get_income_report_data(start_date, end_date):
+    """Get income data for reporting - FIXED: uses income table"""
+    income_df = load_income()
+    
+    if income_df.empty:
+        return pd.DataFrame()
+    
+    income_df = convert_decimal_to_float(income_df)
+    
+    date_col = find_column(income_df, ['income_date', 'date', 'created_at', 'transaction_date'])
+    if date_col is None:
+        return pd.DataFrame()
+    
+    income_df[date_col] = pd.to_datetime(income_df[date_col], errors="coerce")
+    income_df = income_df.dropna(subset=[date_col])
+    
+    if income_df.empty:
+        return pd.DataFrame()
+    
+    if date_col != "date":
+        income_df["date"] = income_df[date_col]
+    
+    amount_col = find_column(income_df, ['amount', 'total', 'value', 'income_amount'])
+    if amount_col is None:
+        income_df["amount"] = 0
+    else:
+        income_df["amount"] = pd.to_numeric(income_df[amount_col], errors="coerce").fillna(0)
+    
+    income_df["amount"] = income_df["amount"].astype(float)
+    
+    source_col = find_column(income_df, ['income_source', 'source', 'type', 'name'])
+    if source_col is None:
+        income_df["source"] = "Other"
+    else:
+        income_df["source"] = income_df[source_col].fillna("Other").astype(str)
+    
+    if start_date and end_date:
+        try:
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            income_df = income_df[(income_df["date"] >= start_dt) & (income_df["date"] <= end_dt)]
+        except:
+            pass
+    
+    return income_df
+
+
 def get_purchases_report_data(start_date, end_date):
     """Get purchases data for reporting"""
     purchases_df = load_purchases()
@@ -199,7 +258,7 @@ def get_purchases_report_data(start_date, end_date):
     
     purchases_df = convert_decimal_to_float(purchases_df)
     
-    date_col = find_column(purchases_df, ['date', 'order_date', 'purchase_date', 'created_at'])
+    date_col = find_column(purchases_df, ['date_ordered', 'date', 'order_date', 'purchase_date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
     
@@ -454,6 +513,39 @@ def get_debtors_report_data():
     return debtors_df
 
 
+def generate_income_report(start_date, end_date):
+    """Generate income report - NEW"""
+    income_df = get_income_report_data(start_date, end_date)
+    
+    if income_df.empty:
+        return {
+            "total_income": 0,
+            "by_source": pd.DataFrame(),
+            "daily_income": pd.DataFrame(),
+            "total_sources": 0
+        }
+    
+    total_income = float(income_df["amount"].sum())
+    
+    by_source = income_df.groupby("source")["amount"].sum().reset_index()
+    by_source.columns = ["source", "amount"]
+    by_source = by_source.sort_values("amount", ascending=False)
+    by_source["amount"] = by_source["amount"].astype(float)
+    
+    daily_income = income_df.groupby(income_df["date"].dt.date)["amount"].sum().reset_index()
+    daily_income.columns = ["date", "amount"]
+    daily_income["date"] = pd.to_datetime(daily_income["date"])
+    daily_income["amount"] = daily_income["amount"].astype(float)
+    daily_income = daily_income.sort_values("date")
+    
+    return {
+        "total_income": total_income,
+        "by_source": by_source,
+        "daily_income": daily_income,
+        "total_sources": len(by_source)
+    }
+
+
 def generate_sales_report(start_date, end_date):
     """Generate comprehensive sales report"""
     sales_df = get_sales_report_data(start_date, end_date)
@@ -694,7 +786,7 @@ def generate_debtors_report():
 
 
 # ==============================
-# HTML REPORT GENERATORS WITH COMPANY NAME
+# HTML REPORT GENERATORS
 # ==============================
 
 def get_report_header(title, start_date=None, end_date=None):
@@ -756,7 +848,6 @@ def generate_sales_report_pdf(start_date, end_date):
     
     elements = []
     
-    # Company Header
     elements.append(Paragraph("AZIEL INVESTMENTS", company_title_style))
     elements.append(Paragraph("Retreat Park, Harare", company_sub_style))
     elements.append(Paragraph("📞 +263 78 290 5853", company_sub_style))
@@ -817,7 +908,6 @@ def generate_sales_report_pdf(start_date, end_date):
         ]))
         elements.append(product_table)
     
-    # Footer
     elements.append(Spacer(1, 30))
     footer_text = f"{COMPANY_NAME} - {COMPANY_ADDRESS} | 📞 {COMPANY_PHONE} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     elements.append(Paragraph(footer_text, styles['Normal']))
@@ -969,6 +1059,72 @@ def generate_expenses_report_pdf(start_date, end_date):
     return html.encode('utf-8')
 
 
+def generate_income_report_pdf(start_date, end_date):
+    """Generate income report PDF with company name - NEW"""
+    report_data = generate_income_report(start_date, end_date)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Income Report - {COMPANY_NAME}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
+        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
+        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
+        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
+        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+        tr:nth-child(even) {{ background: #f8f9fa; }}
+        .section {{ margin-top: 30px; }}
+        .section-title {{ color: #2c3e50; border-bottom: 2px solid #2ecc71; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
+    </style>
+    </head>
+    <body>
+        <div class="company-header">
+            <h1>{COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>Income Report</h2>
+            <p>Period: {start_date} to {end_date}</p>
+            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        </div>
+        <div class="metrics">
+            <div class="metric-card"><div class="metric-value">${report_data['total_income']:,.2f}</div><div class="metric-label">Total Income</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['total_sources']}</div><div class="metric-label">Income Sources</div></div>
+            <div class="metric-card"><div class="metric-value">{len(report_data['daily_income'])}</div><div class="metric-label">Days with Income</div></div>
+        </div>
+    """
+    
+    if not report_data['by_source'].empty:
+        html += f"""
+        <div class="section">
+            <h2 class="section-title">Income by Source</h2>
+            <table><tr><th>Source</th><th>Amount</th><th>Percentage</th></tr>
+        """
+        total = report_data['total_income']
+        for _, row in report_data['by_source'].iterrows():
+            percentage = (row['amount'] / total * 100) if total > 0 else 0
+            html += f"<tr><td>{row['source']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
+        html += "</table></div>"
+    
+    html += f"""
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
+    </body>
+    </html>
+    """
+    return html.encode('utf-8')
+
+
 def generate_purchases_report_pdf(start_date, end_date):
     """Generate purchases report PDF with company name"""
     report_data = generate_purchase_report(start_date, end_date)
@@ -1074,7 +1230,7 @@ def generate_customers_report_pdf(start_date, end_date):
             <h1>{COMPANY_NAME}</h1>
             <p>{COMPANY_ADDRESS}</p>
             <p>📞 {COMPANY_PHONE}</p>
-            <h2>👥 Customers Report</h2>
+            <h2>Customers Report</h2>
             <p>Period: {start_date} to {end_date}</p>
             <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
         </div>
@@ -1283,11 +1439,12 @@ def generate_combined_report_pdf(start_date, end_date):
     """Generate combined report PDF with company name"""
     sales_report = generate_sales_report(start_date, end_date)
     expense_report = generate_expense_report(start_date, end_date)
+    income_report = generate_income_report(start_date, end_date)
     purchase_report = generate_purchase_report(start_date, end_date)
     customer_report = generate_customer_report(start_date, end_date)
     debtors_report = generate_debtors_report()
     
-    net_profit = sales_report['total_sales'] - expense_report['total_expenses']
+    net_profit = sales_report['total_sales'] - expense_report['total_expenses'] + income_report['total_income']
     net_margin = (net_profit / sales_report['total_sales'] * 100) if sales_report['total_sales'] > 0 else 0
     
     html = f"""
@@ -1340,6 +1497,13 @@ def generate_combined_report_pdf(start_date, end_date):
             <tr><td>Average Transaction</td><td>${sales_report['average_transaction']:.2f}</td></tr>
         </table>
         
+        <h2>Income Summary</h2>
+        <table>
+            <tr><th>Metric</th><th>Value</th></tr>
+            <tr><td>Total Income</td><td>${income_report['total_income']:,.2f}</td></tr>
+            <tr><td>Income Sources</td><td>{income_report['total_sources']}</td></tr>
+        </table>
+        
         <h2>Expenses Summary</h2>
         <table>
             <tr><th>Metric</th><th>Value</th></tr>
@@ -1365,7 +1529,7 @@ def generate_combined_report_pdf(start_date, end_date):
             <tr><td>Number of Suppliers</td><td>{len(purchase_report['by_supplier'])}</td></tr>
         </table>
         
-        <h2>👥 Customers Summary</h2>
+        <h2>Customers Summary</h2>
         <table>
             <tr><th>Metric</th><th>Value</th></tr>
             <tr><td>Total Customers</td><td>{customer_report['total_customers']:,}</td></tr>
@@ -1401,3 +1565,36 @@ def get_pdf_download_link(pdf_bytes, filename):
     b64 = base64.b64encode(pdf_bytes).decode()
     href = f'<a href="data:application/pdf;base64,{b64}" download="{filename}">Download {filename}</a>'
     return href
+
+
+# ==============================
+# EXPORTS
+# ==============================
+
+__all__ = [
+    'get_sales_report_data',
+    'get_products_report_data',
+    'get_customers_report_data',
+    'get_expenses_report_data',
+    'get_income_report_data',
+    'get_purchases_report_data',
+    'get_branches_report_data',
+    'get_inventory_report_data',
+    'get_debtors_report_data',
+    'generate_sales_report',
+    'generate_income_report',
+    'generate_expense_report',
+    'generate_purchase_report',
+    'generate_customer_report',
+    'generate_debtors_report',
+    'generate_sales_report_pdf',
+    'generate_income_report_pdf',
+    'generate_expenses_report_pdf',
+    'generate_inventory_report_pdf',
+    'generate_debtors_report_pdf',
+    'generate_sales_report_html',
+    'generate_purchases_report_pdf',
+    'generate_customers_report_pdf',
+    'generate_combined_report_pdf',
+    'get_pdf_download_link'
+]
