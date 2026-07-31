@@ -676,7 +676,7 @@ def live_dashboard():
     st.markdown("## Daily Sales Target")
     
     # Set daily target (can be configured)
-    daily_target = 5000
+    daily_target = 300
     
     if daily_target > 0:
         progress_percentage = min(100, (metrics['total_today'] / daily_target) * 100)
