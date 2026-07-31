@@ -1,3 +1,6 @@
+# backend/features/live_dashboard.py
+# Live Dashboard with auto-refresh - FIXED: Uses unique receipts for daily sales
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -45,7 +48,7 @@ def safe_int(value, default=0):
 # ==============================
 
 def get_live_metrics():
-    """Get current live metrics - FIXED"""
+    """Get current live metrics - FIXED: Uses unique receipts for daily sales"""
     
     try:
         sales_df = load_sales()
@@ -86,40 +89,58 @@ def get_live_metrics():
                 sales_df = sales_df.dropna(subset=[date_col])
                 
                 if not sales_df.empty:
-                    # Get today's sales
-                    today_mask = sales_df[date_col].dt.date == today
-                    today_sales = sales_df[today_mask]
-                    
                     # Find total column
                     total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
                     
                     # Find items column
                     items_col = find_column(sales_df, ["items", "quantity", "qty", "item_count"])
                     
-                    # Find receipt column
+                    # Find receipt column for unique transactions
                     receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
                     
-                    # Calculate today's metrics
-                    if total_col and not today_sales.empty:
-                        metrics["total_today"] = safe_float(today_sales[total_col].sum())
+                    # Get today's sales
+                    today_mask = sales_df[date_col].dt.date == today
+                    today_sales = sales_df[today_mask]
                     
+                    # ============================================================
+                    # FIX: Calculate today's total using unique receipts
+                    # ============================================================
+                    if total_col:
+                        if receipt_col and not today_sales.empty:
+                            # Group by receipt and get the first (or max) total for each receipt
+                            # This prevents double-counting items within the same receipt
+                            receipt_totals = today_sales.groupby(receipt_col)[total_col].first()
+                            metrics["total_today"] = safe_float(receipt_totals.sum())
+                        else:
+                            # Fallback: sum all totals
+                            metrics["total_today"] = safe_float(today_sales[total_col].sum())
+                    
+                    # Count unique transactions
                     if receipt_col:
                         metrics["transactions_today"] = today_sales[receipt_col].nunique() if not today_sales.empty else 0
                     else:
                         metrics["transactions_today"] = len(today_sales)
                     
+                    # Calculate items sold (sum of items per receipt)
                     if items_col:
                         metrics["items_today"] = safe_int(today_sales[items_col].sum()) if not today_sales.empty else 0
                     
-                    # Calculate all-time total
-                    if total_col:
+                    # Calculate all-time total using unique receipts
+                    if total_col and receipt_col:
+                        all_time_receipt_totals = sales_df.groupby(receipt_col)[total_col].first()
+                        metrics["total_all_time"] = safe_float(all_time_receipt_totals.sum())
+                    elif total_col:
                         metrics["total_all_time"] = safe_float(sales_df[total_col].sum())
                     
-                    # Calculate last hour sales
+                    # Calculate last hour sales using unique receipts
                     one_hour_ago = datetime.now() - timedelta(hours=1)
                     last_hour_mask = sales_df[date_col] >= one_hour_ago
                     last_hour_sales = sales_df[last_hour_mask]
-                    if total_col and not last_hour_sales.empty:
+                    
+                    if total_col and receipt_col and not last_hour_sales.empty:
+                        last_hour_receipt_totals = last_hour_sales.groupby(receipt_col)[total_col].first()
+                        metrics["last_hour_amount"] = safe_float(last_hour_receipt_totals.sum())
+                    elif total_col and not last_hour_sales.empty:
                         metrics["last_hour_amount"] = safe_float(last_hour_sales[total_col].sum())
         except Exception as e:
             print(f"Error processing sales: {e}")
@@ -216,17 +237,33 @@ def get_hourly_sales():
         if not total_col:
             return pd.DataFrame()
         
+        # Find receipt column for unique transactions
+        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
+        
         # Extract hour from datetime
         today_sales["hour"] = today_sales[date_col].dt.hour
         
-        # Group by hour
-        hourly = today_sales.groupby("hour")[total_col].sum().reset_index()
-        hourly.columns = ["hour", "total"]
-        hourly = hourly.sort_values("hour")
-        
-        # Ensure all hours 0-23 are present
-        all_hours = pd.DataFrame({"hour": range(24)})
-        hourly = all_hours.merge(hourly, on="hour", how="left").fillna(0)
+        # Group by hour using unique receipts
+        if receipt_col:
+            # Get unique receipt totals per hour
+            hourly_data = []
+            for hour in range(24):
+                hour_sales = today_sales[today_sales["hour"] == hour]
+                if not hour_sales.empty and receipt_col:
+                    hour_receipt_totals = hour_sales.groupby(receipt_col)[total_col].first()
+                    hourly_data.append({"hour": hour, "total": safe_float(hour_receipt_totals.sum())})
+                else:
+                    hourly_data.append({"hour": hour, "total": 0})
+            hourly = pd.DataFrame(hourly_data)
+        else:
+            # Fallback: sum all totals
+            hourly = today_sales.groupby("hour")[total_col].sum().reset_index()
+            hourly.columns = ["hour", "total"]
+            hourly = hourly.sort_values("hour")
+            
+            # Ensure all hours 0-23 are present
+            all_hours = pd.DataFrame({"hour": range(24)})
+            hourly = all_hours.merge(hourly, on="hour", how="left").fillna(0)
         
         return hourly
     except Exception as e:
@@ -317,8 +354,14 @@ def get_recent_transactions():
         # Sort by date descending
         sales_df = sales_df.sort_values(date_col, ascending=False)
         
-        # Get last 10 transactions
-        recent = sales_df.head(10)
+        # Get unique transactions
+        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
+        
+        if receipt_col:
+            # Get unique receipts and their first occurrence
+            recent = sales_df.drop_duplicates(subset=[receipt_col]).head(10)
+        else:
+            recent = sales_df.head(10)
         
         # Define columns to display
         col_mapping = {
@@ -393,6 +436,9 @@ def get_sales_ticker():
         if not total_col:
             return []
         
+        # Find receipt column
+        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
+        
         # Convert to datetime
         sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
         sales_df = sales_df.dropna(subset=[date_col])
@@ -400,14 +446,17 @@ def get_sales_ticker():
         if sales_df.empty:
             return []
         
-        # Get last 15 sales for ticker
-        last_sales = sales_df.sort_values(date_col, ascending=False).head(15)
+        # Get unique recent sales
+        if receipt_col:
+            recent = sales_df.drop_duplicates(subset=[receipt_col]).sort_values(date_col, ascending=False).head(15)
+        else:
+            recent = sales_df.sort_values(date_col, ascending=False).head(15)
         
         ticker_items = []
-        for _, sale in last_sales.iterrows():
-            product = str(sale.get(product_col, "Product"))[:30]  # Truncate long names
+        for _, sale in recent.iterrows():
+            product = str(sale.get(product_col, "Product"))[:30]
             amount = safe_float(sale.get(total_col, 0))
-            ticker_items.append(f"🛒 {product} - ${amount:.2f}")
+            ticker_items.append(f"Product: {product} - ${amount:.2f}")
         
         return ticker_items
     except Exception as e:
@@ -418,7 +467,7 @@ def get_sales_ticker():
 def live_dashboard():
     """Real-time Live Dashboard with auto-refresh - FIXED"""
     
-    st.title("⚡ LIVE COMMAND CENTER")
+    st.title("Live Command Center")
     st.caption("Real-time business metrics - Auto-refreshes every 10 seconds")
     
     # Auto-refresh setup
@@ -428,7 +477,7 @@ def live_dashboard():
     # Auto-refresh placeholder
     refresh_placeholder = st.empty()
     
-    # Check if we need to refresh (every 10 seconds) - FIXED: Only rerun if not already in a rerun
+    # Check if we need to refresh (every 10 seconds)
     current_time = time.time()
     time_since = current_time - st.session_state.last_refresh
     
@@ -465,7 +514,7 @@ def live_dashboard():
     
     with col2:
         st.metric(
-            "🛒 Transactions",
+            "Transactions",
             f"{metrics['transactions_today']}",
             help="Number of sales today"
         )
@@ -505,7 +554,7 @@ def live_dashboard():
         st.metric(
             "Out of Stock",
             f"{metrics['out_of_stock']}",
-            delta="⚠️" if metrics['out_of_stock'] > 0 else "✅",
+            delta="WARNING" if metrics['out_of_stock'] > 0 else "OK",
             help="Products with zero stock"
         )
     
@@ -513,7 +562,7 @@ def live_dashboard():
         st.metric(
             "Low Stock",
             f"{metrics['low_stock']}",
-            delta="⚠️" if metrics['low_stock'] > 0 else "✅",
+            delta="WARNING" if metrics['low_stock'] > 0 else "OK",
             help="Products below reorder level"
         )
     
@@ -623,7 +672,7 @@ def live_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("🛒 Go to POS", use_container_width=True):
+        if st.button("Go to POS", use_container_width=True):
             st.session_state.current_page = "POS"
             st.rerun()
     
@@ -643,7 +692,7 @@ def live_dashboard():
             st.rerun()
     
     # ==============================
-    # LIVE TICKER (Sales ticker) - FIXED (no marquee)
+    # LIVE TICKER (Sales ticker)
     # ==============================
     st.markdown("---")
     st.markdown("## Live Sales Ticker")
@@ -651,11 +700,10 @@ def live_dashboard():
     ticker_items = get_sales_ticker()
     
     if ticker_items:
-        # Create scrolling ticker with CSS animation (modern approach)
         ticker_html = f"""
         <div style="background: linear-gradient(90deg, #1a1a2e, #16213e); padding: 15px; border-radius: 10px; overflow: hidden; white-space: nowrap; position: relative;">
             <div style="display: inline-block; animation: scrollTicker 20s linear infinite; white-space: nowrap;">
-                {'  &nbsp;&nbsp; ⭐  &nbsp;&nbsp; '.join(ticker_items)}
+                {'  &nbsp;&nbsp;  &nbsp;&nbsp; '.join(ticker_items)}
             </div>
         </div>
         <style>
@@ -670,7 +718,7 @@ def live_dashboard():
         st.info("No recent sales to display")
     
     # ==============================
-    # SALES GAUGE (Daily Target)
+    # SALES GAUGE (Daily Target) - FIXED: Uses unique receipts
     # ==============================
     st.markdown("---")
     st.markdown("## Daily Sales Target")
@@ -712,7 +760,7 @@ def live_dashboard():
     # ==============================
     # MANUAL REFRESH NOTE
     # ==============================
-    st.caption("💡 This dashboard auto-refreshes every 10 seconds. Data updates automatically as new sales come in.")
+    st.caption("This dashboard auto-refreshes every 10 seconds. Data updates automatically as new sales come in.")
 
 
 # ==============================
