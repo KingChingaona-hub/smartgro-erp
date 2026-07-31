@@ -1,3 +1,6 @@
+# backend/features/mobile_dashboard.py
+# Mobile Dashboard with unique receipt handling
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -60,7 +63,6 @@ def get_mobile_css():
             }
         }
         
-        /* WhatsApp button styling */
         .whatsapp-btn {
             background: #25D366;
             color: white;
@@ -81,7 +83,6 @@ def get_mobile_css():
             transition: all 0.3s ease;
         }
         
-        /* Alert cards */
         .alert-critical {
             background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
             color: white;
@@ -104,7 +105,6 @@ def get_mobile_css():
             margin: 8px 0;
         }
         
-        /* Quick stats cards */
         .stat-card {
             background: white;
             border-radius: 12px;
@@ -124,7 +124,6 @@ def get_mobile_css():
             margin-top: 5px;
         }
         
-        /* Mobile navigation */
         .mobile-nav {
             display: flex;
             overflow-x: auto;
@@ -192,8 +191,8 @@ def get_whatsapp_alert_message(alert_type, data):
         message += f"Transactions: {transactions}\n"
         message += f"Top Product: {top_product}\n"
         if shift_id != "N/A":
-            message += f"🆔 Shift: {shift_id}\n"
-        message += f"\n📱 *SmartGro ERP* - Aziel Investments"
+            message += f"Shift: {shift_id}\n"
+        message += f"\n*SmartGro ERP* - Aziel Investments"
         return message
     
     elif alert_type == "purchase_approval":
@@ -245,8 +244,7 @@ def send_whatsapp_alert(phone, alert_type, data):
 
 def get_todays_stats():
     """
-    Get today's sales statistics from actual data.
-    Uses shift-linked sales for accurate reporting.
+    Get today's sales statistics using unique receipts.
     """
     sales_df = load_sales()
     shifts_df = load_shifts()
@@ -284,48 +282,87 @@ def get_todays_stats():
     if today_sales.empty:
         return empty_stats
     
-    # Calculate metrics
-    total_sales = 0
-    total_profit = 0
-    items_sold = 0
-    transactions = 0
-    cash_sales = 0
-    credit_sales = 0
+    # Find receipt column for unique transactions
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
+        if col in today_sales.columns:
+            receipt_col = col
+            break
     
-    # Use final_total or total
-    if "final_total" in today_sales.columns:
-        total_sales = to_float(today_sales["final_total"].sum())
-    elif "total" in today_sales.columns:
-        total_sales = to_float(today_sales["total"].sum())
+    # ============================================================
+    # FIX: Use unique receipts for all calculations
+    # ============================================================
     
-    if "profit" in today_sales.columns:
-        total_profit = to_float(today_sales["profit"].sum())
-    
-    if "items" in today_sales.columns:
-        items_sold = int(today_sales["items"].sum())
-    
-    # Get unique transactions (receipt numbers)
-    if "receipt_no" in today_sales.columns:
-        transactions = today_sales["receipt_no"].nunique()
+    # Get unique transactions
+    if receipt_col:
+        unique_sales = today_sales.drop_duplicates(subset=[receipt_col])
+        transactions = len(unique_sales)
     else:
+        unique_sales = today_sales
         transactions = len(today_sales)
     
-    # Get cash vs credit sales
-    if "payment_method" in today_sales.columns:
-        cash_sales = to_float(today_sales[today_sales["payment_method"] == "CASH"]["final_total"].sum())
-        credit_sales = to_float(today_sales[today_sales["payment_method"] == "CREDIT"]["final_total"].sum())
+    # Calculate total sales from unique receipts
+    total_sales = 0
+    if receipt_col and "final_total" in today_sales.columns:
+        # Group by receipt and get first total for each receipt
+        receipt_totals = today_sales.groupby(receipt_col)["final_total"].first()
+        total_sales = to_float(receipt_totals.sum())
+    elif "final_total" in today_sales.columns:
+        total_sales = to_float(unique_sales["final_total"].sum())
+    elif "total" in today_sales.columns:
+        total_sales = to_float(unique_sales["total"].sum())
     
-    # Get top product
+    # Calculate profit from unique receipts
+    total_profit = 0
+    if receipt_col and "profit" in today_sales.columns:
+        receipt_profit = today_sales.groupby(receipt_col)["profit"].first()
+        total_profit = to_float(receipt_profit.sum())
+    elif "profit" in today_sales.columns:
+        total_profit = to_float(unique_sales["profit"].sum())
+    
+    # Calculate items sold
+    items_sold = 0
+    if receipt_col and "items" in today_sales.columns:
+        receipt_items = today_sales.groupby(receipt_col)["items"].first()
+        items_sold = int(receipt_items.sum())
+    elif "items" in today_sales.columns:
+        items_sold = int(unique_sales["items"].sum())
+    
+    # Calculate cash vs credit sales from unique receipts
+    cash_sales = 0
+    credit_sales = 0
+    if receipt_col and "payment_method" in today_sales.columns and "final_total" in today_sales.columns:
+        # Get unique receipts with payment method
+        unique_with_payment = today_sales.drop_duplicates(subset=[receipt_col, "payment_method"])
+        cash_mask = unique_with_payment["payment_method"] == "CASH"
+        credit_mask = unique_with_payment["payment_method"] == "CREDIT"
+        cash_sales = to_float(unique_with_payment[cash_mask]["final_total"].sum())
+        credit_sales = to_float(unique_with_payment[credit_mask]["final_total"].sum())
+    elif "payment_method" in today_sales.columns and "final_total" in today_sales.columns:
+        cash_sales = to_float(unique_sales[unique_sales["payment_method"] == "CASH"]["final_total"].sum())
+        credit_sales = to_float(unique_sales[unique_sales["payment_method"] == "CREDIT"]["final_total"].sum())
+    
+    # Get top product from unique receipts
     top_product = "N/A"
-    if "name" in today_sales.columns and "items" in today_sales.columns:
-        product_sales = today_sales.groupby("name")["items"].sum()
+    if receipt_col and "name" in today_sales.columns and "items" in today_sales.columns:
+        # Use unique receipts for product sales
+        unique_for_products = today_sales.drop_duplicates(subset=[receipt_col, "name"])
+        product_sales = unique_for_products.groupby("name")["items"].sum()
+        if not product_sales.empty:
+            top_product = product_sales.nlargest(1).index[0]
+    elif "name" in today_sales.columns and "items" in today_sales.columns:
+        product_sales = unique_sales.groupby("name")["items"].sum()
         if not product_sales.empty:
             top_product = product_sales.nlargest(1).index[0]
     
-    # Get shift ID from today's sales
+    # Get shift ID from unique receipts
     shift_id = "N/A"
-    if "shift_id" in today_sales.columns:
-        shift_ids = today_sales["shift_id"].dropna().unique()
+    if receipt_col and "shift_id" in today_sales.columns:
+        shift_ids = today_sales.drop_duplicates(subset=[receipt_col])["shift_id"].dropna().unique()
+        if len(shift_ids) > 0:
+            shift_id = shift_ids[0]
+    elif "shift_id" in today_sales.columns:
+        shift_ids = unique_sales["shift_id"].dropna().unique()
         if len(shift_ids) > 0:
             shift_id = shift_ids[0]
     
@@ -343,7 +380,7 @@ def get_todays_stats():
 
 
 def get_weekly_stats():
-    """Get weekly sales statistics"""
+    """Get weekly sales statistics using unique receipts"""
     sales_df = load_sales()
     
     if sales_df.empty:
@@ -368,13 +405,33 @@ def get_weekly_stats():
     if week_sales.empty:
         return {"sales": 0, "profit": 0, "transactions": 0, "daily_average": 0}
     
-    total_sales = to_float(week_sales["final_total"].sum()) if "final_total" in week_sales.columns else to_float(week_sales["total"].sum())
-    total_profit = to_float(week_sales["profit"].sum()) if "profit" in week_sales.columns else 0
+    # Find receipt column
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
+        if col in week_sales.columns:
+            receipt_col = col
+            break
     
-    if "receipt_no" in week_sales.columns:
-        transactions = week_sales["receipt_no"].nunique()
+    # Calculate using unique receipts
+    if receipt_col and "final_total" in week_sales.columns:
+        receipt_totals = week_sales.groupby(receipt_col)["final_total"].first()
+        total_sales = to_float(receipt_totals.sum())
+        transactions = len(receipt_totals)
+    elif "final_total" in week_sales.columns:
+        total_sales = to_float(week_sales["final_total"].sum())
+        transactions = len(week_sales) if "receipt_no" not in week_sales.columns else week_sales["receipt_no"].nunique()
     else:
+        total_sales = to_float(week_sales["total"].sum())
         transactions = len(week_sales)
+    
+    # Calculate profit
+    if receipt_col and "profit" in week_sales.columns:
+        receipt_profit = week_sales.groupby(receipt_col)["profit"].first()
+        total_profit = to_float(receipt_profit.sum())
+    elif "profit" in week_sales.columns:
+        total_profit = to_float(week_sales["profit"].sum())
+    else:
+        total_profit = 0
     
     return {
         "sales": total_sales,
@@ -385,7 +442,7 @@ def get_weekly_stats():
 
 
 def get_monthly_stats():
-    """Get monthly sales statistics"""
+    """Get monthly sales statistics using unique receipts"""
     sales_df = load_sales()
     
     if sales_df.empty:
@@ -405,13 +462,33 @@ def get_monthly_stats():
     if month_sales.empty:
         return {"sales": 0, "profit": 0, "transactions": 0}
     
-    total_sales = to_float(month_sales["final_total"].sum()) if "final_total" in month_sales.columns else to_float(month_sales["total"].sum())
-    total_profit = to_float(month_sales["profit"].sum()) if "profit" in month_sales.columns else 0
+    # Find receipt column
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
+        if col in month_sales.columns:
+            receipt_col = col
+            break
     
-    if "receipt_no" in month_sales.columns:
-        transactions = month_sales["receipt_no"].nunique()
+    # Calculate using unique receipts
+    if receipt_col and "final_total" in month_sales.columns:
+        receipt_totals = month_sales.groupby(receipt_col)["final_total"].first()
+        total_sales = to_float(receipt_totals.sum())
+        transactions = len(receipt_totals)
+    elif "final_total" in month_sales.columns:
+        total_sales = to_float(month_sales["final_total"].sum())
+        transactions = len(month_sales) if "receipt_no" not in month_sales.columns else month_sales["receipt_no"].nunique()
     else:
+        total_sales = to_float(month_sales["total"].sum())
         transactions = len(month_sales)
+    
+    # Calculate profit
+    if receipt_col and "profit" in month_sales.columns:
+        receipt_profit = month_sales.groupby(receipt_col)["profit"].first()
+        total_profit = to_float(receipt_profit.sum())
+    elif "profit" in month_sales.columns:
+        total_profit = to_float(month_sales["profit"].sum())
+    else:
+        total_profit = 0
     
     return {
         "sales": total_sales,
@@ -503,7 +580,7 @@ def mobile_dashboard():
     mobile_view = is_mobile()
     
     # Title
-    st.title("📱 SmartGro Mobile")
+    st.title("SmartGro Mobile")
     st.caption("Real-time business insights at your fingertips")
     
     # Mobile navigation
@@ -534,7 +611,7 @@ def mobile_dashboard():
         # Active shift status
         active_shift = shift_summary.get("active_shift")
         if active_shift:
-            st.info(f"🟢 Active Shift: {active_shift.get('shift_id', 'N/A')} - {active_shift.get('cashier_name', 'Unknown')}")
+            st.info(f"Active Shift: {active_shift.get('shift_id', 'N/A')} - {active_shift.get('cashier_name', 'Unknown')}")
         else:
             st.warning("No active shift")
         
@@ -643,7 +720,7 @@ def mobile_dashboard():
         if alerts["critical"]:
             st.markdown("### Critical Alerts")
             for product in alerts["critical"]:
-                st.error(f"**{product['name']}** - OUT OF STOCK!\nReorder immediately.")
+                st.error(f"**{product['name']}** - OUT OF STOCK! Reorder immediately.")
         
         # Warning alerts
         if alerts["warning"]:
@@ -688,7 +765,7 @@ def mobile_dashboard():
         if phone:
             valid, standardized, msg = validate_zimbabwe_phone(phone)
             if valid:
-                st.success(f"✅ Valid number: {standardized}")
+                st.success(f"Valid number: {standardized}")
                 
                 # Alert preferences
                 st.markdown("### Select Alerts to Receive")
@@ -702,21 +779,21 @@ def mobile_dashboard():
                     shift_summary_alert = st.checkbox("Shift Summary", value=True)
                 
                 # Test button
-                if st.button("📱 Send Test WhatsApp Message", use_container_width=True):
+                if st.button("Send Test WhatsApp Message", use_container_width=True):
                     test_message = f"*SmartGro ERP Test*\n\nYour WhatsApp alerts are now configured!\n\nYou will receive real-time notifications for:\n"
                     if stock_out_alerts:
-                        test_message += "• Stock out alerts\n"
+                        test_message += "- Stock out alerts\n"
                     if low_stock_alerts:
-                        test_message += "• Low stock alerts\n"
+                        test_message += "- Low stock alerts\n"
                     if daily_summary:
-                        test_message += "• Daily sales summary\n"
+                        test_message += "- Daily sales summary\n"
                     if shift_summary_alert:
-                        test_message += "• Shift summaries\n"
+                        test_message += "- Shift summaries\n"
                     test_message += f"\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     
                     link = get_whatsapp_link(standardized, test_message)
                     if link:
-                        st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">📱 Send Test Message</button></a>', unsafe_allow_html=True)
+                        st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">Send Test Message</button></a>', unsafe_allow_html=True)
                 
                 # Save settings button
                 if st.button("Save Alert Settings", type="primary", use_container_width=True):
@@ -793,7 +870,7 @@ def mobile_dashboard():
                 phone = st.session_state.get("whatsapp_number", "0782905853")
                 link = get_whatsapp_link(phone, share_msg)
                 if link:
-                    st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">📱 Share Report</button></a>', unsafe_allow_html=True)
+                    st.markdown(f'<a href="{link}" target="_blank"><button class="whatsapp-btn">Share Report</button></a>', unsafe_allow_html=True)
         
         elif report_type == "Weekly Sales":
             stats = get_weekly_stats()
@@ -826,7 +903,7 @@ def mobile_dashboard():
             if alerts["warning"]:
                 st.markdown("### Low Stock Items")
                 for product in alerts["warning"]:
-                    st.write(f"• **{product['name']}**: {product['stock']} units (Reorder at {product['reorder_level']})")
+                    st.write(f"- **{product['name']}**: {product['stock']} units (Reorder at {product['reorder_level']})")
             else:
                 st.success("No low stock items")
         
@@ -868,7 +945,7 @@ def mobile_dashboard():
         active_shifts = shifts_df[shifts_df["status"] == "OPEN"] if not shifts_df.empty else pd.DataFrame()
         
         if not active_shifts.empty:
-            st.markdown("### 🟢 Active Shifts")
+            st.markdown("### Active Shifts")
             for _, shift in active_shifts.iterrows():
                 with st.expander(f"Shift: {shift['shift_id']} - {shift.get('cashier_name', 'Unknown')}"):
                     st.write(f"**Cashier:** {shift.get('cashier_name', 'N/A')}")
