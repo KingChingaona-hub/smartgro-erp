@@ -1,5 +1,5 @@
 # backend/analytics/reports_dashboard.py
-# Reports Dashboard - With correct data sources and deduplication
+# Reports Dashboard - With correct data sources for all features
 
 import streamlit as st
 import pandas as pd
@@ -17,6 +17,7 @@ from backend.core.db_adapter import (
     load_purchases,
     load_debtors,
     load_shifts,
+    load_income,
     to_float
 )
 
@@ -66,7 +67,7 @@ def find_column(df, possible_names, default=None):
     for name in possible_names:
         if name in df.columns:
             return name
-    return default
+    return None
 
 
 def get_sales_data(date_from=None, date_to=None):
@@ -77,7 +78,6 @@ def get_sales_data(date_from=None, date_to=None):
         if sales_df.empty:
             return pd.DataFrame()
         
-        # Find date column
         date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
         
         if date_col:
@@ -89,14 +89,11 @@ def get_sales_data(date_from=None, date_to=None):
             if date_to:
                 sales_df = sales_df[sales_df[date_col] <= pd.to_datetime(date_to)]
         
-        # Find receipt column for deduplication
         receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
         
-        # Deduplicate by receipt
         if receipt_col:
             sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
         
-        # Find total column
         total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
         
         if total_col and total_col != "total":
@@ -104,7 +101,6 @@ def get_sales_data(date_from=None, date_to=None):
         elif not total_col:
             sales_df["total"] = 0
         
-        # Find profit column
         profit_col = find_column(sales_df, ["profit", "profit_margin", "gross_profit"])
         
         if profit_col and profit_col != "profit":
@@ -119,7 +115,7 @@ def get_sales_data(date_from=None, date_to=None):
 
 
 def get_expenses_data(date_from=None, date_to=None):
-    """Get expenses data"""
+    """Get expenses data from expenses table"""
     try:
         expenses_df = load_expenses()
         
@@ -150,8 +146,40 @@ def get_expenses_data(date_from=None, date_to=None):
         return pd.DataFrame()
 
 
+def get_income_data(date_from=None, date_to=None):
+    """Get income data from income table"""
+    try:
+        income_df = load_income()
+        
+        if income_df.empty:
+            return pd.DataFrame()
+        
+        date_col = find_column(income_df, ["income_date", "date", "created_at"])
+        
+        if date_col:
+            income_df[date_col] = pd.to_datetime(income_df[date_col], errors="coerce")
+            income_df = income_df.dropna(subset=[date_col])
+            
+            if date_from:
+                income_df = income_df[income_df[date_col] >= pd.to_datetime(date_from)]
+            if date_to:
+                income_df = income_df[income_df[date_col] <= pd.to_datetime(date_to)]
+        
+        amount_col = find_column(income_df, ["amount", "total", "income_amount"])
+        
+        if amount_col and amount_col != "amount":
+            income_df["amount"] = pd.to_numeric(income_df[amount_col], errors="coerce").fillna(0)
+        elif not amount_col:
+            income_df["amount"] = 0
+        
+        return income_df
+    except Exception as e:
+        print(f"Error getting income data: {e}")
+        return pd.DataFrame()
+
+
 def get_purchases_data(date_from=None, date_to=None):
-    """Get purchases data"""
+    """Get purchases data from purchases table"""
     try:
         purchases_df = load_purchases()
         
@@ -195,7 +223,6 @@ def get_customers_data():
         if not customer_col:
             return pd.DataFrame()
         
-        # Get unique customers and their total spending
         customers = sales_df.groupby(customer_col).agg({
             "total": "sum",
             "profit": "sum"
@@ -203,7 +230,6 @@ def get_customers_data():
         
         customers.columns = ["customer", "total_spent", "total_profit"]
         
-        # Count transactions per customer
         receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id"])
         
         if receipt_col:
@@ -222,14 +248,13 @@ def get_customers_data():
 
 
 def get_debtors_data():
-    """Get debtors data"""
+    """Get debtors data from debtors table"""
     try:
         debtors_df = load_debtors()
         
         if debtors_df.empty:
             return pd.DataFrame()
         
-        # Ensure numeric columns
         for col in ["total_amount", "amount_paid", "balance"]:
             if col in debtors_df.columns:
                 debtors_df[col] = pd.to_numeric(debtors_df[col], errors="coerce").fillna(0)
@@ -272,7 +297,7 @@ def reports_dashboard():
     with col3:
         report_type = st.selectbox(
             "Report Type",
-            ["Sales", "Expenses", "Purchases", "Inventory", "Customers", "Debtors", "Combined"],
+            ["Sales", "Expenses", "Income", "Purchases", "Inventory", "Customers", "Debtors", "Combined"],
             key="report_type"
         )
     
@@ -281,30 +306,25 @@ def reports_dashboard():
     end_datetime = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
     
     # ==============================
-    # GENERATE REPORTS - WITH CORRECT DATA
+    # SALES REPORT
     # ==============================
-    
     if report_type == "Sales" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Sales Report")
         
-        # Get sales data with deduplication
         sales_data = get_sales_data(start_datetime, end_datetime)
         
         if not sales_data.empty:
-            # Calculate metrics
             total_sales = safe_float(sales_data["total"].sum())
             total_profit = safe_float(sales_data["profit"].sum())
             profit_margin = (total_profit / total_sales * 100) if total_sales > 0 else 0
             
-            # Get unique receipts count
             receipt_col = find_column(sales_data, ["receipt_no", "receipt", "transaction_id"])
             if receipt_col:
                 total_transactions = sales_data[receipt_col].nunique()
             else:
                 total_transactions = len(sales_data)
             
-            # Key metrics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Total Sales", f"${total_sales:,.2f}")
@@ -316,8 +336,8 @@ def reports_dashboard():
                 st.metric("Transactions", f"{total_transactions:,}")
             
             # Daily sales trend
-            if "date" in sales_data.columns or find_column(sales_data, ["sale_date", "date"]):
-                date_col = find_column(sales_data, ["sale_date", "date"])
+            date_col = find_column(sales_data, ["sale_date", "date"])
+            if date_col:
                 daily_sales = sales_data.groupby(sales_data[date_col].dt.date)["total"].sum().reset_index()
                 daily_sales.columns = ["date", "total"]
                 
@@ -388,18 +408,15 @@ def reports_dashboard():
                 payment_methods.columns = ["payment_method", "total"]
                 
                 if not payment_methods.empty:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        fig = px.pie(
-                            payment_methods,
-                            values="total",
-                            names="payment_method",
-                            title="Revenue by Payment Method",
-                            color_discrete_sequence=px.colors.qualitative.Set2
-                        )
-                        fig.update_layout(height=350)
-                        st.plotly_chart(fig, use_container_width=True)
+                    fig = px.pie(
+                        payment_methods,
+                        values="total",
+                        names="payment_method",
+                        title="Revenue by Payment Method",
+                        color_discrete_sequence=px.colors.qualitative.Set2
+                    )
+                    fig.update_layout(height=350)
+                    st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
             col1, col2, col3 = st.columns(3)
@@ -430,7 +447,7 @@ def reports_dashboard():
             st.info("No sales data available for the selected period")
     
     # ==============================
-    # EXPENSES REPORT
+    # EXPENSES REPORT - FIXED SOURCE
     # ==============================
     if report_type == "Expenses" or report_type == "Combined":
         st.markdown("---")
@@ -530,6 +547,98 @@ def reports_dashboard():
             st.info("No expenses data available for the selected period")
     
     # ==============================
+    # INCOME REPORT - NEW
+    # ==============================
+    if report_type == "Income" or report_type == "Combined":
+        st.markdown("---")
+        st.markdown("## Income Report")
+        
+        income_data = get_income_data(start_datetime, end_datetime)
+        
+        if not income_data.empty:
+            total_income = safe_float(income_data["amount"].sum())
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Income", f"${total_income:,.2f}")
+            with col2:
+                source_col = find_column(income_data, ["income_source", "source", "type"])
+                if source_col:
+                    st.metric("Income Sources", len(income_data[source_col].unique()))
+            with col3:
+                date_col = find_column(income_data, ["income_date", "date"])
+                if date_col:
+                    st.metric("Days with Income", len(income_data[date_col].dt.date.unique()))
+            
+            # Income by source
+            source_col = find_column(income_data, ["income_source", "source", "type"])
+            if source_col:
+                by_source = income_data.groupby(source_col)["amount"].sum().reset_index()
+                by_source.columns = ["source", "amount"]
+                by_source = by_source.sort_values("amount", ascending=False)
+                
+                if not by_source.empty:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        fig = px.pie(
+                            by_source,
+                            values="amount",
+                            names="source",
+                            title="Income by Source",
+                            color_discrete_sequence=px.colors.qualitative.Set3
+                        )
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        fig = px.bar(
+                            by_source.head(10),
+                            x="source",
+                            y="amount",
+                            title="Income by Source",
+                            color="amount",
+                            color_continuous_scale="Greens",
+                            text="amount"
+                        )
+                        fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+            
+            # Daily income trend
+            date_col = find_column(income_data, ["income_date", "date"])
+            if date_col:
+                daily_income = income_data.groupby(income_data[date_col].dt.date)["amount"].sum().reset_index()
+                daily_income.columns = ["date", "amount"]
+                
+                if not daily_income.empty:
+                    fig = px.line(
+                        daily_income,
+                        x="date",
+                        y="amount",
+                        title="Daily Income Trend",
+                        labels={"amount": "Income ($)", "date": "Date"},
+                        markers=True,
+                        color_discrete_sequence=["#2ECC71"]
+                    )
+                    fig.update_layout(height=350, hovermode='x unified')
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            # Download buttons
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                csv_data = income_data.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download Income Data (CSV)",
+                    data=csv_data,
+                    file_name=f"income_report_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+        else:
+            st.info("No income data available for the selected period")
+    
+    # ==============================
     # PURCHASES REPORT
     # ==============================
     if report_type == "Purchases" or report_type == "Combined":
@@ -616,7 +725,6 @@ def reports_dashboard():
         inventory_data = load_products()
         
         if not inventory_data.empty:
-            # Convert numeric columns
             for col in ["stock", "price", "cost"]:
                 if col in inventory_data.columns:
                     inventory_data[col] = pd.to_numeric(inventory_data[col], errors="coerce").fillna(0)
@@ -856,18 +964,20 @@ def reports_dashboard():
         st.markdown("---")
         st.markdown("## Executive Summary")
         
-        # Get all data
+        # Get all data from correct sources
         sales_data = get_sales_data(start_datetime, end_datetime)
         expenses_data = get_expenses_data(start_datetime, end_datetime)
+        income_data = get_income_data(start_datetime, end_datetime)
         purchases_data = get_purchases_data(start_datetime, end_datetime)
         customers_data = get_customers_data()
         debtors_data = get_debtors_data()
         
         total_sales = safe_float(sales_data["total"].sum()) if not sales_data.empty else 0
         total_expenses = safe_float(expenses_data["amount"].sum()) if not expenses_data.empty else 0
+        total_income = safe_float(income_data["amount"].sum()) if not income_data.empty else 0
         total_purchases = safe_float(purchases_data["total_cost"].sum()) if not purchases_data.empty else 0
         
-        net_profit = total_sales - total_expenses
+        net_profit = total_sales - total_expenses + total_income
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -890,7 +1000,7 @@ def reports_dashboard():
                 "Net Profit",
                 f"${net_profit:,.2f}",
                 delta=f"{(net_profit / total_sales * 100):.1f}%" if total_sales > 0 else "0%",
-                help="Revenue minus expenses"
+                help="Revenue minus expenses plus other income"
             )
         
         with col4:
