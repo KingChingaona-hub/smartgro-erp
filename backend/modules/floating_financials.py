@@ -585,10 +585,21 @@ def gas_sales_tab():
                     price = float(row.get('price_per_kg', 0))
                     total = float(row.get('total_amount', 0))
                     
+                    # Handle Timestamp for sale_date
+                    date_str = ""
+                    if sale_date:
+                        try:
+                            if hasattr(sale_date, 'strftime'):
+                                date_str = sale_date.strftime('%Y-%m-%d')
+                            else:
+                                date_str = str(sale_date)[:10]
+                        except:
+                            date_str = ""
+                    
                     with c1:
                         st.write(f"**{customer}**")
-                        if sale_date:
-                            st.caption(f"Date: {sale_date[:10]}")
+                        if date_str:
+                            st.caption(f"Date: {date_str}")
                     with c2:
                         st.write(f"{kgs:,.2f}")
                     with c3:
@@ -694,11 +705,22 @@ def gas_sales_tab():
             total = float(row.get('total_amount', 0))
             status = row.get('status', 'PENDING')
             
+            # Handle Timestamp for sale_date
+            date_str = ""
+            if sale_date:
+                try:
+                    if hasattr(sale_date, 'strftime'):
+                        date_str = sale_date.strftime('%Y-%m-%d')
+                    else:
+                        date_str = str(sale_date)[:10]
+                except:
+                    date_str = ""
+            
             with c1:
                 st.write(f"**{customer}**")
                 st.caption(f"{gas_sale_id[:12]}...")
-                if sale_date:
-                    st.caption(f"Date: {sale_date[:10]}")
+                if date_str:
+                    st.caption(f"Date: {date_str}")
                 if description:
                     st.caption(f"Desc: {description[:20]}...")
             
