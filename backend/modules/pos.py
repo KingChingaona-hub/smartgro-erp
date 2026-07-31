@@ -1,4 +1,4 @@
-# backend/modules/pos.py - Updated with customer autocomplete
+# backend/modules/pos.py - Updated with customer autocomplete and fixed session state
 
 import streamlit as st
 import pandas as pd
@@ -59,10 +59,10 @@ def init_session():
         st.session_state.receipt_style = "Standard"
     if "checkout_processing" not in st.session_state:
         st.session_state.checkout_processing = False
-    if "customer_search" not in st.session_state:
-        st.session_state.customer_search = ""
-    if "selected_customer" not in st.session_state:
-        st.session_state.selected_customer = None
+    if "customer_name_input" not in st.session_state:
+        st.session_state.customer_name_input = "Walk-in"
+    if "customer_phone_input" not in st.session_state:
+        st.session_state.customer_phone_input = ""
 
 
 # ==============================
@@ -76,9 +76,8 @@ def get_customer_suggestions():
         if sales_df.empty:
             return []
         
-        # Find customer name column
         customer_col = None
-        for col in ["customer_name", "customer", "Customer", "customer_name_original"]:
+        for col in ["customer_name", "customer", "Customer"]:
             if col in sales_df.columns:
                 customer_col = col
                 break
@@ -86,7 +85,6 @@ def get_customer_suggestions():
         if not customer_col:
             return []
         
-        # Get unique customer names, excluding null/empty
         customers = sales_df[customer_col].dropna().unique().tolist()
         customers = [c for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
         customers = sorted(set(customers))
@@ -105,7 +103,6 @@ def get_customer_phone_suggestions():
         if sales_df.empty:
             return {}
         
-        # Find customer name and phone columns
         customer_col = None
         phone_col = None
         
@@ -114,7 +111,7 @@ def get_customer_phone_suggestions():
                 customer_col = col
                 break
         
-        for col in ["customer_phone", "phone", "Phone", "customer_phone_number"]:
+        for col in ["customer_phone", "phone", "Phone"]:
             if col in sales_df.columns:
                 phone_col = col
                 break
@@ -122,7 +119,6 @@ def get_customer_phone_suggestions():
         if not customer_col or not phone_col:
             return {}
         
-        # Create mapping of customer name to phone
         customer_phones = {}
         for _, row in sales_df.iterrows():
             name = row.get(customer_col)
@@ -638,7 +634,7 @@ def pos_page():
     st.markdown("---")
     
     # ==============================
-    # CUSTOMER DETAILS WITH AUTOCOMPLETE - UPDATED
+    # CUSTOMER DETAILS WITH AUTOCOMPLETE - FIXED
     # ==============================
     st.markdown("## Customer Details")
     
@@ -660,52 +656,62 @@ def pos_page():
     col1, col2 = st.columns(2)
     
     with col1:
-        # Customer name with autocomplete dropdown
         st.markdown("**Customer Name**")
         
-        # Default value
-        default_name = st.session_state.get("customer_name_input", "Walk-in")
-        
-        # Create selectbox with customer suggestions + "Walk-in" as default
+        # Create options list
         all_options = ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
         
-        # Find the index of the current selection
-        current_index = 0
-        if default_name in all_options:
-            current_index = all_options.index(default_name)
+        # Get current value
+        current_name = st.session_state.get("customer_name_input", "Walk-in")
+        if current_name not in all_options and current_name != "Walk-in":
+            all_options.append(current_name)
+        
+        # Find index
+        try:
+            current_index = all_options.index(current_name) if current_name in all_options else 0
+        except ValueError:
+            current_index = 0
         
         selected_customer = st.selectbox(
             "Select or type customer name",
             options=all_options,
             index=current_index,
             key="customer_name_select",
-            label_visibility="collapsed",
-            placeholder="Walk-in"
+            label_visibility="collapsed"
         )
         
-        # Store the selected name
-        customer_name = selected_customer
-        st.session_state.customer_name_input = customer_name
+        # Update session state without triggering widget conflict
+        if selected_customer != st.session_state.customer_name_input:
+            st.session_state.customer_name_input = selected_customer
     
     with col2:
-        # Customer phone - auto-filled if available
         st.markdown("**Phone Number**")
         
         # Auto-fill phone if customer has one
         auto_phone = ""
-        if customer_name != "Walk-in" and customer_name in customer_phones:
-            auto_phone = customer_phones[customer_name]
+        if selected_customer != "Walk-in" and selected_customer in customer_phones:
+            auto_phone = customer_phones[selected_customer]
+        
+        # Use a different key for the phone input to avoid conflict
+        phone_key = "customer_phone_field"
+        phone_value = st.session_state.get("customer_phone_input", auto_phone)
         
         customer_phone = st.text_input(
             "Phone",
-            value=auto_phone or st.session_state.get("customer_phone_input", ""),
-            key="customer_phone_input",
+            value=phone_value,
+            key=phone_key,
             label_visibility="collapsed",
             placeholder="Enter phone number"
         )
-        st.session_state.customer_phone_input = customer_phone
+        
+        # Update session state
+        if customer_phone != st.session_state.customer_phone_input:
+            st.session_state.customer_phone_input = customer_phone
     
     # Update recent customers when new customer entered
+    customer_name = selected_customer
+    customer_phone = st.session_state.customer_phone_input
+    
     if customer_name and customer_name != "Walk-in" and customer_phone:
         add_recent_customer(customer_name, customer_phone)
     
