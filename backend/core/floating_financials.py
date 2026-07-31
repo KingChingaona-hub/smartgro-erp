@@ -530,6 +530,7 @@ def get_credit_records(branch_id=None, status=None, credit_type=None, date_from=
         return pd.DataFrame()
 
 def get_credit_summary(branch_id=None):
+    """Get summary statistics for credit records - FIXED: calculates overdue from dates"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -542,14 +543,36 @@ def get_credit_summary(branch_id=None):
             "overdue_count": 0, "written_off_count": 0, "total_count": 0
         }
     
+    today = datetime.now().date()
+    
+    # Count by status from database
     if 'status' in df.columns:
         active_count = len(df[df["status"] == "ACTIVE"])
         partial_count = len(df[df["status"] == "PARTIAL_PAID"])
         paid_count = len(df[df["status"] == "PAID"])
-        overdue_count = len(df[df["status"] == "OVERDUE"])
         written_off_count = len(df[df["status"] == "WRITTEN_OFF"])
     else:
-        active_count = partial_count = paid_count = overdue_count = written_off_count = 0
+        active_count = partial_count = paid_count = written_off_count = 0
+    
+    # Calculate overdue based on expected_repayment_date
+    overdue_count = 0
+    if 'expected_repayment_date' in df.columns and 'status' in df.columns:
+        for idx, row in df.iterrows():
+            status = row.get('status', '')
+            expected_date = row.get('expected_repayment_date')
+            
+            # Skip if already paid or written off
+            if status in ['PAID', 'WRITTEN_OFF']:
+                continue
+            
+            # Check if overdue
+            if expected_date and pd.notna(expected_date):
+                try:
+                    due_date = pd.to_datetime(expected_date).date()
+                    if due_date < today:
+                        overdue_count += 1
+                except:
+                    pass
     
     return {
         "total_credit": float(df["amount"].sum()) if "amount" in df.columns else 0,
@@ -564,7 +587,7 @@ def get_credit_summary(branch_id=None):
     }
 
 def get_overdue_credits(branch_id=None, days=30):
-    """Get overdue credit records - FIXED: uses today's date correctly"""
+    """Get overdue credit records - uses today's date correctly"""
     if branch_id is None:
         branch_id = get_current_branch()
     
