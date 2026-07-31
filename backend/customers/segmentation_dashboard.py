@@ -1,4 +1,6 @@
 # backend/customers/segmentation_dashboard.py
+# Customer Segmentation Dashboard - With proper deduplication and correct data sources
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -29,6 +31,16 @@ def safe_str(value, default=""):
         return str(value)
     except (TypeError, ValueError):
         return default
+
+
+def find_column(df, possible_names, default=None):
+    """Find the first column that matches any of the possible names"""
+    if df is None or df.empty:
+        return default
+    for name in possible_names:
+        if name in df.columns:
+            return name
+    return None
 
 
 def get_customer_column(df):
@@ -81,35 +93,56 @@ def get_date_column(df):
     return None
 
 
+def get_sales_data():
+    """Load sales data with proper deduplication"""
+    sales_df = load_sales()
+    
+    if sales_df.empty:
+        return pd.DataFrame()
+    
+    # Find receipt column for deduplication
+    receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
+    
+    # Deduplicate by receipt to get unique transactions
+    if receipt_col:
+        sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
+    
+    # Ensure numeric columns
+    amount_col = find_column(sales_df, ["final_total", "total", "amount"])
+    if amount_col:
+        sales_df["amount"] = pd.to_numeric(sales_df[amount_col], errors="coerce").fillna(0)
+    else:
+        sales_df["amount"] = 0
+    
+    # Find date column
+    date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
+    if date_col:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+    
+    return sales_df
+
+
 def extract_customers_from_sales(sales_df):
     """
-    Extract unique customers from sales data.
+    Extract unique customers from sales data using unique receipts.
     """
     if sales_df is None or sales_df.empty:
         return pd.DataFrame()
     
     customer_col = get_customer_column(sales_df)
     phone_col = get_phone_column(sales_df)
-    receipt_col = get_receipt_column(sales_df)
     
     if customer_col is None:
         return pd.DataFrame()
     
-    # Use receipt-level deduplication to get unique customers
-    if receipt_col and receipt_col in sales_df.columns:
-        unique_receipts = sales_df.drop_duplicates(subset=[receipt_col])
-        customer_data = unique_receipts[[customer_col]].copy()
-        
-        if phone_col and phone_col in sales_df.columns:
-            customer_data["phone"] = unique_receipts[phone_col].astype(str)
-        else:
-            customer_data["phone"] = ""
+    # Get unique customers (using unique receipts already applied)
+    customer_data = sales_df[[customer_col]].copy()
+    
+    if phone_col and phone_col in sales_df.columns:
+        customer_data["phone"] = sales_df[phone_col].astype(str)
     else:
-        customer_data = sales_df[[customer_col]].copy()
-        if phone_col and phone_col in sales_df.columns:
-            customer_data["phone"] = sales_df[phone_col].astype(str)
-        else:
-            customer_data["phone"] = ""
+        customer_data["phone"] = ""
     
     customer_data.columns = ["customer_name", "phone"]
     
@@ -120,7 +153,8 @@ def extract_customers_from_sales(sales_df):
         ~customer_data["customer_name"].astype(str).str.lower().str.contains('unknown', na=False) &
         (customer_data["customer_name"].astype(str).str.strip() != '') &
         (customer_data["customer_name"].astype(str).str.strip() != 'nan') &
-        (customer_data["customer_name"].astype(str).str.strip() != 'None')
+        (customer_data["customer_name"].astype(str).str.strip() != 'None') &
+        (customer_data["customer_name"].astype(str).str.strip() != 'null')
     ]
     
     return customer_data
@@ -165,8 +199,7 @@ def get_customer_metrics(customer_name, sales_df):
         }
     
     customer_col = get_customer_column(sales_df)
-    amount_col = get_amount_column(sales_df)
-    receipt_col = get_receipt_column(sales_df)
+    amount_col = find_column(sales_df, ["final_total", "total", "amount"])
     date_col = get_date_column(sales_df)
     
     if customer_col is None or amount_col is None:
@@ -194,16 +227,9 @@ def get_customer_metrics(customer_name, sales_df):
             "items_bought": 0
         }
     
-    # Use unduplicated receipts for accurate metrics
-    if receipt_col and receipt_col in customer_sales.columns:
-        unique_receipts = customer_sales.drop_duplicates(subset=[receipt_col])
-        total_orders = len(unique_receipts)
-        total_spent = to_float(unique_receipts[amount_col].sum())
-        items_bought = len(customer_sales)
-    else:
-        total_orders = len(customer_sales)
-        total_spent = to_float(customer_sales[amount_col].sum())
-        items_bought = len(customer_sales)
+    # Sales are already deduplicated by receipt at the source level
+    total_orders = len(customer_sales)
+    total_spent = to_float(customer_sales[amount_col].sum())
     
     avg_order_value = total_spent / total_orders if total_orders > 0 else 0
     
@@ -220,6 +246,15 @@ def get_customer_metrics(customer_name, sales_df):
             last_purchase_date = customer_sales[date_col].max()
             first_purchase_date = customer_sales[date_col].min()
             days_since_last_purchase = (datetime.now() - last_purchase_date).days
+    
+    # Items bought - count total items from original sales (not deduplicated)
+    # For this we need the original sales data, not deduplicated
+    original_sales = load_sales()
+    if not original_sales.empty:
+        customer_original = original_sales[original_sales[customer_col].astype(str).str.contains(customer_name, case=False, na=False)]
+        items_bought = len(customer_original)
+    else:
+        items_bought = total_orders
     
     return {
         "total_spent": total_spent,
@@ -310,11 +345,9 @@ def get_segment_summary(df):
     summary = df["segment"].value_counts().reset_index()
     summary.columns = ["segment", "count"]
     
-    # Add percentage
     total = summary["count"].sum()
     summary["percentage"] = (summary["count"] / total * 100).round(1)
     
-    # Sort by priority
     summary["priority"] = summary["segment"].apply(get_segment_priority)
     summary = summary.sort_values("priority")
     summary = summary.drop("priority", axis=1)
@@ -361,7 +394,7 @@ def customers_segmentation_dashboard():
     
     # Load data
     customers_df = load_customers()
-    sales_df = load_sales()
+    sales_df = get_sales_data()  # Using deduplicated sales data
     
     # Extract customers from sales
     real_customers = get_combined_customers(customers_df, sales_df)
@@ -371,7 +404,7 @@ def customers_segmentation_dashboard():
         st.info("Tip: When making a sale, enter a customer name (not 'Walk-in') to build customer profiles.")
         return
     
-    # Show debug info
+    # Show info
     st.sidebar.markdown("### Customer Info")
     st.sidebar.write(f"Total Customers: {len(real_customers)}")
     st.sidebar.write(f"Total Sales: {len(sales_df)}")
@@ -518,7 +551,6 @@ def customers_segmentation_dashboard():
             }
         )
         
-        # VIP spending chart
         fig_vip = px.bar(
             vip.head(20),
             x="customer_name",
@@ -556,7 +588,6 @@ def customers_segmentation_dashboard():
             }
         )
         
-        # At risk by days
         fig_risk = px.bar(
             at_risk.head(20),
             x="customer_name",
@@ -645,11 +676,10 @@ def customers_segmentation_dashboard():
     st.markdown("---")
     
     # ==============================
-    # MARKETING INSIGHTS - FIXED
+    # MARKETING INSIGHTS
     # ==============================
     st.markdown("## Marketing Insights")
     
-    # Calculate percentages
     total = len(df)
     vip_pct = (vip_count / total * 100) if total > 0 else 0
     risk_pct = (at_risk_count / total * 100) if total > 0 else 0
@@ -671,7 +701,6 @@ def customers_segmentation_dashboard():
     
     st.markdown("---")
     
-    # Insights
     if risk_pct > 30:
         st.error("High churn risk — run promotions immediately")
         st.info("Action: Send re-engagement offers to at-risk customers")
@@ -684,7 +713,6 @@ def customers_segmentation_dashboard():
     else:
         st.info("Growth stage business — focus on retention")
     
-    # Show summary stats
     st.markdown("### Segment Distribution Summary")
     
     summary_data = {
