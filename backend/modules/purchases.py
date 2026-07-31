@@ -62,23 +62,17 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_data = []
     
-    # Loop through ALL items in the cart
     for item in items:
-        # Skip items without name
         if not item.get("name"):
             continue
         
         cost = float(item.get("cost", 0))
         quantity = float(item.get("quantity", 1))
         
-        # Get category - preserve exactly what the user entered
         category = str(item.get("category", "")).strip()
-        
-        # Only set to "New Purchase" if the user didn't provide any category
         if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
         
-        # Append each item as a separate row
         po_data.append({
             "po_number": po_number,
             "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -105,7 +99,7 @@ def create_purchase_order(supplier, items, expected_date):
 
 
 # ==============================
-# DELETE PURCHASE ORDER
+# DELETE PURCHASE ORDER - FIXED
 # ==============================
 def delete_purchase_order(po_number):
     """Delete a purchase order and all its items"""
@@ -115,15 +109,18 @@ def delete_purchase_order(po_number):
         if purchases_df.empty:
             return False, "No purchase orders found"
         
+        # Convert po_number to string for comparison
+        po_number = str(po_number)
+        
         # Check if PO exists
-        if purchases_df[purchases_df["po_number"] == po_number].empty:
+        if purchases_df[purchases_df["po_number"].astype(str) == po_number].empty:
             return False, f"Purchase Order {po_number} not found"
         
         # Count items before deletion
-        item_count = len(purchases_df[purchases_df["po_number"] == po_number])
+        item_count = len(purchases_df[purchases_df["po_number"].astype(str) == po_number])
         
         # Delete all items with this PO number
-        purchases_df = purchases_df[purchases_df["po_number"] != po_number]
+        purchases_df = purchases_df[purchases_df["po_number"].astype(str) != po_number]
         
         # Save changes
         save_success = save_purchases(purchases_df)
@@ -138,7 +135,7 @@ def delete_purchase_order(po_number):
 
 
 # ==============================
-# DELETE ALL PURCHASE ORDERS
+# DELETE ALL PURCHASE ORDERS - FIXED
 # ==============================
 def delete_all_purchase_orders():
     """Delete ALL purchase orders"""
@@ -152,11 +149,11 @@ def delete_all_purchase_orders():
         total_items = len(purchases_df)
         unique_pos = purchases_df["po_number"].nunique()
         
-        # Clear all data
-        purchases_df = purchases_df.iloc[0:0]
+        # Create empty DataFrame with same columns
+        empty_df = pd.DataFrame(columns=purchases_df.columns)
         
-        # Save changes
-        save_success = save_purchases(purchases_df)
+        # Save empty DataFrame
+        save_success = save_purchases(empty_df)
         
         if save_success:
             return True, f"All {unique_pos} purchase orders ({total_items} items) deleted successfully."
@@ -173,11 +170,9 @@ def delete_all_purchase_orders():
 def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
     
-    # Load current data
     purchases_df = load_purchases()
     products_df = load_products()
     
-    # Ensure required columns exist
     if "status" not in purchases_df.columns:
         purchases_df["status"] = "PENDING"
     if "quantity_received" not in purchases_df.columns:
@@ -188,25 +183,20 @@ def receive_purchase_order(po_number, received_items, invoice_no):
     updated_products = []
     new_products = []
     
-    # Get all rows for this PO
     po_mask = purchases_df["po_number"] == po_number
     po_items_indices = purchases_df[po_mask].index.tolist()
     
-    # Create a mapping of barcode/name to index for this PO
     po_items_mapping = {}
     for idx in po_items_indices:
         row = purchases_df.loc[idx]
         barcode = str(row.get("barcode", "")).strip()
         product_name = str(row.get("product_name", "")).strip()
         
-        # Use barcode as primary key, fallback to product name
         key = barcode if barcode else product_name
         if key:
             po_items_mapping[key] = idx
     
-    # Process each received item
     for item in received_items:
-        # Skip items with 0 received quantity
         if item["received_qty"] <= 0:
             continue
         
@@ -218,24 +208,20 @@ def receive_purchase_order(po_number, received_items, invoice_no):
         if not category or category == "nan" or category == "None":
             category = "New Purchase"
         
-        # Find the matching PO item
         matching_idx = None
         
-        # First try to match by barcode
         if barcode:
             for key, idx in po_items_mapping.items():
                 if key == barcode:
                     matching_idx = idx
                     break
         
-        # If not found by barcode, try by product name
         if matching_idx is None and product_name:
             for key, idx in po_items_mapping.items():
                 if key.lower() == product_name.lower():
                     matching_idx = idx
                     break
         
-        # If still not found, try a more flexible match
         if matching_idx is None:
             for key, idx in po_items_mapping.items():
                 if product_name and key and (product_name.lower() in key.lower() or key.lower() in product_name.lower()):
@@ -243,28 +229,18 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     break
         
         if matching_idx is not None:
-            # Update purchase record
             purchases_df.loc[matching_idx, "quantity_received"] = received_qty
             purchases_df.loc[matching_idx, "date_received"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             purchases_df.loc[matching_idx, "status"] = "RECEIVED"
             purchases_df.loc[matching_idx, "invoice_no"] = invoice_no
             
-            # ============================================================
-            # UPDATE PRODUCT STOCK - PRESERVE EXISTING PRICE AND CATEGORY
-            # ============================================================
             product_idx = products_df[products_df["barcode"] == barcode].index
             
             if len(product_idx) > 0:
-                # Product exists - ONLY UPDATE STOCK
-                # DO NOT change price, cost, or category
                 current_stock = float(products_df.loc[product_idx[0], "stock"]) if "stock" in products_df.columns else 0
                 new_stock = current_stock + received_qty
                 
-                # ONLY update the stock quantity
                 products_df.loc[product_idx[0], "stock"] = new_stock
-                
-                # Keep existing price and cost - DO NOT overwrite
-                # Keep existing category - DO NOT overwrite
                 
                 updated_products.append({
                     "name": product_name,
@@ -276,7 +252,6 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "category": products_df.loc[product_idx[0], "category"] if "category" in products_df.columns else "Uncategorized"
                 })
             else:
-                # Product doesn't exist - CREATE new product in inventory
                 new_product = pd.DataFrame([{
                     "barcode": barcode,
                     "name": product_name,
@@ -296,10 +271,8 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "category": category if category and category != "New Purchase" else "New Purchase"
                 })
         else:
-            # Item not found in PO - add as new item to the PO
             st.warning(f"Item '{product_name}' not found in purchase order. Adding as new item.")
             
-            # Add new row to purchases_df
             new_row = {
                 "po_number": po_number,
                 "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -345,7 +318,6 @@ def receive_purchase_order(po_number, received_items, invoice_no):
                     "category": category if category and category != "New Purchase" else "New Purchase"
                 })
     
-    # Check if all items in PO have been received
     po_items = purchases_df[purchases_df["po_number"] == po_number]
     all_received = True
     for idx in po_items.index:
@@ -355,13 +327,11 @@ def receive_purchase_order(po_number, received_items, invoice_no):
             all_received = False
             break
     
-    # Update PO status
     if all_received:
         purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "COMPLETED"
     else:
         purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "PARTIALLY_RECEIVED"
     
-    # Save all changes
     try:
         save_products(products_df)
         save_purchases(purchases_df)
@@ -476,6 +446,15 @@ def purchases_page():
         st.session_state.show_preview = False
     if "preview_data" not in st.session_state:
         st.session_state.preview_data = None
+    if "refresh_required" not in st.session_state:
+        st.session_state.refresh_required = False
+    if "confirm_delete_all" not in st.session_state:
+        st.session_state.confirm_delete_all = False
+    
+    # Handle refresh after deletion
+    if st.session_state.refresh_required:
+        st.session_state.refresh_required = False
+        st.rerun()
     
     # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
@@ -489,7 +468,10 @@ def purchases_page():
         st.session_state.stock_updated = False
     
     if st.session_state.po_deleted and st.session_state.deleted_po_number:
-        st.success(f"Purchase Order {st.session_state.deleted_po_number} deleted successfully!")
+        if st.session_state.deleted_po_number == "ALL":
+            st.success("All purchase orders deleted successfully!")
+        else:
+            st.success(f"Purchase Order {st.session_state.deleted_po_number} deleted successfully!")
         st.session_state.po_deleted = False
         st.session_state.deleted_po_number = None
     
@@ -562,10 +544,8 @@ def purchases_page():
             
             with col2:
                 if selected_product is not None:
-                    # Check if product supports decimal quantities
                     is_decimal = supports_decimal(selected_product["name"], selected_product.get("category", ""))
                     
-                    # Quantity input with decimal support
                     if is_decimal:
                         po_qty = st.number_input(
                             "Quantity", 
@@ -575,7 +555,7 @@ def purchases_page():
                             format="%.2f", 
                             key="po_qty"
                         )
-                        st.caption("🔢 Decimal quantities supported (e.g., 0.5, 1.5)")
+                        st.caption("Decimal quantities supported (e.g., 0.5, 1.5)")
                     else:
                         po_qty = st.number_input(
                             "Quantity", 
@@ -598,7 +578,6 @@ def purchases_page():
                         barcode_str = str(selected_product["barcode"])
                         for item in st.session_state.po_cart:
                             if str(item["barcode"]) == barcode_str:
-                                # Handle decimal quantities
                                 if isinstance(po_qty, float):
                                     item["quantity"] = float(item["quantity"]) + po_qty
                                 else:
@@ -613,7 +592,6 @@ def purchases_page():
                             if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
                                 category_val = "New Purchase"
                             
-                            # Store quantity as float to support decimals
                             if isinstance(po_qty, float):
                                 quantity_val = float(po_qty)
                             else:
@@ -639,9 +617,6 @@ def purchases_page():
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
         
-        # ==============================
-        # MANUAL ITEM ENTRY - WITH DECIMAL SUPPORT
-        # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
@@ -658,7 +633,6 @@ def purchases_page():
                 manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=0.01, step=5.0, key="manual_item_cost")
             
             with col4:
-                # Check if manual item name suggests decimal support
                 is_decimal_manual = supports_decimal(manual_item_name, manual_item_category)
                 
                 if is_decimal_manual:
@@ -670,7 +644,7 @@ def purchases_page():
                         format="%.2f", 
                         key="manual_item_qty"
                     )
-                    st.caption("🔢 Decimal quantities supported for this product")
+                    st.caption("Decimal quantities supported for this product")
                 else:
                     manual_item_qty = st.number_input(
                         "Quantity", 
@@ -685,7 +659,6 @@ def purchases_page():
                 
                 if add_manual_button:
                     if manual_item_name and manual_item_name.strip():
-                        # Get category exactly as typed
                         category_input = manual_item_category.strip()
                         
                         if category_input:
@@ -696,7 +669,6 @@ def purchases_page():
                         existing = False
                         for item in st.session_state.po_cart:
                             if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
-                                # Add to existing quantity
                                 if isinstance(manual_item_qty, float):
                                     item["quantity"] = float(item["quantity"]) + manual_item_qty
                                 else:
@@ -709,7 +681,6 @@ def purchases_page():
                         
                         if not existing:
                             unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-                            # Store quantity as float to support decimals
                             if isinstance(manual_item_qty, float):
                                 qty_val = float(manual_item_qty)
                             else:
@@ -733,7 +704,6 @@ def purchases_page():
                     else:
                         st.error("Please enter an item name")
         
-        # Display PO Cart
         st.markdown("---")
         st.markdown("### Purchase Order Cart")
         
@@ -786,7 +756,6 @@ def purchases_page():
                         }
                         st.session_state.show_preview = True
         
-        # Show Preview
         if st.session_state.show_preview and st.session_state.preview_data:
             preview = st.session_state.preview_data
             
@@ -848,7 +817,6 @@ def purchases_page():
                             
                             st.success(f"Purchase Order {po_number} created successfully!")
                             
-                            # Quick PO text for download
                             po_text = f"""
 {'='*50}
 AZIEL INVESTMENTS - PURCHASE ORDER
@@ -896,7 +864,6 @@ Contact: +263 78 290 5853
                         else:
                             st.error("Failed to save purchase order.")
         
-        # Quick create option
         if not st.session_state.show_preview and st.session_state.po_cart:
             col1, col2 = st.columns(2)
             
@@ -1016,7 +983,9 @@ Contact: +263 78 290 5853
                         po_total = po_details['total_value']
                         st.info(f"PO Total: ${po_total:,.2f}")
                         
-                        # Delete buttons
+                        # ============================================================
+                        # DELETE PURCHASE ORDER - FIXED
+                        # ============================================================
                         if po_details['status'] == "PENDING":
                             st.markdown("---")
                             st.markdown("### Delete Purchase Order")
@@ -1024,34 +993,48 @@ Contact: +263 78 290 5853
                             
                             col1, col2, col3 = st.columns([2, 1, 1])
                             with col1:
-                                confirm_delete = st.checkbox(f"Confirm delete PO {selected_po}")
+                                confirm_delete = st.checkbox(f"Confirm delete PO {selected_po}", key=f"confirm_delete_{selected_po}")
                             with col2:
-                                delete_button = st.button("Delete PO", type="secondary", use_container_width=True)
+                                delete_button = st.button("Delete PO", type="secondary", use_container_width=True, key=f"delete_po_{selected_po}")
                                 if delete_button and confirm_delete:
                                     success, message = delete_purchase_order(selected_po)
                                     if success:
                                         st.session_state.po_deleted = True
                                         st.session_state.deleted_po_number = selected_po
+                                        st.session_state.refresh_required = True
                                         st.success(message)
+                                        st.rerun()
                                     else:
                                         st.error(message)
                                 elif delete_button and not confirm_delete:
                                     st.error("Please confirm deletion")
                             
                             with col3:
-                                delete_all_button = st.button("Delete All POs", type="secondary", use_container_width=True)
-                                if delete_all_button:
-                                    confirm_all = st.checkbox("Confirm delete ALL purchase orders")
+                                delete_all_btn = st.button("Delete All POs", type="secondary", use_container_width=True, key="delete_all_pos")
+                                if delete_all_btn:
+                                    st.session_state.confirm_delete_all = True
+                            
+                            # Confirmation for delete all
+                            if st.session_state.get("confirm_delete_all", False):
+                                st.warning("ARE YOU SURE? This will delete ALL purchase orders!")
+                                col_a, col_b = st.columns(2)
+                                with col_a:
+                                    confirm_all = st.button("YES, DELETE ALL", type="primary", use_container_width=True, key="confirm_delete_all_yes")
                                     if confirm_all:
                                         success, message = delete_all_purchase_orders()
                                         if success:
                                             st.session_state.po_deleted = True
                                             st.session_state.deleted_po_number = "ALL"
+                                            st.session_state.refresh_required = True
+                                            st.session_state.confirm_delete_all = False
                                             st.success(message)
+                                            st.rerun()
                                         else:
                                             st.error(message)
-                                    else:
-                                        st.error("Please confirm deletion")
+                                with col_b:
+                                    if st.button("Cancel", use_container_width=True, key="confirm_delete_all_no"):
+                                        st.session_state.confirm_delete_all = False
+                                        st.rerun()
                         
                         st.markdown("---")
                         st.markdown("### Receiving Details")
@@ -1127,7 +1110,7 @@ Contact: +263 78 290 5853
                                         if updated_products:
                                             st.success(f"Stock updated for {len(updated_products)} existing products!")
                                             for p in updated_products[:5]:
-                                                st.write(f"   - {p['name']}: +{p['added']:.2f} units (Stock: {p['old_stock']:.2f} → {p['new_stock']:.2f})")
+                                                st.write(f"   - {p['name']}: +{p['added']:.2f} units (Stock: {p['old_stock']:.2f} -> {p['new_stock']:.2f})")
                                             if len(updated_products) > 5:
                                                 st.write(f"   ... and {len(updated_products) - 5} more")
                                         
