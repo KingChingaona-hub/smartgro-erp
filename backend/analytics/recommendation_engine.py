@@ -99,31 +99,31 @@ def get_customer_column(df):
 
 
 # ==============================
-# GET CUSTOMER SUGGESTIONS
+# GET CUSTOMER SUGGESTIONS FROM SALES - FIXED
 # ==============================
 
 @st.cache_data(ttl=300)
 def get_customer_suggestions():
-    """Get unique customer names from sales and customers data"""
+    """Get unique customer names from sales data only"""
     try:
-        # Try from customers table first
+        # Primary source: Sales data
+        sales_df = load_sales()
+        if not sales_df.empty:
+            customer_col = get_customer_column(sales_df)
+            if customer_col:
+                # Get unique customer names, filter out 'Walk-in' and empty values
+                customers = sales_df[sales_df[customer_col].notna()][customer_col].unique().tolist()
+                customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+                if customers:
+                    return sorted(set(customers))
+        
+        # Fallback: Customers table
         customers_df = load_customers()
         if not customers_df.empty:
             customer_col = get_customer_column(customers_df)
             if customer_col:
                 customers = customers_df[customer_col].dropna().unique().tolist()
                 customers = [str(c).strip() for c in customers if str(c).strip()]
-                if customers:
-                    return sorted(set(customers))
-        
-        # Fallback to sales data
-        sales_df = load_sales()
-        if not sales_df.empty:
-            customer_col = get_customer_column(sales_df)
-            if customer_col:
-                # Filter out 'Walk-in' and empty values
-                customers = sales_df[sales_df[customer_col].notna()][customer_col].unique().tolist()
-                customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
                 if customers:
                     return sorted(set(customers))
         
@@ -135,25 +135,27 @@ def get_customer_suggestions():
 
 @st.cache_data(ttl=300)
 def get_customer_phone_mapping():
-    """Get customer name to phone mapping"""
+    """Get customer name to phone mapping from sales data"""
     try:
-        customers_df = load_customers()
-        if customers_df.empty:
+        sales_df = load_sales()
+        if sales_df.empty:
             return {}
         
-        name_col = get_customer_column(customers_df)
+        name_col = get_customer_column(sales_df)
         phone_col = None
-        for col in ["phone", "Phone", "customer_phone", "mobile"]:
-            if col in customers_df.columns:
+        for col in ["customer_phone", "phone", "Phone", "mobile"]:
+            if col in sales_df.columns:
                 phone_col = col
                 break
         
         if name_col and phone_col:
             mapping = {}
-            for _, row in customers_df.iterrows():
+            # Get most recent phone per customer
+            for _, row in sales_df.iterrows():
                 name = str(row.get(name_col, "")).strip()
                 phone = str(row.get(phone_col, "")).strip()
-                if name and phone:
+                if name and name.lower() != "walk-in" and phone:
+                    # Keep the most recent phone (overwrite if exists)
                     mapping[name] = phone
             return mapping
         
@@ -188,7 +190,6 @@ class RecommendationEngine:
         if sales_df.empty or products_df.empty:
             return False, "No data available"
         
-        # Find columns
         product_col = get_product_column(sales_df)
         receipt_col = get_receipt_column(sales_df)
         
@@ -233,7 +234,6 @@ class RecommendationEngine:
         self.engine_ready = True
         self.last_update = datetime.now()
         
-        # Calculate support and confidence for stats
         num_pairs = len(pair_counter)
         
         return True, f"Built recommendations from {len(baskets)} transactions, {len(all_products)} products, {num_pairs} product pairs"
@@ -345,7 +345,7 @@ class RecommendationEngine:
         similar_products = []
         for prod, price in self.product_prices.items():
             if prod != product_name and self.product_categories.get(prod, "Uncategorized") == category:
-                if price > current_price * 1.2:
+                if price > current_price * 1.2:  # At least 20% higher
                     similar_products.append({
                         "product": prod,
                         "price": price,
@@ -652,13 +652,13 @@ def recommendation_engine_dashboard():
         if not st.session_state.recommendation_engine_ready:
             st.warning("Recommendation engine not built yet. Build it first in the Dashboard tab.")
         else:
-            # Get customer suggestions
+            # Get customer suggestions from sales data
             customer_suggestions = get_customer_suggestions()
             customer_phones = get_customer_phone_mapping()
             
             st.markdown("### Select Customer")
             
-            # Use selectbox with autocomplete-like behavior
+            # Use selectbox with customer suggestions
             if customer_suggestions:
                 selected_customer = st.selectbox(
                     "Select Customer",
@@ -666,7 +666,6 @@ def recommendation_engine_dashboard():
                     key="customer_select"
                 )
             else:
-                # Fallback: text input if no customers found
                 selected_customer = st.text_input("Enter Customer Name", key="customer_text_input")
                 st.caption("No existing customers found. Type the customer name.")
             
@@ -676,6 +675,8 @@ def recommendation_engine_dashboard():
                 # Show customer phone if available
                 if selected_customer in customer_phones:
                     st.caption(f"Phone: {customer_phones[selected_customer]}")
+                else:
+                    st.caption("No phone number found for this customer")
                 
                 # Get recommendations
                 recommendations = st.session_state.recommendation_engine.get_recommendations_for_customer(
@@ -722,6 +723,8 @@ def recommendation_engine_dashboard():
                                 purchase_summary = customer_sales[product_col_sales].value_counts().reset_index()
                                 purchase_summary.columns = ["Product", "Times Purchased"]
                                 st.dataframe(purchase_summary.head(10), use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No purchase history found for this customer")
                 else:
                     st.info("No personalized recommendations found for this customer")
     
