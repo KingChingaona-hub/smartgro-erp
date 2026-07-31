@@ -564,10 +564,11 @@ def get_credit_summary(branch_id=None):
     }
 
 def get_overdue_credits(branch_id=None, days=30):
+    """Get overdue credit records - FIXED: uses today's date correctly"""
     if branch_id is None:
         branch_id = get_current_branch()
     
-    cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    today = datetime.now().strftime("%Y-%m-%d")
     
     try:
         conn = get_db_connection()
@@ -576,6 +577,8 @@ def get_overdue_credits(branch_id=None, days=30):
         
         cur = conn.cursor()
         
+        # Get all credits that are overdue (expected_repayment_date < today)
+        # Status should be ACTIVE or PARTIAL_PAID
         query = """
             SELECT * FROM floating_credits 
             WHERE branch_id = %s 
@@ -585,7 +588,7 @@ def get_overdue_credits(branch_id=None, days=30):
             ORDER BY expected_repayment_date ASC
         """
         
-        cur.execute(query, (branch_id, cutoff_date))
+        cur.execute(query, (branch_id, today))
         rows = cur.fetchall()
         
         if rows:
@@ -594,6 +597,10 @@ def get_overdue_credits(branch_id=None, days=30):
             for col in ["amount", "amount_paid", "balance"]:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            
+            # Calculate days overdue
+            df['days_overdue'] = (datetime.now() - pd.to_datetime(df['expected_repayment_date'])).dt.days
+            
             cur.close()
             conn.close()
             return df
