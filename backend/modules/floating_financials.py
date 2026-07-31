@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - Table format with minimized reruns
+# backend/modules/floating_financials.py - True Table Format
 
 import streamlit as st
 import pandas as pd
@@ -67,7 +67,6 @@ def change_management_tab():
     
     summary = get_change_summary()
     
-    # Summary cards in a single row
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         animated_metric("Total Change", f"${summary['total_change']:,.2f}")
@@ -82,7 +81,6 @@ def change_management_tab():
     
     st.divider()
     
-    # Form for adding new change
     with st.form("record_change_form"):
         st.markdown("### Record New Uncollected Change")
         col1, col2 = st.columns(2)
@@ -114,7 +112,6 @@ def change_management_tab():
     
     st.divider()
     
-    # Filters
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         filter_status = st.selectbox("Status", ["ALL"] + CHANGE_STATUSES, key="change_status_filter")
@@ -140,74 +137,129 @@ def change_management_tab():
         st.info("No change records found")
         return
     
-    # Display as table with columns
-    # Prepare data for display
-    display_data = []
+    # === TRUE TABLE FORMAT ===
+    st.markdown("### Change Records")
+    
+    # Create HTML table header
+    header_html = """
+    <style>
+        .change-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .change-table th {
+            background: #f0f2f6;
+            text-align: left;
+            padding: 10px 8px;
+            font-weight: 600;
+            border-bottom: 2px solid #ddd;
+        }
+        .change-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #eee;
+            vertical-align: middle;
+        }
+        .change-table tr:hover {
+            background: #f8f9fa;
+        }
+        .status-collected { color: green; font-weight: 600; }
+        .status-partial { color: orange; font-weight: 600; }
+        .status-uncollected { color: red; font-weight: 600; }
+        .collect-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .collect-btn:hover {
+            background: #45a049;
+        }
+        @media (max-width: 768px) {
+            .change-table th, .change-table td {
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+        }
+    </style>
+    <table class="change-table">
+        <thead>
+            <tr>
+                <th>Customer</th>
+                <th>Amount</th>
+                <th>Collected</th>
+                <th>Balance</th>
+                <th>Status</th>
+                <th style="text-align:center;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    
+    # Build table rows
+    rows_html = ""
     for _, row in df.iterrows():
+        customer = row.get('customer_name', 'Unknown')
+        change_id = row.get('change_id', 'N/A')
+        amount = float(row.get('amount', 0))
+        collected = float(row.get('amount_collected', 0))
         balance = float(row.get('balance', 0))
         status = row.get('status', 'UNCOLLECTED')
         
-        # Status badge
+        # Status class
         if status == "COLLECTED":
-            status_display = "✅ COLLECTED"
+            status_class = "status-collected"
+            status_text = "✅ COLLECTED"
         elif status == "PARTIAL_COLLECTED":
-            status_display = "🟡 PARTIAL"
+            status_class = "status-partial"
+            status_text = "🟡 PARTIAL"
         else:
-            status_display = "❌ UNCOLLECTED"
+            status_class = "status-uncollected"
+            status_text = "❌ UNCOLLECTED"
         
-        display_data.append({
-            "Customer": row.get('customer_name', 'Unknown'),
-            "Amount": f"${float(row.get('amount', 0)):,.2f}",
-            "Collected": f"${float(row.get('amount_collected', 0)):,.2f}",
-            "Balance": f"${balance:,.2f}",
-            "Status": status_display,
-            "ID": row.get('change_id', 'N/A'),
-            "Phone": row.get('phone', ''),
-            "balance_raw": balance,
-            "change_id_raw": row.get('change_id', '')
-        })
+        # Action button
+        if balance > 0:
+            action_btn = f'<form action="" method="post"><button type="submit" name="collect_{change_id}" class="collect-btn">Collect</button></form>'
+        else:
+            action_btn = "—"
+        
+        rows_html += f"""
+            <tr>
+                <td><strong>{customer}</strong><br><small style="color:#888;">{change_id[:12]}...</small></td>
+                <td>${amount:,.2f}</td>
+                <td>${collected:,.2f}</td>
+                <td>${balance:,.2f}</td>
+                <td class="{status_class}">{status_text}</td>
+                <td style="text-align:center;">{action_btn}</td>
+            </tr>
+        """
     
-    display_df = pd.DataFrame(display_data)
+    rows_html += """
+        </tbody>
+    </table>
+    """
     
-    # Show as table
-    st.markdown("### Change Records")
+    # Render the table
+    st.markdown(header_html + rows_html, unsafe_allow_html=True)
     
-    # Use columns for each row to allow action buttons
-    for idx, row in display_df.iterrows():
-        with st.container(border=True):
-            col1, col2, col3, col4, col5, col6 = st.columns([1.5, 1, 1, 1, 1.2, 0.8])
-            
-            with col1:
-                st.write(f"**{row['Customer']}**")
-                st.caption(f"ID: {row['ID']}")
-                if row['Phone']:
-                    st.caption(f"📞 {row['Phone']}")
-            
-            with col2:
-                st.write(row['Amount'])
-            
-            with col3:
-                st.write(row['Collected'])
-            
-            with col4:
-                st.write(row['Balance'])
-            
-            with col5:
-                st.write(row['Status'])
-            
-            with col6:
-                if row['balance_raw'] > 0:
-                    with st.form(key=f"collect_form_{row['ID']}"):
-                        if st.form_submit_button("Collect", use_container_width=True):
-                            success, message = collect_change(
-                                change_id=row['change_id_raw'],
-                                amount=row['balance_raw']
-                            )
-                            if success:
-                                show_toast(message, "success")
-                                st.rerun()
-                            else:
-                                st.error(message)
+    # Handle collect button clicks (using session state)
+    for _, row in df.iterrows():
+        change_id = row.get('change_id', '')
+        balance = float(row.get('balance', 0))
+        if balance > 0:
+            if st.button(f"Collect_{change_id}", key=f"collect_{change_id}", help="Collect this change"):
+                success, message = collect_change(
+                    change_id=change_id,
+                    amount=balance
+                )
+                if success:
+                    show_toast(message, "success")
+                    st.rerun()
+                else:
+                    st.error(message)
     
     # Footer totals
     st.divider()
@@ -239,7 +291,6 @@ def credit_management_tab():
     
     st.divider()
     
-    # Form for adding new credit
     with st.form("record_credit_form"):
         st.markdown("### Record New Credit/Loan")
         col1, col2 = st.columns(2)
@@ -276,12 +327,10 @@ def credit_management_tab():
     
     st.divider()
     
-    # Overdue alert
     overdue = get_overdue_credits(days=30)
     if not overdue.empty:
         st.warning(f"⚠️ {len(overdue)} credit(s) are overdue!")
     
-    # Filters
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         filter_credit_status = st.selectbox("Status", ["ALL"] + CREDIT_STATUSES, key="credit_status_filter")
@@ -310,101 +359,169 @@ def credit_management_tab():
         st.info("No credit records found")
         return
     
-    # Display as table
+    # === TRUE TABLE FORMAT ===
     st.markdown("### Credit Records")
     
+    header_html = """
+    <style>
+        .credit-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .credit-table th {
+            background: #f0f2f6;
+            text-align: left;
+            padding: 10px 8px;
+            font-weight: 600;
+            border-bottom: 2px solid #ddd;
+        }
+        .credit-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #eee;
+            vertical-align: middle;
+        }
+        .credit-table tr:hover {
+            background: #f8f9fa;
+        }
+        .status-paid { color: green; font-weight: 600; }
+        .status-partial { color: orange; font-weight: 600; }
+        .status-active { color: #2196F3; font-weight: 600; }
+        .status-overdue { color: red; font-weight: 600; }
+        .pay-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .pay-btn:hover {
+            background: #1976D2;
+        }
+        @media (max-width: 768px) {
+            .credit-table th, .credit-table td {
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+        }
+    </style>
+    <table class="credit-table">
+        <thead>
+            <tr>
+                <th>Customer</th>
+                <th>Amount</th>
+                <th>Paid</th>
+                <th>Balance</th>
+                <th>Status</th>
+                <th style="text-align:center;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    
+    rows_html = ""
     for _, row in df.iterrows():
+        customer = row.get('customer_name', 'Unknown')
+        credit_id = row.get('credit_id', 'N/A')
+        amount = float(row.get('amount', 0))
+        paid = float(row.get('amount_paid', 0))
         balance = float(row.get('balance', 0))
         status = row.get('status', 'ACTIVE')
         
-        # Status badge
         if status == "PAID":
-            status_display = "✅ PAID"
+            status_class = "status-paid"
+            status_text = "✅ PAID"
         elif status == "PARTIAL_PAID":
-            status_display = "🟡 PARTIAL"
+            status_class = "status-partial"
+            status_text = "🟡 PARTIAL"
         elif status == "OVERDUE":
-            status_display = "🔴 OVERDUE"
+            status_class = "status-overdue"
+            status_text = "🔴 OVERDUE"
         elif status == "WRITTEN_OFF":
-            status_display = "❌ WRITTEN OFF"
+            status_class = "status-overdue"
+            status_text = "❌ WRITTEN OFF"
         else:
-            status_display = "🟢 ACTIVE"
+            status_class = "status-active"
+            status_text = "🟢 ACTIVE"
         
-        with st.container(border=True):
-            col1, col2, col3, col4, col5, col6 = st.columns([1.8, 1, 1, 1, 1.2, 0.8])
-            
-            with col1:
-                st.write(f"**{row.get('customer_name', 'Unknown')}**")
-                st.caption(f"ID: {row.get('credit_id', 'N/A')}")
-                if row.get('phone'):
-                    st.caption(f"📞 {row.get('phone')}")
-                if row.get('credit_type'):
-                    st.caption(f"🏷️ {row.get('credit_type').replace('_', ' ').title()}")
-                if row.get('description'):
-                    st.caption(f"📝 {row.get('description')}")
-                if row.get('expected_repayment_date'):
-                    st.caption(f"📅 Due: {row.get('expected_repayment_date')}")
-            
-            with col2:
-                st.write(f"${float(row.get('amount', 0)):,.2f}")
-            
-            with col3:
-                st.write(f"${float(row.get('amount_paid', 0)):,.2f}")
-            
-            with col4:
-                st.write(f"${balance:,.2f}")
-            
-            with col5:
-                st.write(status_display)
-            
-            with col6:
-                if balance > 0:
-                    if st.button(f"Pay", key=f"pay_credit_{row.get('credit_id')}"):
-                        st.session_state[f"paying_credit_{row.get('credit_id')}"] = True
-            
-            # Payment form (shown when Pay clicked)
-            if st.session_state.get(f"paying_credit_{row.get('credit_id')}", False):
-                with st.container(border=True):
-                    st.subheader(f"Record Payment for {row.get('customer_name')}")
-                    with st.form(key=f"payment_form_{row.get('credit_id')}"):
-                        col_a, col_b, col_c = st.columns(3)
-                        with col_a:
-                            payment_amount = st.number_input(
-                                "Amount to Pay ($)",
-                                min_value=0.01,
-                                max_value=balance,
-                                step=0.01,
-                                key=f"pay_amount_{row.get('credit_id')}"
-                            )
-                        with col_b:
-                            payment_method = st.selectbox(
-                                "Payment Method",
-                                ["CASH", "BANK", "MOBILE_MONEY", "ECOCASH"],
-                                key=f"pay_method_{row.get('credit_id')}"
-                            )
-                        with col_c:
-                            payment_note = st.text_input("Note", key=f"pay_note_{row.get('credit_id')}")
-                        
-                        col_d, col_e = st.columns(2)
-                        with col_d:
-                            if st.form_submit_button("Confirm Payment", use_container_width=True):
-                                success, message = record_credit_payment(
-                                    credit_id=row.get('credit_id'),
-                                    amount=payment_amount,
-                                    payment_note=payment_note,
-                                    payment_method=payment_method
-                                )
-                                if success:
-                                    show_toast(message, "success")
-                                    st.session_state[f"paying_credit_{row.get('credit_id')}"] = False
-                                    st.rerun()
-                                else:
-                                    st.error(message)
-                        with col_e:
-                            if st.form_submit_button("Cancel", use_container_width=True):
-                                st.session_state[f"paying_credit_{row.get('credit_id')}"] = False
-                                st.rerun()
+        if balance > 0:
+            action_btn = f'<form action="" method="post"><button type="submit" name="pay_{credit_id}" class="pay-btn">Pay</button></form>'
+        else:
+            action_btn = "—"
+        
+        rows_html += f"""
+            <tr>
+                <td><strong>{customer}</strong><br><small style="color:#888;">{credit_id[:12]}...</small></td>
+                <td>${amount:,.2f}</td>
+                <td>${paid:,.2f}</td>
+                <td>${balance:,.2f}</td>
+                <td class="{status_class}">{status_text}</td>
+                <td style="text-align:center;">{action_btn}</td>
+            </tr>
+        """
     
-    # Footer totals
+    rows_html += """
+        </tbody>
+    </table>
+    """
+    
+    st.markdown(header_html + rows_html, unsafe_allow_html=True)
+    
+    # Handle pay button clicks
+    for _, row in df.iterrows():
+        credit_id = row.get('credit_id', '')
+        balance = float(row.get('balance', 0))
+        if balance > 0:
+            if st.button(f"Pay_{credit_id}", key=f"pay_credit_{credit_id}"):
+                st.session_state[f"paying_credit_{credit_id}"] = True
+    
+    # Payment forms (shown when Pay clicked)
+    for _, row in df.iterrows():
+        credit_id = row.get('credit_id', '')
+        if st.session_state.get(f"paying_credit_{credit_id}", False):
+            with st.container(border=True):
+                st.subheader(f"Record Payment for {row.get('customer_name')}")
+                with st.form(key=f"payment_form_{credit_id}"):
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        payment_amount = st.number_input(
+                            "Amount to Pay ($)",
+                            min_value=0.01,
+                            max_value=float(row.get('balance', 0)),
+                            step=0.01,
+                            key=f"pay_amount_{credit_id}"
+                        )
+                    with col_b:
+                        payment_method = st.selectbox(
+                            "Payment Method",
+                            ["CASH", "BANK", "MOBILE_MONEY", "ECOCASH"],
+                            key=f"pay_method_{credit_id}"
+                        )
+                    with col_c:
+                        payment_note = st.text_input("Note", key=f"pay_note_{credit_id}")
+                    
+                    col_d, col_e = st.columns(2)
+                    with col_d:
+                        if st.form_submit_button("Confirm Payment", use_container_width=True):
+                            success, message = record_credit_payment(
+                                credit_id=credit_id,
+                                amount=payment_amount,
+                                payment_note=payment_note,
+                                payment_method=payment_method
+                            )
+                            if success:
+                                show_toast(message, "success")
+                                st.session_state[f"paying_credit_{credit_id}"] = False
+                                st.rerun()
+                            else:
+                                st.error(message)
+                    with col_e:
+                        if st.form_submit_button("Cancel", use_container_width=True):
+                            st.session_state[f"paying_credit_{credit_id}"] = False
+                            st.rerun()
+    
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -432,7 +549,6 @@ def gas_sales_tab():
     
     st.divider()
     
-    # Form for adding new gas sale
     with st.form("record_gas_form"):
         st.markdown("### Record New Gas Sale")
         col1, col2 = st.columns(2)
@@ -488,34 +604,120 @@ def gas_sales_tab():
             with col3:
                 st.metric("Pending Transactions", len(all_pending))
             
-            # Show pending sales as table
+            # Pending sales table
             st.markdown("#### Pending Sales")
-            for _, row in all_pending.iterrows():
-                with st.container(border=True):
-                    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1.2, 0.8])
-                    with col1:
-                        st.write(f"**{row.get('customer_name', 'Unknown')}**")
-                        st.caption(f"Date: {row.get('sale_date', '')[:10] if row.get('sale_date') else ''}")
-                    with col2:
-                        st.write(f"{float(row.get('kgs', 0)):,.2f} KGs")
-                    with col3:
-                        st.write(f"${float(row.get('price_per_kg', 0)):,.2f}/KG")
-                    with col4:
-                        st.write(f"${float(row.get('total_amount', 0)):,.2f}")
-                    with col5:
-                        with st.form(key=f"transfer_form_{row.get('gas_sale_id')}"):
-                            if st.form_submit_button("Transfer", use_container_width=True):
-                                success, message = transfer_gas_to_pos(
-                                    gas_sale_id=row.get('gas_sale_id'),
-                                    transfer_note="Manual transfer"
-                                )
-                                if success:
-                                    show_toast(message, "success")
-                                    st.rerun()
-                                else:
-                                    st.error(message)
             
-            # Bulk transfer button
+            pending_html = """
+            <style>
+                .gas-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 14px;
+                }
+                .gas-table th {
+                    background: #f0f2f6;
+                    text-align: left;
+                    padding: 10px 8px;
+                    font-weight: 600;
+                    border-bottom: 2px solid #ddd;
+                }
+                .gas-table td {
+                    padding: 10px 8px;
+                    border-bottom: 1px solid #eee;
+                    vertical-align: middle;
+                }
+                .gas-table tr:hover {
+                    background: #f8f9fa;
+                }
+                .transfer-btn {
+                    background: #FF9800;
+                    color: white;
+                    border: none;
+                    padding: 6px 16px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 13px;
+                }
+                .transfer-btn:hover {
+                    background: #F57C00;
+                }
+                .transfer-all-btn {
+                    background: #4CAF50;
+                    color: white;
+                    border: none;
+                    padding: 10px 24px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 15px;
+                    width: 100%;
+                }
+                .transfer-all-btn:hover {
+                    background: #45a049;
+                }
+                @media (max-width: 768px) {
+                    .gas-table th, .gas-table td {
+                        padding: 6px 4px;
+                        font-size: 12px;
+                    }
+                }
+            </style>
+            <table class="gas-table">
+                <thead>
+                    <tr>
+                        <th>Customer</th>
+                        <th>KGs</th>
+                        <th>Price/KG</th>
+                        <th>Total</th>
+                        <th style="text-align:center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """
+            
+            rows_html = ""
+            for _, row in all_pending.iterrows():
+                customer = row.get('customer_name', 'Unknown')
+                gas_sale_id = row.get('gas_sale_id', '')
+                kgs = float(row.get('kgs', 0))
+                price = float(row.get('price_per_kg', 0))
+                total = float(row.get('total_amount', 0))
+                
+                rows_html += f"""
+                    <tr>
+                        <td><strong>{customer}</strong></td>
+                        <td>{kgs:,.2f}</td>
+                        <td>${price:,.2f}</td>
+                        <td>${total:,.2f}</td>
+                        <td style="text-align:center;">
+                            <form action="" method="post">
+                                <button type="submit" name="transfer_{gas_sale_id}" class="transfer-btn">Transfer</button>
+                            </form>
+                        </td>
+                    </tr>
+                """
+            
+            rows_html += """
+                </tbody>
+            </table>
+            """
+            
+            st.markdown(pending_html + rows_html, unsafe_allow_html=True)
+            
+            # Handle individual transfer buttons
+            for _, row in all_pending.iterrows():
+                gas_sale_id = row.get('gas_sale_id', '')
+                if st.button(f"Transfer_{gas_sale_id}", key=f"transfer_gas_{gas_sale_id}"):
+                    success, message = transfer_gas_to_pos(
+                        gas_sale_id=gas_sale_id,
+                        transfer_note="Manual transfer"
+                    )
+                    if success:
+                        show_toast(message, "success")
+                        st.rerun()
+                    else:
+                        st.error(message)
+            
+            # Bulk transfer
             with st.form("transfer_all_gas_form"):
                 pos_receipt = st.text_input("POS Receipt Number (Optional)")
                 transfer_note = st.text_area("Transfer Note")
@@ -537,46 +739,6 @@ def gas_sales_tab():
                         st.rerun()
                     else:
                         st.error("Failed to transfer gas sales")
-    
-    st.divider()
-    
-    # Today's summary
-    with st.expander("Today's Gas Sales Summary", expanded=False):
-        today = datetime.now().strftime("%Y-%m-%d")
-        today_sales = get_gas_sales(date_from=today, date_to=today)
-        
-        if today_sales.empty:
-            st.info("No gas sales today")
-        else:
-            today_pending = today_sales[today_sales['status'] == "PENDING"] if 'status' in today_sales.columns else pd.DataFrame()
-            today_transferred = today_sales[today_sales['status'] == "TRANSFERRED_TO_POS"] if 'status' in today_sales.columns else pd.DataFrame()
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Today's Total", f"${today_sales['total_amount'].sum():,.2f}" if 'total_amount' in today_sales.columns else "$0.00")
-            with col2:
-                st.metric("Today's Pending", f"{len(today_pending)}")
-            with col3:
-                st.metric("Today's Transferred", f"{len(today_transferred)}")
-            
-            # Show today's sales as table
-            for _, row in today_sales.iterrows():
-                with st.container(border=True):
-                    col1, col2, col3, col4, col5 = st.columns([1.5, 1, 1, 1.2, 1])
-                    with col1:
-                        st.write(f"**{row.get('customer_name', 'Unknown')}**")
-                    with col2:
-                        st.write(f"{float(row.get('kgs', 0)):,.2f} KGs")
-                    with col3:
-                        st.write(f"${float(row.get('price_per_kg', 0)):,.2f}/KG")
-                    with col4:
-                        st.write(f"${float(row.get('total_amount', 0)):,.2f}")
-                    with col5:
-                        status = row.get('status', 'PENDING')
-                        if status == "PENDING":
-                            st.warning("PENDING")
-                        else:
-                            st.success("TRANSFERRED")
     
     st.divider()
     
@@ -606,53 +768,122 @@ def gas_sales_tab():
         st.info("No gas sales records found")
         return
     
-    # Display all sales as table
+    # All gas sales table
     st.markdown("### All Gas Sales Records")
-    for _, row in df.iterrows():
-        with st.container(border=True):
-            col1, col2, col3, col4, col5, col6 = st.columns([1.8, 1, 1, 1, 1.2, 0.8])
-            
-            with col1:
-                st.write(f"**{row.get('customer_name', 'Unknown')}**")
-                st.caption(f"ID: {row.get('gas_sale_id', 'N/A')}")
-                if row.get('sale_date'):
-                    st.caption(f"📅 {row.get('sale_date')[:10]}")
-                if row.get('description'):
-                    st.caption(f"📝 {row.get('description')}")
-            
-            with col2:
-                st.write(f"{float(row.get('kgs', 0)):,.2f} KGs")
-            
-            with col3:
-                st.write(f"${float(row.get('price_per_kg', 0)):,.2f}")
-            
-            with col4:
-                st.write(f"${float(row.get('total_amount', 0)):,.2f}")
-            
-            with col5:
-                status = row.get('status', 'PENDING')
-                if status == "PENDING":
-                    st.warning("PENDING")
-                elif status == "TRANSFERRED_TO_POS":
-                    st.success("TRANSFERRED")
-                else:
-                    st.info("COMPLETED")
-            
-            with col6:
-                if status == "PENDING":
-                    with st.form(key=f"transfer_gas_{row.get('gas_sale_id')}"):
-                        if st.form_submit_button("Transfer", use_container_width=True):
-                            success, message = transfer_gas_to_pos(
-                                gas_sale_id=row.get('gas_sale_id'),
-                                transfer_note="Manual transfer"
-                            )
-                            if success:
-                                show_toast(message, "success")
-                                st.rerun()
-                            else:
-                                st.error(message)
     
-    # Footer totals
+    all_gas_html = """
+    <style>
+        .all-gas-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .all-gas-table th {
+            background: #f0f2f6;
+            text-align: left;
+            padding: 10px 8px;
+            font-weight: 600;
+            border-bottom: 2px solid #ddd;
+        }
+        .all-gas-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #eee;
+            vertical-align: middle;
+        }
+        .all-gas-table tr:hover {
+            background: #f8f9fa;
+        }
+        .status-pending { color: orange; font-weight: 600; }
+        .status-transferred { color: green; font-weight: 600; }
+        .transfer-small-btn {
+            background: #FF9800;
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .transfer-small-btn:hover {
+            background: #F57C00;
+        }
+        @media (max-width: 768px) {
+            .all-gas-table th, .all-gas-table td {
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+        }
+    </style>
+    <table class="all-gas-table">
+        <thead>
+            <tr>
+                <th>Customer</th>
+                <th>KGs</th>
+                <th>Price/KG</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th style="text-align:center;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    
+    rows_html = ""
+    for _, row in df.iterrows():
+        customer = row.get('customer_name', 'Unknown')
+        gas_sale_id = row.get('gas_sale_id', '')
+        kgs = float(row.get('kgs', 0))
+        price = float(row.get('price_per_kg', 0))
+        total = float(row.get('total_amount', 0))
+        status = row.get('status', 'PENDING')
+        
+        if status == "PENDING":
+            status_class = "status-pending"
+            status_text = "🟡 PENDING"
+            action_btn = f'<form action="" method="post"><button type="submit" name="transfer_{gas_sale_id}" class="transfer-small-btn">Transfer</button></form>'
+        elif status == "TRANSFERRED_TO_POS":
+            status_class = "status-transferred"
+            status_text = "✅ TRANSFERRED"
+            action_btn = "—"
+        else:
+            status_class = "status-transferred"
+            status_text = "✅ COMPLETED"
+            action_btn = "—"
+        
+        rows_html += f"""
+            <tr>
+                <td><strong>{customer}</strong></td>
+                <td>{kgs:,.2f}</td>
+                <td>${price:,.2f}</td>
+                <td>${total:,.2f}</td>
+                <td class="{status_class}">{status_text}</td>
+                <td style="text-align:center;">{action_btn}</td>
+            </tr>
+        """
+    
+    rows_html += """
+        </tbody>
+    </table>
+    """
+    
+    st.markdown(all_gas_html + rows_html, unsafe_allow_html=True)
+    
+    # Handle transfer buttons
+    for _, row in df.iterrows():
+        gas_sale_id = row.get('gas_sale_id', '')
+        status = row.get('status', 'PENDING')
+        if status == "PENDING":
+            if st.button(f"Transfer_{gas_sale_id}", key=f"transfer_all_gas_{gas_sale_id}"):
+                success, message = transfer_gas_to_pos(
+                    gas_sale_id=gas_sale_id,
+                    transfer_note="Manual transfer"
+                )
+                if success:
+                    show_toast(message, "success")
+                    st.rerun()
+                else:
+                    st.error(message)
+    
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
