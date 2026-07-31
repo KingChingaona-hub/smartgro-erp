@@ -1,5 +1,4 @@
-# backend/analytics/reports_dashboard.py
-# Reports Dashboard - With correct data sources for all features
+# backend/analytics/reports_dashboard.py - UPDATED to use reports_engine
 
 import streamlit as st
 import pandas as pd
@@ -21,24 +20,25 @@ from backend.core.db_adapter import (
     to_float
 )
 
-# Import Floating Financials for debtors
-from backend.core.floating_financials import get_credit_records, get_change_records
-
+# Import from reports_engine
 from backend.analytics.reports_engine import (
     get_sales_report_data,
     get_products_report_data,
     get_customers_report_data,
     get_expenses_report_data,
+    get_income_report_data,
     get_purchases_report_data,
     get_branches_report_data,
     get_inventory_report_data,
     get_debtors_report_data,
     generate_sales_report,
+    generate_income_report,
     generate_expense_report,
     generate_purchase_report,
     generate_customer_report,
     generate_debtors_report,
     generate_sales_report_pdf,
+    generate_income_report_pdf,
     generate_expenses_report_pdf,
     generate_inventory_report_pdf,
     generate_debtors_report_pdf,
@@ -73,260 +73,12 @@ def find_column(df, possible_names, default=None):
     return None
 
 
-def get_sales_data(date_from=None, date_to=None):
-    """Get sales data with proper deduplication"""
-    try:
-        sales_df = load_sales()
-        
-        if sales_df.empty:
-            return pd.DataFrame()
-        
-        date_col = find_column(sales_df, ["sale_date", "date", "transaction_date", "created_at"])
-        
-        if date_col:
-            sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-            sales_df = sales_df.dropna(subset=[date_col])
-            
-            if date_from:
-                sales_df = sales_df[sales_df[date_col] >= pd.to_datetime(date_from)]
-            if date_to:
-                sales_df = sales_df[sales_df[date_col] <= pd.to_datetime(date_to)]
-        
-        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
-        
-        if receipt_col:
-            sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
-        
-        total_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
-        
-        if total_col and total_col != "total":
-            sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
-        elif not total_col:
-            sales_df["total"] = 0
-        
-        profit_col = find_column(sales_df, ["profit", "profit_margin", "gross_profit"])
-        
-        if profit_col and profit_col != "profit":
-            sales_df["profit"] = pd.to_numeric(sales_df[profit_col], errors="coerce").fillna(0)
-        elif not profit_col:
-            sales_df["profit"] = 0
-        
-        return sales_df
-    except Exception as e:
-        print(f"Error getting sales data: {e}")
-        return pd.DataFrame()
-
-
-def get_expenses_data(date_from=None, date_to=None):
-    """Get expenses data from expenses table - FIXED"""
-    try:
-        expenses_df = load_expenses()
-        
-        if expenses_df.empty:
-            return pd.DataFrame()
-        
-        # Find date column
-        date_col = find_column(expenses_df, ["expense_date", "date", "created_at"])
-        
-        if date_col:
-            expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
-            expenses_df = expenses_df.dropna(subset=[date_col])
-            
-            if date_from:
-                expenses_df = expenses_df[expenses_df[date_col] >= pd.to_datetime(date_from)]
-            if date_to:
-                expenses_df = expenses_df[expenses_df[date_col] <= pd.to_datetime(date_to)]
-        
-        # Find amount column
-        amount_col = find_column(expenses_df, ["amount", "total", "expense_amount"])
-        
-        if amount_col:
-            expenses_df["amount"] = pd.to_numeric(expenses_df[amount_col], errors="coerce").fillna(0)
-        else:
-            expenses_df["amount"] = 0
-        
-        # Find category column
-        category_col = find_column(expenses_df, ["category", "expense_category", "type"])
-        if category_col:
-            expenses_df["category"] = expenses_df[category_col].fillna("Uncategorized")
-        else:
-            expenses_df["category"] = "Uncategorized"
-        
-        # Find description column
-        desc_col = find_column(expenses_df, ["description", "notes", "expense_description"])
-        if desc_col:
-            expenses_df["description"] = expenses_df[desc_col].fillna("")
-        else:
-            expenses_df["description"] = ""
-        
-        return expenses_df
-    except Exception as e:
-        print(f"Error getting expenses data: {e}")
-        return pd.DataFrame()
-
-
-def get_income_data(date_from=None, date_to=None):
-    """Get income data from income table - FIXED"""
-    try:
-        income_df = load_income()
-        
-        if income_df.empty:
-            return pd.DataFrame()
-        
-        # Find date column
-        date_col = find_column(income_df, ["income_date", "date", "created_at"])
-        
-        if date_col:
-            income_df[date_col] = pd.to_datetime(income_df[date_col], errors="coerce")
-            income_df = income_df.dropna(subset=[date_col])
-            
-            if date_from:
-                income_df = income_df[income_df[date_col] >= pd.to_datetime(date_from)]
-            if date_to:
-                income_df = income_df[income_df[date_col] <= pd.to_datetime(date_to)]
-        
-        # Find amount column
-        amount_col = find_column(income_df, ["amount", "total", "income_amount"])
-        
-        if amount_col:
-            income_df["amount"] = pd.to_numeric(income_df[amount_col], errors="coerce").fillna(0)
-        else:
-            income_df["amount"] = 0
-        
-        # Find source column
-        source_col = find_column(income_df, ["income_source", "source", "type"])
-        if source_col:
-            income_df["source"] = income_df[source_col].fillna("Other")
-        else:
-            income_df["source"] = "Other"
-        
-        # Find description column
-        desc_col = find_column(income_df, ["description", "notes"])
-        if desc_col:
-            income_df["description"] = income_df[desc_col].fillna("")
-        else:
-            income_df["description"] = ""
-        
-        return income_df
-    except Exception as e:
-        print(f"Error getting income data: {e}")
-        return pd.DataFrame()
-
-
-def get_purchases_data(date_from=None, date_to=None):
-    """Get purchases data from purchases table"""
-    try:
-        purchases_df = load_purchases()
-        
-        if purchases_df.empty:
-            return pd.DataFrame()
-        
-        date_col = find_column(purchases_df, ["date_ordered", "date", "purchase_date", "created_at"])
-        
-        if date_col:
-            purchases_df[date_col] = pd.to_datetime(purchases_df[date_col], errors="coerce")
-            purchases_df = purchases_df.dropna(subset=[date_col])
-            
-            if date_from:
-                purchases_df = purchases_df[purchases_df[date_col] >= pd.to_datetime(date_from)]
-            if date_to:
-                purchases_df = purchases_df[purchases_df[date_col] <= pd.to_datetime(date_to)]
-        
-        cost_col = find_column(purchases_df, ["total_cost", "cost", "amount", "purchase_amount"])
-        
-        if cost_col and cost_col != "total_cost":
-            purchases_df["total_cost"] = pd.to_numeric(purchases_df[cost_col], errors="coerce").fillna(0)
-        elif not cost_col:
-            purchases_df["total_cost"] = 0
-        
-        return purchases_df
-    except Exception as e:
-        print(f"Error getting purchases data: {e}")
-        return pd.DataFrame()
-
-
-def get_customers_data():
-    """Get customers data from sales - FIXED profit source"""
-    try:
-        sales_df = load_sales()
-        
-        if sales_df.empty:
-            return pd.DataFrame()
-        
-        customer_col = find_column(sales_df, ["customer_name", "customer", "client"])
-        
-        if not customer_col:
-            return pd.DataFrame()
-        
-        # Get unique customers and their total spending and profit
-        # Use receipt deduplication for accurate totals
-        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id"])
-        
-        if receipt_col:
-            # Get unique receipts per customer
-            customers = sales_df.groupby(customer_col).agg({
-                "total": "sum",
-                "profit": "sum",
-                receipt_col: "nunique"
-            }).reset_index()
-            customers.columns = ["customer", "total_spent", "total_profit", "transactions"]
-        else:
-            customers = sales_df.groupby(customer_col).agg({
-                "total": "sum",
-                "profit": "sum"
-            }).reset_index()
-            customers.columns = ["customer", "total_spent", "total_profit"]
-            customers["transactions"] = 1
-        
-        customers = customers.sort_values("total_spent", ascending=False)
-        
-        # Filter out 'Walk-in' and empty
-        customers = customers[~customers["customer"].str.lower().isin(["walk-in", "", "none", "null"])]
-        
-        return customers
-    except Exception as e:
-        print(f"Error getting customers data: {e}")
-        return pd.DataFrame()
-
-
-def get_debtors_from_floating():
-    """Get debtors from Floating Financials - FIXED source"""
-    try:
-        # Get credits from floating financials
-        credits_df = get_credit_records()
-        
-        if credits_df.empty:
-            return pd.DataFrame()
-        
-        # Filter to only those with balance > 0
-        credits_df = credits_df[credits_df["balance"] > 0]
-        
-        # Rename columns to match debtors format
-        result = []
-        for _, row in credits_df.iterrows():
-            result.append({
-                "customer_name": row.get("customer_name", "Unknown"),
-                "phone": row.get("phone", ""),
-                "total_amount": safe_float(row.get("amount", 0)),
-                "amount_paid": safe_float(row.get("amount_paid", 0)),
-                "balance": safe_float(row.get("balance", 0)),
-                "status": row.get("status", "ACTIVE"),
-                "expected_repayment_date": row.get("expected_repayment_date", ""),
-                "credit_id": row.get("credit_id", "")
-            })
-        
-        return pd.DataFrame(result)
-    except Exception as e:
-        print(f"Error getting debtors from floating: {e}")
-        return pd.DataFrame()
-
-
 # ==============================
 # REPORTS DASHBOARD - FIXED
 # ==============================
 
 def reports_dashboard():
-    """Main reports dashboard - With correct data sources"""
+    """Main reports dashboard - Using reports_engine for all data"""
     
     st.title("Reports Dashboard")
     st.caption("Comprehensive business reports and analytics")
@@ -357,10 +109,6 @@ def reports_dashboard():
             key="report_type"
         )
     
-    # Convert to datetime
-    start_datetime = pd.to_datetime(start_date)
-    end_datetime = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-    
     # ==============================
     # SALES REPORT
     # ==============================
@@ -368,18 +116,15 @@ def reports_dashboard():
         st.markdown("---")
         st.markdown("## Sales Report")
         
-        sales_data = get_sales_data(start_datetime, end_datetime)
+        sales_data = get_sales_report_data(start_date, end_date)
         
         if not sales_data.empty:
-            total_sales = safe_float(sales_data["total"].sum())
-            total_profit = safe_float(sales_data["profit"].sum())
-            profit_margin = (total_profit / total_sales * 100) if total_sales > 0 else 0
+            sales_report = generate_sales_report(start_date, end_date)
             
-            receipt_col = find_column(sales_data, ["receipt_no", "receipt", "transaction_id"])
-            if receipt_col:
-                total_transactions = sales_data[receipt_col].nunique()
-            else:
-                total_transactions = len(sales_data)
+            total_sales = sales_report['total_sales']
+            total_profit = sales_report['total_profit']
+            profit_margin = sales_report['profit_margin']
+            total_transactions = sales_report['total_transactions']
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -392,87 +137,66 @@ def reports_dashboard():
                 st.metric("Transactions", f"{total_transactions:,}")
             
             # Daily sales trend
-            date_col = find_column(sales_data, ["sale_date", "date"])
-            if date_col:
-                daily_sales = sales_data.groupby(sales_data[date_col].dt.date)["total"].sum().reset_index()
-                daily_sales.columns = ["date", "total"]
-                
-                if not daily_sales.empty:
-                    fig = px.line(
-                        daily_sales,
-                        x="date",
-                        y="total",
-                        title="Daily Sales Trend",
-                        labels={"total": "Sales ($)", "date": "Date"},
-                        markers=True,
-                        color_discrete_sequence=["#2ECC71"]
-                    )
-                    fig.update_layout(height=350, hovermode='x unified')
-                    st.plotly_chart(fig, use_container_width=True)
+            if not sales_report['daily_sales'].empty:
+                fig = px.line(
+                    sales_report['daily_sales'],
+                    x="date",
+                    y="total",
+                    title="Daily Sales Trend",
+                    labels={"total": "Sales ($)", "date": "Date"},
+                    markers=True,
+                    color_discrete_sequence=["#2ECC71"]
+                )
+                fig.update_layout(height=350, hovermode='x unified')
+                st.plotly_chart(fig, use_container_width=True)
             
             # Top products
-            product_col = find_column(sales_data, ["name", "product_name", "Product"])
-            if product_col:
-                product_sales = sales_data.groupby(product_col).agg({
-                    "total": "sum",
-                    "profit": "sum"
-                }).reset_index()
-                product_sales.columns = ["name", "total", "profit"]
-                product_sales = product_sales.sort_values("total", ascending=False)
+            if not sales_report['product_sales'].empty:
+                col1, col2 = st.columns(2)
                 
-                if not product_sales.empty:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        top_products = product_sales.head(10)
-                        fig = px.bar(
-                            top_products,
-                            x="total",
-                            y="name",
-                            orientation='h',
-                            title="Top 10 Products by Revenue",
-                            color="total",
-                            color_continuous_scale="Blues",
-                            text="total"
-                        )
-                        fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
-                        top_profit = product_sales.sort_values("profit", ascending=False).head(10)
-                        fig = px.bar(
-                            top_profit,
-                            x="profit",
-                            y="name",
-                            orientation='h',
-                            title="Top 10 Products by Profit",
-                            color="profit",
-                            color_continuous_scale="Greens",
-                            text="profit"
-                        )
-                        fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                with col1:
+                    top_products = sales_report['product_sales'].head(10)
+                    fig = px.bar(
+                        top_products,
+                        x="total",
+                        y="name",
+                        orientation='h',
+                        title="Top 10 Products by Revenue",
+                        color="total",
+                        color_continuous_scale="Blues",
+                        text="total"
+                    )
+                    fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    top_profit = sales_report['product_sales'].sort_values("profit", ascending=False).head(10)
+                    fig = px.bar(
+                        top_profit,
+                        x="profit",
+                        y="name",
+                        orientation='h',
+                        title="Top 10 Products by Profit",
+                        color="profit",
+                        color_continuous_scale="Greens",
+                        text="profit"
+                    )
+                    fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
             
             # Payment methods
-            payment_col = find_column(sales_data, ["payment_method", "payment_type", "payment"])
-            if payment_col:
-                payment_methods = sales_data.groupby(payment_col).agg({
-                    "total": "sum"
-                }).reset_index()
-                payment_methods.columns = ["payment_method", "total"]
-                
-                if not payment_methods.empty:
-                    fig = px.pie(
-                        payment_methods,
-                        values="total",
-                        names="payment_method",
-                        title="Revenue by Payment Method",
-                        color_discrete_sequence=px.colors.qualitative.Set2
-                    )
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
+            if not sales_report['payment_methods'].empty:
+                fig = px.pie(
+                    sales_report['payment_methods'],
+                    values="total",
+                    names="payment_method",
+                    title="Revenue by Payment Method",
+                    color_discrete_sequence=px.colors.qualitative.Set2
+                )
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
             col1, col2, col3 = st.columns(3)
@@ -503,37 +227,35 @@ def reports_dashboard():
             st.info("No sales data available for the selected period")
     
     # ==============================
-    # EXPENSES REPORT - FIXED
+    # EXPENSES REPORT - USING REPORTS_ENGINE
     # ==============================
     if report_type == "Expenses" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Expenses Report")
         
-        expenses_data = get_expenses_data(start_datetime, end_datetime)
+        # Use reports_engine functions
+        expenses_data = get_expenses_report_data(start_date, end_date)
         
         if not expenses_data.empty:
-            total_expenses = safe_float(expenses_data["amount"].sum())
+            expense_report = generate_expense_report(start_date, end_date)
+            
+            total_expenses = expense_report['total_expenses']
             
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Expenses", f"${total_expenses:,.2f}")
             with col2:
-                st.metric("Categories", len(expenses_data["category"].unique()))
+                st.metric("Categories", len(expense_report['by_category']))
             with col3:
-                date_col = find_column(expenses_data, ["expense_date", "date"])
-                if date_col:
-                    st.metric("Days with Expenses", len(expenses_data[date_col].dt.date.unique()))
+                st.metric("Days with Expenses", len(expense_report['daily_expenses']))
             
             # Expenses by category
-            by_category = expenses_data.groupby("category")["amount"].sum().reset_index()
-            by_category = by_category.sort_values("amount", ascending=False)
-            
-            if not by_category.empty:
+            if not expense_report['by_category'].empty:
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     fig = px.pie(
-                        by_category,
+                        expense_report['by_category'],
                         values="amount",
                         names="category",
                         title="Expenses by Category",
@@ -544,7 +266,7 @@ def reports_dashboard():
                 
                 with col2:
                     fig = px.bar(
-                        by_category.head(10),
+                        expense_report['by_category'].head(10),
                         x="category",
                         y="amount",
                         title="Expenses by Category",
@@ -557,23 +279,18 @@ def reports_dashboard():
                     st.plotly_chart(fig, use_container_width=True)
             
             # Daily expenses trend
-            date_col = find_column(expenses_data, ["expense_date", "date"])
-            if date_col:
-                daily_expenses = expenses_data.groupby(expenses_data[date_col].dt.date)["amount"].sum().reset_index()
-                daily_expenses.columns = ["date", "amount"]
-                
-                if not daily_expenses.empty:
-                    fig = px.line(
-                        daily_expenses,
-                        x="date",
-                        y="amount",
-                        title="Daily Expenses Trend",
-                        labels={"amount": "Expenses ($)", "date": "Date"},
-                        markers=True,
-                        color_discrete_sequence=["#E74C3C"]
-                    )
-                    fig.update_layout(height=350, hovermode='x unified')
-                    st.plotly_chart(fig, use_container_width=True)
+            if not expense_report['daily_expenses'].empty:
+                fig = px.line(
+                    expense_report['daily_expenses'],
+                    x="date",
+                    y="amount",
+                    title="Daily Expenses Trend",
+                    labels={"amount": "Expenses ($)", "date": "Date"},
+                    markers=True,
+                    color_discrete_sequence=["#E74C3C"]
+                )
+                fig.update_layout(height=350, hovermode='x unified')
+                st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
             col1, col2, col3 = st.columns(3)
@@ -595,40 +312,38 @@ def reports_dashboard():
                         href = f'<a href="data:application/pdf;base64,{b64}" download="expenses_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
                         st.markdown(href, unsafe_allow_html=True)
         else:
-            st.info("No expenses data available for the selected period. Please add expenses in the Expenses module.")
+            st.info("No expenses data available for the selected period")
     
     # ==============================
-    # INCOME REPORT - FIXED
+    # INCOME REPORT - USING REPORTS_ENGINE
     # ==============================
     if report_type == "Income" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Income Report")
         
-        income_data = get_income_data(start_datetime, end_datetime)
+        # Use reports_engine functions
+        income_data = get_income_report_data(start_date, end_date)
         
         if not income_data.empty:
-            total_income = safe_float(income_data["amount"].sum())
+            income_report = generate_income_report(start_date, end_date)
+            
+            total_income = income_report['total_income']
             
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Income", f"${total_income:,.2f}")
             with col2:
-                st.metric("Income Sources", len(income_data["source"].unique()))
+                st.metric("Income Sources", income_report['total_sources'])
             with col3:
-                date_col = find_column(income_data, ["income_date", "date"])
-                if date_col:
-                    st.metric("Days with Income", len(income_data[date_col].dt.date.unique()))
+                st.metric("Days with Income", len(income_report['daily_income']))
             
             # Income by source
-            by_source = income_data.groupby("source")["amount"].sum().reset_index()
-            by_source = by_source.sort_values("amount", ascending=False)
-            
-            if not by_source.empty:
+            if not income_report['by_source'].empty:
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     fig = px.pie(
-                        by_source,
+                        income_report['by_source'],
                         values="amount",
                         names="source",
                         title="Income by Source",
@@ -639,7 +354,7 @@ def reports_dashboard():
                 
                 with col2:
                     fig = px.bar(
-                        by_source.head(10),
+                        income_report['by_source'].head(10),
                         x="source",
                         y="amount",
                         title="Income by Source",
@@ -652,23 +367,18 @@ def reports_dashboard():
                     st.plotly_chart(fig, use_container_width=True)
             
             # Daily income trend
-            date_col = find_column(income_data, ["income_date", "date"])
-            if date_col:
-                daily_income = income_data.groupby(income_data[date_col].dt.date)["amount"].sum().reset_index()
-                daily_income.columns = ["date", "amount"]
-                
-                if not daily_income.empty:
-                    fig = px.line(
-                        daily_income,
-                        x="date",
-                        y="amount",
-                        title="Daily Income Trend",
-                        labels={"amount": "Income ($)", "date": "Date"},
-                        markers=True,
-                        color_discrete_sequence=["#2ECC71"]
-                    )
-                    fig.update_layout(height=350, hovermode='x unified')
-                    st.plotly_chart(fig, use_container_width=True)
+            if not income_report['daily_income'].empty:
+                fig = px.line(
+                    income_report['daily_income'],
+                    x="date",
+                    y="amount",
+                    title="Daily Income Trend",
+                    labels={"amount": "Income ($)", "date": "Date"},
+                    markers=True,
+                    color_discrete_sequence=["#2ECC71"]
+                )
+                fig.update_layout(height=350, hovermode='x unified')
+                st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
             col1, col2, col3 = st.columns(3)
@@ -681,8 +391,16 @@ def reports_dashboard():
                     file_name=f"income_report_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
+            
+            with col2:
+                if st.button("Download Income Report (PDF)", key="income_pdf"):
+                    with st.spinner("Generating PDF..."):
+                        pdf_bytes = generate_income_report_pdf(start_date, end_date)
+                        b64 = base64.b64encode(pdf_bytes).decode()
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="income_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        st.markdown(href, unsafe_allow_html=True)
         else:
-            st.info("No income data available for the selected period. Please add income in the Income module.")
+            st.info("No income data available for the selected period")
     
     # ==============================
     # PURCHASES REPORT
@@ -691,61 +409,48 @@ def reports_dashboard():
         st.markdown("---")
         st.markdown("## Purchases Report")
         
-        purchases_data = get_purchases_data(start_datetime, end_datetime)
+        purchases_data = get_purchases_report_data(start_date, end_date)
         
         if not purchases_data.empty:
-            total_purchases = safe_float(purchases_data["total_cost"].sum())
+            purchase_report = generate_purchase_report(start_date, end_date)
+            
+            total_purchases = purchase_report['total_purchases']
             
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Purchases", f"${total_purchases:,.2f}")
             with col2:
-                supplier_col = find_column(purchases_data, ["supplier", "supplier_name"])
-                if supplier_col:
-                    st.metric("Suppliers", len(purchases_data[supplier_col].unique()))
+                st.metric("Suppliers", len(purchase_report['by_supplier']))
             with col3:
-                po_col = find_column(purchases_data, ["po_number", "purchase_order"])
-                if po_col:
-                    st.metric("Orders", purchases_data[po_col].nunique())
+                st.metric("Orders", len(purchase_report['daily_purchases']))
             
             # By supplier
-            supplier_col = find_column(purchases_data, ["supplier", "supplier_name"])
-            if supplier_col:
-                by_supplier = purchases_data.groupby(supplier_col)["total_cost"].sum().reset_index()
-                by_supplier.columns = ["supplier", "amount"]
-                by_supplier = by_supplier.sort_values("amount", ascending=False)
-                
-                if not by_supplier.empty:
-                    fig = px.bar(
-                        by_supplier.head(10),
-                        x="amount",
-                        y="supplier",
-                        orientation='h',
-                        title="Top Suppliers by Purchase Amount",
-                        color="amount",
-                        color_continuous_scale="Blues",
-                        text="amount"
-                    )
-                    fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                    fig.update_layout(height=400)
-                    st.plotly_chart(fig, use_container_width=True)
+            if not purchase_report['by_supplier'].empty:
+                fig = px.bar(
+                    purchase_report['by_supplier'].head(10),
+                    x="amount",
+                    y="supplier",
+                    orientation='h',
+                    title="Top Suppliers by Purchase Amount",
+                    color="amount",
+                    color_continuous_scale="Blues",
+                    text="amount"
+                )
+                fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
             
             # By status
-            status_col = find_column(purchases_data, ["status", "order_status"])
-            if status_col:
-                by_status = purchases_data.groupby(status_col).size().reset_index()
-                by_status.columns = ["status", "count"]
-                
-                if not by_status.empty:
-                    fig = px.pie(
-                        by_status,
-                        values="count",
-                        names="status",
-                        title="Purchase Orders by Status",
-                        color_discrete_sequence=px.colors.qualitative.Set3
-                    )
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
+            if not purchase_report['by_status'].empty:
+                fig = px.pie(
+                    purchase_report['by_status'],
+                    values="count",
+                    names="status",
+                    title="Purchase Orders by Status",
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
             col1, col2, col3 = st.columns(3)
@@ -768,20 +473,13 @@ def reports_dashboard():
         st.markdown("---")
         st.markdown("## Inventory Report")
         
-        inventory_data = load_products()
+        inventory_data = get_inventory_report_data()
         
         if not inventory_data.empty:
-            for col in ["stock", "price", "cost"]:
-                if col in inventory_data.columns:
-                    inventory_data[col] = pd.to_numeric(inventory_data[col], errors="coerce").fillna(0)
-            
-            inventory_data["stock_value"] = inventory_data["stock"] * inventory_data["price"]
-            inventory_data["potential_profit"] = inventory_data["stock"] * (inventory_data["price"] - inventory_data["cost"])
-            
-            total_value = inventory_data["stock_value"].sum()
-            total_units = inventory_data["stock"].sum()
+            total_value = inventory_data['stock_value'].sum()
+            total_units = inventory_data['stock'].sum()
             total_products = len(inventory_data)
-            potential_profit = inventory_data["potential_profit"].sum()
+            potential_profit = inventory_data['potential_profit'].sum()
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -794,41 +492,9 @@ def reports_dashboard():
                 st.metric("Potential Profit", f"${potential_profit:,.2f}")
             
             # Low stock alert
-            low_stock = inventory_data[inventory_data["stock"] < 5]
+            low_stock = inventory_data[inventory_data['stock'] < 5]
             if not low_stock.empty:
                 st.warning(f"{len(low_stock)} products have low stock (less than 5 units)")
-                st.dataframe(
-                    low_stock[["name", "stock", "price", "stock_value"]],
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "name": "Product",
-                        "stock": "Stock",
-                        "price": st.column_config.NumberColumn("Price", format="$%.2f"),
-                        "stock_value": st.column_config.NumberColumn("Stock Value", format="$%.2f")
-                    }
-                )
-            
-            # Inventory by category
-            if "category" in inventory_data.columns:
-                category_summary = inventory_data.groupby("category").agg({
-                    "stock": "sum",
-                    "stock_value": "sum"
-                }).reset_index()
-                category_summary = category_summary.sort_values("stock_value", ascending=False)
-                
-                fig = px.bar(
-                    category_summary.head(10),
-                    x="category",
-                    y="stock_value",
-                    title="Inventory Value by Category",
-                    color="stock_value",
-                    color_continuous_scale="Greens",
-                    text="stock_value"
-                )
-                fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                fig.update_layout(height=350)
-                st.plotly_chart(fig, use_container_width=True)
             
             # Download buttons
             col1, col2, col3 = st.columns(3)
@@ -841,156 +507,107 @@ def reports_dashboard():
                     file_name=f"inventory_report_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
+            
+            with col2:
+                if st.button("Download Inventory Report (PDF)", key="inventory_pdf"):
+                    with st.spinner("Generating PDF..."):
+                        pdf_bytes = generate_inventory_report_pdf()
+                        b64 = base64.b64encode(pdf_bytes).decode()
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="inventory_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        st.markdown(href, unsafe_allow_html=True)
         else:
             st.info("No inventory data available")
     
     # ==============================
-    # CUSTOMERS REPORT - FIXED PROFIT
+    # CUSTOMERS REPORT
     # ==============================
     if report_type == "Customers" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Customers Report")
         
-        customers_data = get_customers_data()
+        customer_report = generate_customer_report(start_date, end_date)
         
-        if not customers_data.empty:
-            total_customers = len(customers_data)
-            total_spent = safe_float(customers_data["total_spent"].sum())
-            total_profit = safe_float(customers_data["total_profit"].sum())
-            
-            col1, col2, col3 = st.columns(3)
+        if customer_report['total_customers'] > 0:
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Customers", f"{total_customers:,}")
+                st.metric("Total Customers", f"{customer_report['total_customers']:,}")
             with col2:
-                st.metric("Total Spent", f"${total_spent:,.2f}")
+                st.metric("New Customers", f"{customer_report['new_customers']:,}")
             with col3:
-                st.metric("Total Profit", f"${total_profit:,.2f}")
+                st.metric("Repeat Customers", f"{customer_report['repeat_customers']:,}")
+            with col4:
+                st.metric("Retention Rate", f"{customer_report['customer_retention']:.1f}%")
             
             # Top customers
-            if not customers_data.empty:
+            if not customer_report['top_customers'].empty:
                 st.markdown("### Top Customers")
                 
-                top_customers = customers_data.head(10)
                 fig = px.bar(
-                    top_customers,
-                    x="total_spent",
+                    customer_report['top_customers'],
+                    x="total",
                     y="customer",
                     orientation='h',
                     title="Top Customers by Spending",
-                    color="total_spent",
+                    color="total",
                     color_continuous_scale="Blues",
-                    text="total_spent"
+                    text="total"
                 )
                 fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
                 fig.update_layout(height=400)
                 st.plotly_chart(fig, use_container_width=True)
-                
-                st.dataframe(
-                    top_customers,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "customer": "Customer",
-                        "total_spent": st.column_config.NumberColumn("Total Spent", format="$%.2f"),
-                        "total_profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
-                        "transactions": "Transactions"
-                    }
-                )
             
             # Download buttons
             col1, col2 = st.columns(2)
             
             with col1:
-                csv_data = customers_data.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="Download Customers Data (CSV)",
-                    data=csv_data,
-                    file_name=f"customers_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
+                customers_data = get_customers_report_data()
+                if not customers_data.empty:
+                    csv_data = customers_data.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Download Customers Data (CSV)",
+                        data=csv_data,
+                        file_name=f"customers_report_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+            
+            with col2:
+                if st.button("Download Customers Report (PDF)", key="customers_pdf"):
+                    with st.spinner("Generating PDF..."):
+                        pdf_bytes = generate_customers_report_pdf(start_date, end_date)
+                        b64 = base64.b64encode(pdf_bytes).decode()
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="customers_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        st.markdown(href, unsafe_allow_html=True)
         else:
-            st.info("No customer data available")
+            st.info("No customer data available for the selected period")
     
     # ==============================
-    # DEBTORS REPORT - FROM FLOATING FINANCIALS
+    # DEBTORS REPORT
     # ==============================
     if report_type == "Debtors" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Debtors Report")
         
-        # Get debtors from Floating Financials
-        debtors_data = get_debtors_from_floating()
+        debtors_report = generate_debtors_report()
         
-        if not debtors_data.empty:
-            total_debt = safe_float(debtors_data["total_amount"].sum())
-            total_paid = safe_float(debtors_data["amount_paid"].sum())
-            outstanding = safe_float(debtors_data["balance"].sum())
-            debtors_count = len(debtors_data)
-            
-            # Count overdue (where expected_repayment_date < today)
-            today = datetime.now().date()
-            overdue_count = 0
-            for _, row in debtors_data.iterrows():
-                due_date = row.get("expected_repayment_date")
-                if due_date and pd.notna(due_date):
-                    try:
-                        due = pd.to_datetime(due_date).date()
-                        if due < today and safe_float(row.get("balance", 0)) > 0:
-                            overdue_count += 1
-                    except:
-                        pass
-            
+        if debtors_report['debtors_count'] > 0:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Debt", f"${total_debt:,.2f}")
+                st.metric("Total Debt", f"${debtors_report['total_debt']:,.2f}")
             with col2:
-                st.metric("Total Paid", f"${total_paid:,.2f}")
+                st.metric("Total Paid", f"${debtors_report['total_paid']:,.2f}")
             with col3:
-                st.metric("Outstanding", f"${outstanding:,.2f}")
+                st.metric("Outstanding", f"${debtors_report['outstanding_balance']:,.2f}")
             with col4:
-                st.metric("Debtors", f"{debtors_count}")
+                st.metric("Debtors", f"{debtors_report['debtors_count']}")
             
-            if overdue_count > 0:
-                st.error(f"{overdue_count} overdue debtors require attention!")
-            
-            # By status
-            if "status" in debtors_data.columns:
-                by_status = debtors_data.groupby("status")["balance"].sum().reset_index()
-                
-                if not by_status.empty:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        fig = px.pie(
-                            by_status,
-                            values="balance",
-                            names="status",
-                            title="Debt by Status",
-                            color_discrete_sequence=px.colors.qualitative.Set3
-                        )
-                        fig.update_layout(height=350)
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    with col2:
-                        fig = px.bar(
-                            by_status,
-                            x="status",
-                            y="balance",
-                            title="Outstanding Balance by Status",
-                            color="balance",
-                            color_continuous_scale="Reds",
-                            text="balance"
-                        )
-                        fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                        fig.update_layout(height=350)
-                        st.plotly_chart(fig, use_container_width=True)
+            if debtors_report['overdue_count'] > 0:
+                st.error(f"{debtors_report['overdue_count']} overdue debtors require attention!")
             
             # Top debtors
-            top_debtors = debtors_data.nlargest(10, "balance")
-            if not top_debtors.empty:
+            if not debtors_report['top_debtors'].empty:
                 st.markdown("### Top Debtors")
                 st.dataframe(
-                    top_debtors[["customer_name", "phone", "total_amount", "balance", "status"]],
+                    debtors_report['top_debtors'],
                     use_container_width=True,
                     hide_index=True,
                     column_config={
@@ -1006,15 +623,25 @@ def reports_dashboard():
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                csv_data = debtors_data.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="Download Debtors Data (CSV)",
-                    data=csv_data,
-                    file_name=f"debtors_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
+                debtors_data = get_debtors_report_data()
+                if not debtors_data.empty:
+                    csv_data = debtors_data.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Download Debtors Data (CSV)",
+                        data=csv_data,
+                        file_name=f"debtors_report_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+            
+            with col2:
+                if st.button("Download Debtors Report (PDF)", key="debtors_pdf"):
+                    with st.spinner("Generating PDF..."):
+                        pdf_bytes = generate_debtors_report_pdf()
+                        b64 = base64.b64encode(pdf_bytes).decode()
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="debtors_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download PDF</a>'
+                        st.markdown(href, unsafe_allow_html=True)
         else:
-            st.info("No debtors data available from Floating Financials")
+            st.info("No debtors data available")
     
     # ==============================
     # COMBINED DASHBOARD SUMMARY
@@ -1023,18 +650,17 @@ def reports_dashboard():
         st.markdown("---")
         st.markdown("## Executive Summary")
         
-        # Get all data from correct sources
-        sales_data = get_sales_data(start_datetime, end_datetime)
-        expenses_data = get_expenses_data(start_datetime, end_datetime)
-        income_data = get_income_data(start_datetime, end_datetime)
-        purchases_data = get_purchases_data(start_datetime, end_datetime)
-        customers_data = get_customers_data()
-        debtors_data = get_debtors_from_floating()
+        sales_report = generate_sales_report(start_date, end_date)
+        expense_report = generate_expense_report(start_date, end_date)
+        income_report = generate_income_report(start_date, end_date)
+        purchase_report = generate_purchase_report(start_date, end_date)
+        customer_report = generate_customer_report(start_date, end_date)
+        debtors_report = generate_debtors_report()
         
-        total_sales = safe_float(sales_data["total"].sum()) if not sales_data.empty else 0
-        total_expenses = safe_float(expenses_data["amount"].sum()) if not expenses_data.empty else 0
-        total_income = safe_float(income_data["amount"].sum()) if not income_data.empty else 0
-        total_purchases = safe_float(purchases_data["total_cost"].sum()) if not purchases_data.empty else 0
+        total_sales = sales_report['total_sales']
+        total_expenses = expense_report['total_expenses']
+        total_income = income_report['total_income']
+        total_purchases = purchase_report['total_purchases']
         
         net_profit = total_sales - total_expenses + total_income
         
@@ -1081,27 +707,23 @@ def reports_dashboard():
             )
         
         with col2:
-            total_customers = len(customers_data) if not customers_data.empty else 0
             st.metric(
                 "Total Customers",
-                f"{total_customers:,}",
+                f"{customer_report['total_customers']:,}",
                 help="Total customers"
             )
         
         with col3:
-            outstanding_debt = safe_float(debtors_data["balance"].sum()) if not debtors_data.empty else 0
             st.metric(
                 "Outstanding Debt",
-                f"${outstanding_debt:,.2f}",
+                f"${debtors_report['outstanding_balance']:,.2f}",
                 help="Total outstanding debt"
             )
         
         with col4:
-            receipt_col = find_column(sales_data, ["receipt_no", "receipt", "transaction_id"])
-            total_transactions = sales_data[receipt_col].nunique() if receipt_col and not sales_data.empty else len(sales_data)
             st.metric(
                 "Total Transactions",
-                f"{total_transactions:,}",
+                f"{sales_report['total_transactions']:,}",
                 help="Number of sales transactions"
             )
 
