@@ -1,5 +1,5 @@
 # backend/admin/user_management.py
-# User Management - Fixed user creation and login
+# User Management - Fully functional with Edit User fixed
 
 import streamlit as st
 import pandas as pd
@@ -44,6 +44,10 @@ def user_management_page():
         st.session_state.user_created = False
     if "user_created_name" not in st.session_state:
         st.session_state.user_created_name = ""
+    if "user_updated" not in st.session_state:
+        st.session_state.user_updated = False
+    if "user_updated_name" not in st.session_state:
+        st.session_state.user_updated_name = ""
     
     # ==============================
     # AUDIT LOG FUNCTION
@@ -119,6 +123,12 @@ def user_management_page():
             st.info(st.session_state.um_message)
         st.session_state.um_message = ""
         st.session_state.um_message_type = ""
+    
+    # Show update success message
+    if st.session_state.user_updated:
+        st.success(f"User '{st.session_state.user_updated_name}' updated successfully!")
+        st.session_state.user_updated = False
+        st.session_state.user_updated_name = ""
     
     # ==============================
     # METRICS
@@ -216,8 +226,8 @@ def user_management_page():
             
             # Apply formatting
             display_df["active"] = display_df["active"].apply(lambda x: "Active" if x else "Inactive")
-            display_df["mobile_enabled"] = display_df["mobile_enabled"].apply(lambda x: "✅" if x else "❌")
-            display_df["two_factor_enabled"] = display_df["two_factor_enabled"].apply(lambda x: "✅" if x else "❌")
+            display_df["mobile_enabled"] = display_df["mobile_enabled"].apply(lambda x: "Yes" if x else "No")
+            display_df["two_factor_enabled"] = display_df["two_factor_enabled"].apply(lambda x: "Yes" if x else "No")
             display_df["phone"] = display_df["phone"].apply(lambda x: format_phone_display(x) if x else "-")
             display_df["whatsapp"] = display_df["whatsapp"].apply(lambda x: format_phone_display(x) if x else "-")
             display_df["last_login"] = display_df["last_login"].fillna("Never")
@@ -225,7 +235,7 @@ def user_management_page():
             st.dataframe(display_df, use_container_width=True, hide_index=True)
     
     # ==============================
-    # TAB 2: ADD USER - FIXED
+    # TAB 2: ADD USER
     # ==============================
     with tab2:
         st.subheader("Add New User")
@@ -383,7 +393,7 @@ def user_management_page():
                         st.code(traceback.format_exc())
     
     # ==============================
-    # TAB 3: EDIT USER
+    # TAB 3: EDIT USER - FIXED
     # ==============================
     with tab3:
         st.subheader("Edit User")
@@ -394,6 +404,18 @@ def user_management_page():
             
             if edit_user:
                 user_data = users_df[users_df["username"] == edit_user].iloc[0]
+                
+                # Show current user info
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.info(f"**Username:** {edit_user}")
+                with col2:
+                    st.info(f"**Current Role:** {user_data.get('role', 'N/A')}")
+                with col3:
+                    status = "Active" if user_data.get('active', True) else "Inactive"
+                    st.info(f"**Current Status:** {status}")
+                
+                st.markdown("---")
                 
                 with st.form("edit_user_form"):
                     col1, col2 = st.columns(2)
@@ -421,8 +443,16 @@ def user_management_page():
                     with col1:
                         if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
                             try:
+                                # Load fresh data
                                 current_users = load_users()
-                                idx = current_users[current_users["username"] == edit_user].index[0]
+                                
+                                # Find the user
+                                user_mask = current_users["username"] == edit_user
+                                if not user_mask.any():
+                                    st.error(f"User '{edit_user}' not found")
+                                    st.stop()
+                                
+                                idx = current_users[user_mask].index[0]
                                 
                                 # Validate phone
                                 if edit_phone:
@@ -430,8 +460,15 @@ def user_management_page():
                                     if not valid:
                                         st.error(f"Phone: {msg}")
                                         st.stop()
-                                    elif standardized_phone != user_data.get("phone") and not current_users.empty and standardized_phone in current_users["phone"].values:
-                                        st.error(f"Phone number already in use by another user")
+                                    # Check if phone is used by another user
+                                    phone_exists = False
+                                    if "phone" in current_users.columns:
+                                        for i, row in current_users.iterrows():
+                                            if i != idx and row.get("phone") == standardized_phone:
+                                                phone_exists = True
+                                                break
+                                    if phone_exists:
+                                        st.error(f"Phone number {format_phone_display(standardized_phone)} already in use by another user")
                                         st.stop()
                                     current_users.loc[idx, "phone"] = standardized_phone
                                 else:
@@ -443,13 +480,21 @@ def user_management_page():
                                     if not valid:
                                         st.error(f"WhatsApp: {msg}")
                                         st.stop()
-                                    elif "whatsapp" in current_users.columns and standardized_whatsapp != user_data.get("whatsapp") and standardized_whatsapp in current_users["whatsapp"].values:
-                                        st.error(f"WhatsApp number already in use by another user")
+                                    # Check if WhatsApp is used by another user
+                                    whatsapp_exists = False
+                                    if "whatsapp" in current_users.columns:
+                                        for i, row in current_users.iterrows():
+                                            if i != idx and row.get("whatsapp") == standardized_whatsapp:
+                                                whatsapp_exists = True
+                                                break
+                                    if whatsapp_exists:
+                                        st.error(f"WhatsApp number {format_phone_display(standardized_whatsapp)} already in use by another user")
                                         st.stop()
                                     current_users.loc[idx, "whatsapp"] = standardized_whatsapp
                                 else:
                                     current_users.loc[idx, "whatsapp"] = ""
                                 
+                                # Update other fields
                                 current_users.loc[idx, "full_name"] = edit_full_name
                                 current_users.loc[idx, "role"] = edit_role
                                 current_users.loc[idx, "branch_id"] = edit_branch
@@ -458,11 +503,18 @@ def user_management_page():
                                 current_users.loc[idx, "active"] = edit_active
                                 current_users.loc[idx, "force_password_change"] = edit_force_password
                                 
+                                # Save changes
                                 save_users(current_users)
                                 log_audit("USER_UPDATED", f"Updated user: {edit_user}")
+                                
+                                # Set session state and refresh
+                                st.session_state.user_updated = True
+                                st.session_state.user_updated_name = edit_user
                                 st.session_state.um_force_refresh = True
+                                
                                 st.success(f"User '{edit_user}' updated successfully!")
                                 st.rerun()
+                                
                             except Exception as e:
                                 st.error(f"Error updating user: {str(e)}")
                     
