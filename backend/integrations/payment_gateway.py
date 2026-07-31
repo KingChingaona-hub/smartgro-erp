@@ -1,4 +1,6 @@
 # backend/integrations/payment_gateway.py
+# Payment Gateway Dashboard - Using REAL sales data with duplicate prevention
+
 import streamlit as st
 import pandas as pd
 import hashlib
@@ -20,15 +22,6 @@ from backend.core.db_adapter import (
 )
 
 # ==============================
-# FILE PATHS
-# ==============================
-DATA_DIR = Path("data")
-PAYMENT_FILE = DATA_DIR / "payments.csv"
-ECO_CASH_FILE = DATA_DIR / "ecocash_transactions.csv"
-CARD_FILE = DATA_DIR / "card_transactions.csv"
-
-
-# ==============================
 # HELPER: Convert Decimal to float
 # ==============================
 def to_float(value):
@@ -39,6 +32,15 @@ def to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+# ==============================
+# FILE PATHS
+# ==============================
+DATA_DIR = Path("data")
+PAYMENT_FILE = DATA_DIR / "payments.csv"
+ECO_CASH_FILE = DATA_DIR / "ecocash_transactions.csv"
+CARD_FILE = DATA_DIR / "card_transactions.csv"
 
 
 # ==============================
@@ -72,36 +74,246 @@ def init_payment_files():
         df.to_csv(CARD_FILE, index=False)
 
 
-def load_payments():
-    """Load all payments from database - REAL DATA"""
-    df = load_cash()
+# ==============================
+# LOAD PAYMENTS FROM SALES - REAL DATA WITH DEDUPLICATION
+# ==============================
+def load_payments_from_sales(date_from=None, date_to=None):
+    """Load REAL payments from sales data only - NO DUPLICATES"""
     
-    if df.empty:
+    sales_df = load_sales()
+    
+    if sales_df.empty:
         return pd.DataFrame()
     
-    # Filter payment types
-    payment_types = ["CASH_SALE", "CREDIT_SALE", "DEBT_PAYMENT", "DEPOSIT"]
-    df = df[df["type"].isin(payment_types)]
+    # Determine date column
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
     
-    # Rename columns to match payment structure
-    if not df.empty:
-        df = df.copy()
-        df["payment_id"] = df.index.astype(str)
-        df["payment_method"] = df["payment_method"].fillna("CASH")
-        df["status"] = "COMPLETED"
-        df["payment_date"] = df["cash_date"]
-        df["processed_by"] = df["cashier"].fillna("system")
+    if date_col:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
         
-        # Convert amount to float
-        df["amount"] = df["amount"].apply(to_float)
+        if date_from:
+            sales_df = sales_df[sales_df[date_col] >= pd.to_datetime(date_from)]
+        if date_to:
+            sales_df = sales_df[sales_df[date_col] <= pd.to_datetime(date_to)]
     
-    return df
+    if sales_df.empty:
+        return pd.DataFrame()
+    
+    # Find total column
+    total_col = None
+    for col in ["final_total", "total", "amount", "sale_amount"]:
+        if col in sales_df.columns:
+            total_col = col
+            break
+    
+    if total_col is None:
+        return pd.DataFrame()
+    
+    # Find receipt column for unique transactions
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
+    
+    # ============================================================
+    # DEDUPLICATION: Use unique receipts to avoid duplicates
+    # ============================================================
+    if receipt_col:
+        # Drop duplicates by receipt number (keep first occurrence)
+        sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
+    
+    # Create payment records from sales
+    payments = []
+    
+    for _, sale in sales_df.iterrows():
+        amount = to_float(sale.get(total_col, 0))
+        
+        # Skip zero amount transactions
+        if amount <= 0:
+            continue
+        
+        # Get receipt number
+        receipt_no = str(sale.get(receipt_col, "")) if receipt_col else ""
+        if not receipt_no or receipt_no == "nan":
+            receipt_no = f"SALE{len(payments)+1:08d}"
+        
+        # Get payment method
+        payment_method = "CASH"
+        for col in ["payment_method", "payment_type", "payment"]:
+            if col in sale.index:
+                val = sale.get(col, "CASH")
+                if val and str(val).strip() and str(val).strip() != "nan":
+                    payment_method = str(val).strip().upper()
+                    break
+        
+        # Get customer name
+        customer_name = "Walk-in"
+        for col in ["customer_name", "customer", "Customer"]:
+            if col in sale.index:
+                val = sale.get(col, "Walk-in")
+                if val and str(val).strip() and str(val).strip() != "nan":
+                    customer_name = str(val).strip()
+                    break
+        
+        # Get customer phone
+        customer_phone = ""
+        for col in ["customer_phone", "phone", "Phone"]:
+            if col in sale.index:
+                val = sale.get(col, "")
+                if val and str(val).strip() and str(val).strip() != "nan":
+                    customer_phone = str(val).strip()
+                    break
+        
+        # Get cashier
+        cashier = "system"
+        for col in ["cashier", "user", "username"]:
+            if col in sale.index:
+                val = sale.get(col, "system")
+                if val and str(val).strip() and str(val).strip() != "nan":
+                    cashier = str(val).strip()
+                    break
+        
+        # Get sale date
+        sale_date = sale.get(date_col, datetime.now()) if date_col else datetime.now()
+        
+        payments.append({
+            "payment_id": f"PAY{len(payments)+1:08d}",
+            "receipt_no": receipt_no,
+            "amount": amount,
+            "payment_method": payment_method,
+            "status": "COMPLETED",
+            "reference": receipt_no,
+            "transaction_id": receipt_no,
+            "payment_date": sale_date,
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "branch_code": "HO",
+            "processed_by": cashier
+        })
+    
+    if not payments:
+        return pd.DataFrame()
+    
+    return pd.DataFrame(payments)
+
+
+# ==============================
+# PAYMENT SUMMARY - REAL DATA WITH DEDUPLICATION
+# ==============================
+def get_payment_summary(days=30):
+    """Get payment summary from REAL sales data - NO DUPLICATES"""
+    
+    sales_df = load_sales()
+    
+    if sales_df.empty:
+        return {
+            "total_payments": 0,
+            "total_amount": 0,
+            "by_method": {},
+            "recent_payments": pd.DataFrame(),
+            "cash_vs_credit": {"CASH": 0, "CREDIT": 0, "OTHER": 0}
+        }
+    
+    # Determine date column
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    if date_col:
+        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+        sales_df = sales_df.dropna(subset=[date_col])
+        cutoff = datetime.now() - timedelta(days=days)
+        sales_df = sales_df[sales_df[date_col] >= cutoff]
+    
+    # Find total column
+    total_col = None
+    for col in ["final_total", "total", "amount", "sale_amount"]:
+        if col in sales_df.columns:
+            total_col = col
+            break
+    
+    if total_col is None:
+        return {
+            "total_payments": 0,
+            "total_amount": 0,
+            "by_method": {},
+            "recent_payments": pd.DataFrame(),
+            "cash_vs_credit": {"CASH": 0, "CREDIT": 0, "OTHER": 0}
+        }
+    
+    # Find receipt column for unique transactions
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
+    
+    # ============================================================
+    # DEDUPLICATION: Use unique receipts
+    # ============================================================
+    if receipt_col:
+        # Drop duplicates by receipt number
+        unique_sales = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
+        total_payments = len(unique_sales)
+        total_amount = to_float(unique_sales[total_col].sum())
+    else:
+        total_payments = len(sales_df)
+        total_amount = to_float(sales_df[total_col].sum())
+    
+    # By payment method
+    payment_col = None
+    for col in ["payment_method", "payment_type", "payment"]:
+        if col in sales_df.columns:
+            payment_col = col
+            break
+    
+    by_method = {}
+    if payment_col:
+        if receipt_col:
+            method_data = unique_sales.groupby(payment_col)[total_col].sum().apply(to_float).to_dict()
+        else:
+            method_data = sales_df.groupby(payment_col)[total_col].sum().apply(to_float).to_dict()
+        by_method = method_data
+    
+    # Cash vs Credit breakdown
+    cash_vs_credit = {"CASH": 0, "CREDIT": 0, "OTHER": 0}
+    if payment_col:
+        for method, amount in by_method.items():
+            method_upper = method.upper()
+            if "CASH" in method_upper:
+                cash_vs_credit["CASH"] += amount
+            elif "CREDIT" in method_upper:
+                cash_vs_credit["CREDIT"] += amount
+            else:
+                cash_vs_credit["OTHER"] += amount
+    
+    # Recent payments
+    if receipt_col:
+        recent_sales = unique_sales.sort_values(date_col, ascending=False).head(10) if date_col else unique_sales.head(10)
+    else:
+        recent_sales = sales_df.sort_values(date_col, ascending=False).head(10) if date_col else sales_df.head(10)
+    
+    return {
+        "total_payments": total_payments,
+        "total_amount": total_amount,
+        "by_method": by_method,
+        "recent_payments": recent_sales,
+        "cash_vs_credit": cash_vs_credit
+    }
 
 
 def load_ecocash_transactions():
-    """Load EcoCash transactions - REAL DATA"""
-    # For now, return empty DataFrame until we have actual EcoCash integration
-    # This would come from an API in production
+    """Load EcoCash transactions"""
+    if ECO_CASH_FILE.exists():
+        return pd.read_csv(ECO_CASH_FILE)
     return pd.DataFrame(columns=[
         "transaction_id", "receipt_no", "amount", "customer_phone", 
         "merchant_code", "status", "request_date", "completion_date",
@@ -110,114 +322,13 @@ def load_ecocash_transactions():
 
 
 def load_card_transactions():
-    """Load card transactions - REAL DATA"""
-    # For now, return empty DataFrame until we have actual card integration
+    """Load card transactions"""
+    if CARD_FILE.exists():
+        return pd.read_csv(CARD_FILE)
     return pd.DataFrame(columns=[
         "transaction_id", "receipt_no", "amount", "card_type",
         "last_four", "status", "payment_date", "auth_code", "notes"
     ])
-
-
-def load_payments_from_sales(date_from=None, date_to=None):
-    """Load REAL payments from sales data"""
-    
-    sales_df = load_sales()
-    
-    if sales_df.empty:
-        return pd.DataFrame()
-    
-    # Determine date column
-    date_col = "sale_date" if "sale_date" in sales_df.columns else "date" if "date" in sales_df.columns else None
-    
-    if date_col:
-        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-        
-        if date_from:
-            sales_df = sales_df[sales_df[date_col] >= pd.to_datetime(date_from)]
-        if date_to:
-            sales_df = sales_df[sales_df[date_col] <= pd.to_datetime(date_to)]
-    
-    # Create payment records from sales
-    payments = []
-    
-    total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
-    customer_col = "customer" if "customer" in sales_df.columns else "customer_name" if "customer_name" in sales_df.columns else "Walk-in"
-    phone_col = "customer_phone" if "customer_phone" in sales_df.columns else "phone" if "phone" in sales_df.columns else ""
-    payment_col = "payment_method" if "payment_method" in sales_df.columns else "CASH"
-    
-    if total_col:
-        for _, sale in sales_df.iterrows():
-            payments.append({
-                "payment_id": f"PAY{len(payments)+1:08d}",
-                "receipt_no": str(sale.get("receipt_no", "")),
-                "amount": to_float(sale.get(total_col, 0)),
-                "payment_method": str(sale.get(payment_col, "CASH")),
-                "status": "COMPLETED",
-                "reference": str(sale.get("receipt_no", "")),
-                "transaction_id": str(sale.get("receipt_no", "")),
-                "payment_date": sale.get(date_col, datetime.now()),
-                "customer_name": str(sale.get(customer_col, "Walk-in")),
-                "customer_phone": str(sale.get(phone_col, "")),
-                "branch_code": "HO",
-                "processed_by": str(sale.get("cashier", "system"))
-            })
-    
-    return pd.DataFrame(payments)
-
-
-# ==============================
-# PAYMENT SUMMARY - REAL DATA
-# ==============================
-def get_payment_summary(days=30):
-    """Get payment summary from REAL data"""
-    
-    sales_df = load_sales()
-    
-    if sales_df.empty:
-        return {
-            "total_payments": 0,
-            "total_amount": 0,
-            "by_method": {},
-            "recent_payments": pd.DataFrame()
-        }
-    
-    # Determine date column
-    date_col = "sale_date" if "sale_date" in sales_df.columns else "date" if "date" in sales_df.columns else None
-    
-    if date_col:
-        sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
-        cutoff = datetime.now() - timedelta(days=days)
-        sales_df = sales_df[sales_df[date_col] >= cutoff]
-    
-    total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
-    
-    if total_col is None:
-        return {
-            "total_payments": 0,
-            "total_amount": 0,
-            "by_method": {},
-            "recent_payments": pd.DataFrame()
-        }
-    
-    # Calculate totals
-    total_amount = to_float(sales_df[total_col].sum())
-    total_payments = len(sales_df)
-    
-    # By payment method
-    payment_col = "payment_method" if "payment_method" in sales_df.columns else None
-    by_method = {}
-    if payment_col:
-        by_method = sales_df.groupby(payment_col)[total_col].sum().apply(to_float).to_dict()
-    
-    # Recent payments
-    recent_payments = sales_df.sort_values(date_col, ascending=False).head(10) if date_col else sales_df.head(10)
-    
-    return {
-        "total_payments": total_payments,
-        "total_amount": total_amount,
-        "by_method": by_method,
-        "recent_payments": recent_payments
-    }
 
 
 # ==============================
@@ -271,7 +382,6 @@ def generate_ecocash_payment_request(amount, customer_phone, receipt_no):
     else:
         df = pd.concat([df, new_transaction], ignore_index=True)
     
-    # Save to CSV (since we don't have a table yet)
     df.to_csv(ECO_CASH_FILE, index=False)
     
     return {
@@ -332,10 +442,10 @@ def verify_ecocash_payment(transaction_id):
 
 
 # ==============================
-# PAYMENT DASHBOARD - REAL DATA
+# PAYMENT DASHBOARD - REAL DATA WITH DEDUPLICATION
 # ==============================
 def payment_dashboard():
-    """Payment Gateway Dashboard with REAL data"""
+    """Payment Gateway Dashboard with REAL data - NO DUPLICATES"""
     
     st.title("Payment Gateway Dashboard")
     st.caption("Manage payments, view transaction history, and process refunds")
@@ -363,7 +473,7 @@ def payment_dashboard():
     with tab1:
         st.markdown("## Payment Summary")
         
-        # Get REAL data
+        # Get REAL data with deduplication
         summary = get_payment_summary(30)
         payments_df = load_payments_from_sales()
         
@@ -375,6 +485,17 @@ def payment_dashboard():
         with col3:
             avg = summary['total_amount'] / summary['total_payments'] if summary['total_payments'] > 0 else 0
             st.metric("Avg Transaction", f"${avg:.2f}")
+        
+        # Cash vs Credit breakdown
+        st.markdown("### Cash vs Credit Breakdown")
+        cash_vs_credit = summary.get("cash_vs_credit", {"CASH": 0, "CREDIT": 0, "OTHER": 0})
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Cash Sales", f"${cash_vs_credit['CASH']:,.2f}")
+        with col2:
+            st.metric("Credit Sales", f"${cash_vs_credit['CREDIT']:,.2f}")
+        with col3:
+            st.metric("Other Payments", f"${cash_vs_credit['OTHER']:,.2f}")
         
         st.markdown("### Payment Methods Breakdown")
         
@@ -397,8 +518,15 @@ def payment_dashboard():
         # Show recent payments
         if not summary["recent_payments"].empty:
             st.markdown("### Recent Payments")
-            display_cols = ["receipt_no", "customer", "total", "payment_method", "date"]
-            available_cols = [col for col in display_cols if col in summary["recent_payments"].columns]
+            display_cols = ["receipt_no", "customer_name", "total", "payment_method", "date"]
+            available_cols = []
+            for col in display_cols:
+                if col in summary["recent_payments"].columns:
+                    available_cols.append(col)
+                elif col == "receipt_no" and "receipt" in summary["recent_payments"].columns:
+                    available_cols.append("receipt")
+                elif col == "customer_name" and "customer" in summary["recent_payments"].columns:
+                    available_cols.append("customer")
             
             if available_cols:
                 st.dataframe(
@@ -416,7 +544,7 @@ def payment_dashboard():
     with tab2:
         st.markdown("## Transaction History")
         
-        # Get REAL data
+        # Get REAL data with deduplication
         payments_df = load_payments_from_sales()
         
         if not payments_df.empty:
@@ -452,7 +580,7 @@ def payment_dashboard():
                 
                 # Summary
                 total_amount = payments_df["amount"].sum() if "amount" in payments_df.columns else 0
-                st.info(f"💰 Total Transactions: ${to_float(total_amount):,.2f} | Count: {len(payments_df)}")
+                st.info(f"Total Transactions: ${to_float(total_amount):,.2f} | Count: {len(payments_df)}")
                 
                 # Export
                 csv = payments_df.to_csv(index=False).encode('utf-8')
@@ -487,24 +615,53 @@ def payment_dashboard():
         if not sales_df.empty:
             st.markdown("### Current Payment Statistics")
             
-            total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
-            payment_col = "payment_method" if "payment_method" in sales_df.columns else None
+            total_col = None
+            for col in ["final_total", "total", "amount", "sale_amount"]:
+                if col in sales_df.columns:
+                    total_col = col
+                    break
             
-            if total_col and payment_col:
+            receipt_col = None
+            for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
+                if col in sales_df.columns:
+                    receipt_col = col
+                    break
+            
+            if total_col:
+                # Use unique receipts for total
+                if receipt_col:
+                    unique_sales = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
+                    total_amount = to_float(unique_sales[total_col].sum())
+                    total_count = len(unique_sales)
+                else:
+                    total_amount = to_float(sales_df[total_col].sum())
+                    total_count = len(sales_df)
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("Total Sales (All Time)", f"${to_float(sales_df[total_col].sum()):,.2f}")
+                    st.metric("Total Sales (All Time)", f"${total_amount:,.2f}")
                 with col2:
-                    st.metric("Total Transactions", len(sales_df))
+                    st.metric("Total Transactions", total_count)
                 
                 # Payment method distribution
-                st.markdown("### Payment Method Distribution")
-                method_dist = sales_df.groupby(payment_col)[total_col].sum().apply(to_float)
-                st.dataframe(
-                    method_dist.reset_index().rename(columns={payment_col: "Method", total_col: "Amount"}),
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Amount": st.column_config.NumberColumn("Amount", format="$%.2f")
-                    }
-                )
+                payment_col = None
+                for col in ["payment_method", "payment_type", "payment"]:
+                    if col in sales_df.columns:
+                        payment_col = col
+                        break
+                
+                if payment_col:
+                    st.markdown("### Payment Method Distribution")
+                    if receipt_col:
+                        method_dist = unique_sales.groupby(payment_col)[total_col].sum().apply(to_float)
+                    else:
+                        method_dist = sales_df.groupby(payment_col)[total_col].sum().apply(to_float)
+                    
+                    st.dataframe(
+                        method_dist.reset_index().rename(columns={payment_col: "Method", total_col: "Amount"}),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Amount": st.column_config.NumberColumn("Amount", format="$%.2f")
+                        }
+                    )
