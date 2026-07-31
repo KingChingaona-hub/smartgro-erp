@@ -92,10 +92,75 @@ def get_customer_column(df):
     """Find customer column"""
     if df is None or df.empty:
         return None
-    for col in ["customer", "customer_name", "client", "buyer"]:
+    for col in ["customer_name", "customer", "client", "buyer"]:
         if col in df.columns:
             return col
     return None
+
+
+# ==============================
+# GET CUSTOMER SUGGESTIONS
+# ==============================
+
+@st.cache_data(ttl=300)
+def get_customer_suggestions():
+    """Get unique customer names from sales and customers data"""
+    try:
+        # Try from customers table first
+        customers_df = load_customers()
+        if not customers_df.empty:
+            customer_col = get_customer_column(customers_df)
+            if customer_col:
+                customers = customers_df[customer_col].dropna().unique().tolist()
+                customers = [str(c).strip() for c in customers if str(c).strip()]
+                if customers:
+                    return sorted(set(customers))
+        
+        # Fallback to sales data
+        sales_df = load_sales()
+        if not sales_df.empty:
+            customer_col = get_customer_column(sales_df)
+            if customer_col:
+                # Filter out 'Walk-in' and empty values
+                customers = sales_df[sales_df[customer_col].notna()][customer_col].unique().tolist()
+                customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+                if customers:
+                    return sorted(set(customers))
+        
+        return []
+    except Exception as e:
+        print(f"Error getting customer suggestions: {e}")
+        return []
+
+
+@st.cache_data(ttl=300)
+def get_customer_phone_mapping():
+    """Get customer name to phone mapping"""
+    try:
+        customers_df = load_customers()
+        if customers_df.empty:
+            return {}
+        
+        name_col = get_customer_column(customers_df)
+        phone_col = None
+        for col in ["phone", "Phone", "customer_phone", "mobile"]:
+            if col in customers_df.columns:
+                phone_col = col
+                break
+        
+        if name_col and phone_col:
+            mapping = {}
+            for _, row in customers_df.iterrows():
+                name = str(row.get(name_col, "")).strip()
+                phone = str(row.get(phone_col, "")).strip()
+                if name and phone:
+                    mapping[name] = phone
+            return mapping
+        
+        return {}
+    except Exception as e:
+        print(f"Error getting customer phone mapping: {e}")
+        return {}
 
 
 # ==============================
@@ -147,7 +212,6 @@ class RecommendationEngine:
         
         for basket in baskets[product_col]:
             if len(basket) > 1:
-                # Sort to avoid duplicates (A,B) vs (B,A)
                 basket = sorted(basket)
                 for pair in combinations(basket, 2):
                     pair_counter[pair] += 1
@@ -181,7 +245,6 @@ class RecommendationEngine:
         
         recommendations = []
         
-        # Find all pairs containing this product
         for (prod_a, prod_b), count in self.product_pair_counts.items():
             if prod_a == product_name:
                 recommendations.append({
@@ -197,13 +260,10 @@ class RecommendationEngine:
                 })
         
         if not recommendations:
-            # Return top selling products as fallback
             return self.get_top_products(top_n)
         
-        # Sort by frequency
         recommendations.sort(key=lambda x: x["frequency"], reverse=True)
         
-        # Add product info
         for rec in recommendations[:top_n]:
             rec["price"] = self.product_prices.get(rec["product"], 0)
             rec["category"] = self.product_categories.get(rec["product"], "Uncategorized")
@@ -234,33 +294,26 @@ class RecommendationEngine:
         if not self.engine_ready or not customer_purchases:
             return self.get_top_products(top_n)
         
-        # Get products customer bought
         purchased_products = set(customer_purchases)
         
-        # Score potential recommendations
         recommendation_scores = {}
         
         for product in purchased_products:
-            # Get products frequently bought with this product
             related = self.get_frequently_bought_together(product, top_n=20)
             
             if not related.empty:
                 for _, row in related.iterrows():
                     rec_product = row["product"]
-                    # Skip if customer already bought this
                     if rec_product in purchased_products:
                         continue
                     
-                    # Score based on frequency and product value
                     score = row["frequency"]
                     
-                    # Add price factor (higher value products get slightly more weight)
                     if self.product_prices.get(rec_product, 0) > 50:
                         score *= 1.2
                     
                     recommendation_scores[rec_product] = recommendation_scores.get(rec_product, 0) + score
         
-        # Sort by score
         sorted_recs = sorted(recommendation_scores.items(), key=lambda x: x[1], reverse=True)
         
         results = []
@@ -286,15 +339,13 @@ class RecommendationEngine:
         if not self.engine_ready:
             return pd.DataFrame()
         
-        # Get product category and price
         category = self.product_categories.get(product_name, "Uncategorized")
         current_price = self.product_prices.get(product_name, 0)
         
-        # Find products in same category with higher price
         similar_products = []
         for prod, price in self.product_prices.items():
             if prod != product_name and self.product_categories.get(prod, "Uncategorized") == category:
-                if price > current_price * 1.2:  # At least 20% higher
+                if price > current_price * 1.2:
                     similar_products.append({
                         "product": prod,
                         "price": price,
@@ -302,12 +353,9 @@ class RecommendationEngine:
                         "price_ratio": price / current_price if current_price > 0 else 0
                     })
         
-        # Sort by price (highest first)
         similar_products.sort(key=lambda x: x["price"], reverse=True)
         
-        # Add frequency score
         for item in similar_products[:top_n]:
-            # Check if this product appears in pairs
             freq = 0
             for (a, b), count in self.product_pair_counts.items():
                 if a == item["product"] or b == item["product"]:
@@ -322,7 +370,6 @@ class RecommendationEngine:
         if not self.engine_ready:
             return pd.DataFrame()
         
-        # Find customer's purchases
         product_col = get_product_column(sales_df)
         customer_col = get_customer_column(sales_df)
         
@@ -345,7 +392,6 @@ class RecommendationEngine:
         if not self.engine_ready or not products_in_cart:
             return pd.DataFrame()
         
-        # Get recommendations for each product in cart
         all_recs = {}
         for product in products_in_cart:
             recs = self.get_frequently_bought_together(product, top_n=10)
@@ -356,7 +402,6 @@ class RecommendationEngine:
                         continue
                     all_recs[rec_product] = all_recs.get(rec_product, 0) + row["frequency"]
         
-        # Sort and return
         sorted_recs = sorted(all_recs.items(), key=lambda x: x[1], reverse=True)
         
         results = []
@@ -434,7 +479,6 @@ def recommendation_engine_dashboard():
     with tab1:
         st.markdown("## Recommendation Engine Dashboard")
         
-        # Check if engine is built
         if not st.session_state.recommendation_engine_ready:
             st.warning("Recommendation engine not built. Click below to build.")
             
@@ -451,7 +495,6 @@ def recommendation_engine_dashboard():
                     else:
                         st.error(f"{message}")
         else:
-            # Show stats
             stats = st.session_state.recommendation_engine.get_recommendation_stats()
             
             col1, col2, col3, col4 = st.columns(4)
@@ -464,7 +507,6 @@ def recommendation_engine_dashboard():
             with col4:
                 st.metric("Last Updated", stats.get("last_update", "Never").strftime("%Y-%m-%d") if stats.get("last_update") else "Never")
             
-            # Show top products
             st.markdown("---")
             st.markdown("### Top Selling Products")
             
@@ -494,7 +536,6 @@ def recommendation_engine_dashboard():
                     }
                 )
             
-            # Rebuild button
             st.markdown("---")
             if st.button("Rebuild Recommendations", use_container_width=True):
                 with st.spinner("Rebuilding..."):
@@ -517,13 +558,11 @@ def recommendation_engine_dashboard():
         if not st.session_state.recommendation_engine_ready:
             st.warning("Recommendation engine not built yet. Build it first in the Dashboard tab.")
         else:
-            # Product search
             product_col = get_product_column(products_df)
             
             if product_col:
                 search_term = st.text_input("Search Product", placeholder="Type product name...", key="product_search")
                 
-                # Filter products
                 filtered_products = products_df[products_df[product_col].astype(str).str.contains(
                     search_term, case=False, na=False
                 )] if search_term else products_df
@@ -557,7 +596,6 @@ def recommendation_engine_dashboard():
                         if not recommendations.empty:
                             st.markdown("#### Recommendations")
                             
-                            # Add confidence/score column
                             if "score" not in recommendations.columns:
                                 recommendations["score"] = recommendations["frequency"] if "frequency" in recommendations.columns else 0
                             
@@ -571,7 +609,6 @@ def recommendation_engine_dashboard():
                                 }
                             )
                             
-                            # Display as cards
                             st.markdown("#### Recommended Products")
                             
                             cols = st.columns(min(3, len(recommendations)))
@@ -579,14 +616,13 @@ def recommendation_engine_dashboard():
                                 with cols[idx % 3]:
                                     st.markdown(f"""
                                     <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; margin: 5px; border: 1px solid #e5e7eb;">
-                                        <h4 style="margin: 0;">📦 {row['product'][:20]}</h4>
+                                        <h4 style="margin: 0;">{row['product'][:20]}</h4>
                                         <p style="font-size: 20px; color: #2ecc71; margin: 5px 0;">${row['price']:.2f}</p>
                                         <p style="font-size: 11px; color: #666;">{row.get('category', 'Uncategorized')}</p>
-                                        <p style="font-size: 12px; color: #999; margin-top: 5px;">🎯 Relevance: {row.get('score', 0):.0f}</p>
+                                        <p style="font-size: 12px; color: #999; margin-top: 5px;">Score: {row.get('score', 0):.0f}</p>
                                     </div>
                                     """, unsafe_allow_html=True)
                             
-                            # Visualization
                             fig = px.bar(
                                 recommendations.head(10),
                                 x="score" if "score" in recommendations.columns else "frequency",
@@ -616,73 +652,78 @@ def recommendation_engine_dashboard():
         if not st.session_state.recommendation_engine_ready:
             st.warning("Recommendation engine not built yet. Build it first in the Dashboard tab.")
         else:
-            customer_col = get_customer_column(customers_df)
+            # Get customer suggestions
+            customer_suggestions = get_customer_suggestions()
+            customer_phones = get_customer_phone_mapping()
             
-            if customer_col:
-                search_customer = st.text_input("Search Customer", placeholder="Type customer name...", key="customer_search")
-                
-                if search_customer:
-                    # Find customer
-                    customer_results = customers_df[
-                        customers_df[customer_col].astype(str).str.contains(search_customer, case=False, na=False)
-                    ]
-                    
-                    if not customer_results.empty:
-                        selected_customer = customer_results.iloc[0][customer_col]
-                        
-                        st.markdown(f"### Recommendations for: {selected_customer}")
-                        
-                        # Get recommendations
-                        recommendations = st.session_state.recommendation_engine.get_recommendations_for_customer(
-                            selected_customer, sales_df, 10
-                        )
-                        
-                        if not recommendations.empty:
-                            st.markdown("#### Recommended Products")
-                            
-                            # Display as cards
-                            cols = st.columns(min(3, len(recommendations)))
-                            for idx, (_, row) in enumerate(recommendations.head(6).iterrows()):
-                                with cols[idx % 3]:
-                                    st.markdown(f"""
-                                    <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; margin: 5px; border: 1px solid #e5e7eb;">
-                                        <h4 style="margin: 0;">📦 {row['product'][:20]}</h4>
-                                        <p style="font-size: 20px; color: #2ecc71; margin: 5px 0;">${row['price']:.2f}</p>
-                                        <p style="font-size: 11px; color: #666;">{row.get('category', 'Uncategorized')}</p>
-                                        <p style="font-size: 12px; color: #999; margin-top: 5px;">🎯 Score: {row.get('score', 0):.0f}</p>
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                            
-                            # Show as table
-                            st.markdown("#### Recommendation Details")
-                            st.dataframe(
-                                recommendations[["product", "price", "category", "score"]],
-                                use_container_width=True,
-                                hide_index=True,
-                                column_config={
-                                    "price": st.column_config.NumberColumn("Price", format="$%.2f")
-                                }
-                            )
-                            
-                            # Customer purchase history summary
-                            st.markdown("#### Customer Purchase History")
-                            
-                            customer_sales = sales_df[sales_df[get_customer_column(sales_df)].astype(str).str.contains(
-                                selected_customer, case=False, na=False
-                            )] if get_customer_column(sales_df) else pd.DataFrame()
-                            
-                            if not customer_sales.empty:
-                                product_col_sales = get_product_column(customer_sales)
-                                if product_col_sales:
-                                    purchase_summary = customer_sales[product_col_sales].value_counts().reset_index()
-                                    purchase_summary.columns = ["Product", "Times Purchased"]
-                                    st.dataframe(purchase_summary.head(10), use_container_width=True, hide_index=True)
-                        else:
-                            st.info("No personalized recommendations found for this customer")
-                    else:
-                        st.warning("Customer not found")
+            st.markdown("### Select Customer")
+            
+            # Use selectbox with autocomplete-like behavior
+            if customer_suggestions:
+                selected_customer = st.selectbox(
+                    "Select Customer",
+                    options=[""] + customer_suggestions,
+                    key="customer_select"
+                )
             else:
-                st.warning("Customer column not found")
+                # Fallback: text input if no customers found
+                selected_customer = st.text_input("Enter Customer Name", key="customer_text_input")
+                st.caption("No existing customers found. Type the customer name.")
+            
+            if selected_customer:
+                st.markdown(f"### Recommendations for: {selected_customer}")
+                
+                # Show customer phone if available
+                if selected_customer in customer_phones:
+                    st.caption(f"Phone: {customer_phones[selected_customer]}")
+                
+                # Get recommendations
+                recommendations = st.session_state.recommendation_engine.get_recommendations_for_customer(
+                    selected_customer, sales_df, 10
+                )
+                
+                if not recommendations.empty:
+                    st.markdown("#### Recommended Products")
+                    
+                    cols = st.columns(min(3, len(recommendations)))
+                    for idx, (_, row) in enumerate(recommendations.head(6).iterrows()):
+                        with cols[idx % 3]:
+                            st.markdown(f"""
+                            <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; margin: 5px; border: 1px solid #e5e7eb;">
+                                <h4 style="margin: 0;">{row['product'][:20]}</h4>
+                                <p style="font-size: 20px; color: #2ecc71; margin: 5px 0;">${row['price']:.2f}</p>
+                                <p style="font-size: 11px; color: #666;">{row.get('category', 'Uncategorized')}</p>
+                                <p style="font-size: 12px; color: #999; margin-top: 5px;">Score: {row.get('score', 0):.0f}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    
+                    st.markdown("#### Recommendation Details")
+                    st.dataframe(
+                        recommendations[["product", "price", "category", "score"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "price": st.column_config.NumberColumn("Price", format="$%.2f")
+                        }
+                    )
+                    
+                    # Customer purchase history
+                    st.markdown("#### Customer Purchase History")
+                    
+                    customer_col = get_customer_column(sales_df)
+                    if customer_col:
+                        customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(
+                            selected_customer, case=False, na=False
+                        )]
+                        
+                        if not customer_sales.empty:
+                            product_col_sales = get_product_column(customer_sales)
+                            if product_col_sales:
+                                purchase_summary = customer_sales[product_col_sales].value_counts().reset_index()
+                                purchase_summary.columns = ["Product", "Times Purchased"]
+                                st.dataframe(purchase_summary.head(10), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No personalized recommendations found for this customer")
     
     # ==============================
     # TAB 4: BUNDLE BUILDER
@@ -694,17 +735,14 @@ def recommendation_engine_dashboard():
         if not st.session_state.recommendation_engine_ready:
             st.warning("Recommendation engine not built yet. Build it first in the Dashboard tab.")
         else:
-            # Cart builder
-            st.markdown("### Add Products to Cart")
-            
             product_col = get_product_column(products_df)
             
             if product_col:
-                # Initialize cart if not exists
                 if "bundle_cart" not in st.session_state:
                     st.session_state.bundle_cart = []
                 
-                # Product search for cart
+                st.markdown("### Add Products to Cart")
+                
                 search_cart = st.text_input("Search Product to Add", placeholder="Type product name...", key="cart_search")
                 
                 filtered_cart = products_df[products_df[product_col].astype(str).str.contains(
@@ -726,7 +764,6 @@ def recommendation_engine_dashboard():
                             else:
                                 st.warning(f"{selected_cart_product} already in cart")
                 
-                # Display cart
                 if st.session_state.bundle_cart:
                     st.markdown("#### Current Cart")
                     
@@ -759,10 +796,10 @@ def recommendation_engine_dashboard():
                                         with cols[idx % 3]:
                                             st.markdown(f"""
                                             <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; margin: 5px; border: 1px solid #e5e7eb;">
-                                                <h4 style="margin: 0;">📦 {row['product'][:20]}</h4>
+                                                <h4 style="margin: 0;">{row['product'][:20]}</h4>
                                                 <p style="font-size: 20px; color: #2ecc71; margin: 5px 0;">${row['price']:.2f}</p>
                                                 <p style="font-size: 11px; color: #666;">{row.get('category', 'Uncategorized')}</p>
-                                                <p style="font-size: 12px; color: #999; margin-top: 5px;">🎯 Score: {row.get('score', 0):.0f}</p>
+                                                <p style="font-size: 12px; color: #999; margin-top: 5px;">Score: {row.get('score', 0):.0f}</p>
                                             </div>
                                             """, unsafe_allow_html=True)
                                 else:
