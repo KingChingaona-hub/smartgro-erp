@@ -1,4 +1,5 @@
-# backend/analytics/reports_engine.py - UPDATED with correct income and expense sources
+# backend/analytics/reports_engine.py
+# Reports Engine - With correct column names for all data sources
 
 import pandas as pd
 import numpy as np
@@ -97,7 +98,6 @@ def get_sales_report_data(start_date, end_date):
     if date_col != "date":
         sales_df["date"] = sales_df[date_col]
     
-    # Find receipt column for deduplication
     receipt_col = find_column(sales_df, ['receipt_no', 'receipt', 'transaction_id', 'order_id', 'invoice'])
     if receipt_col:
         sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
@@ -156,7 +156,7 @@ def get_sales_report_data(start_date, end_date):
 
 
 def get_expenses_report_data(start_date, end_date):
-    """Get expenses data for reporting - FIXED: uses expenses table"""
+    """Get expenses data from expenses table - FIXED with correct column names"""
     expenses_df = load_expenses()
     
     if expenses_df.empty:
@@ -164,7 +164,8 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df = convert_decimal_to_float(expenses_df)
     
-    date_col = find_column(expenses_df, ['expense_date', 'date', 'created_at', 'transaction_date'])
+    # Correct date column: expense_date
+    date_col = find_column(expenses_df, ['expense_date', 'date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
     
@@ -177,7 +178,8 @@ def get_expenses_report_data(start_date, end_date):
     if date_col != "date":
         expenses_df["date"] = expenses_df[date_col]
     
-    amount_col = find_column(expenses_df, ['amount', 'cost', 'total', 'value', 'expense_amount'])
+    # Correct amount column: amount
+    amount_col = find_column(expenses_df, ['amount'])
     if amount_col is None:
         expenses_df["amount"] = 0
     else:
@@ -185,11 +187,26 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df["amount"] = expenses_df["amount"].astype(float)
     
-    category_col = find_column(expenses_df, ['category', 'type', 'expense_type', 'name'])
+    # Correct category column: category
+    category_col = find_column(expenses_df, ['category'])
     if category_col is None:
         expenses_df["category"] = "Other"
     else:
         expenses_df["category"] = expenses_df[category_col].fillna("Other").astype(str)
+    
+    # Description column
+    desc_col = find_column(expenses_df, ['description'])
+    if desc_col:
+        expenses_df["description"] = expenses_df[desc_col].fillna("").astype(str)
+    else:
+        expenses_df["description"] = ""
+    
+    # Vendor column
+    vendor_col = find_column(expenses_df, ['vendor'])
+    if vendor_col:
+        expenses_df["vendor"] = expenses_df[vendor_col].fillna("").astype(str)
+    else:
+        expenses_df["vendor"] = ""
     
     if start_date and end_date:
         try:
@@ -203,7 +220,7 @@ def get_expenses_report_data(start_date, end_date):
 
 
 def get_income_report_data(start_date, end_date):
-    """Get income data for reporting - FIXED: uses income table"""
+    """Get income data from income table - FIXED with correct column names"""
     income_df = load_income()
     
     if income_df.empty:
@@ -211,7 +228,8 @@ def get_income_report_data(start_date, end_date):
     
     income_df = convert_decimal_to_float(income_df)
     
-    date_col = find_column(income_df, ['income_date', 'date', 'created_at', 'transaction_date'])
+    # Correct date column: income_date
+    date_col = find_column(income_df, ['income_date', 'date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
     
@@ -224,7 +242,8 @@ def get_income_report_data(start_date, end_date):
     if date_col != "date":
         income_df["date"] = income_df[date_col]
     
-    amount_col = find_column(income_df, ['amount', 'total', 'value', 'income_amount'])
+    # Correct amount column: amount
+    amount_col = find_column(income_df, ['amount'])
     if amount_col is None:
         income_df["amount"] = 0
     else:
@@ -232,11 +251,19 @@ def get_income_report_data(start_date, end_date):
     
     income_df["amount"] = income_df["amount"].astype(float)
     
-    source_col = find_column(income_df, ['income_source', 'source', 'type', 'name'])
+    # Correct source column: income_source
+    source_col = find_column(income_df, ['income_source'])
     if source_col is None:
         income_df["source"] = "Other"
     else:
         income_df["source"] = income_df[source_col].fillna("Other").astype(str)
+    
+    # Description column
+    desc_col = find_column(income_df, ['description'])
+    if desc_col:
+        income_df["description"] = income_df[desc_col].fillna("").astype(str)
+    else:
+        income_df["description"] = ""
     
     if start_date and end_date:
         try:
@@ -514,7 +541,7 @@ def get_debtors_report_data():
 
 
 def generate_income_report(start_date, end_date):
-    """Generate income report - NEW"""
+    """Generate income report - FIXED with correct column names"""
     income_df = get_income_report_data(start_date, end_date)
     
     if income_df.empty:
@@ -628,7 +655,7 @@ def generate_sales_report(start_date, end_date):
 
 
 def generate_expense_report(start_date, end_date):
-    """Generate expense report"""
+    """Generate expense report - FIXED with correct column names"""
     expenses_df = get_expenses_report_data(start_date, end_date)
     
     if expenses_df.empty:
@@ -824,6 +851,72 @@ def get_report_footer():
     """
 
 
+def generate_income_report_pdf(start_date, end_date):
+    """Generate income report PDF with company name - FIXED"""
+    report_data = generate_income_report(start_date, end_date)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Income Report - {COMPANY_NAME}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
+        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
+        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
+        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
+        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+        tr:nth-child(even) {{ background: #f8f9fa; }}
+        .section {{ margin-top: 30px; }}
+        .section-title {{ color: #2c3e50; border-bottom: 2px solid #2ecc71; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
+    </style>
+    </head>
+    <body>
+        <div class="company-header">
+            <h1>{COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>Income Report</h2>
+            <p>Period: {start_date} to {end_date}</p>
+            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        </div>
+        <div class="metrics">
+            <div class="metric-card"><div class="metric-value">${report_data['total_income']:,.2f}</div><div class="metric-label">Total Income</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['total_sources']}</div><div class="metric-label">Income Sources</div></div>
+            <div class="metric-card"><div class="metric-value">{len(report_data['daily_income'])}</div><div class="metric-label">Days with Income</div></div>
+        </div>
+    """
+    
+    if not report_data['by_source'].empty:
+        html += f"""
+        <div class="section">
+            <h2 class="section-title">Income by Source</h2>
+            <table><tr><th>Source</th><th>Amount</th><th>Percentage</th></tr>
+        """
+        total = report_data['total_income']
+        for _, row in report_data['by_source'].iterrows():
+            percentage = (row['amount'] / total * 100) if total > 0 else 0
+            html += f"<tr><td>{row['source']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
+        html += "</table></div>"
+    
+    html += f"""
+        <div class="footer">
+            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
+            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
+        </div>
+    </body>
+    </html>
+    """
+    return html.encode('utf-8')
+
+
 def generate_sales_report_pdf(start_date, end_date):
     """Generate a PDF sales report"""
     try:
@@ -994,7 +1087,7 @@ def generate_sales_report_html(start_date, end_date):
 
 
 def generate_expenses_report_pdf(start_date, end_date):
-    """Generate expenses report PDF with company name"""
+    """Generate expenses report PDF with company name - FIXED"""
     report_data = generate_expense_report(start_date, end_date)
     
     html = f"""
@@ -1045,72 +1138,6 @@ def generate_expenses_report_pdf(start_date, end_date):
         for _, row in report_data['by_category'].iterrows():
             percentage = (row['amount'] / total * 100) if total > 0 else 0
             html += f"<tr><td>{row['category']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
-        html += "</table></div>"
-    
-    html += f"""
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html.encode('utf-8')
-
-
-def generate_income_report_pdf(start_date, end_date):
-    """Generate income report PDF with company name - NEW"""
-    report_data = generate_income_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Income Report - {COMPANY_NAME}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
-        .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
-        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
-        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
-        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
-        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-        tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #2ecc71; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Income Report</h2>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_income']:,.2f}</div><div class="metric-label">Total Income</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['total_sources']}</div><div class="metric-label">Income Sources</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['daily_income'])}</div><div class="metric-label">Days with Income</div></div>
-        </div>
-    """
-    
-    if not report_data['by_source'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Income by Source</h2>
-            <table><tr><th>Source</th><th>Amount</th><th>Percentage</th></tr>
-        """
-        total = report_data['total_income']
-        for _, row in report_data['by_source'].iterrows():
-            percentage = (row['amount'] / total * 100) if total > 0 else 0
-            html += f"<tr><td>{row['source']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
         html += "</table></div>"
     
     html += f"""
