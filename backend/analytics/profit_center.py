@@ -1,3 +1,6 @@
+# backend/analytics/profit_center.py
+# Profit Center Analysis - With proper deduplication
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -45,19 +48,16 @@ def safe_str(value, default=""):
 
 
 def convert_decimal_to_float(df):
-    """Convert all Decimal columns to float for compatibility - FIXED"""
+    """Convert all Decimal columns to float for compatibility"""
     if df is None or df.empty:
         return df
     
     try:
         for col in df.columns:
-            # Check if column contains Decimal values
             if df[col].dtype == object:
                 sample = df[col].iloc[0] if len(df) > 0 else None
                 if sample is not None and isinstance(sample, Decimal):
                     df[col] = df[col].astype(float)
-                elif sample is not None and isinstance(sample, (int, float)):
-                    pass  # Already numeric
     except Exception as e:
         print(f"Error converting decimals: {e}")
     
@@ -75,7 +75,7 @@ def find_column(df, possible_names, default=None):
 
 
 def get_sales_data():
-    """Load and prepare sales data with proper column handling - FIXED"""
+    """Load and prepare sales data with proper column handling and deduplication"""
     try:
         sales_df = load_sales()
         
@@ -97,6 +97,16 @@ def get_sales_data():
         
         if sales_df.empty:
             return pd.DataFrame()
+        
+        # Find receipt column for deduplication
+        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id"])
+        
+        # ============================================================
+        # DEDUPLICATION: Use unique receipts to avoid duplicates
+        # ============================================================
+        if receipt_col:
+            # Drop duplicates by receipt number (keep first occurrence)
+            sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
         
         # Rename to standard 'date' for consistency
         if date_col != "date":
@@ -143,7 +153,6 @@ def get_sales_data():
         elif not product_col:
             sales_df["name"] = "Unknown"
         
-        # Ensure name is string
         sales_df["name"] = sales_df["name"].astype(str)
         
         # Find payment method column
@@ -155,19 +164,17 @@ def get_sales_data():
             sales_df["payment_method"] = "CASH"
         
         # Find customer column
-        customer_col = find_column(sales_df, ["customer", "customer_name", "customer_name"])
+        customer_col = find_column(sales_df, ["customer", "customer_name"])
         
         if customer_col and customer_col != "customer":
             sales_df["customer"] = sales_df[customer_col].fillna("Walk-in")
         elif not customer_col:
             sales_df["customer"] = "Walk-in"
         
-        # Find receipt column
-        receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id"])
-        
-        if receipt_col and receipt_col != "receipt_no":
+        # Store receipt column for unique transactions
+        if receipt_col:
             sales_df["receipt_no"] = sales_df[receipt_col].fillna("")
-        elif not receipt_col:
+        else:
             sales_df["receipt_no"] = sales_df.index.astype(str)
         
         return sales_df
@@ -177,7 +184,7 @@ def get_sales_data():
 
 
 def profit_center_analysis():
-    """Main profit center analysis dashboard - FIXED"""
+    """Main profit center analysis dashboard - With deduplication"""
     
     st.title("Profit Center Analysis")
     st.caption("Analyze profitability by product, category, payment method, and time")
@@ -191,7 +198,6 @@ def profit_center_analysis():
     
     products_df = load_products()
     
-    # Convert products DataFrame Decimal to float
     if not products_df.empty:
         products_df = convert_decimal_to_float(products_df)
     
@@ -211,7 +217,7 @@ def profit_center_analysis():
         max_value=max_date
     )
     
-    # Apply date filter - FIXED: Handle date_range properly
+    # Apply date filter
     filtered_df = sales_df.copy()
     
     if isinstance(date_range, tuple) and len(date_range) == 2:
@@ -221,9 +227,6 @@ def profit_center_analysis():
             filtered_df = filtered_df[mask].copy()
         except Exception:
             pass
-    elif isinstance(date_range, (pd.Timestamp, datetime)):
-        mask = filtered_df["date"].dt.date == date_range.date()
-        filtered_df = filtered_df[mask].copy()
     
     if filtered_df.empty:
         st.warning("No data matches the date filter")
@@ -250,17 +253,28 @@ def profit_center_analysis():
         return
     
     # ==============================
-    # KEY METRICS
+    # KEY METRICS - Using unique receipts
     # ==============================
     st.markdown("## Key Profit Metrics")
-    unique_receipts = filtered_df.drop_duplicates(subset=['receipt_no'])
+    
+    # Get unique receipts for transaction count
+    unique_receipts = filtered_df.drop_duplicates(subset=['receipt_no']) if 'receipt_no' in filtered_df.columns else filtered_df
     total_transactions = len(unique_receipts)
-    total_revenue = float(unique_receipts['receipt_total'].sum()) if 'receipt_total' in unique_receipts.columns else float(unique_receipts['total'].sum())
-    avg_transaction = total_revenue / total_transactions if total_transactions > 0 else 0
-    #total_revenue = safe_float(filtered_df["total"].sum())
-    total_profit = safe_float(filtered_df["profit"].sum())
+    
+    # Calculate totals using unique receipts
+    if 'receipt_no' in filtered_df.columns:
+        # Group by receipt to get per-transaction totals
+        receipt_totals = filtered_df.groupby('receipt_no').agg({
+            'total': 'first',
+            'profit': 'first'
+        }).reset_index()
+        total_revenue = safe_float(receipt_totals['total'].sum())
+        total_profit = safe_float(receipt_totals['profit'].sum())
+    else:
+        total_revenue = safe_float(filtered_df["total"].sum())
+        total_profit = safe_float(filtered_df["profit"].sum())
+    
     total_items = safe_int(filtered_df["items"].sum())
-    #total_transactions = filtered_df["receipt_no"].nunique() if "receipt_no" in filtered_df.columns else len(filtered_df)
     
     # Calculate profit margin
     profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
@@ -299,12 +313,10 @@ def profit_center_analysis():
             "items": "sum"
         }).reset_index()
         
-        # Convert to float
         product_profit["profit"] = product_profit["profit"].astype(float)
         product_profit["total"] = product_profit["total"].astype(float)
         product_profit["items"] = product_profit["items"].astype(float)
         
-        # Calculate margin safely
         product_profit["margin"] = product_profit.apply(
             lambda x: (x["profit"] / x["total"] * 100) if x["total"] > 0 else 0, axis=1
         )
@@ -356,19 +368,23 @@ def profit_center_analysis():
     if "payment_method" in filtered_df.columns:
         st.markdown("## Profit by Payment Method")
         
-        payment_profit = filtered_df.groupby("payment_method").agg({
-            "profit": "sum",
-            "total": "sum",
-            "receipt_no": "nunique" if "receipt_no" in filtered_df.columns else "count"
-        }).reset_index()
+        # Use unique receipts for payment method analysis
+        if 'receipt_no' in filtered_df.columns:
+            unique_by_payment = filtered_df.drop_duplicates(subset=['receipt_no', 'payment_method'])
+            payment_profit = unique_by_payment.groupby("payment_method").agg({
+                "profit": "sum",
+                "total": "sum",
+                "receipt_no": "nunique"
+            }).reset_index()
+        else:
+            payment_profit = filtered_df.groupby("payment_method").agg({
+                "profit": "sum",
+                "total": "sum",
+                "receipt_no": "count"
+            }).reset_index()
         
-        # Convert to float
         payment_profit["profit"] = payment_profit["profit"].astype(float)
         payment_profit["total"] = payment_profit["total"].astype(float)
-        
-        if "receipt_no" not in filtered_df.columns:
-            payment_profit["receipt_no"] = 1
-        
         payment_profit["margin"] = payment_profit.apply(
             lambda x: (x["profit"] / x["total"] * 100) if x["total"] > 0 else 0, axis=1
         )
@@ -414,15 +430,24 @@ def profit_center_analysis():
     # ==============================
     st.markdown("## Profit Trend Over Time")
     
-    # Group by date
-    daily_profit = filtered_df.groupby(filtered_df["date"].dt.date).agg({
-        "profit": "sum",
-        "total": "sum",
-        "items": "sum"
-    }).reset_index()
+    # Use unique receipts for daily aggregation
+    if 'receipt_no' in filtered_df.columns:
+        # Get unique receipts per day
+        daily_data = filtered_df.drop_duplicates(subset=['receipt_no', 'date'])
+        daily_profit = daily_data.groupby(daily_data["date"].dt.date).agg({
+            "profit": "sum",
+            "total": "sum",
+            "items": "sum"
+        }).reset_index()
+    else:
+        daily_profit = filtered_df.groupby(filtered_df["date"].dt.date).agg({
+            "profit": "sum",
+            "total": "sum",
+            "items": "sum"
+        }).reset_index()
+    
     daily_profit.columns = ["date", "profit", "revenue", "items"]
     
-    # Convert to float
     daily_profit["profit"] = daily_profit["profit"].astype(float)
     daily_profit["revenue"] = daily_profit["revenue"].astype(float)
     daily_profit["items"] = daily_profit["items"].astype(float)
@@ -432,10 +457,8 @@ def profit_center_analysis():
     
     if not daily_profit.empty and len(daily_profit) > 1:
         try:
-            # Create figure with dual y-axis
             fig = go.Figure()
             
-            # Add profit bar chart
             fig.add_trace(go.Bar(
                 x=daily_profit["date"],
                 y=daily_profit["profit"],
@@ -444,7 +467,6 @@ def profit_center_analysis():
                 yaxis="y"
             ))
             
-            # Add revenue line
             fig.add_trace(go.Scatter(
                 x=daily_profit["date"],
                 y=daily_profit["revenue"],
@@ -454,7 +476,6 @@ def profit_center_analysis():
                 yaxis="y"
             ))
             
-            # Add margin line on secondary axis (only if data exists)
             if daily_profit["margin"].notna().any():
                 fig.add_trace(go.Scatter(
                     x=daily_profit["date"],
@@ -498,20 +519,15 @@ def profit_center_analysis():
     
     if len(daily_profit) >= 7:
         try:
-            # Create pivot table for heatmap
             daily_profit["day_of_week"] = daily_profit["date"].apply(lambda x: x.weekday())
             daily_profit["week"] = daily_profit["date"].apply(lambda x: x.isocalendar().week)
-            
-            # Create week labels
             daily_profit["week_label"] = daily_profit["date"].apply(
                 lambda x: f"Week {x.isocalendar().week}"
             )
             
-            # Day names
             day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
             daily_profit["day_name"] = daily_profit["day_of_week"].apply(lambda x: day_names[x])
             
-            # Create pivot
             heatmap_data = daily_profit.pivot_table(
                 values="margin",
                 index="week_label",
@@ -519,15 +535,11 @@ def profit_center_analysis():
                 aggfunc="mean"
             )
             
-            # Ensure all days are present
             for day in day_names:
                 if day not in heatmap_data.columns:
                     heatmap_data[day] = 0
             
-            # Reorder columns
             heatmap_data = heatmap_data[day_names]
-            
-            # Convert to float for heatmap
             heatmap_data = heatmap_data.astype(float)
             
             fig = px.imshow(
@@ -558,7 +570,6 @@ def profit_center_analysis():
         "items": "sum"
     }).reset_index()
     
-    # Convert to float
     product_margin_all["profit"] = product_margin_all["profit"].astype(float)
     product_margin_all["total"] = product_margin_all["total"].astype(float)
     product_margin_all["items"] = product_margin_all["items"].astype(float)
@@ -566,7 +577,6 @@ def profit_center_analysis():
         lambda x: (x["profit"] / x["total"] * 100) if x["total"] > 0 else 0, axis=1
     )
     
-    # Identify products with negative profit
     loss_leaders = product_margin_all[product_margin_all["profit"] < 0].sort_values("profit")
     
     if not loss_leaders.empty:
@@ -614,7 +624,6 @@ def profit_center_analysis():
     st.markdown("## Profit Optimization Recommendations")
     
     try:
-        # Calculate key metrics for recommendations
         avg_margin = safe_float(product_margin_all["margin"].mean())
         high_margin_products = product_margin_all[product_margin_all["margin"] > avg_margin * 1.5].head(5)
         
@@ -624,17 +633,16 @@ def profit_center_analysis():
             names = high_margin_products["name"].head(3).tolist()
             avg_high_margin = safe_float(high_margin_products["margin"].head(3).mean())
             recommendations.append(
-                f"**High Margin Products**: Consider promoting {', '.join(names)} "
+                f"High Margin Products: Consider promoting {', '.join(names)} "
                 f"with average margin of {avg_high_margin:.1f}%"
             )
         
         if not loss_leaders.empty:
             recommendations.append(
-                f"**Loss Leaders**: {len(loss_leaders)} products have negative margins. "
+                f"Loss Leaders: {len(loss_leaders)} products have negative margins. "
                 f"Consider price adjustments or discontinuing them."
             )
         
-        # Check payment method profitability
         if "payment_method" in filtered_df.columns:
             payment_profit_filtered = filtered_df.groupby("payment_method")["profit"].sum()
             payment_profit_filtered = payment_profit_filtered.astype(float)
@@ -642,11 +650,10 @@ def profit_center_analysis():
                 best_payment = payment_profit_filtered.idxmax()
                 if best_payment:
                     recommendations.append(
-                        f"**Best Payment Method**: {best_payment} generates the highest profit. "
+                        f"Best Payment Method: {best_payment} generates the highest profit. "
                         f"Consider encouraging customers to use this method."
                     )
         
-        # Check if there are products with high revenue but low margin
         if len(product_margin_all) > 3:
             try:
                 revenue_quantile = safe_float(product_margin_all["total"].quantile(0.75))
@@ -658,7 +665,7 @@ def profit_center_analysis():
                 if not high_revenue_low_margin.empty:
                     names = high_revenue_low_margin["name"].tolist()
                     recommendations.append(
-                        f"**Optimization Opportunity**: {', '.join(names)} "
+                        f"Optimization Opportunity: {', '.join(names)} "
                         f"have high revenue but low margins. Consider cost reduction or price increase."
                     )
             except Exception:
@@ -681,7 +688,6 @@ def profit_center_analysis():
     col1, col2 = st.columns(2)
     
     with col1:
-        # Summary export
         summary_data = {
             "Metric": ["Total Revenue", "Total Profit", "Profit Margin", "Total Transactions", "Average Transaction"],
             "Value": [
@@ -703,8 +709,7 @@ def profit_center_analysis():
         )
     
     with col2:
-        # Detailed export - ensure all columns are properly formatted
-        detail_data = filtered_df[["date", "name", "total", "profit", "payment_method"]].copy()
+        detail_data = filtered_df[["date", "name", "total", "profit", "payment_method", "receipt_no"]].copy()
         detail_data["date"] = detail_data["date"].dt.strftime("%Y-%m-%d")
         detail_data["total"] = detail_data["total"].astype(float)
         detail_data["profit"] = detail_data["profit"].astype(float)
