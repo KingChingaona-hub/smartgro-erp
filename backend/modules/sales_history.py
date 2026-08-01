@@ -1,5 +1,5 @@
 # backend/modules/sales_history.py
-# Sales History with proper deduplication and item details
+# Sales History with proper deduplication and product names
 
 import streamlit as st
 import pandas as pd
@@ -44,10 +44,10 @@ def find_column(df, possible_names, default=None):
 # SALES HISTORY PAGE
 # ==============================
 def sales_history_page():
-    """Sales History with proper deduplication and item details"""
+    """Sales History with proper deduplication and product names"""
 
     st.title("Sales History")
-    st.caption("View all sales transactions with item details")
+    st.caption("View all sales transactions with product details")
 
     df = load_sales()
 
@@ -67,6 +67,15 @@ def sales_history_page():
                 errors="coerce"
             ).fillna(0)
 
+    # ==============================
+    # FIND PRODUCT NAME COLUMN
+    # ==============================
+    product_name_col = None
+    for col in ["product_name", "name", "Product", "item_name"]:
+        if col in df.columns:
+            product_name_col = col
+            break
+    
     # ==============================
     # DEDUPLICATE BY RECEIPT FOR TOTALS
     # ==============================
@@ -105,37 +114,40 @@ def sales_history_page():
             .str.contains(search_receipt, case=False)
         ]
 
-    if search_name:
-        name_col = find_column(filtered_df, ["name", "product_name", "Product"])
-        if name_col:
-            filtered_df = filtered_df[
-                filtered_df[name_col]
-                .astype(str)
-                .str.contains(search_name, case=False)
-            ]
+    if search_name and product_name_col:
+        filtered_df = filtered_df[
+            filtered_df[product_name_col]
+            .astype(str)
+            .str.contains(search_name, case=False)
+        ]
 
     st.markdown("---")
 
     # ==============================
-    # SALES TABLE - WITH ITEM NAMES
+    # SALES TABLE - WITH PRODUCT NAMES
     # ==============================
     st.subheader("Sales Records")
 
-    # Display columns with item names
+    # Build display columns
     display_cols = []
-    col_config = {}
+    column_config = {}
     
-    # Define display columns with proper names
+    # Define column mapping with correct names
     column_mapping = {
         "sale_date": "Date",
         "receipt_no": "Receipt No",
         "barcode": "Barcode",
-        "name": "Product",  # This shows the item name
+        "product_name": "Product",
+        "name": "Product",
+        "Product": "Product",
+        "item_name": "Product",
         "items": "Qty",
         "total": "Total",
         "profit": "Profit",
+        "final_total": "Total",
         "payment_method": "Payment",
-        "customer_name": "Customer"
+        "customer_name": "Customer",
+        "customer": "Customer"
     }
     
     # Build display columns from mapping
@@ -143,26 +155,41 @@ def sales_history_page():
         if db_col in filtered_df.columns:
             display_cols.append(db_col)
     
+    # Ensure product name column is included
+    if product_name_col and product_name_col not in display_cols:
+        display_cols.append(product_name_col)
+    
     if display_cols:
+        # Create a clean display dataframe
+        display_df = filtered_df[display_cols].copy()
+        
+        # Rename columns for display
+        rename_map = {}
+        for db_col in display_cols:
+            if db_col in column_mapping:
+                rename_map[db_col] = column_mapping[db_col]
+        
+        display_df = display_df.rename(columns=rename_map)
+        
+        # Configure columns
+        config = {}
+        for col in display_df.columns:
+            if col in ["Total", "Profit"]:
+                config[col] = st.column_config.NumberColumn(col, format="$%.2f")
+            elif col == "Qty":
+                config[col] = st.column_config.NumberColumn(col, format="%.2f")
+            elif col == "Date":
+                config[col] = st.column_config.DatetimeColumn(col, format="YYYY-MM-DD HH:mm")
+        
         st.dataframe(
-            filtered_df[display_cols],
+            display_df,
             use_container_width=True,
             hide_index=True,
-            column_config={
-                "sale_date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm"),
-                "receipt_no": "Receipt No",
-                "barcode": "Barcode",
-                "name": st.column_config.TextColumn("Product"),
-                "items": st.column_config.NumberColumn("Qty", format="%.2f"),
-                "total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                "profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
-                "payment_method": "Payment",
-                "customer_name": "Customer"
-            }
+            column_config=config
         )
         
         # Show count
-        st.caption(f"Showing {len(filtered_df)} item rows")
+        st.caption(f"Showing {len(display_df)} item rows")
     else:
         st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
@@ -236,18 +263,16 @@ def sales_history_page():
     )
 
     # ==============================
-    # TOP PRODUCTS - WITH ITEM NAMES
+    # TOP PRODUCTS - WITH PRODUCT NAMES
     # ==============================
     st.markdown("---")
     st.subheader("Top Products")
-
-    name_col = find_column(filtered_df, ["name", "product_name", "Product"])
     
-    if name_col:
-        # Group by product name to show item names
+    if product_name_col:
+        # Group by product name
         top_products = (
             filtered_df
-            .groupby(name_col)
+            .groupby(product_name_col)
             .agg({
                 "items": "sum",
                 "total": "sum",
@@ -255,20 +280,20 @@ def sales_history_page():
             })
             .reset_index()
             .sort_values(
-                by="items",
+                by="total",
                 ascending=False
             )
             .head(10)
         )
         
-        top_products.columns = ["Product Name", "Items Sold", "Revenue", "Profit"]
+        top_products.columns = ["Product", "Items Sold", "Revenue", "Profit"]
         
         st.dataframe(
             top_products,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Product Name": st.column_config.TextColumn("Product"),
+                "Product": st.column_config.TextColumn("Product"),
                 "Items Sold": st.column_config.NumberColumn("Items Sold", format="%.2f"),
                 "Revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
                 "Profit": st.column_config.NumberColumn("Profit", format="$%.2f")
@@ -278,12 +303,11 @@ def sales_history_page():
         # Chart of top products
         if not top_products.empty:
             st.markdown("### Top Products Chart")
-            
-            # Create a bar chart
-            chart_data = top_products[["Product Name", "Items Sold"]].head(10)
-            st.bar_chart(chart_data.set_index("Product Name"))
+            chart_data = top_products[["Product", "Items Sold"]].head(10)
+            st.bar_chart(chart_data.set_index("Product"))
     else:
-        st.info("No product name data available")
+        st.warning("Product name column not found in sales data. Available columns: " + ", ".join(df.columns.tolist()))
+        st.info("Tip: Check if product names are stored in 'product_name' or 'name' column")
 
     # ==============================
     # RECEIPT LOOKUP
@@ -302,19 +326,24 @@ def sales_history_page():
         ]
 
         if not receipt_df.empty:
+            # Rename product column for display
+            display_receipt = receipt_df.copy()
+            if product_name_col and product_name_col in display_receipt.columns:
+                display_receipt = display_receipt.rename(columns={product_name_col: "Product"})
+            
             st.dataframe(
-                receipt_df,
+                display_receipt,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "name": "Product",
+                    "Product": "Product Name",
                     "items": st.column_config.NumberColumn("Qty", format="%.2f"),
                     "total": st.column_config.NumberColumn("Total", format="$%.2f"),
                     "profit": st.column_config.NumberColumn("Profit", format="$%.2f")
                 }
             )
 
-            # Use first row of receipt for total (all rows in same receipt have same total)
+            # Use first row of receipt for total
             total_col = find_column(receipt_df, ["final_total", "total", "amount"])
             profit_col = find_column(receipt_df, ["profit"])
             
@@ -328,7 +357,6 @@ def sales_history_page():
             else:
                 receipt_profit = 0
 
-            # Count items in receipt
             item_count = len(receipt_df)
 
             st.success(
@@ -344,29 +372,35 @@ def sales_history_page():
     st.markdown("---")
     st.subheader("Item Details View")
     
-    # Show each item with full details
     if not filtered_df.empty:
         # Select columns for item view
         item_view_cols = []
-        for col in ["sale_date", "receipt_no", "name", "barcode", "items", "total", "profit", "payment_method", "customer_name"]:
-            if col in filtered_df.columns:
+        
+        # Always include product name
+        if product_name_col:
+            item_view_cols.append(product_name_col)
+        
+        # Add other columns
+        for col in ["sale_date", "receipt_no", "barcode", "items", "total", "profit", "payment_method", "customer_name"]:
+            if col in filtered_df.columns and col not in item_view_cols:
                 item_view_cols.append(col)
         
         if item_view_cols:
+            # Rename product column for display
+            display_item_df = filtered_df[item_view_cols].copy()
+            if product_name_col and product_name_col in display_item_df.columns and product_name_col != "Product":
+                display_item_df = display_item_df.rename(columns={product_name_col: "Product"})
+            
             st.dataframe(
-                filtered_df[item_view_cols],
+                display_item_df,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "Product": "Product Name",
                     "sale_date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm"),
-                    "receipt_no": "Receipt",
-                    "name": "Product Name",
-                    "barcode": "Barcode",
                     "items": st.column_config.NumberColumn("Qty", format="%.2f"),
                     "total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                    "profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
-                    "payment_method": "Payment",
-                    "customer_name": "Customer"
+                    "profit": st.column_config.NumberColumn("Profit", format="$%.2f")
                 }
             )
 
@@ -389,10 +423,10 @@ def sales_history_page():
     
     with col2:
         # Export top products
-        if name_col and name_col in filtered_df.columns:
+        if product_name_col:
             top_products_export = (
                 filtered_df
-                .groupby(name_col)
+                .groupby(product_name_col)
                 .agg({
                     "items": "sum",
                     "total": "sum",
