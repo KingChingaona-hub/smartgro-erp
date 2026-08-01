@@ -77,14 +77,14 @@ def sales_history_page():
             break
     
     # ==============================
-    # DEDUPLICATE BY RECEIPT FOR TOTALS
+    # DEDUPLICATION - GET UNIQUE RECEIPTS
     # ==============================
     receipt_col = find_column(df, ["receipt_no", "receipt", "transaction_id", "order_id"])
     
-    # Create a unique receipts dataframe for accurate totals
+    # Create unique receipts dataframe for accurate totals
     unique_receipts_df = None
     if receipt_col:
-        # Get unique receipts with their totals
+        # Get unique receipts with their totals (keep first row per receipt)
         unique_receipts_df = df.drop_duplicates(subset=[receipt_col], keep="first").copy()
     
     # ==============================
@@ -130,7 +130,6 @@ def sales_history_page():
 
     # Build display columns
     display_cols = []
-    column_config = {}
     
     # Define column mapping with correct names
     column_mapping = {
@@ -158,6 +157,9 @@ def sales_history_page():
     # Ensure product name column is included
     if product_name_col and product_name_col not in display_cols:
         display_cols.append(product_name_col)
+    
+    # Remove duplicates from display_cols
+    display_cols = list(dict.fromkeys(display_cols))
     
     if display_cols:
         # Create a clean display dataframe
@@ -227,7 +229,7 @@ def sales_history_page():
         else:
             total_profit = 0
     
-    # Items sold should sum all items (this is correct)
+    # Items sold - sum all items
     items_col = find_column(filtered_df, ["items", "quantity", "qty"])
     if items_col:
         total_items = safe_int(filtered_df[items_col].sum())
@@ -306,8 +308,7 @@ def sales_history_page():
             chart_data = top_products[["Product", "Items Sold"]].head(10)
             st.bar_chart(chart_data.set_index("Product"))
     else:
-        st.warning("Product name column not found in sales data. Available columns: " + ", ".join(df.columns.tolist()))
-        st.info("Tip: Check if product names are stored in 'product_name' or 'name' column")
+        st.warning("Product name column not found. Available columns: " + ", ".join(df.columns.tolist()))
 
     # ==============================
     # RECEIPT LOOKUP
@@ -365,44 +366,6 @@ def sales_history_page():
 
         else:
             st.error("Receipt not found")
-
-    # ==============================
-    # ITEM DETAILS VIEW
-    # ==============================
-    st.markdown("---")
-    st.subheader("Item Details View")
-    
-    if not filtered_df.empty:
-        # Select columns for item view
-        item_view_cols = []
-        
-        # Always include product name
-        if product_name_col:
-            item_view_cols.append(product_name_col)
-        
-        # Add other columns
-        for col in ["sale_date", "receipt_no", "barcode", "items", "total", "profit", "payment_method", "customer_name"]:
-            if col in filtered_df.columns and col not in item_view_cols:
-                item_view_cols.append(col)
-        
-        if item_view_cols:
-            # Rename product column for display
-            display_item_df = filtered_df[item_view_cols].copy()
-            if product_name_col and product_name_col in display_item_df.columns and product_name_col != "Product":
-                display_item_df = display_item_df.rename(columns={product_name_col: "Product"})
-            
-            st.dataframe(
-                display_item_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Product": "Product Name",
-                    "sale_date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm"),
-                    "items": st.column_config.NumberColumn("Qty", format="%.2f"),
-                    "total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                    "profit": st.column_config.NumberColumn("Profit", format="$%.2f")
-                }
-            )
 
     # ==============================
     # EXPORT
