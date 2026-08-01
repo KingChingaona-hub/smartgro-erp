@@ -1,5 +1,5 @@
 # backend/core/floating_financials.py
-# SIMPLE ROBUST VERSION - With customer autocomplete support
+# COMPLETE VERSION - With customer autocomplete support and comprehensive summaries
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -1086,6 +1086,176 @@ def get_daily_gas_summary(branch_id=None, date=None):
         "all_sales": df if not df.empty else pd.DataFrame()
     }
 
+# ==============================
+# GET RECORDS WITH SUMMARY - NEW
+# ==============================
+
+def get_change_records_with_summary(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
+    """Get change records with today/previous summary"""
+    df = get_change_records(branch_id, status, date_from, date_to, customer_name)
+    
+    if df.empty:
+        return {
+            "records": df,
+            "today_total": 0,
+            "today_collected": 0,
+            "today_balance": 0,
+            "previous_total": 0,
+            "previous_collected": 0,
+            "previous_balance": 0,
+            "overall_total": 0,
+            "overall_collected": 0,
+            "overall_balance": 0
+        }
+    
+    today = datetime.now().date()
+    
+    # Ensure date column exists
+    date_col = None
+    for col in ["created_at", "updated_at", "date"]:
+        if col in df.columns:
+            date_col = col
+            break
+    
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df["is_today"] = df[date_col].dt.date == today
+    else:
+        df["is_today"] = False
+    
+    today_df = df[df["is_today"]]
+    previous_df = df[~df["is_today"]]
+    
+    return {
+        "records": df,
+        "today_df": today_df,
+        "previous_df": previous_df,
+        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
+        "today_collected": float(today_df["amount_collected"].sum()) if not today_df.empty and "amount_collected" in today_df.columns else 0,
+        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
+        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
+        "previous_collected": float(previous_df["amount_collected"].sum()) if not previous_df.empty and "amount_collected" in previous_df.columns else 0,
+        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
+        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
+        "overall_collected": float(df["amount_collected"].sum()) if "amount_collected" in df.columns else 0,
+        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
+        "today_count": len(today_df),
+        "previous_count": len(previous_df),
+        "total_count": len(df)
+    }
+
+
+def get_credit_records_with_summary(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
+    """Get credit records with today/previous summary"""
+    df = get_credit_records(branch_id, status, credit_type, date_from, date_to, customer_name)
+    
+    if df.empty:
+        return {
+            "records": df,
+            "today_total": 0,
+            "today_paid": 0,
+            "today_balance": 0,
+            "previous_total": 0,
+            "previous_paid": 0,
+            "previous_balance": 0,
+            "overall_total": 0,
+            "overall_paid": 0,
+            "overall_balance": 0
+        }
+    
+    today = datetime.now().date()
+    
+    date_col = None
+    for col in ["created_at", "updated_at", "date"]:
+        if col in df.columns:
+            date_col = col
+            break
+    
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df["is_today"] = df[date_col].dt.date == today
+    else:
+        df["is_today"] = False
+    
+    today_df = df[df["is_today"]]
+    previous_df = df[~df["is_today"]]
+    
+    return {
+        "records": df,
+        "today_df": today_df,
+        "previous_df": previous_df,
+        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
+        "today_paid": float(today_df["amount_paid"].sum()) if not today_df.empty and "amount_paid" in today_df.columns else 0,
+        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
+        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
+        "previous_paid": float(previous_df["amount_paid"].sum()) if not previous_df.empty and "amount_paid" in previous_df.columns else 0,
+        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
+        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
+        "overall_paid": float(df["amount_paid"].sum()) if "amount_paid" in df.columns else 0,
+        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
+        "today_count": len(today_df),
+        "previous_count": len(previous_df),
+        "total_count": len(df)
+    }
+
+
+def get_gas_sales_with_summary(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
+    """Get gas sales with today/previous summary"""
+    df = get_gas_sales(branch_id, status, date_from, date_to, customer_name)
+    
+    if df.empty:
+        return {
+            "records": df,
+            "today_total_kgs": 0,
+            "today_total_amount": 0,
+            "today_pending": 0,
+            "today_transferred": 0,
+            "previous_total_kgs": 0,
+            "previous_total_amount": 0,
+            "overall_total_kgs": 0,
+            "overall_total_amount": 0,
+            "today_count": 0,
+            "previous_count": 0,
+            "total_count": 0
+        }
+    
+    today = datetime.now().date()
+    
+    date_col = None
+    for col in ["sale_date", "created_at", "date"]:
+        if col in df.columns:
+            date_col = col
+            break
+    
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df["is_today"] = df[date_col].dt.date == today
+    else:
+        df["is_today"] = False
+    
+    today_df = df[df["is_today"]]
+    previous_df = df[~df["is_today"]]
+    
+    today_pending = len(today_df[today_df["status"] == "PENDING"]) if not today_df.empty and "status" in today_df.columns else 0
+    today_transferred = len(today_df[today_df["status"] == "TRANSFERRED_TO_POS"]) if not today_df.empty and "status" in today_df.columns else 0
+    
+    return {
+        "records": df,
+        "today_df": today_df,
+        "previous_df": previous_df,
+        "today_total_kgs": float(today_df["kgs"].sum()) if not today_df.empty and "kgs" in today_df.columns else 0,
+        "today_total_amount": float(today_df["total_amount"].sum()) if not today_df.empty and "total_amount" in today_df.columns else 0,
+        "today_pending": today_pending,
+        "today_transferred": today_transferred,
+        "previous_total_kgs": float(previous_df["kgs"].sum()) if not previous_df.empty and "kgs" in previous_df.columns else 0,
+        "previous_total_amount": float(previous_df["total_amount"].sum()) if not previous_df.empty and "total_amount" in previous_df.columns else 0,
+        "overall_total_kgs": float(df["kgs"].sum()) if "kgs" in df.columns else 0,
+        "overall_total_amount": float(df["total_amount"].sum()) if "total_amount" in df.columns else 0,
+        "today_count": len(today_df),
+        "previous_count": len(previous_df),
+        "total_count": len(df)
+    }
+
 # Export all functions
 __all__ = [
     'create_change_record', 'collect_change', 'get_change_records', 'get_change_summary', 'CHANGE_STATUSES',
@@ -1094,5 +1264,8 @@ __all__ = [
     'create_gas_sale', 'transfer_gas_to_pos', 'get_gas_sales', 'get_gas_sales_summary', 'get_daily_gas_summary',
     'GAS_SALE_STATUSES',
     'get_customer_suggestions',
-    'get_customer_phone_mapping'
+    'get_customer_phone_mapping',
+    'get_change_records_with_summary',
+    'get_credit_records_with_summary',
+    'get_gas_sales_with_summary'
 ]
