@@ -1,5 +1,5 @@
 # backend/core/floating_financials.py
-# SIMPLE ROBUST VERSION - No complex cursor handling
+# SIMPLE ROBUST VERSION - With customer autocomplete support
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -41,6 +41,70 @@ def get_current_branch():
         return st.session_state.get("user_branch", "HO")
     except:
         return "HO"
+
+# ==============================
+# CUSTOMER HELPERS
+# ==============================
+
+def get_customer_suggestions():
+    """Get unique customer names from sales data for autocomplete"""
+    try:
+        from backend.core.db_adapter import load_sales
+        sales_df = load_sales()
+        if sales_df.empty:
+            return []
+        
+        customer_col = None
+        for col in ["customer_name", "customer", "Customer"]:
+            if col in sales_df.columns:
+                customer_col = col
+                break
+        
+        if not customer_col:
+            return []
+        
+        customers = sales_df[customer_col].dropna().unique().tolist()
+        customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+        return sorted(set(customers))
+    except Exception as e:
+        print(f"Error getting customer suggestions: {e}")
+        return []
+
+
+def get_customer_phone_mapping():
+    """Get customer name to phone mapping from sales data"""
+    try:
+        from backend.core.db_adapter import load_sales
+        sales_df = load_sales()
+        if sales_df.empty:
+            return {}
+        
+        name_col = None
+        phone_col = None
+        
+        for col in ["customer_name", "customer", "Customer"]:
+            if col in sales_df.columns:
+                name_col = col
+                break
+        
+        for col in ["customer_phone", "phone", "Phone"]:
+            if col in sales_df.columns:
+                phone_col = col
+                break
+        
+        if name_col and phone_col:
+            mapping = {}
+            for _, row in sales_df.iterrows():
+                name = str(row.get(name_col, "")).strip()
+                phone = str(row.get(phone_col, "")).strip()
+                if name and name.lower() != "walk-in" and phone:
+                    mapping[name] = phone
+            return mapping
+        
+        return {}
+    except Exception as e:
+        print(f"Error getting customer phone mapping: {e}")
+        return {}
 
 # ==============================
 # VALIDATION HELPERS
@@ -1028,5 +1092,7 @@ __all__ = [
     'create_credit_record', 'record_credit_payment', 'get_credit_records', 'get_credit_summary', 'get_overdue_credits',
     'CREDIT_TYPES', 'CREDIT_STATUSES',
     'create_gas_sale', 'transfer_gas_to_pos', 'get_gas_sales', 'get_gas_sales_summary', 'get_daily_gas_summary',
-    'GAS_SALE_STATUSES'
+    'GAS_SALE_STATUSES',
+    'get_customer_suggestions',
+    'get_customer_phone_mapping'
 ]
