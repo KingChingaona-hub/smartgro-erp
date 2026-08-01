@@ -1,5 +1,5 @@
 # backend/modules/sales_history.py
-# Sales History with proper deduplication
+# Sales History with proper deduplication and item details
 
 import streamlit as st
 import pandas as pd
@@ -44,9 +44,10 @@ def find_column(df, possible_names, default=None):
 # SALES HISTORY PAGE
 # ==============================
 def sales_history_page():
-    """Sales History with proper deduplication"""
+    """Sales History with proper deduplication and item details"""
 
     st.title("Sales History")
+    st.caption("View all sales transactions with item details")
 
     df = load_sales()
 
@@ -116,25 +117,54 @@ def sales_history_page():
     st.markdown("---")
 
     # ==============================
-    # SALES TABLE
+    # SALES TABLE - WITH ITEM NAMES
     # ==============================
     st.subheader("Sales Records")
 
-    # Display columns
+    # Display columns with item names
     display_cols = []
-    for col in ["receipt_no", "barcode", "name", "items", "total", "profit", "payment_method", "customer_name", "sale_date"]:
-        if col in filtered_df.columns:
-            display_cols.append(col)
+    col_config = {}
+    
+    # Define display columns with proper names
+    column_mapping = {
+        "sale_date": "Date",
+        "receipt_no": "Receipt No",
+        "barcode": "Barcode",
+        "name": "Product",  # This shows the item name
+        "items": "Qty",
+        "total": "Total",
+        "profit": "Profit",
+        "payment_method": "Payment",
+        "customer_name": "Customer"
+    }
+    
+    # Build display columns from mapping
+    for db_col, display_name in column_mapping.items():
+        if db_col in filtered_df.columns:
+            display_cols.append(db_col)
     
     if display_cols:
         st.dataframe(
             filtered_df[display_cols],
             use_container_width=True,
+            hide_index=True,
             column_config={
+                "sale_date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm"),
+                "receipt_no": "Receipt No",
+                "barcode": "Barcode",
+                "name": st.column_config.TextColumn("Product"),
+                "items": st.column_config.NumberColumn("Qty", format="%.2f"),
                 "total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                "profit": st.column_config.NumberColumn("Profit", format="$%.2f")
+                "profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
+                "payment_method": "Payment",
+                "customer_name": "Customer"
             }
         )
+        
+        # Show count
+        st.caption(f"Showing {len(filtered_df)} item rows")
+    else:
+        st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
     # ==============================
     # SUMMARY - USING UNIQUE RECEIPTS
@@ -196,7 +226,7 @@ def sales_history_page():
     )
 
     col3.metric(
-        "Items Sold",
+        "Total Items Sold",
         f"{total_items:,}"
     )
 
@@ -206,7 +236,7 @@ def sales_history_page():
     )
 
     # ==============================
-    # TOP PRODUCTS - FIXED
+    # TOP PRODUCTS - WITH ITEM NAMES
     # ==============================
     st.markdown("---")
     st.subheader("Top Products")
@@ -214,7 +244,7 @@ def sales_history_page():
     name_col = find_column(filtered_df, ["name", "product_name", "Product"])
     
     if name_col:
-        # Group by product name
+        # Group by product name to show item names
         top_products = (
             filtered_df
             .groupby(name_col)
@@ -238,10 +268,20 @@ def sales_history_page():
             use_container_width=True,
             hide_index=True,
             column_config={
+                "Product Name": st.column_config.TextColumn("Product"),
+                "Items Sold": st.column_config.NumberColumn("Items Sold", format="%.2f"),
                 "Revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
                 "Profit": st.column_config.NumberColumn("Profit", format="$%.2f")
             }
         )
+        
+        # Chart of top products
+        if not top_products.empty:
+            st.markdown("### Top Products Chart")
+            
+            # Create a bar chart
+            chart_data = top_products[["Product Name", "Items Sold"]].head(10)
+            st.bar_chart(chart_data.set_index("Product Name"))
     else:
         st.info("No product name data available")
 
@@ -264,7 +304,14 @@ def sales_history_page():
         if not receipt_df.empty:
             st.dataframe(
                 receipt_df,
-                use_container_width=True
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "name": "Product",
+                    "items": st.column_config.NumberColumn("Qty", format="%.2f"),
+                    "total": st.column_config.NumberColumn("Total", format="$%.2f"),
+                    "profit": st.column_config.NumberColumn("Profit", format="$%.2f")
+                }
             )
 
             # Use first row of receipt for total (all rows in same receipt have same total)
@@ -281,25 +328,88 @@ def sales_history_page():
             else:
                 receipt_profit = 0
 
+            # Count items in receipt
+            item_count = len(receipt_df)
+
             st.success(
-                f"Receipt found | Revenue: ${receipt_total:.2f} | Profit: ${receipt_profit:.2f}"
+                f"Receipt found | {item_count} items | Revenue: ${receipt_total:.2f} | Profit: ${receipt_profit:.2f}"
             )
 
         else:
             st.error("Receipt not found")
 
     # ==============================
+    # ITEM DETAILS VIEW
+    # ==============================
+    st.markdown("---")
+    st.subheader("Item Details View")
+    
+    # Show each item with full details
+    if not filtered_df.empty:
+        # Select columns for item view
+        item_view_cols = []
+        for col in ["sale_date", "receipt_no", "name", "barcode", "items", "total", "profit", "payment_method", "customer_name"]:
+            if col in filtered_df.columns:
+                item_view_cols.append(col)
+        
+        if item_view_cols:
+            st.dataframe(
+                filtered_df[item_view_cols],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "sale_date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm"),
+                    "receipt_no": "Receipt",
+                    "name": "Product Name",
+                    "barcode": "Barcode",
+                    "items": st.column_config.NumberColumn("Qty", format="%.2f"),
+                    "total": st.column_config.NumberColumn("Total", format="$%.2f"),
+                    "profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
+                    "payment_method": "Payment",
+                    "customer_name": "Customer"
+                }
+            )
+
+    # ==============================
     # EXPORT
     # ==============================
     st.markdown("---")
-    csv = filtered_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download Filtered Data (CSV)",
-        data=csv,
-        file_name=f"sales_history_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        csv = filtered_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download Filtered Data (CSV)",
+            data=csv,
+            file_name=f"sales_history_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+    
+    with col2:
+        # Export top products
+        if name_col and name_col in filtered_df.columns:
+            top_products_export = (
+                filtered_df
+                .groupby(name_col)
+                .agg({
+                    "items": "sum",
+                    "total": "sum",
+                    "profit": "sum"
+                })
+                .reset_index()
+                .sort_values(by="total", ascending=False)
+            )
+            top_products_export.columns = ["Product", "Items Sold", "Revenue", "Profit"]
+            csv_products = top_products_export.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Download Top Products (CSV)",
+                data=csv_products,
+                file_name=f"top_products_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
 
 
 # ==============================
