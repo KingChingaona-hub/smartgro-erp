@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - With date grouping and customer autocomplete
+# backend/modules/floating_financials.py - Complete rewrite with date grouping, customer autocomplete, and daily summaries
 
 import streamlit as st
 import pandas as pd
@@ -683,11 +683,11 @@ def display_credit_table(df):
 
 
 # ==============================
-# GAS SALES TAB
+# GAS SALES TAB - WITH DAILY SUMMARY
 # ==============================
 
 def gas_sales_tab():
-    """Gas Sales Float Tab - Table format with date grouping"""
+    """Gas Sales Float Tab - Table format with date grouping and daily summary"""
     
     summary = get_gas_sales_summary()
     
@@ -892,18 +892,57 @@ def gas_sales_tab():
     today_df = df[df["is_today"]]
     previous_df = df[~df["is_today"]]
     
-    # Display Today's Records
+    # ==============================
+    # TODAY'S RECORDS WITH SUMMARY
+    # ==============================
     st.markdown("### Today's Records")
     if not today_df.empty:
+        # Calculate today's summary
+        today_total_kgs = float(today_df["kgs"].sum()) if "kgs" in today_df.columns else 0
+        today_total_amount = float(today_df["total_amount"].sum()) if "total_amount" in today_df.columns else 0
+        today_transactions = len(today_df)
+        today_pending = len(today_df[today_df["status"] == "PENDING"]) if "status" in today_df.columns else 0
+        today_transferred = len(today_df[today_df["status"] == "TRANSFERRED_TO_POS"]) if "status" in today_df.columns else 0
+        
+        # Display daily summary cards
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Today's KGs", f"{today_total_kgs:,.2f}")
+        with col2:
+            st.metric("Today's Amount", f"${today_total_amount:,.2f}")
+        with col3:
+            st.metric("Transactions", today_transactions)
+        with col4:
+            st.metric("Pending", today_pending)
+        with col5:
+            st.metric("Transferred", today_transferred)
+        
+        st.markdown("---")
         display_gas_table(today_df)
     else:
         st.info("No gas sales for today")
     
     st.markdown("---")
     
-    # Display Previous Records
+    # ==============================
+    # PREVIOUS RECORDS
+    # ==============================
     st.markdown("### Previous Records")
     if not previous_df.empty:
+        # Calculate previous summary
+        prev_total_kgs = float(previous_df["kgs"].sum()) if "kgs" in previous_df.columns else 0
+        prev_total_amount = float(previous_df["total_amount"].sum()) if "total_amount" in previous_df.columns else 0
+        prev_transactions = len(previous_df)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total KGs", f"{prev_total_kgs:,.2f}")
+        with col2:
+            st.metric("Total Amount", f"${prev_total_amount:,.2f}")
+        with col3:
+            st.metric("Transactions", prev_transactions)
+        
+        st.markdown("---")
         display_gas_table(previous_df)
     else:
         st.info("No previous gas sales")
