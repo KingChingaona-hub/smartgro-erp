@@ -128,50 +128,65 @@ def sales_history_page():
     # ==============================
     st.subheader("Sales Records")
 
-    # Build display columns
+    # Define display columns without duplicates
     display_cols = []
     
-    # Define column mapping with correct names
-    column_mapping = {
-        "sale_date": "Date",
-        "receipt_no": "Receipt No",
-        "barcode": "Barcode",
-        "product_name": "Product",
-        "name": "Product",
-        "Product": "Product",
-        "item_name": "Product",
-        "items": "Qty",
-        "total": "Total",
-        "profit": "Profit",
-        "final_total": "Total",
-        "payment_method": "Payment",
-        "customer_name": "Customer",
-        "customer": "Customer"
-    }
+    # List of columns to display with their display names
+    col_map = {}
     
-    # Build display columns from mapping
-    for db_col, display_name in column_mapping.items():
-        if db_col in filtered_df.columns:
-            display_cols.append(db_col)
+    # Date column
+    date_col = find_column(filtered_df, ["sale_date", "date", "transaction_date"])
+    if date_col:
+        col_map[date_col] = "Date"
     
-    # Ensure product name column is included
-    if product_name_col and product_name_col not in display_cols:
-        display_cols.append(product_name_col)
+    # Receipt column
+    receipt_display = find_column(filtered_df, ["receipt_no", "receipt", "transaction_id"])
+    if receipt_display:
+        col_map[receipt_display] = "Receipt No"
     
-    # Remove duplicates from display_cols
-    display_cols = list(dict.fromkeys(display_cols))
+    # Product name column
+    if product_name_col:
+        col_map[product_name_col] = "Product"
+    
+    # Barcode column
+    barcode_col = find_column(filtered_df, ["barcode", "product_barcode"])
+    if barcode_col:
+        col_map[barcode_col] = "Barcode"
+    
+    # Quantity column
+    qty_col = find_column(filtered_df, ["items", "quantity", "qty"])
+    if qty_col:
+        col_map[qty_col] = "Qty"
+    
+    # Total column
+    total_col = find_column(filtered_df, ["final_total", "total", "amount"])
+    if total_col:
+        col_map[total_col] = "Total"
+    
+    # Profit column
+    profit_col = find_column(filtered_df, ["profit"])
+    if profit_col:
+        col_map[profit_col] = "Profit"
+    
+    # Payment method
+    payment_col = find_column(filtered_df, ["payment_method", "payment_type"])
+    if payment_col:
+        col_map[payment_col] = "Payment"
+    
+    # Customer column
+    customer_col = find_column(filtered_df, ["customer_name", "customer", "Customer"])
+    if customer_col:
+        col_map[customer_col] = "Customer"
+    
+    # Get the column names from the map
+    display_cols = list(col_map.keys())
     
     if display_cols:
-        # Create a clean display dataframe
+        # Create a clean display dataframe with unique columns only
         display_df = filtered_df[display_cols].copy()
         
         # Rename columns for display
-        rename_map = {}
-        for db_col in display_cols:
-            if db_col in column_mapping:
-                rename_map[db_col] = column_mapping[db_col]
-        
-        display_df = display_df.rename(columns=rename_map)
+        display_df = display_df.rename(columns=col_map)
         
         # Configure columns
         config = {}
