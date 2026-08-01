@@ -1,4 +1,4 @@
-# backend/modules/pos.py - Updated with customer autocomplete and fixed session state
+# backend/modules/pos.py - Updated with new customer support and fixed cart updates
 
 import streamlit as st
 import pandas as pd
@@ -63,6 +63,8 @@ def init_session():
         st.session_state.customer_name_input = "Walk-in"
     if "customer_phone_input" not in st.session_state:
         st.session_state.customer_phone_input = ""
+    if "customer_name_typed" not in st.session_state:
+        st.session_state.customer_name_typed = ""
 
 
 # ==============================
@@ -314,7 +316,7 @@ def supports_decimal_quantity(product_name, category=""):
 
 
 # ==============================
-# POS PAGE - WITH CUSTOMER AUTOCOMPLETE
+# POS PAGE - WITH CUSTOMER AUTOCOMPLETE AND NEW CUSTOMER SUPPORT
 # ==============================
 def pos_page():
     init_session()
@@ -379,6 +381,7 @@ def pos_page():
                             found = False
                             for item in cart:
                                 if item["barcode"] == product["barcode"]:
+                                    # FIX: Update quantity by adding 1
                                     item["qty"] = float(item["qty"]) + 1.0
                                     item["total"] = float(item["qty"]) * float(item["price"])
                                     found = True
@@ -503,6 +506,7 @@ def pos_page():
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
+                            # FIX: Update quantity by adding the new quantity
                             new_qty = float(item["qty"]) + float(final_qty)
                             if new_qty > product["stock"]:
                                 st.toast(f"Cart exceeds available stock ({product['stock']:.2f})")
@@ -634,7 +638,7 @@ def pos_page():
     st.markdown("---")
     
     # ==============================
-    # CUSTOMER DETAILS WITH AUTOCOMPLETE - FIXED
+    # CUSTOMER DETAILS WITH AUTOCOMPLETE - FIXED FOR NEW CUSTOMERS
     # ==============================
     st.markdown("## Customer Details")
     
@@ -658,13 +662,19 @@ def pos_page():
     with col1:
         st.markdown("**Customer Name**")
         
-        # Create options list
+        # Create options list with "Walk-in" and existing customers
         all_options = ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
         
         # Get current value
         current_name = st.session_state.get("customer_name_input", "Walk-in")
-        if current_name not in all_options and current_name != "Walk-in":
+        
+        # Check if current name is not in options and not "Walk-in" (new customer being added)
+        is_new_customer = current_name not in all_options and current_name != "Walk-in" and current_name.strip()
+        
+        if is_new_customer:
+            # Add the new customer name to options temporarily
             all_options.append(current_name)
+            st.caption(f"New customer: **{current_name}**")
         
         # Find index
         try:
@@ -672,6 +682,7 @@ def pos_page():
         except ValueError:
             current_index = 0
         
+        # Customer name input with custom option for new customers
         selected_customer = st.selectbox(
             "Select or type customer name",
             options=all_options,
@@ -680,7 +691,23 @@ def pos_page():
             label_visibility="collapsed"
         )
         
-        # Update session state without triggering widget conflict
+        # Check if user wants to add a new customer (typing in the select box)
+        # We handle this by allowing the user to type in the search box below
+        
+        # Additional text input for new customer name (for adding new customers)
+        new_customer_name = st.text_input(
+            "Or type new customer name",
+            placeholder="Type new customer name here...",
+            key="new_customer_name_input",
+            label_visibility="collapsed"
+        )
+        
+        # If user typed a new name, use it
+        if new_customer_name and new_customer_name.strip():
+            selected_customer = new_customer_name.strip()
+            st.info(f"New customer: **{selected_customer}** will be added")
+        
+        # Update session state
         if selected_customer != st.session_state.customer_name_input:
             st.session_state.customer_name_input = selected_customer
     
@@ -712,6 +739,7 @@ def pos_page():
     customer_name = selected_customer
     customer_phone = st.session_state.customer_phone_input
     
+    # Add new customer to recent if not Walk-in
     if customer_name and customer_name != "Walk-in" and customer_phone:
         add_recent_customer(customer_name, customer_phone)
     
