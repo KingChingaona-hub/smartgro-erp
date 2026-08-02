@@ -221,25 +221,38 @@ def extract_customers_from_sales(sales_df):
     customers = sales_undup[[customer_col]].drop_duplicates()
     customers = customers.rename(columns={customer_col: 'customer_id'})
     
-    # Try to get customer name
-    if 'customer_name' in sales_undup.columns:
-        name_data = sales_undup[[customer_col, 'customer_name']].drop_duplicates()
+    # Try to get customer name - handle potential duplicate column names
+    name_col = None
+    for col in ['customer_name', 'name', 'full_name', 'customer']:
+        if col in sales_undup.columns and col != customer_col:
+            name_col = col
+            break
+    
+    if name_col:
+        name_data = sales_undup[[customer_col, name_col]].drop_duplicates()
+        name_data = name_data.rename(columns={name_col: 'customer_name'})
         customers = customers.merge(name_data, left_on='customer_id', right_on=customer_col, how='left')
-        customers = customers.drop(columns=[customer_col] if customer_col in customers.columns else [])
-        customers = customers.rename(columns={'customer_name': 'customer_name'})
+        # Drop the duplicate customer_col column from merge
+        if customer_col in customers.columns:
+            customers = customers.drop(columns=[customer_col])
     else:
         # Use customer_id as name
         customers['customer_name'] = customers['customer_id'].astype(str)
     
     # Try to get phone if available
     phone_col = get_phone_column(sales_undup)
-    if phone_col and phone_col in sales_undup.columns:
+    if phone_col and phone_col in sales_undup.columns and phone_col != customer_col:
         phone_data = sales_undup[[customer_col, phone_col]].drop_duplicates()
+        phone_data = phone_data.rename(columns={phone_col: 'phone'})
         customers = customers.merge(phone_data, left_on='customer_id', right_on=customer_col, how='left')
-        customers = customers.drop(columns=[customer_col] if customer_col in customers.columns else [])
-        customers = customers.rename(columns={phone_col: 'phone'})
+        # Drop the duplicate customer_col column from merge
+        if customer_col in customers.columns:
+            customers = customers.drop(columns=[customer_col])
     else:
         customers['phone'] = ''
+    
+    # Ensure no duplicate columns
+    customers = customers.loc[:, ~customers.columns.duplicated()]
     
     return customers
 
@@ -313,14 +326,20 @@ def calculate_rfm_metrics_from_sales(sales_df):
         
         # Get customer name
         customer_name = str(customer_id)
-        if 'customer_name' in sales_undup.columns:
-            name_data = customer_sales['customer_name'].iloc[0] if not customer_sales.empty else str(customer_id)
+        name_col = None
+        for col in ['customer_name', 'name', 'full_name', 'customer']:
+            if col in sales_undup.columns and col != customer_col:
+                name_col = col
+                break
+        
+        if name_col:
+            name_data = customer_sales[name_col].iloc[0] if not customer_sales.empty else str(customer_id)
             customer_name = safe_str(name_data, str(customer_id))
         
         # Get phone
         phone = ''
         phone_col = get_phone_column(sales_undup)
-        if phone_col and phone_col in sales_undup.columns:
+        if phone_col and phone_col in sales_undup.columns and phone_col != customer_col:
             phone = safe_str(customer_sales[phone_col].iloc[0]) if not customer_sales.empty else ''
         
         rfm_data.append({
@@ -921,16 +940,23 @@ def churn_prediction_dashboard():
                         has_sales = False
                         customer_col = get_customer_column(sales_df)
                         if customer_col:
-                            has_sales = any(sales_df[sales_df[customer_col].astype(str) == customer_id])
+                            # Try to find matching customer in sales
+                            for col in sales_df.columns:
+                                if 'customer' in col.lower():
+                                    has_sales = any(sales_df[sales_df[col].astype(str) == str(customer_id)])
+                                    if has_sales:
+                                        break
                         
                         if has_sales:
                             st.success("This customer has sales records")
                             # Show customer stats
-                            customer_sales = sales_df[sales_df[customer_col].astype(str) == customer_id]
-                            amount_col = get_amount_column(customer_sales)
-                            if amount_col:
-                                total_spent = safe_float(customer_sales[amount_col].sum())
-                                st.metric("Total Spent", f"${total_spent:,.2f}")
+                            customer_col = get_customer_column(sales_df)
+                            if customer_col:
+                                customer_sales = sales_df[sales_df[customer_col].astype(str) == str(customer_id)]
+                                amount_col = get_amount_column(customer_sales)
+                                if amount_col:
+                                    total_spent = safe_float(customer_sales[amount_col].sum())
+                                    st.metric("Total Spent", f"${total_spent:,.2f}")
                         else:
                             st.warning("This customer has no sales records yet")
                     else:
