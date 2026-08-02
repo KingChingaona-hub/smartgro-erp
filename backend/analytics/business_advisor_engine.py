@@ -63,12 +63,21 @@ def get_receipt_column(df):
 # HELPER: Get customer column
 # ==============================
 def get_customer_column(df):
-    """Find customer identifier column"""
+    """Find customer identifier column - expanded to find any customer-related field"""
     if df is None or df.empty:
         return None
-    for col in ["customer_id", "customer", "customer_email", "email", "phone"]:
+    
+    # Check all columns for customer-related names
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if any(term in col_lower for term in ['customer', 'cust', 'client', 'buyer', 'email', 'phone', 'contact']):
+            return col
+    
+    # Specific column names to check
+    for col in ["customer_id", "customer", "customer_email", "email", "phone", "contact", "client_id", "client"]:
         if col in df.columns:
             return col
+    
     return None
 
 
@@ -119,9 +128,38 @@ def get_customer_analytics_from_sales(sales_df=None):
     
     customer_col = get_customer_column(sales_undup)
     
-    # If no customer column, return empty
+    # If no customer column found, try using customer_id from the database
     if customer_col is None or customer_col not in sales_undup.columns:
-        return pd.DataFrame()
+        # Try to load customers and join
+        customers_df = load_customers()
+        if not customers_df.empty and 'customer_id' in customers_df.columns:
+            # Check if sales has a customer_id column
+            if 'customer_id' in sales_undup.columns:
+                customer_col = 'customer_id'
+            elif 'customer' in sales_undup.columns:
+                customer_col = 'customer'
+            else:
+                # Try to find any column that might contain customer identifiers
+                for col in sales_undup.columns:
+                    if col.lower() in ['customer', 'cust', 'client', 'buyer', 'email', 'phone']:
+                        customer_col = col
+                        break
+    
+    # Still no customer column, try to infer from other data
+    if customer_col is None or customer_col not in sales_undup.columns:
+        # If no customer column, use receipt_no or transaction_id as customer proxy
+        receipt_col = get_receipt_column(sales_undup)
+        if receipt_col and receipt_col in sales_undup.columns:
+            customer_col = receipt_col
+        else:
+            # Last resort: use a hash of date and amount to group transactions
+            date_col = get_date_column(sales_undup)
+            amount_col = get_amount_column(sales_undup)
+            if date_col and amount_col:
+                sales_undup['_customer_proxy'] = sales_undup[date_col].astype(str) + '_' + sales_undup[amount_col].astype(str)
+                customer_col = '_customer_proxy'
+            else:
+                return pd.DataFrame()
     
     # Get amount column
     amount_col = get_amount_column(sales_undup)
@@ -134,37 +172,44 @@ def get_customer_analytics_from_sales(sales_df=None):
     # Get date column
     date_col = get_date_column(sales_undup)
     
+    # Convert amount to float
+    sales_undup[amount_col] = sales_undup[amount_col].apply(to_float)
+    
     # Aggregate customer data
-    customer_data = sales_undup.groupby(customer_col).agg({
-        amount_col: ['sum', 'count', 'mean'],
-    }).reset_index()
-    
-    # Flatten column names
-    customer_data.columns = ['customer_id', 'total_spent', 'total_orders', 'avg_order_value']
-    
-    # Get last purchase date if date column exists
-    if date_col and date_col in sales_undup.columns:
-        last_purchase = sales_undup.groupby(customer_col)[date_col].max().reset_index()
-        last_purchase.columns = ['customer_id', 'last_purchase_date']
-        customer_data = customer_data.merge(last_purchase, on='customer_id', how='left')
-    
-    # Calculate days since last purchase
-    if 'last_purchase_date' in customer_data.columns:
-        customer_data['last_purchase_date'] = pd.to_datetime(customer_data['last_purchase_date'], errors='coerce')
-        customer_data['days_since_last_purchase'] = (datetime.now() - customer_data['last_purchase_date']).dt.days
-    
-    # Categorize customers
-    def categorize_customer(row):
-        if row['total_orders'] >= 5:
-            return 'VIP'
-        elif row['total_orders'] >= 2:
-            return 'Regular'
-        else:
-            return 'New'
-    
-    customer_data['segment'] = customer_data.apply(categorize_customer, axis=1)
-    
-    return customer_data
+    try:
+        customer_data = sales_undup.groupby(customer_col).agg({
+            amount_col: ['sum', 'count', 'mean'],
+        }).reset_index()
+        
+        # Flatten column names
+        customer_data.columns = ['customer_id', 'total_spent', 'total_orders', 'avg_order_value']
+        
+        # Get last purchase date if date column exists
+        if date_col and date_col in sales_undup.columns:
+            sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors='coerce')
+            last_purchase = sales_undup.groupby(customer_col)[date_col].max().reset_index()
+            last_purchase.columns = ['customer_id', 'last_purchase_date']
+            customer_data = customer_data.merge(last_purchase, on='customer_id', how='left')
+        
+        # Calculate days since last purchase
+        if 'last_purchase_date' in customer_data.columns:
+            customer_data['days_since_last_purchase'] = (datetime.now() - customer_data['last_purchase_date']).dt.days
+        
+        # Categorize customers
+        def categorize_customer(row):
+            if row['total_orders'] >= 5:
+                return 'VIP'
+            elif row['total_orders'] >= 2:
+                return 'Regular'
+            else:
+                return 'New'
+        
+        customer_data['segment'] = customer_data.apply(categorize_customer, axis=1)
+        
+        return customer_data
+    except Exception as e:
+        print(f"Error in customer analytics: {e}")
+        return pd.DataFrame()
 
 
 # ==============================
@@ -222,14 +267,21 @@ def calculate_business_score():
     try:
         customer_analytics = get_customer_analytics_from_sales(sales_df)
         
-        if not customer_analytics.empty:
+        if not customer_analytics.empty and len(customer_analytics) > 1:
             # Calculate repeat customer rate from sales data
             repeat_customers = len(customer_analytics[customer_analytics['total_orders'] > 1])
             total_customers = len(customer_analytics)
             repeat_rate = (repeat_customers / total_customers) * 100 if total_customers > 0 else 0
             scores["customers"] = (repeat_rate / 100) * 15
         else:
-            scores["customers"] = 7.5
+            # Fallback to customers table
+            if not customers_df.empty and len(customers_df) > 0:
+                repeat_customers = len(customers_df[customers_df["total_orders"] > 1]) if "total_orders" in customers_df.columns else 0
+                total_customers = len(customers_df)
+                repeat_rate = (repeat_customers / total_customers) * 100 if total_customers > 0 else 0
+                scores["customers"] = (repeat_rate / 100) * 15
+            else:
+                scores["customers"] = 7.5
     except Exception:
         scores["customers"] = 7.5
     
@@ -449,11 +501,11 @@ def get_intelligent_recommendations():
     try:
         customer_analytics = get_customer_analytics_from_sales(sales_df)
         
-        if not customer_analytics.empty:
+        if not customer_analytics.empty and len(customer_analytics) > 1:
             # Check for inactive customers
             if 'days_since_last_purchase' in customer_analytics.columns:
                 inactive = customer_analytics[customer_analytics['days_since_last_purchase'] > 90]
-                if len(inactive) > len(customer_analytics) * 0.5:
+                if len(inactive) > len(customer_analytics) * 0.5 and len(inactive) > 3:
                     recommendations.append({
                         "category": "Customers",
                         "priority": "Medium",
@@ -745,7 +797,7 @@ def generate_alerts():
     try:
         customer_analytics = get_customer_analytics_from_sales(sales_df)
         
-        if not customer_analytics.empty:
+        if not customer_analytics.empty and len(customer_analytics) > 3:
             # Alert for declining customer base
             if 'days_since_last_purchase' in customer_analytics.columns:
                 active_customers = len(customer_analytics[customer_analytics['days_since_last_purchase'] <= 30])
