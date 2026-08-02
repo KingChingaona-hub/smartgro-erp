@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - Complete rewrite with table layout and partial collection
+# backend/modules/floating_financials.py - Updated with gas sales recording only (no pending/transfer)
 
 import streamlit as st
 import pandas as pd
@@ -20,13 +20,11 @@ from backend.core.floating_financials import (
     CREDIT_TYPES,
     CREDIT_STATUSES,
     
-    # Gas Sales
+    # Gas Sales - Recording only
     create_gas_sale,
-    transfer_gas_to_pos,
     get_gas_sales,
     get_gas_sales_summary,
-    get_daily_gas_summary,
-    GAS_SALE_STATUSES
+    get_daily_gas_summary
 )
 from backend.core.auth import can_access_feature
 from backend.core.theme_manager import apply_page_theme
@@ -118,7 +116,6 @@ def get_customer_name_input(key_suffix=""):
     except ValueError:
         current_index = 0
     
-    # Use a simpler layout for mobile
     selected_customer = st.selectbox(
         "Customer Name",
         options=all_options,
@@ -159,14 +156,14 @@ def floating_financials_page():
     apply_page_theme("floating_financials")
     
     st.title("Floating Financials")
-    st.caption("Manage change, credits, and gas sales in one place")
+    st.caption("Manage change, credits, and gas sales")
     
     role = st.session_state.get("role", "cashier")
     if not can_access_feature(role, "floating_financials"):
         st.error("You don't have permission to access this page")
         return
     
-    tab_names = ["Change Management", "Credit Management", "Gas Sales Float"]
+    tab_names = ["Change Management", "Credit Management", "Gas Sales"]
     
     if "floating_tab" not in st.session_state:
         st.session_state.floating_tab = 0
@@ -201,7 +198,7 @@ def floating_financials_page():
     with tab3:
         st.session_state.floating_tab = 2
         try:
-            st.query_params["tab"] = "Gas Sales Float"
+            st.query_params["tab"] = "Gas Sales"
         except:
             pass
         gas_sales_tab()
@@ -300,13 +297,6 @@ def change_management_tab():
     else:
         df_display["Date"] = "N/A"
     
-    # Add today flag
-    today = datetime.now().date()
-    if date_col:
-        df_display["is_today"] = df_display[date_col].dt.date == today
-    else:
-        df_display["is_today"] = False
-    
     # Add status label
     def get_status_label(status):
         if status == "COLLECTED":
@@ -317,20 +307,6 @@ def change_management_tab():
             return "UNCOLLECTED"
     
     df_display["Status"] = df_display["status"].apply(get_status_label)
-    
-    # Display all records in one table
-    st.markdown("### All Change Records")
-    
-    # Show all records in a single table
-    display_cols = ["Date", "customer_name", "phone", "amount", "amount_collected", "balance", "Status", "change_id"]
-    available_cols = [col for col in display_cols if col in df_display.columns]
-    
-    # Add collection button for each row with balance > 0
-    if "balance" in df_display.columns:
-        df_display["Action"] = df_display.apply(
-            lambda row: "Collect" if float(row.get("balance", 0)) > 0 else "Paid",
-            axis=1
-        )
     
     # Rename columns for display
     rename_map = {
@@ -344,6 +320,7 @@ def change_management_tab():
     df_display = df_display.rename(columns=rename_map)
     
     # Display as a single table
+    st.markdown("### All Change Records")
     st.dataframe(
         df_display[["Date", "Customer", "Amount", "Collected", "Balance", "Status", "ID"]],
         use_container_width=True,
@@ -388,7 +365,6 @@ def change_management_tab():
             selected_row = uncollected_df.iloc[selected_idx]
             change_id = selected_row.get("change_id", "")
             balance = float(selected_row.get("balance", 0))
-            customer = selected_row.get("customer_name", "Unknown")
             
             with col2:
                 collect_amount = st.number_input(
@@ -547,12 +523,6 @@ def credit_management_tab():
     
     df_display["Status_Display"] = df_display.apply(get_overdue_status, axis=1)
     
-    # Add payment button
-    df_display["Action"] = df_display.apply(
-        lambda row: "Pay" if float(row.get("balance", 0)) > 0 else "Paid",
-        axis=1
-    )
-    
     # Rename columns
     rename_map = {
         "customer_name": "Customer",
@@ -662,33 +632,32 @@ def credit_management_tab():
 
 
 # ==============================
-# GAS SALES TAB
+# GAS SALES TAB - RECORDING ONLY
 # ==============================
 
 def gas_sales_tab():
-    """Gas Sales Float Tab - Table format with daily summary"""
+    """Gas Sales Tab - Recording only, no pending/transfer features"""
     
     summary = get_gas_sales_summary()
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total KGs", f"{summary['total_kgs']:,.2f}")
+        st.metric("Total KGs Sold", f"{summary['total_kgs']:,.2f}")
     with col2:
         st.metric("Total Amount", f"${summary['total_amount']:,.2f}")
     with col3:
-        st.metric("Pending", f"{summary['pending_count']}")
-    with col4:
-        st.metric("Transferred", f"{summary['transferred_count']}")
+        st.metric("Total Sales", f"{summary['total_count']}")
     
     st.divider()
     
     # Record New Gas Sale
     with st.form("record_gas_form"):
-        st.markdown("### Record New Gas Sale")
+        st.markdown("### Record Gas Sale")
+        st.caption("Enter the amount paid and price per KG to calculate KGs sold")
         
         customer_name, phone = get_customer_name_input("gas")
         new_gas_price = st.number_input("Price per KG ($)", min_value=0.01, step=0.01, key="new_gas_price")
-        new_gas_amount = st.number_input("Amount Customer Pays ($)", min_value=0.01, step=0.01, key="new_gas_amount")
+        new_gas_amount = st.number_input("Amount Customer Paid ($)", min_value=0.01, step=0.01, key="new_gas_amount")
         new_gas_desc = st.text_area("Description (Optional)", key="new_gas_desc")
         
         if new_gas_price > 0 and new_gas_amount > 0:
@@ -717,99 +686,24 @@ def gas_sales_tab():
     
     st.divider()
     
-    # Transfer pending gas sales
-    with st.expander("Transfer Pending Gas to POS", expanded=True):
-        all_pending = get_gas_sales(status="PENDING")
-        
-        if all_pending.empty:
-            st.info("No pending gas sales to transfer")
-        else:
-            total_pending_kgs = all_pending['kgs'].sum() if 'kgs' in all_pending.columns else 0
-            total_pending_amount = all_pending['total_amount'].sum() if 'total_amount' in all_pending.columns else 0
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Pending KGs", f"{total_pending_kgs:,.2f}")
-            with col2:
-                st.metric("Total Pending Amount", f"${total_pending_amount:,.2f}")
-            with col3:
-                st.metric("Pending Transactions", len(all_pending))
-            
-            # Display pending in table
-            pending_display = all_pending.copy()
-            if "sale_date" in pending_display.columns:
-                pending_display["sale_date"] = pd.to_datetime(pending_display["sale_date"], errors="coerce")
-                pending_display["Date"] = pending_display["sale_date"].dt.strftime("%Y-%m-%d")
-            
-            rename_map = {
-                "customer_name": "Customer",
-                "kgs": "KGs",
-                "price_per_kg": "Price/KG",
-                "total_amount": "Total",
-                "gas_sale_id": "ID"
-            }
-            pending_display = pending_display.rename(columns=rename_map)
-            
-            cols_to_display = ["Date", "Customer", "KGs", "Price/KG", "Total", "ID"]
-            available = [col for col in cols_to_display if col in pending_display.columns]
-            
-            st.dataframe(
-                pending_display[available],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                    "Price/KG": st.column_config.NumberColumn("Price/KG", format="$%.2f"),
-                    "KGs": st.column_config.NumberColumn("KGs", format="%.2f"),
-                }
-            )
-            
-            # Bulk transfer
-            with st.form("transfer_all_gas_form"):
-                pos_receipt = st.text_input("POS Receipt Number (Optional)")
-                transfer_note = st.text_area("Transfer Note")
-                if st.form_submit_button("Transfer All Pending to POS", use_container_width=True):
-                    success_count = 0
-                    for _, sale in all_pending.iterrows():
-                        gas_sale_id = sale.get('gas_sale_id', '')
-                        if gas_sale_id:
-                            success, message = transfer_gas_to_pos(
-                                gas_sale_id=gas_sale_id,
-                                pos_receipt_no=pos_receipt,
-                                transfer_note=transfer_note or "Bulk transfer"
-                            )
-                            if success:
-                                success_count += 1
-                    
-                    if success_count > 0:
-                        st.success(f"{success_count} gas sales transferred!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to transfer gas sales")
-    
-    st.divider()
-    
     # Filters
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        filter_gas_status = st.selectbox("Status", ["ALL"] + GAS_SALE_STATUSES, key="gas_status_filter")
-    with col2:
         filter_gas_customer = st.text_input("Customer", key="gas_customer_filter")
-    with col3:
+    with col2:
         filter_gas_date_from = st.date_input("From", value=None, key="gas_date_from")
-    with col4:
+    with col3:
         filter_gas_date_to = st.date_input("To", value=None, key="gas_date_to")
     
     @st.cache_data(ttl=60)
-    def load_gas_sales(status, customer, date_from, date_to):
+    def load_gas_records(customer, date_from, date_to):
         return get_gas_sales(
-            status=None if status == "ALL" else status,
             customer_name=customer if customer else None,
             date_from=date_from.strftime("%Y-%m-%d") if date_from else None,
             date_to=date_to.strftime("%Y-%m-%d") if date_to else None
         )
     
-    df = load_gas_sales(filter_gas_status, filter_gas_customer, filter_gas_date_from, filter_gas_date_to)
+    df = load_gas_records(filter_gas_customer, filter_gas_date_from, filter_gas_date_to)
     
     if df.empty:
         st.info("No gas sales records found")
@@ -837,7 +731,6 @@ def gas_sales_tab():
         "kgs": "KGs",
         "price_per_kg": "Price/KG",
         "total_amount": "Total",
-        "status": "Status",
         "gas_sale_id": "ID"
     }
     df_display = df_display.rename(columns=rename_map)
@@ -845,7 +738,7 @@ def gas_sales_tab():
     # Display all records in a single table
     st.markdown("### All Gas Sales Records")
     
-    display_cols = ["Date", "Customer", "KGs", "Price/KG", "Total", "Status", "ID"]
+    display_cols = ["Date", "Customer", "KGs", "Price/KG", "Total", "ID"]
     available_cols = [col for col in display_cols if col in df_display.columns]
     
     st.dataframe(
@@ -867,5 +760,4 @@ def gas_sales_tab():
     with col2:
         st.metric("Total Amount", f"${df['total_amount'].sum():,.2f}" if 'total_amount' in df.columns else "$0.00")
     with col3:
-        pending = len(df[df['status'] == 'PENDING']) if 'status' in df.columns else 0
-        st.metric("Pending Transfers", pending)
+        st.metric("Total Sales", len(df))
