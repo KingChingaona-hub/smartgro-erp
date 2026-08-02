@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - Updated with gas sales recording only (no pending/transfer)
+# backend/modules/floating_financials.py - Updated imports
 
 import streamlit as st
 import pandas as pd
@@ -23,8 +23,7 @@ from backend.core.floating_financials import (
     # Gas Sales - Recording only
     create_gas_sale,
     get_gas_sales,
-    get_gas_sales_summary,
-    get_daily_gas_summary
+    get_gas_sales_summary
 )
 from backend.core.auth import can_access_feature
 from backend.core.theme_manager import apply_page_theme
