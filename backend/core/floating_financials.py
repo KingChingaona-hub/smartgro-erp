@@ -1,5 +1,5 @@
 # backend/core/floating_financials.py
-# SIMPLIFIED VERSION - Record only, no transfer/pending features
+# COMPLETE VERSION - With Change, Credit, and Gas Sales (Recording Only)
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -73,6 +73,14 @@ def init_floating_tables():
         """)
         credits_exists = cur.fetchone()[0]
         
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'floating_gas_sales'
+            )
+        """)
+        gas_sales_exists = cur.fetchone()[0]
+        
         # Create tables only if they don't exist
         if not changes_exists:
             cur.execute("""
@@ -117,6 +125,25 @@ def init_floating_tables():
             logger.info("Created floating_credits table")
         else:
             logger.info("floating_credits table already exists, data preserved")
+        
+        if not gas_sales_exists:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS floating_gas_sales (
+                    id SERIAL PRIMARY KEY,
+                    gas_sale_id VARCHAR(50) UNIQUE NOT NULL,
+                    branch_id VARCHAR(20) DEFAULT 'HO',
+                    customer_name VARCHAR(200),
+                    kgs DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    price_per_kg DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    description TEXT,
+                    sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            logger.info("Created floating_gas_sales table")
+        else:
+            logger.info("floating_gas_sales table already exists, data preserved")
         
         # Create collection tables if they don't exist
         cur.execute("""
@@ -925,6 +952,146 @@ def get_overdue_credits(branch_id=None, days=30):
         return pd.DataFrame()
 
 # ==============================
+# GAS SALES - SIMPLE RECORDING ONLY (NO PENDING/TRANSFER)
+# ==============================
+
+def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", branch_id=None):
+    """
+    Create a gas sale where user enters amount paid and price per KG
+    System calculates KGs = amount_paid / price_per_kg
+    """
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    valid, msg = validate_customer_name(customer_name)
+    if not valid:
+        return False, f"Invalid customer name: {msg}", None
+    
+    valid, amount_clean, msg = validate_amount(amount_paid)
+    if not valid:
+        return False, f"Invalid amount: {msg}", None
+    if amount_clean <= 0:
+        return False, "Amount must be greater than 0", None
+    
+    valid, price, msg = validate_amount(price_per_kg)
+    if not valid:
+        return False, f"Invalid price: {msg}", None
+    if price <= 0:
+        return False, "Price must be greater than 0", None
+    
+    # Calculate KGs from amount paid
+    kgs_calculated = amount_clean / price
+    
+    if description:
+        valid, desc_clean = validate_description(description, 500)
+        if not valid:
+            return False, f"Invalid description: {desc_clean}", None
+        description = desc_clean
+    
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return False, "Database connection failed", None
+        
+        cur = conn.cursor()
+        
+        gas_sale_id = f"GAS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        cur.execute("""
+            INSERT INTO floating_gas_sales (
+                gas_sale_id, branch_id, customer_name, kgs,
+                price_per_kg, total_amount, description,
+                sale_date, created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            gas_sale_id, branch_id, customer_name,
+            kgs_calculated, price, amount_clean, description,
+            now, now
+        ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True, f"Gas sale recorded. KGs: {kgs_calculated:.2f} at ${price:.2f}/KG", gas_sale_id
+        
+    except Exception as e:
+        logger.error(f"Error recording gas sale: {e}")
+        return False, f"Error: {str(e)}", None
+
+
+def get_gas_sales(branch_id=None, date_from=None, date_to=None, customer_name=None):
+    """Get gas sales records"""
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return pd.DataFrame()
+        
+        cur = conn.cursor()
+        
+        query = "SELECT * FROM floating_gas_sales WHERE branch_id = %s"
+        params = [branch_id]
+        
+        if customer_name:
+            query += " AND customer_name ILIKE %s"
+            params.append(f"%{customer_name}%")
+        
+        if date_from:
+            query += " AND sale_date::date >= %s"
+            params.append(date_from)
+        
+        if date_to:
+            query += " AND sale_date::date <= %s"
+            params.append(date_to)
+        
+        query += " ORDER BY sale_date DESC"
+        
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        
+        if rows:
+            col_names = [desc[0] for desc in cur.description]
+            df = pd.DataFrame(rows, columns=col_names)
+            for col in ["kgs", "price_per_kg", "total_amount"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            cur.close()
+            conn.close()
+            return df
+        
+        cur.close()
+        conn.close()
+        return pd.DataFrame()
+        
+    except Exception as e:
+        logger.error(f"Error getting gas sales: {e}")
+        return pd.DataFrame()
+
+
+def get_gas_sales_summary(branch_id=None):
+    """Get summary statistics for gas sales"""
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    df = get_gas_sales(branch_id=branch_id)
+    
+    if df.empty:
+        return {
+            "total_kgs": 0, 
+            "total_amount": 0, 
+            "total_count": 0
+        }
+    
+    return {
+        "total_kgs": float(df["kgs"].sum()) if "kgs" in df.columns else 0,
+        "total_amount": float(df["total_amount"].sum()) if "total_amount" in df.columns else 0,
+        "total_count": len(df)
+    }
+
+# ==============================
 # SUMMARY FUNCTIONS FOR TABLES
 # ==============================
 
@@ -1042,6 +1209,7 @@ __all__ = [
     'create_credit_record', 'record_credit_payment', 'get_credit_records', 'get_credit_summary', 'get_overdue_credits',
     'get_credit_records_for_table', 'get_credit_records_with_summary',
     'CREDIT_TYPES', 'CREDIT_STATUSES',
+    'create_gas_sale', 'get_gas_sales', 'get_gas_sales_summary',
     'get_customer_suggestions',
     'get_customer_phone_mapping'
 ]
