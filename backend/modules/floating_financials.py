@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - Complete with Today/Previous split for gas sales
+# backend/modules/floating_financials.py - Complete with Today/Previous split for gas sales (FIXED)
 
 import streamlit as st
 import pandas as pd
@@ -631,14 +631,11 @@ def credit_management_tab():
 
 
 # ==============================
-# GAS SALES TAB - WITH TODAY/PREVIOUS SPLIT
+# GAS SALES TAB - WITH TODAY/PREVIOUS SPLIT (FIXED)
 # ==============================
 
 def gas_sales_tab():
     """Gas Sales Tab - Recording only, with Today/Previous split"""
-    
-    # Get overall summary
-    summary = get_gas_sales_summary()
     
     # Get all records for splitting
     all_records = get_gas_sales()
@@ -646,7 +643,20 @@ def gas_sales_tab():
     # Calculate today's date
     today = datetime.now().date()
     
-    # Split records into today and previous
+    # Initialize variables
+    today_df = pd.DataFrame()
+    previous_df = pd.DataFrame()
+    today_total_kgs = 0
+    today_total_amount = 0
+    today_count = 0
+    previous_total_kgs = 0
+    previous_total_amount = 0
+    previous_count = 0
+    overall_total_kgs = 0
+    overall_total_amount = 0
+    overall_count = 0
+    
+    # Split records into today and previous if data exists
     if not all_records.empty:
         # Ensure sale_date is datetime
         date_col = None
@@ -656,38 +666,40 @@ def gas_sales_tab():
                 break
         
         if date_col:
+            # Convert to datetime and handle errors
             all_records[date_col] = pd.to_datetime(all_records[date_col], errors="coerce")
-            all_records["is_today"] = all_records[date_col].dt.date == today
-        else:
-            all_records["is_today"] = False
-        
-        today_df = all_records[all_records["is_today"]]
-        previous_df = all_records[~all_records["is_today"]]
-        
-        # Calculate summaries
-        today_total_kgs = float(today_df["kgs"].sum()) if not today_df.empty and "kgs" in today_df.columns else 0
-        today_total_amount = float(today_df["total_amount"].sum()) if not today_df.empty and "total_amount" in today_df.columns else 0
-        today_count = len(today_df)
-        
-        previous_total_kgs = float(previous_df["kgs"].sum()) if not previous_df.empty and "kgs" in previous_df.columns else 0
-        previous_total_amount = float(previous_df["total_amount"].sum()) if not previous_df.empty and "total_amount" in previous_df.columns else 0
-        previous_count = len(previous_df)
-        
-        overall_total_kgs = float(all_records["kgs"].sum()) if "kgs" in all_records.columns else 0
-        overall_total_amount = float(all_records["total_amount"].sum()) if "total_amount" in all_records.columns else 0
-        overall_count = len(all_records)
-    else:
-        today_df = pd.DataFrame()
-        previous_df = pd.DataFrame()
-        today_total_kgs = 0
-        today_total_amount = 0
-        today_count = 0
-        previous_total_kgs = 0
-        previous_total_amount = 0
-        previous_count = 0
-        overall_total_kgs = 0
-        overall_total_amount = 0
-        overall_count = 0
+            # Drop rows with invalid dates
+            all_records = all_records.dropna(subset=[date_col])
+            
+            if not all_records.empty:
+                # Convert kgs and total_amount to float
+                if "kgs" in all_records.columns:
+                    all_records["kgs"] = pd.to_numeric(all_records["kgs"], errors="coerce").fillna(0)
+                if "total_amount" in all_records.columns:
+                    all_records["total_amount"] = pd.to_numeric(all_records["total_amount"], errors="coerce").fillna(0)
+                
+                # Create today flag
+                all_records["is_today"] = all_records[date_col].dt.date == today
+                
+                # Split into today and previous
+                today_df = all_records[all_records["is_today"]].copy()
+                previous_df = all_records[~all_records["is_today"]].copy()
+                
+                # Calculate summaries
+                if not today_df.empty:
+                    today_total_kgs = float(today_df["kgs"].sum()) if "kgs" in today_df.columns else 0
+                    today_total_amount = float(today_df["total_amount"].sum()) if "total_amount" in today_df.columns else 0
+                    today_count = len(today_df)
+                
+                if not previous_df.empty:
+                    previous_total_kgs = float(previous_df["kgs"].sum()) if "kgs" in previous_df.columns else 0
+                    previous_total_amount = float(previous_df["total_amount"].sum()) if "total_amount" in previous_df.columns else 0
+                    previous_count = len(previous_df)
+                
+                # Overall totals
+                overall_total_kgs = float(all_records["kgs"].sum()) if "kgs" in all_records.columns else 0
+                overall_total_amount = float(all_records["total_amount"].sum()) if "total_amount" in all_records.columns else 0
+                overall_count = len(all_records)
     
     # Display overall summary metrics
     col1, col2, col3 = st.columns(3)
@@ -762,7 +774,7 @@ def gas_sales_tab():
     # Prepare data for table display
     df_display = df.copy()
     
-    # Format dates
+    # Format dates and convert to numeric
     date_col = None
     for col in ["sale_date", "created_at", "date"]:
         if col in df_display.columns:
@@ -771,15 +783,22 @@ def gas_sales_tab():
     
     if date_col:
         df_display[date_col] = pd.to_datetime(df_display[date_col], errors="coerce")
+        df_display = df_display.dropna(subset=[date_col])
         df_display["Date"] = df_display[date_col].dt.strftime("%Y-%m-%d %H:%M")
         df_display["is_today"] = df_display[date_col].dt.date == today
     else:
         df_display["Date"] = "N/A"
         df_display["is_today"] = False
     
-    # Split into Today and Previous
-    today_df_filtered = df_display[df_display["is_today"]]
-    previous_df_filtered = df_display[~df_display["is_today"]]
+    # Convert numeric columns
+    if "kgs" in df_display.columns:
+        df_display["kgs"] = pd.to_numeric(df_display["kgs"], errors="coerce").fillna(0)
+    if "total_amount" in df_display.columns:
+        df_display["total_amount"] = pd.to_numeric(df_display["total_amount"], errors="coerce").fillna(0)
+    
+    # Split into Today and Previous for filtered view
+    today_df_filtered = df_display[df_display["is_today"]].copy()
+    previous_df_filtered = df_display[~df_display["is_today"]].copy()
     
     # Rename columns for display
     rename_map = {
@@ -799,8 +818,8 @@ def gas_sales_tab():
     
     if not today_df_filtered.empty:
         # Calculate today's summary
-        today_total_kgs_display = float(today_df_filtered["KGs"].sum()) if "KGs" in today_df_filtered.columns else 0
-        today_total_amount_display = float(today_df_filtered["Total"].sum()) if "Total" in today_df_filtered.columns else 0
+        today_total_kgs_display = float(today_df_filtered["kgs"].sum()) if "kgs" in today_df_filtered.columns else 0
+        today_total_amount_display = float(today_df_filtered["total_amount"].sum()) if "total_amount" in today_df_filtered.columns else 0
         today_count_display = len(today_df_filtered)
         
         # Display today's summary cards
@@ -836,8 +855,8 @@ def gas_sales_tab():
     
     if not previous_df_filtered.empty:
         # Calculate previous summary
-        prev_total_kgs_display = float(previous_df_filtered["KGs"].sum()) if "KGs" in previous_df_filtered.columns else 0
-        prev_total_amount_display = float(previous_df_filtered["Total"].sum()) if "Total" in previous_df_filtered.columns else 0
+        prev_total_kgs_display = float(previous_df_filtered["kgs"].sum()) if "kgs" in previous_df_filtered.columns else 0
+        prev_total_amount_display = float(previous_df_filtered["total_amount"].sum()) if "total_amount" in previous_df_filtered.columns else 0
         prev_count_display = len(previous_df_filtered)
         
         # Display previous summary cards
