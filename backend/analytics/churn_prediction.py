@@ -88,12 +88,21 @@ def get_date_column(df):
 
 
 def get_customer_column(df):
-    """Find customer name column"""
+    """Find customer name column - expanded for sales data"""
     if df is None or df.empty:
         return None
-    for col in ["customer_name", "customer", "name", "client_name"]:
+    
+    # Check all columns for customer-related names
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if any(term in col_lower for term in ['customer', 'cust', 'client', 'buyer', 'email', 'phone', 'contact']):
+            return col
+    
+    # Specific column names to check
+    for col in ["customer_id", "customer", "customer_name", "customer_email", "email", "phone", "contact", "client_id", "client"]:
         if col in df.columns:
             return col
+    
     return None
 
 
@@ -127,79 +136,197 @@ def get_payment_method_column(df):
     return None
 
 
+def get_receipt_column(df):
+    """Find receipt number column"""
+    if df is None or df.empty:
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_unduplicated_sales(sales_df):
+    """Get unduplicated sales by receipt_no to avoid revenue duplication"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_df = sales_df.copy()
+    receipt_col = get_receipt_column(sales_df)
+    
+    # If we have receipt_no, deduplicate
+    if receipt_col and receipt_col in sales_df.columns:
+        return sales_df.drop_duplicates(subset=[receipt_col])
+    
+    # If no receipt_no, try to deduplicate by date and amount
+    date_col = get_date_column(sales_df)
+    amount_col = get_amount_column(sales_df)
+    
+    if date_col and amount_col and date_col in sales_df.columns and amount_col in sales_df.columns:
+        try:
+            return sales_df.drop_duplicates(subset=[date_col, amount_col])
+        except:
+            return sales_df
+    
+    return sales_df
+
+
 # ==============================
-# FEATURE ENGINEERING - COMPLETELY REWRITTEN
+# EXTRACT CUSTOMERS FROM SALES
 # ==============================
 
-def calculate_rfm_metrics(customer_transactions_df, sales_df, customers_df):
+def extract_customers_from_sales(sales_df):
+    """Extract unique customers from sales data"""
+    if sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    
+    if sales_undup.empty:
+        return pd.DataFrame()
+    
+    customer_col = get_customer_column(sales_undup)
+    
+    # If no customer column found, try to find any customer identifier
+    if customer_col is None:
+        # Look for any column that might contain customer info
+        for col in sales_undup.columns:
+            col_lower = str(col).lower()
+            if any(term in col_lower for term in ['customer', 'cust', 'client', 'buyer', 'email', 'phone']):
+                customer_col = col
+                break
+    
+    if customer_col is None or customer_col not in sales_undup.columns:
+        # If truly no customer column, create a proxy using receipt/transaction
+        receipt_col = get_receipt_column(sales_undup)
+        if receipt_col and receipt_col in sales_undup.columns:
+            # Use receipt as customer proxy (each receipt = one customer transaction)
+            customers = sales_undup[[receipt_col]].drop_duplicates()
+            customers = customers.rename(columns={receipt_col: 'customer_id'})
+            customers['customer_name'] = customers['customer_id'].astype(str)
+            return customers
+        else:
+            # Last resort: create a proxy using date and amount combination
+            date_col = get_date_column(sales_undup)
+            amount_col = get_amount_column(sales_undup)
+            if date_col and amount_col:
+                sales_undup['_customer_proxy'] = sales_undup[date_col].astype(str) + '_' + sales_undup[amount_col].astype(str)
+                customers = sales_undup[['_customer_proxy']].drop_duplicates()
+                customers = customers.rename(columns={'_customer_proxy': 'customer_id'})
+                customers['customer_name'] = customers['customer_id'].astype(str)
+                return customers
+            return pd.DataFrame()
+    
+    # Get unique customers with their info
+    customers = sales_undup[[customer_col]].drop_duplicates()
+    customers = customers.rename(columns={customer_col: 'customer_id'})
+    
+    # Try to get customer name
+    if 'customer_name' in sales_undup.columns:
+        name_data = sales_undup[[customer_col, 'customer_name']].drop_duplicates()
+        customers = customers.merge(name_data, left_on='customer_id', right_on=customer_col, how='left')
+        customers = customers.drop(columns=[customer_col] if customer_col in customers.columns else [])
+        customers = customers.rename(columns={'customer_name': 'customer_name'})
+    else:
+        # Use customer_id as name
+        customers['customer_name'] = customers['customer_id'].astype(str)
+    
+    # Try to get phone if available
+    phone_col = get_phone_column(sales_undup)
+    if phone_col and phone_col in sales_undup.columns:
+        phone_data = sales_undup[[customer_col, phone_col]].drop_duplicates()
+        customers = customers.merge(phone_data, left_on='customer_id', right_on=customer_col, how='left')
+        customers = customers.drop(columns=[customer_col] if customer_col in customers.columns else [])
+        customers = customers.rename(columns={phone_col: 'phone'})
+    else:
+        customers['phone'] = ''
+    
+    return customers
+
+
+# ==============================
+# FEATURE ENGINEERING - SOURCED FROM SALES
+# ==============================
+
+def calculate_rfm_metrics_from_sales(sales_df):
     """
-    Calculate RFM (Recency, Frequency, Monetary) metrics for each customer.
+    Calculate RFM (Recency, Frequency, Monetary) metrics for each customer from sales data.
     """
+    if sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    
+    if sales_undup.empty:
+        return pd.DataFrame()
+    
+    customer_col = get_customer_column(sales_undup)
+    
+    # If no customer column, try to create one
+    if customer_col is None or customer_col not in sales_undup.columns:
+        # Try using receipt as customer proxy
+        receipt_col = get_receipt_column(sales_undup)
+        if receipt_col and receipt_col in sales_undup.columns:
+            sales_undup['_customer'] = sales_undup[receipt_col].astype(str)
+            customer_col = '_customer'
+        else:
+            # Use date+amount combination
+            date_col = get_date_column(sales_undup)
+            amount_col = get_amount_column(sales_undup)
+            if date_col and amount_col:
+                sales_undup['_customer'] = sales_undup[date_col].astype(str) + '_' + sales_undup[amount_col].astype(str)
+                customer_col = '_customer'
+            else:
+                return pd.DataFrame()
+    
+    date_col = get_date_column(sales_undup)
+    amount_col = get_amount_column(sales_undup)
+    
+    if date_col is None or amount_col is None:
+        return pd.DataFrame()
+    
+    # Convert date to datetime
+    sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+    sales_undup = sales_undup.dropna(subset=[date_col])
+    
+    if sales_undup.empty:
+        return pd.DataFrame()
+    
+    # Convert amount to float
+    sales_undup[amount_col] = sales_undup[amount_col].apply(safe_float)
+    
+    # Calculate RFM
     rfm_data = []
     
-    if customers_df.empty:
-        return pd.DataFrame()
-    
-    customer_col = get_customer_column(customers_df)
-    phone_col = get_phone_column(customers_df)
-    sales_date_col = get_date_column(sales_df)
-    amount_col = get_amount_column(sales_df)
-    sales_customer_col = get_customer_column(sales_df)
-    
-    if customer_col is None:
-        return pd.DataFrame()
-    
-    # Get unique customers with valid names
-    for idx, customer in customers_df.iterrows():
-        customer_name = safe_str(customer.get(customer_col, ""))
-        customer_phone = safe_str(customer.get(phone_col, "")) if phone_col else ""
+    for customer_id in sales_undup[customer_col].unique():
+        customer_sales = sales_undup[sales_undup[customer_col] == customer_id]
         
-        # Skip customers with empty names
-        if not customer_name or customer_name.strip() == "":
+        if customer_sales.empty:
             continue
         
-        # Find this customer's sales
-        customer_sales = pd.DataFrame()
+        last_purchase = customer_sales[date_col].max()
+        recency_days = float((datetime.now() - last_purchase).days)
+        frequency = float(len(customer_sales))
+        monetary = safe_float(customer_sales[amount_col].sum())
+        avg_order_value = monetary / frequency if frequency > 0 else 0.0
+        is_churned = 1.0 if recency_days > 90 else 0.0
         
-        if not sales_df.empty and sales_customer_col:
-            try:
-                customer_sales = sales_df[sales_df[sales_customer_col].astype(str).str.contains(
-                    customer_name, case=False, na=False
-                )]
-            except:
-                customer_sales = pd.DataFrame()
+        # Get customer name
+        customer_name = str(customer_id)
+        if 'customer_name' in sales_undup.columns:
+            name_data = customer_sales['customer_name'].iloc[0] if not customer_sales.empty else str(customer_id)
+            customer_name = safe_str(name_data, str(customer_id))
         
-        if customer_sales.empty and phone_col and "customer_phone" in sales_df.columns:
-            try:
-                customer_sales = sales_df[sales_df["customer_phone"].astype(str) == str(customer_phone)]
-            except:
-                customer_sales = pd.DataFrame()
-        
-        # Initialize with default values
-        recency_days = 999.0
-        frequency = 0.0
-        monetary = 0.0
-        avg_order_value = 0.0
-        is_churned = 1.0
-        
-        if not customer_sales.empty and sales_date_col and amount_col:
-            try:
-                customer_sales[sales_date_col] = pd.to_datetime(customer_sales[sales_date_col], errors="coerce")
-                customer_sales = customer_sales.dropna(subset=[sales_date_col])
-                
-                if not customer_sales.empty:
-                    last_purchase = customer_sales[sales_date_col].max()
-                    recency_days = float((datetime.now() - last_purchase).days)
-                    frequency = float(len(customer_sales))
-                    monetary = safe_float(customer_sales[amount_col].sum())
-                    avg_order_value = monetary / frequency if frequency > 0 else 0.0
-                    is_churned = 1.0 if recency_days > 90 else 0.0
-            except:
-                pass
+        # Get phone
+        phone = ''
+        phone_col = get_phone_column(sales_undup)
+        if phone_col and phone_col in sales_undup.columns:
+            phone = safe_str(customer_sales[phone_col].iloc[0]) if not customer_sales.empty else ''
         
         rfm_data.append({
+            "customer_id": customer_id,
             "customer_name": customer_name,
-            "phone": customer_phone,
+            "phone": phone,
             "recency_days": recency_days,
             "frequency": frequency,
             "monetary": monetary,
@@ -213,101 +340,106 @@ def calculate_rfm_metrics(customer_transactions_df, sales_df, customers_df):
     return pd.DataFrame(rfm_data)
 
 
-def calculate_customer_features(customers_df, rfm_df, loyalty_df, sales_df):
+def calculate_customer_features_from_sales(sales_df, rfm_df, loyalty_df):
     """
-    Build comprehensive feature set for each customer.
+    Build comprehensive feature set for each customer from sales data.
     """
-    if customers_df.empty:
+    if sales_df.empty or rfm_df.empty:
+        return pd.DataFrame()
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    
+    if sales_undup.empty:
+        return pd.DataFrame()
+    
+    customer_col = get_customer_column(sales_undup)
+    
+    # If no customer column, try to create one
+    if customer_col is None or customer_col not in sales_undup.columns:
+        receipt_col = get_receipt_column(sales_undup)
+        if receipt_col and receipt_col in sales_undup.columns:
+            sales_undup['_customer'] = sales_undup[receipt_col].astype(str)
+            customer_col = '_customer'
+        else:
+            date_col = get_date_column(sales_undup)
+            amount_col = get_amount_column(sales_undup)
+            if date_col and amount_col:
+                sales_undup['_customer'] = sales_undup[date_col].astype(str) + '_' + sales_undup[amount_col].astype(str)
+                customer_col = '_customer'
+            else:
+                return pd.DataFrame()
+    
+    date_col = get_date_column(sales_undup)
+    amount_col = get_amount_column(sales_undup)
+    
+    if date_col is None or amount_col is None:
         return pd.DataFrame()
     
     features = []
-    customer_col = get_customer_column(customers_df)
-    phone_col = get_phone_column(customers_df)
     
-    if customer_col is None:
-        return pd.DataFrame()
-    
-    products_df = load_products()
-    
-    # Get unique customers with valid names
-    for idx, customer in customers_df.iterrows():
-        customer_name = safe_str(customer.get(customer_col, ""))
-        customer_phone = safe_str(customer.get(phone_col, "")) if phone_col else ""
+    for idx, rfm_row in rfm_df.iterrows():
+        customer_id = rfm_row.get("customer_id")
+        customer_name = safe_str(rfm_row.get("customer_name", ""))
+        customer_phone = safe_str(rfm_row.get("phone", ""))
         
-        # Skip customers with empty names
-        if not customer_name or customer_name.strip() == "":
+        # Get customer's sales
+        customer_sales = sales_undup[sales_undup[customer_col] == customer_id].copy()
+        
+        if customer_sales.empty:
             continue
         
-        # Get RFM features
-        rfm_data = rfm_df[rfm_df["customer_name"] == customer_name]
-        if not rfm_data.empty:
-            rfm_row = rfm_data.iloc[0]
-        else:
-            rfm_row = {
-                "recency_days": 999.0,
-                "frequency": 0.0,
-                "monetary": 0.0,
-                "avg_order_value": 0.0,
-                "is_churned": 1.0
-            }
+        # Convert date
+        customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
+        customer_sales = customer_sales.dropna(subset=[date_col])
         
-        # Get loyalty features
+        if customer_sales.empty:
+            continue
+        
+        # Get loyalty points
         loyalty_points = 0.0
         if not loyalty_df.empty:
             try:
-                loyalty_data = loyalty_df[loyalty_df["phone"].astype(str) == str(customer_phone)]
-                if not loyalty_data.empty:
-                    loyalty_points = safe_float(loyalty_data.iloc[0].get("points", 0))
+                phone_col = get_phone_column(loyalty_df)
+                if phone_col and customer_phone:
+                    loyalty_data = loyalty_df[loyalty_df[phone_col].astype(str) == str(customer_phone)]
+                    if not loyalty_data.empty:
+                        loyalty_points = safe_float(loyalty_data.iloc[0].get("points", 0))
             except:
                 loyalty_points = 0.0
         
-        # Initialize features
+        # Calculate additional features
         purchase_regularity = 0.0
         tenure_days = 0.0
         avg_items = 0.0
         payment_diversity = 0.0
         
-        date_col = get_date_column(sales_df)
-        sales_customer_col = get_customer_column(sales_df)
+        if len(customer_sales) > 1:
+            customer_sales = customer_sales.sort_values(date_col)
+            date_diffs = customer_sales[date_col].diff().dt.days.dropna()
+            if not date_diffs.empty:
+                purchase_regularity = safe_float(date_diffs.std())
         
-        if not sales_df.empty and date_col and sales_customer_col:
+        if not customer_sales.empty:
+            first_purchase = customer_sales[date_col].min()
+            tenure_days = safe_float((datetime.now() - first_purchase).days)
+        
+        if "items" in customer_sales.columns:
+            avg_items = safe_float(customer_sales["items"].mean())
+        
+        payment_col = get_payment_method_column(customer_sales)
+        if payment_col and payment_col in customer_sales.columns:
             try:
-                customer_sales = sales_df[sales_df[sales_customer_col].astype(str).str.contains(
-                    customer_name, case=False, na=False
-                )].copy()
-                
-                if not customer_sales.empty:
-                    customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
-                    customer_sales = customer_sales.dropna(subset=[date_col])
-                    customer_sales = customer_sales.sort_values(date_col)
-                    
-                    if len(customer_sales) > 1:
-                        date_diffs = customer_sales[date_col].diff().dt.days.dropna()
-                        if not date_diffs.empty:
-                            purchase_regularity = safe_float(date_diffs.std())
-                    
-                    if not customer_sales.empty:
-                        first_purchase = customer_sales[date_col].min()
-                        tenure_days = safe_float((datetime.now() - first_purchase).days)
-                    
-                    if "items" in customer_sales.columns:
-                        avg_items = safe_float(customer_sales["items"].mean())
-                    
-                    payment_col = get_payment_method_column(customer_sales)
-                    if payment_col and payment_col in customer_sales.columns:
-                        try:
-                            payment_methods = customer_sales[payment_col].dropna().unique().tolist()
-                            payment_methods = [
-                                p for p in payment_methods 
-                                if p and str(p).strip() and str(p).lower() not in ['unknown', 'none', 'null', '']
-                            ]
-                            payment_diversity = float(len(payment_methods))
-                        except:
-                            payment_diversity = 0.0
+                payment_methods = customer_sales[payment_col].dropna().unique().tolist()
+                payment_methods = [
+                    p for p in payment_methods 
+                    if p and str(p).strip() and str(p).lower() not in ['unknown', 'none', 'null', '']
+                ]
+                payment_diversity = float(len(payment_methods))
             except:
-                pass
+                payment_diversity = 0.0
         
         features.append({
+            "customer_id": customer_id,
             "customer_name": customer_name,
             "phone": customer_phone,
             "recency_days": float(rfm_row.get("recency_days", 999)),
@@ -496,23 +628,25 @@ def churn_prediction_dashboard():
         st.error("Access Denied. Only owners and managers can access churn prediction.")
         return
     
-    # Load data
-    with st.spinner("Loading customer data..."):
-        customers_df = load_customers()
+    # Load sales data
+    with st.spinner("Loading sales data..."):
         sales_df = load_sales()
         loyalty_df = load_loyalty()
     
-    # Debug: Show customer data info
-    st.sidebar.markdown("### Debug Info")
-    st.sidebar.write(f"Customers: {len(customers_df)}")
-    st.sidebar.write(f"Sales: {len(sales_df)}")
+    # Extract customers from sales
+    customers_df = extract_customers_from_sales(sales_df)
     
-    if customers_df.empty:
-        st.warning("No customer data available. Please add customers first.")
-        return
+    # Debug info
+    st.sidebar.markdown("### Debug Info")
+    st.sidebar.write(f"Sales records: {len(sales_df)}")
+    st.sidebar.write(f"Unique customers: {len(customers_df)}")
     
     if sales_df.empty:
         st.warning("No sales data available. Complete some transactions first.")
+        return
+    
+    if customers_df.empty:
+        st.warning("No customers found in sales data. Add customers to transactions.")
         return
     
     # Initialize model
@@ -537,17 +671,10 @@ def churn_prediction_dashboard():
     with tab1:
         st.markdown("## Churn Prediction Overview")
         
-        customer_col = get_customer_column(customers_df)
         total_customers = len(customers_df)
         
         # Count customers with sales
-        customers_with_sales = 0
-        if customer_col and not sales_df.empty:
-            sales_customer_col = get_customer_column(sales_df)
-            if sales_customer_col:
-                sales_customers = set(sales_df[sales_customer_col].astype(str).unique())
-                customers_with_sales = sum(1 for _, c in customers_df.iterrows() 
-                                          if safe_str(c.get(customer_col, "")) in sales_customers)
+        customers_with_sales = total_customers
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -555,7 +682,13 @@ def churn_prediction_dashboard():
         with col2:
             st.metric("Customers with Sales", customers_with_sales)
         with col3:
-            st.metric("Customers without Sales", total_customers - customers_with_sales)
+            st.metric("Total Sales", len(sales_df))
+        
+        # Show customer distribution
+        if not customers_df.empty:
+            st.markdown("### Customer Data Summary")
+            st.write(f"Customers extracted from {len(sales_df)} sales records")
+            st.dataframe(customers_df.head(10), use_container_width=True)
         
         st.markdown("---")
         st.markdown("### Model Status")
@@ -599,19 +732,17 @@ def churn_prediction_dashboard():
             
             if st.button("Quick Train Model", use_container_width=True):
                 with st.spinner("Training model..."):
-                    rfm_df = calculate_rfm_metrics(
-                        pd.DataFrame(), sales_df, customers_df
-                    )
+                    rfm_df = calculate_rfm_metrics_from_sales(sales_df)
                     
                     if rfm_df.empty:
-                        st.error("Could not calculate RFM metrics.")
+                        st.error("Could not calculate RFM metrics from sales data.")
                     else:
-                        features_df = calculate_customer_features(
-                            customers_df, rfm_df, loyalty_df, sales_df
+                        features_df = calculate_customer_features_from_sales(
+                            sales_df, rfm_df, loyalty_df
                         )
                         
                         if features_df.empty:
-                            st.error("Could not prepare features.")
+                            st.error("Could not prepare features from sales data.")
                         else:
                             success, message = st.session_state.churn_model.train(features_df)
                             if success:
@@ -640,23 +771,23 @@ def churn_prediction_dashboard():
         - Customer tenure
         - Average items per order
         - Payment method diversity
+        
+        **Data Source:** All customer data is derived from sales transactions.
         """)
         
         if st.button("Train Model", type="primary", use_container_width=True):
             with st.spinner("Training model..."):
-                rfm_df = calculate_rfm_metrics(
-                    pd.DataFrame(), sales_df, customers_df
-                )
+                rfm_df = calculate_rfm_metrics_from_sales(sales_df)
                 
                 if rfm_df.empty:
-                    st.error("Could not calculate RFM metrics.")
+                    st.error("Could not calculate RFM metrics from sales data.")
                 else:
-                    features_df = calculate_customer_features(
-                        customers_df, rfm_df, loyalty_df, sales_df
+                    features_df = calculate_customer_features_from_sales(
+                        sales_df, rfm_df, loyalty_df
                     )
                     
                     if features_df.empty:
-                        st.error("Could not prepare features.")
+                        st.error("Could not prepare features from sales data.")
                     else:
                         st.session_state.churn_model = ChurnPredictor()
                         success, message = st.session_state.churn_model.train(features_df)
@@ -690,13 +821,11 @@ def churn_prediction_dashboard():
         else:
             if st.button("Identify At-Risk Customers", type="primary", use_container_width=True):
                 with st.spinner("Analyzing customers..."):
-                    rfm_df = calculate_rfm_metrics(
-                        pd.DataFrame(), sales_df, customers_df
-                    )
+                    rfm_df = calculate_rfm_metrics_from_sales(sales_df)
                     
                     if not rfm_df.empty:
-                        features_df = calculate_customer_features(
-                            customers_df, rfm_df, loyalty_df, sales_df
+                        features_df = calculate_customer_features_from_sales(
+                            sales_df, rfm_df, loyalty_df
                         )
                         
                         if not features_df.empty:
@@ -768,40 +897,46 @@ def churn_prediction_dashboard():
         if not st.session_state.churn_model_trained:
             st.warning("Model not trained yet. Please train the model first.")
         else:
-            customer_col = get_customer_column(customers_df)
+            search_term = st.text_input("Search Customer by Name or ID", placeholder="Type customer name or ID...")
             
-            if customer_col:
-                search_term = st.text_input("Search Customer by Name or Phone", placeholder="Type name or phone...")
-                
-                if search_term:
-                    try:
-                        customer_results = customers_df[
-                            customers_df[customer_col].astype(str).str.contains(search_term, case=False) |
-                            customers_df["phone"].astype(str).str.contains(search_term, case=False)
-                        ]
+            if search_term:
+                try:
+                    # Search in customers_df
+                    customer_results = customers_df[
+                        customers_df['customer_name'].astype(str).str.contains(search_term, case=False) |
+                        customers_df['customer_id'].astype(str).str.contains(search_term, case=False)
+                    ]
+                    
+                    if not customer_results.empty:
+                        selected_customer = customer_results.iloc[0]
+                        customer_name = safe_str(selected_customer.get("customer_name", ""))
+                        customer_id = safe_str(selected_customer.get("customer_id", ""))
                         
-                        if not customer_results.empty:
-                            selected_customer = customer_results.iloc[0]
-                            customer_name = safe_str(selected_customer.get(customer_col, ""))
-                            
-                            st.markdown("### Customer Found")
-                            st.write(f"**Name:** {customer_name}")
-                            st.write(f"**Phone:** {safe_str(selected_customer.get('phone', ''))}")
-                            
-                            # Check if customer has sales
-                            sales_customer_col = get_customer_column(sales_df)
-                            has_sales = False
-                            if sales_customer_col:
-                                has_sales = any(sales_df[sales_customer_col].astype(str).str.contains(
-                                    customer_name, case=False, na=False
-                                ))
-                            
-                            if has_sales:
-                                st.success("This customer has sales records")
-                            else:
-                                st.warning("This customer has no sales records yet")
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
+                        st.markdown("### Customer Found")
+                        st.write(f"**Customer ID:** {customer_id}")
+                        st.write(f"**Name:** {customer_name}")
+                        st.write(f"**Phone:** {safe_str(selected_customer.get('phone', ''))}")
+                        
+                        # Check if customer has sales
+                        has_sales = False
+                        customer_col = get_customer_column(sales_df)
+                        if customer_col:
+                            has_sales = any(sales_df[sales_df[customer_col].astype(str) == customer_id])
+                        
+                        if has_sales:
+                            st.success("This customer has sales records")
+                            # Show customer stats
+                            customer_sales = sales_df[sales_df[customer_col].astype(str) == customer_id]
+                            amount_col = get_amount_column(customer_sales)
+                            if amount_col:
+                                total_spent = safe_float(customer_sales[amount_col].sum())
+                                st.metric("Total Spent", f"${total_spent:,.2f}")
+                        else:
+                            st.warning("This customer has no sales records yet")
+                    else:
+                        st.info("No customer found with that search term.")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
 
 
 # ==============================
