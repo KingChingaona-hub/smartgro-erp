@@ -1,5 +1,5 @@
 # backend/core/floating_financials.py
-# COMPLETE VERSION - With table views, partial collection, and mobile-friendly design
+# SIMPLIFIED VERSION - Record only, no transfer/pending features
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -73,14 +73,6 @@ def init_floating_tables():
         """)
         credits_exists = cur.fetchone()[0]
         
-        cur.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'floating_gas_sales'
-            )
-        """)
-        gas_sales_exists = cur.fetchone()[0]
-        
         # Create tables only if they don't exist
         if not changes_exists:
             cur.execute("""
@@ -125,29 +117,6 @@ def init_floating_tables():
             logger.info("Created floating_credits table")
         else:
             logger.info("floating_credits table already exists, data preserved")
-        
-        if not gas_sales_exists:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS floating_gas_sales (
-                    id SERIAL PRIMARY KEY,
-                    gas_sale_id VARCHAR(50) UNIQUE NOT NULL,
-                    branch_id VARCHAR(20) DEFAULT 'HO',
-                    customer_name VARCHAR(200),
-                    kgs DECIMAL(15,2) NOT NULL DEFAULT 0,
-                    price_per_kg DECIMAL(15,2) NOT NULL DEFAULT 0,
-                    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-                    description TEXT,
-                    status VARCHAR(50) DEFAULT 'PENDING',
-                    pos_receipt_no VARCHAR(50),
-                    transfer_note TEXT,
-                    sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    transferred_at TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            logger.info("Created floating_gas_sales table")
-        else:
-            logger.info("floating_gas_sales table already exists, data preserved")
         
         # Create collection tables if they don't exist
         cur.execute("""
@@ -213,7 +182,6 @@ def init_floating_tables():
 
 # Call init on module load - but only if not already initialized
 try:
-    # Check if tables exist before initializing
     conn = get_db_connection()
     if conn:
         cur = conn.cursor()
@@ -319,15 +287,6 @@ def validate_phone(phone):
         return False, None, "Phone too short"
     return True, phone, "Valid"
 
-def validate_quantity(qty):
-    try:
-        q = float(qty)
-        if q < 0:
-            return False, None, "Quantity cannot be negative"
-        return True, q, "Valid"
-    except:
-        return False, None, "Invalid quantity"
-
 def validate_description(text, max_length=500, min_length=0):
     if text is None:
         return True, ""
@@ -345,7 +304,6 @@ def validate_description(text, max_length=500, min_length=0):
 CHANGE_STATUSES = ["UNCOLLECTED", "PARTIAL_COLLECTED", "COLLECTED"]
 CREDIT_STATUSES = ["ACTIVE", "PARTIAL_PAID", "PAID", "OVERDUE", "WRITTEN_OFF"]
 CREDIT_TYPES = ["WORKMATE_LOAN", "CUSTOMER_CREDIT", "SUPPLIER_CREDIT", "OTHER"]
-GAS_SALE_STATUSES = ["PENDING", "TRANSFERRED_TO_POS", "COMPLETED"]
 
 # ==============================
 # CHANGE MANAGEMENT
@@ -579,16 +537,13 @@ def get_change_records_for_table(branch_id=None, status=None, date_from=None, da
     if df.empty:
         return pd.DataFrame()
     
-    # Format for display
     display_df = df.copy()
     
-    # Format date
     if 'created_at' in display_df.columns:
         display_df['Date'] = pd.to_datetime(display_df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
     else:
         display_df['Date'] = 'N/A'
     
-    # Status display
     def get_status_display(status):
         if status == 'COLLECTED':
             return 'Collected'
@@ -599,7 +554,6 @@ def get_change_records_for_table(branch_id=None, status=None, date_from=None, da
     
     display_df['Status'] = display_df['status'].apply(get_status_display)
     
-    # Rename columns for display
     display_df = display_df.rename(columns={
         'customer_name': 'Customer',
         'amount': 'Amount',
@@ -608,7 +562,6 @@ def get_change_records_for_table(branch_id=None, status=None, date_from=None, da
         'change_id': 'ID'
     })
     
-    # Select columns for display
     cols = ['Date', 'Customer', 'Amount', 'Collected', 'Balance', 'Status', 'ID']
     display_df = display_df[[c for c in cols if c in display_df.columns]]
     
@@ -831,13 +784,11 @@ def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, 
     
     display_df = df.copy()
     
-    # Format date
     if 'created_at' in display_df.columns:
         display_df['Date'] = pd.to_datetime(display_df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
     else:
         display_df['Date'] = 'N/A'
     
-    # Check overdue status
     today = datetime.now().date()
     
     def get_status_display(row):
@@ -858,7 +809,6 @@ def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, 
     
     display_df['Status_Display'] = display_df.apply(get_status_display, axis=1)
     
-    # Rename columns
     display_df = display_df.rename(columns={
         'customer_name': 'Customer',
         'amount': 'Amount',
@@ -869,7 +819,6 @@ def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, 
         'credit_id': 'ID'
     })
     
-    # Select columns
     cols = ['Date', 'Customer', 'Amount', 'Paid', 'Balance', 'Type', 'Due Date', 'Status_Display', 'ID']
     display_df = display_df[[c for c in cols if c in display_df.columns]]
     
@@ -974,391 +923,6 @@ def get_overdue_credits(branch_id=None, days=30):
     except Exception as e:
         logger.error(f"Error getting overdue credits: {e}")
         return pd.DataFrame()
-
-# ==============================
-# GAS SALES
-# ==============================
-
-def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-    
-    valid, msg = validate_customer_name(customer_name)
-    if not valid:
-        return False, f"Invalid customer name: {msg}", None
-    
-    valid, amount_clean, msg = validate_amount(amount_paid)
-    if not valid:
-        return False, f"Invalid amount: {msg}", None
-    if amount_clean <= 0:
-        return False, "Amount must be greater than 0", None
-    
-    valid, price, msg = validate_amount(price_per_kg)
-    if not valid:
-        return False, f"Invalid price: {msg}", None
-    if price <= 0:
-        return False, "Price must be greater than 0", None
-    
-    kgs_calculated = amount_clean / price
-    
-    if description:
-        valid, desc_clean = validate_description(description, 500)
-        if not valid:
-            return False, f"Invalid description: {desc_clean}", None
-        description = desc_clean
-    
-    try:
-        conn = get_db_connection()
-        if conn is None:
-            return False, "Database connection failed", None
-        
-        cur = conn.cursor()
-        
-        gas_sale_id = f"GAS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        cur.execute("""
-            INSERT INTO floating_gas_sales (
-                gas_sale_id, branch_id, customer_name, kgs,
-                price_per_kg, total_amount, description,
-                status, sale_date, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            gas_sale_id, branch_id, customer_name,
-            kgs_calculated, price, amount_clean, description,
-            "PENDING", now, now
-        ))
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True, f"Gas sale recorded. KGs: {kgs_calculated:.2f} at ${price:.2f}/KG", gas_sale_id
-        
-    except Exception as e:
-        logger.error(f"Error recording gas sale: {e}")
-        return False, f"Error: {str(e)}", None
-
-def transfer_gas_to_pos(gas_sale_id, pos_receipt_no=None, transfer_note=""):
-    conn = None
-    cur = None
-    
-    try:
-        import streamlit as st
-        
-        conn = get_db_connection()
-        if conn is None:
-            return False, "Database connection failed"
-        
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT status, kgs, price_per_kg, total_amount, customer_name, branch_id
-            FROM floating_gas_sales WHERE gas_sale_id = %s
-        """, (gas_sale_id,))
-        record = cur.fetchone()
-        
-        if not record:
-            return False, "Gas sale record not found"
-        
-        try:
-            status = record[0]
-            kgs = float(record[1]) if record[1] else 0
-            price_per_kg = float(record[2]) if record[2] else 0
-            total_amount = float(record[3]) if record[3] else 0
-            customer_name = record[4] if record[4] else "Walk-in"
-            branch_id = record[5] if record[5] else get_current_branch()
-        except (IndexError, TypeError) as e:
-            logger.error(f"Error unpacking record: {e}, record: {record}")
-            return False, f"Error reading gas sale record: {str(e)}"
-        
-        if status == "TRANSFERRED_TO_POS":
-            return False, "Already transferred to POS"
-        
-        if not pos_receipt_no:
-            pos_receipt_no = f"GAS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        gas_barcode = None
-        gas_name = "Gas"
-        current_stock = 0
-        product_found = False
-        
-        try:
-            cur.execute("""
-                SELECT barcode, name, stock FROM products 
-                WHERE branch_id = %s 
-                AND (name = 'Gas' OR name ILIKE '%Gas%' OR name ILIKE '%gas%')
-                LIMIT 1
-            """, (branch_id,))
-            product = cur.fetchone()
-            
-            if product and len(product) >= 3:
-                gas_barcode = product[0]
-                gas_name = product[1] if product[1] else "Gas"
-                current_stock = float(product[2]) if product[2] else 0
-                product_found = True
-                logger.info(f"Gas product found: {gas_name}, Barcode: {gas_barcode}, Stock: {current_stock} KGs")
-            else:
-                cur.execute("""
-                    SELECT barcode, name, stock FROM products 
-                    WHERE branch_id = %s 
-                    AND barcode LIKE 'GAS%'
-                    LIMIT 1
-                """, (branch_id,))
-                product = cur.fetchone()
-                
-                if product and len(product) >= 3:
-                    gas_barcode = product[0]
-                    gas_name = product[1] if product[1] else "Gas"
-                    current_stock = float(product[2]) if product[2] else 0
-                    product_found = True
-                    logger.info(f"Gas product found by barcode: {gas_name}, Barcode: {gas_barcode}, Stock: {current_stock} KGs")
-                else:
-                    logger.warning("No gas product found in inventory.")
-                    gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
-                    gas_name = "Gas"
-                    product_found = False
-        except Exception as e:
-            logger.error(f"Error finding gas product: {e}")
-            gas_barcode = f"GAS-{datetime.now().strftime('%Y%m%d')}"
-            gas_name = "Gas"
-            product_found = False
-        
-        shift_id = ""
-        cashier = "system"
-        try:
-            if hasattr(st, 'session_state'):
-                shift_id = st.session_state.get("active_shift_id", "")
-                cashier = st.session_state.get("username", "system")
-        except:
-            pass
-        
-        try:
-            cur.execute("""
-                INSERT INTO sales (
-                    branch_id, sale_date, receipt_no, barcode, product_name, 
-                    items, total, profit, payment_method, customer_name, 
-                    customer_phone, final_total, shift_id, cashier
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                branch_id,
-                now,
-                pos_receipt_no,
-                gas_barcode,
-                gas_name,
-                float(kgs),
-                float(total_amount),
-                0,
-                "CASH",
-                customer_name,
-                "",
-                float(total_amount),
-                shift_id,
-                cashier
-            ))
-            logger.info(f"Sales record created: {pos_receipt_no}")
-        except Exception as e:
-            logger.error(f"Error creating sales record: {e}")
-            conn.rollback()
-            return False, f"Error creating sales record: {str(e)}"
-        
-        if product_found and gas_barcode:
-            try:
-                cur.execute("""
-                    SELECT stock FROM products 
-                    WHERE branch_id = %s AND barcode = %s
-                """, (branch_id, gas_barcode))
-                stock_record = cur.fetchone()
-                
-                if stock_record and len(stock_record) >= 1:
-                    current_stock = float(stock_record[0]) if stock_record[0] else 0
-                    new_stock = current_stock - float(kgs)
-                    
-                    if new_stock < 0:
-                        conn.rollback()
-                        return False, f"Insufficient gas stock. Available: {current_stock:.2f} KGs, Requested: {kgs:.2f} KGs"
-                    
-                    cur.execute("""
-                        UPDATE products 
-                        SET stock = %s 
-                        WHERE branch_id = %s AND barcode = %s
-                    """, (new_stock, branch_id, gas_barcode))
-                    logger.info(f"Inventory updated: {gas_name} stock from {current_stock} to {new_stock} KGs")
-            except Exception as e:
-                logger.error(f"Error deducting inventory: {e}")
-        
-        try:
-            cur.execute("""
-                UPDATE floating_gas_sales 
-                SET status = %s, pos_receipt_no = %s, transfer_note = %s, transferred_at = %s
-                WHERE gas_sale_id = %s
-            """, ("TRANSFERRED_TO_POS", pos_receipt_no, 
-                  transfer_note or f"Transferred to POS - KGs: {float(kgs):.2f}", now, gas_sale_id))
-        except Exception as e:
-            logger.error(f"Error updating gas sale status: {e}")
-            conn.rollback()
-            return False, f"Error updating gas sale status: {str(e)}"
-        
-        conn.commit()
-        
-        return True, f"Gas sale transferred to POS. Receipt: {pos_receipt_no}, KGs: {float(kgs):.2f}, Amount: ${float(total_amount):.2f}"
-        
-    except Exception as e:
-        logger.error(f"Error transferring gas to POS: {e}")
-        if conn:
-            try:
-                conn.rollback()
-            except:
-                pass
-        return False, f"Error: {str(e)}"
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except:
-                pass
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_gas_sales(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-    
-    try:
-        conn = get_db_connection()
-        if conn is None:
-            return pd.DataFrame()
-        
-        cur = conn.cursor()
-        
-        query = "SELECT * FROM floating_gas_sales WHERE branch_id = %s"
-        params = [branch_id]
-        
-        if status and status != "ALL":
-            query += " AND status = %s"
-            params.append(status)
-        
-        if customer_name:
-            query += " AND customer_name ILIKE %s"
-            params.append(f"%{customer_name}%")
-        
-        if date_from:
-            query += " AND sale_date::date >= %s"
-            params.append(date_from)
-        
-        if date_to:
-            query += " AND sale_date::date <= %s"
-            params.append(date_to)
-        
-        query += " ORDER BY sale_date DESC"
-        
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        
-        if rows:
-            col_names = [desc[0] for desc in cur.description]
-            df = pd.DataFrame(rows, columns=col_names)
-            for col in ["kgs", "price_per_kg", "total_amount"]:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-            cur.close()
-            conn.close()
-            return df
-        
-        cur.close()
-        conn.close()
-        return pd.DataFrame()
-        
-    except Exception as e:
-        logger.error(f"Error getting gas sales: {e}")
-        return pd.DataFrame()
-
-def get_gas_sales_for_table(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
-    """Get gas sales formatted for table display"""
-    df = get_gas_sales(branch_id, status, date_from, date_to, customer_name)
-    
-    if df.empty:
-        return pd.DataFrame()
-    
-    display_df = df.copy()
-    
-    # Format date
-    if 'sale_date' in display_df.columns:
-        display_df['Date'] = pd.to_datetime(display_df['sale_date']).dt.strftime('%Y-%m-%d %H:%M')
-    else:
-        display_df['Date'] = 'N/A'
-    
-    # Rename columns
-    display_df = display_df.rename(columns={
-        'customer_name': 'Customer',
-        'kgs': 'KGs',
-        'price_per_kg': 'Price/KG',
-        'total_amount': 'Total',
-        'status': 'Status',
-        'gas_sale_id': 'ID'
-    })
-    
-    # Select columns
-    cols = ['Date', 'Customer', 'KGs', 'Price/KG', 'Total', 'Status', 'ID']
-    display_df = display_df[[c for c in cols if c in display_df.columns]]
-    
-    return display_df
-
-def get_gas_sales_summary(branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-    
-    df = get_gas_sales(branch_id=branch_id)
-    
-    if df.empty:
-        return {"total_kgs": 0, "total_amount": 0, "pending_count": 0, "transferred_count": 0, "completed_count": 0, "total_count": 0}
-    
-    if 'status' in df.columns:
-        pending_count = len(df[df["status"] == "PENDING"])
-        transferred_count = len(df[df["status"] == "TRANSFERRED_TO_POS"])
-        completed_count = len(df[df["status"] == "COMPLETED"])
-    else:
-        pending_count = transferred_count = completed_count = 0
-    
-    return {
-        "total_kgs": float(df["kgs"].sum()) if "kgs" in df.columns else 0,
-        "total_amount": float(df["total_amount"].sum()) if "total_amount" in df.columns else 0,
-        "pending_count": pending_count,
-        "transferred_count": transferred_count,
-        "completed_count": completed_count,
-        "total_count": len(df)
-    }
-
-def get_daily_gas_summary(branch_id=None, date=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-    
-    if date is None:
-        date = datetime.now().strftime("%Y-%m-%d")
-    
-    df = get_gas_sales(branch_id=branch_id, date_from=date, date_to=date)
-    
-    if 'status' in df.columns:
-        pending = df[df["status"] == "PENDING"]
-        pending_kgs = float(pending["kgs"].sum()) if not pending.empty and "kgs" in pending.columns else 0
-        pending_amount = float(pending["total_amount"].sum()) if not pending.empty and "total_amount" in pending.columns else 0
-        pending_transactions = len(pending)
-    else:
-        pending_kgs = 0
-        pending_amount = 0
-        pending_transactions = 0
-    
-    return {
-        "date": date,
-        "total_kgs": pending_kgs,
-        "total_amount": pending_amount,
-        "transactions": pending_transactions,
-        "all_sales": df if not df.empty else pd.DataFrame()
-    }
 
 # ==============================
 # SUMMARY FUNCTIONS FOR TABLES
@@ -1471,64 +1035,6 @@ def get_credit_records_with_summary(branch_id=None, status=None, credit_type=Non
         "total_count": len(df)
     }
 
-
-def get_gas_sales_with_summary(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
-    """Get gas sales with today/previous summary"""
-    df = get_gas_sales(branch_id, status, date_from, date_to, customer_name)
-    
-    if df.empty:
-        return {
-            "records": df,
-            "today_total_kgs": 0,
-            "today_total_amount": 0,
-            "today_pending": 0,
-            "today_transferred": 0,
-            "previous_total_kgs": 0,
-            "previous_total_amount": 0,
-            "overall_total_kgs": 0,
-            "overall_total_amount": 0,
-            "today_count": 0,
-            "previous_count": 0,
-            "total_count": 0
-        }
-    
-    today = datetime.now().date()
-    
-    date_col = None
-    for col in ["sale_date", "created_at", "date"]:
-        if col in df.columns:
-            date_col = col
-            break
-    
-    if date_col:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df["is_today"] = df[date_col].dt.date == today
-    else:
-        df["is_today"] = False
-    
-    today_df = df[df["is_today"]]
-    previous_df = df[~df["is_today"]]
-    
-    today_pending = len(today_df[today_df["status"] == "PENDING"]) if not today_df.empty and "status" in today_df.columns else 0
-    today_transferred = len(today_df[today_df["status"] == "TRANSFERRED_TO_POS"]) if not today_df.empty and "status" in today_df.columns else 0
-    
-    return {
-        "records": df,
-        "today_df": today_df,
-        "previous_df": previous_df,
-        "today_total_kgs": float(today_df["kgs"].sum()) if not today_df.empty and "kgs" in today_df.columns else 0,
-        "today_total_amount": float(today_df["total_amount"].sum()) if not today_df.empty and "total_amount" in today_df.columns else 0,
-        "today_pending": today_pending,
-        "today_transferred": today_transferred,
-        "previous_total_kgs": float(previous_df["kgs"].sum()) if not previous_df.empty and "kgs" in previous_df.columns else 0,
-        "previous_total_amount": float(previous_df["total_amount"].sum()) if not previous_df.empty and "total_amount" in previous_df.columns else 0,
-        "overall_total_kgs": float(df["kgs"].sum()) if "kgs" in df.columns else 0,
-        "overall_total_amount": float(df["total_amount"].sum()) if "total_amount" in df.columns else 0,
-        "today_count": len(today_df),
-        "previous_count": len(previous_df),
-        "total_count": len(df)
-    }
-
 # Export all functions
 __all__ = [
     'create_change_record', 'collect_change', 'get_change_records', 'get_change_summary', 'CHANGE_STATUSES',
@@ -1536,9 +1042,6 @@ __all__ = [
     'create_credit_record', 'record_credit_payment', 'get_credit_records', 'get_credit_summary', 'get_overdue_credits',
     'get_credit_records_for_table', 'get_credit_records_with_summary',
     'CREDIT_TYPES', 'CREDIT_STATUSES',
-    'create_gas_sale', 'transfer_gas_to_pos', 'get_gas_sales', 'get_gas_sales_summary', 'get_daily_gas_summary',
-    'get_gas_sales_for_table', 'get_gas_sales_with_summary',
-    'GAS_SALE_STATUSES',
     'get_customer_suggestions',
     'get_customer_phone_mapping'
 ]
