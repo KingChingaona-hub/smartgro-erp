@@ -1,3 +1,6 @@
+# backend/features/automated_followup.py
+# Automated Customer Follow-up - Customers sourced from sales table
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -135,6 +138,99 @@ def save_followup_schedule(df):
 
 
 # ==============================
+# GET CUSTOMERS FROM SALES
+# ==============================
+def get_customers_from_sales():
+    """Extract customers from sales data"""
+    sales_df = load_sales()
+    
+    if sales_df.empty:
+        return pd.DataFrame()
+    
+    # Find customer column
+    customer_col = None
+    for col in ["customer_name", "customer", "Customer"]:
+        if col in sales_df.columns:
+            customer_col = col
+            break
+    
+    if customer_col is None:
+        return pd.DataFrame()
+    
+    # Find phone column
+    phone_col = None
+    for col in ["customer_phone", "phone", "Phone"]:
+        if col in sales_df.columns:
+            phone_col = col
+            break
+    
+    # Find total column
+    total_col = None
+    for col in ["final_total", "total", "amount"]:
+        if col in sales_df.columns:
+            total_col = col
+            break
+    
+    # Find date column
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date"]:
+        if col in sales_df.columns:
+            date_col = col
+            break
+    
+    # Get unique customers
+    customers = sales_df[customer_col].dropna().unique().tolist()
+    customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+    
+    if not customers:
+        return pd.DataFrame()
+    
+    # Build customer data
+    customer_data = []
+    for name in customers:
+        customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(name, case=False, na=False)]
+        
+        # Get phone
+        phone = ""
+        if phone_col and not customer_sales.empty:
+            phone_rows = customer_sales[phone_col].dropna()
+            if not phone_rows.empty:
+                phone = str(phone_rows.iloc[0]).strip()
+        
+        # Get total spent
+        total_spent = 0
+        if total_col and not customer_sales.empty:
+            total_spent = to_float(customer_sales[total_col].sum())
+        
+        # Get last purchase date
+        last_purchase = None
+        if date_col and not customer_sales.empty:
+            customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
+            last_purchase = customer_sales[date_col].max()
+        
+        # Get total orders
+        receipt_col = None
+        for col in ["receipt_no", "receipt", "transaction_id"]:
+            if col in sales_df.columns:
+                receipt_col = col
+                break
+        
+        total_orders = 0
+        if receipt_col and not customer_sales.empty:
+            total_orders = customer_sales[receipt_col].nunique()
+        
+        customer_data.append({
+            "customer_name": name,
+            "phone": phone,
+            "total_spent": total_spent,
+            "total_orders": total_orders,
+            "last_purchase_date": last_purchase
+        })
+    
+    return pd.DataFrame(customer_data)
+
+
+# ==============================
 # MESSAGE TEMPLATES
 # ==============================
 def get_message_template(template_type, data):
@@ -175,7 +271,7 @@ def get_customer_total_spent(customer_name, sales_df):
         return 0
     
     # Filter sales for this customer
-    customer_sales = sales_df[sales_df["customer_name"] == customer_name]
+    customer_sales = sales_df[sales_df["customer_name"].astype(str).str.contains(customer_name, case=False, na=False)]
     if customer_sales.empty:
         return 0
     
@@ -206,7 +302,7 @@ def get_customer_latest_receipt(customer_name, sales_df):
             date_col = col
             break
     
-    customer_sales = sales_df[sales_df["customer_name"] == customer_name]
+    customer_sales = sales_df[sales_df["customer_name"].astype(str).str.contains(customer_name, case=False, na=False)]
     if customer_sales.empty:
         return "REC-001"
     
@@ -395,7 +491,8 @@ def automated_followup_dashboard():
     
     init_followup_files()
     
-    customers_df = load_customers()
+    # Get customers from sales
+    customers_df = get_customers_from_sales()
     sales_df = load_sales()
     products_df = load_products()
     
