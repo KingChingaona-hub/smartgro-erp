@@ -2,6 +2,7 @@
 """
 Automated Insights Digest
 Daily/weekly AI-generated business summaries sent via email
+Customers sourced from sales table as first priority
 """
 
 import streamlit as st
@@ -93,6 +94,16 @@ def get_unique_id_column(df):
     return None
 
 
+def get_customer_column(df):
+    """Find customer name column"""
+    if df is None or df.empty:
+        return None
+    for col in ["customer_name", "customer", "Customer", "client", "buyer"]:
+        if col in df.columns:
+            return col
+    return None
+
+
 def deduplicate_dataframe(df, subset_cols=None):
     """
     Deduplicate a dataframe using the best available method.
@@ -123,6 +134,69 @@ def deduplicate_dataframe(df, subset_cols=None):
     return df
 
 
+def get_customers_from_sales(sales_df):
+    """Extract customers from sales data - PRIMARY SOURCE"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
+    
+    customer_col = get_customer_column(sales_df)
+    if customer_col is None:
+        return pd.DataFrame()
+    
+    # Get unique customers
+    customers = sales_df[customer_col].dropna().unique().tolist()
+    customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+    
+    if not customers:
+        return pd.DataFrame()
+    
+    # Build customer data
+    customer_data = []
+    for name in customers:
+        customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(name, case=False, na=False)]
+        
+        # Get phone
+        phone = ""
+        phone_col = None
+        for col in ["customer_phone", "phone", "Phone"]:
+            if col in sales_df.columns:
+                phone_col = col
+                break
+        if phone_col and not customer_sales.empty:
+            phone_rows = customer_sales[phone_col].dropna()
+            if not phone_rows.empty:
+                phone = str(phone_rows.iloc[0]).strip()
+        
+        # Get total spent
+        total_spent = 0
+        total_col = get_amount_column(sales_df)
+        if total_col and not customer_sales.empty:
+            total_spent = to_float(customer_sales[total_col].sum())
+        
+        # Get last purchase date
+        date_col = get_date_column(sales_df)
+        last_purchase = None
+        if date_col and not customer_sales.empty:
+            customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
+            last_purchase = customer_sales[date_col].max()
+        
+        # Get total orders
+        receipt_col = get_receipt_column(sales_df)
+        total_orders = 0
+        if receipt_col and not customer_sales.empty:
+            total_orders = customer_sales[receipt_col].nunique()
+        
+        customer_data.append({
+            "customer_name": name,
+            "phone": phone,
+            "total_spent": total_spent,
+            "total_orders": total_orders,
+            "last_purchase_date": last_purchase
+        })
+    
+    return pd.DataFrame(customer_data)
+
+
 # ==============================
 # INSIGHTS GENERATOR
 # ==============================
@@ -142,9 +216,15 @@ class InsightsGenerator:
         # Load data
         sales_df = load_sales()
         products_df = load_products()
-        customers_df = load_customers()
         expenses_df = load_expenses_direct()
         debtors_df = load_debtors()
+        
+        # Get customers from sales (PRIMARY SOURCE)
+        customers_df = get_customers_from_sales(sales_df)
+        
+        # Fallback: if no customers from sales, try customers table
+        if customers_df.empty:
+            customers_df = load_customers()
         
         today = datetime.now().date()
         yesterday = today - timedelta(days=1)
@@ -164,7 +244,7 @@ class InsightsGenerator:
         product_insights = self._analyze_products(products_df, sales_df)
         self.insights.extend(product_insights)
         
-        # 3. Customer Insights
+        # 3. Customer Insights - USING CUSTOMERS FROM SALES
         customer_insights = self._analyze_customers(customers_df, sales_df)
         self.insights.extend(customer_insights)
         
@@ -356,43 +436,49 @@ class InsightsGenerator:
         return insights
     
     def _analyze_customers(self, customers_df, sales_df):
-        """Analyze customer data"""
+        """Analyze customer data - USING CUSTOMERS FROM SALES"""
         insights = []
         
         if customers_df.empty:
-            return [{"type": "customers", "message": "No customer data available", "priority": "info"}]
+            return [{"type": "customers", "message": "No customer data available (no sales with customer names)", "priority": "info"}]
         
         total_customers = len(customers_df)
         self.metrics["total_customers"] = total_customers
         
-        # New customers (last 30 days)
-        date_col = None
-        for col in ["created_at", "join_date", "date_joined", "last_purchase_date"]:
-            if col in customers_df.columns:
-                date_col = col
-                break
-        
-        if date_col:
-            customers_df[date_col] = pd.to_datetime(customers_df[date_col], errors="coerce")
-            month_ago = datetime.now() - timedelta(days=30)
-            new_customers = len(customers_df[customers_df[date_col] >= month_ago])
-            self.metrics["new_customers"] = new_customers
-            
-            if new_customers > 0:
-                insights.append({
-                    "type": "customers",
-                    "message": f"{new_customers} new customers this month",
-                    "priority": "info",
-                    "detail": f"Total: {total_customers} customers"
-                })
-        
-        # Customer retention
+        # New customers (last 30 days) - from sales data
         if not sales_df.empty:
-            customer_col = None
-            for col in ["customer", "customer_name", "client"]:
-                if col in sales_df.columns:
-                    customer_col = col
-                    break
+            customer_col = get_customer_column(sales_df)
+            date_col = get_date_column(sales_df)
+            
+            if customer_col and date_col:
+                sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
+                month_ago = datetime.now() - timedelta(days=30)
+                
+                # Get unique customers in last 30 days
+                recent_sales = sales_df[sales_df[date_col] >= month_ago].copy()
+                if not recent_sales.empty:
+                    # Deduplicate by receipt
+                    receipt_col = get_receipt_column(sales_df)
+                    if receipt_col and receipt_col in recent_sales.columns:
+                        recent_sales = recent_sales.drop_duplicates(subset=[receipt_col])
+                    
+                    recent_customers = recent_sales[customer_col].dropna().unique()
+                    recent_customers = [str(c).strip() for c in recent_customers if str(c).strip().lower() != "walk-in"]
+                    
+                    new_customers = len(recent_customers)
+                    self.metrics["new_customers"] = new_customers
+                    
+                    if new_customers > 0:
+                        insights.append({
+                            "type": "customers",
+                            "message": f"{new_customers} active customers this month",
+                            "priority": "info",
+                            "detail": f"Total: {total_customers} customers"
+                        })
+        
+        # Customer retention - from sales data
+        if not sales_df.empty:
+            customer_col = get_customer_column(sales_df)
             
             if customer_col:
                 # Deduplicate sales for customer analysis
@@ -402,24 +488,36 @@ class InsightsGenerator:
                 else:
                     sales_customers = sales_df
                 
-                repeat_customers = sales_customers.groupby(customer_col).filter(lambda x: len(x) > 1)[customer_col].nunique()
-                self.metrics["repeat_customers"] = repeat_customers
+                # Get unique customers and their purchase counts
+                customer_counts = sales_customers.groupby(customer_col).size()
+                customer_counts = customer_counts[customer_counts.index.str.lower() != "walk-in"]
                 
-                if repeat_customers > 0:
-                    retention_rate = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
-                    if retention_rate < 20:
-                        insights.append({
-                            "type": "customers",
-                            "message": f"Low retention rate: {retention_rate:.1f}%",
-                            "priority": "medium",
-                            "detail": "Consider loyalty programs to improve retention"
-                        })
+                if not customer_counts.empty:
+                    repeat_customers = len(customer_counts[customer_counts > 1])
+                    self.metrics["repeat_customers"] = repeat_customers
+                    
+                    if repeat_customers > 0:
+                        retention_rate = (repeat_customers / len(customer_counts) * 100) if len(customer_counts) > 0 else 0
+                        if retention_rate < 20:
+                            insights.append({
+                                "type": "customers",
+                                "message": f"Low retention rate: {retention_rate:.1f}%",
+                                "priority": "medium",
+                                "detail": "Consider loyalty programs to improve retention"
+                            })
+                        else:
+                            insights.append({
+                                "type": "customers",
+                                "message": f"Customer retention: {retention_rate:.1f}%",
+                                "priority": "success",
+                                "detail": f"{repeat_customers} repeat customers"
+                            })
                     else:
                         insights.append({
                             "type": "customers",
-                            "message": f"Customer retention: {retention_rate:.1f}%",
-                            "priority": "success",
-                            "detail": f"{repeat_customers} repeat customers"
+                            "message": "No repeat customers yet",
+                            "priority": "info",
+                            "detail": "Focus on customer retention strategies"
                         })
         
         return insights
