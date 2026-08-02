@@ -60,6 +60,19 @@ def get_receipt_column(df):
 
 
 # ==============================
+# HELPER: Get customer column
+# ==============================
+def get_customer_column(df):
+    """Find customer identifier column"""
+    if df is None or df.empty:
+        return None
+    for col in ["customer_id", "customer", "customer_email", "email", "phone"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+# ==============================
 # HELPER: Deduplicate sales for revenue calculation
 # ==============================
 def get_unduplicated_sales(sales_df):
@@ -85,6 +98,73 @@ def get_unduplicated_sales(sales_df):
             return sales_df
     
     return sales_df
+
+
+# ==============================
+# HELPER: Get customer analytics from sales
+# ==============================
+def get_customer_analytics_from_sales(sales_df=None):
+    """Extract customer analytics directly from sales data"""
+    if sales_df is None:
+        sales_df = load_sales()
+    
+    if sales_df.empty:
+        return pd.DataFrame()
+    
+    # Deduplicate sales first
+    sales_undup = get_unduplicated_sales(sales_df)
+    
+    if sales_undup.empty:
+        return pd.DataFrame()
+    
+    customer_col = get_customer_column(sales_undup)
+    
+    # If no customer column, return empty
+    if customer_col is None or customer_col not in sales_undup.columns:
+        return pd.DataFrame()
+    
+    # Get amount column
+    amount_col = get_amount_column(sales_undup)
+    if amount_col is None:
+        amount_col = "final_total" if "final_total" in sales_undup.columns else None
+    
+    if amount_col is None:
+        return pd.DataFrame()
+    
+    # Get date column
+    date_col = get_date_column(sales_undup)
+    
+    # Aggregate customer data
+    customer_data = sales_undup.groupby(customer_col).agg({
+        amount_col: ['sum', 'count', 'mean'],
+    }).reset_index()
+    
+    # Flatten column names
+    customer_data.columns = ['customer_id', 'total_spent', 'total_orders', 'avg_order_value']
+    
+    # Get last purchase date if date column exists
+    if date_col and date_col in sales_undup.columns:
+        last_purchase = sales_undup.groupby(customer_col)[date_col].max().reset_index()
+        last_purchase.columns = ['customer_id', 'last_purchase_date']
+        customer_data = customer_data.merge(last_purchase, on='customer_id', how='left')
+    
+    # Calculate days since last purchase
+    if 'last_purchase_date' in customer_data.columns:
+        customer_data['last_purchase_date'] = pd.to_datetime(customer_data['last_purchase_date'], errors='coerce')
+        customer_data['days_since_last_purchase'] = (datetime.now() - customer_data['last_purchase_date']).dt.days
+    
+    # Categorize customers
+    def categorize_customer(row):
+        if row['total_orders'] >= 5:
+            return 'VIP'
+        elif row['total_orders'] >= 2:
+            return 'Regular'
+        else:
+            return 'New'
+    
+    customer_data['segment'] = customer_data.apply(categorize_customer, axis=1)
+    
+    return customer_data
 
 
 # ==============================
@@ -138,17 +218,20 @@ def calculate_business_score():
         except Exception:
             scores["inventory"] = 10
     
-    # 4. Customer Health Score (15 points)
-    if not customers_df.empty:
-        try:
-            if "total_orders" in customers_df.columns:
-                repeat_customers = len(customers_df[customers_df["total_orders"] > 1])
-                repeat_rate = (repeat_customers / len(customers_df)) * 100
-                scores["customers"] = (repeat_rate / 100) * 15
-            else:
-                scores["customers"] = 7.5
-        except Exception:
+    # 4. Customer Health Score (15 points) - NOW FROM SALES DATA
+    try:
+        customer_analytics = get_customer_analytics_from_sales(sales_df)
+        
+        if not customer_analytics.empty:
+            # Calculate repeat customer rate from sales data
+            repeat_customers = len(customer_analytics[customer_analytics['total_orders'] > 1])
+            total_customers = len(customer_analytics)
+            repeat_rate = (repeat_customers / total_customers) * 100 if total_customers > 0 else 0
+            scores["customers"] = (repeat_rate / 100) * 15
+        else:
             scores["customers"] = 7.5
+    except Exception:
+        scores["customers"] = 7.5
     
     # 5. Expense Control Score (10 points)
     if not expenses_df.empty and "amount" in expenses_df.columns:
@@ -285,7 +368,6 @@ def get_intelligent_recommendations():
     recommendations = []
     sales_df = load_sales()
     products_df = load_products()
-    customers_df = load_customers()
     expenses_df = load_expenses()
     score = calculate_business_score()
     
@@ -363,22 +445,37 @@ def get_intelligent_recommendations():
         except Exception:
             pass
     
-    # 3. Customer-related recommendations
-    if not customers_df.empty:
-        try:
-            if "last_purchase_date" in customers_df.columns:
-                inactive = customers_df[customers_df["last_purchase_date"].isna()]
-                if len(inactive) > len(customers_df) * 0.5:
+    # 3. Customer-related recommendations - NOW FROM SALES DATA
+    try:
+        customer_analytics = get_customer_analytics_from_sales(sales_df)
+        
+        if not customer_analytics.empty:
+            # Check for inactive customers
+            if 'days_since_last_purchase' in customer_analytics.columns:
+                inactive = customer_analytics[customer_analytics['days_since_last_purchase'] > 90]
+                if len(inactive) > len(customer_analytics) * 0.5:
                     recommendations.append({
                         "category": "Customers",
                         "priority": "Medium",
-                        "title": "High Customer Inactivity",
-                        "description": f"{len(inactive)} customers have not made repeat purchases.",
+                        "title": f"High Customer Inactivity ({len(inactive)} inactive)",
+                        "description": f"{len(inactive)} customers haven't purchased in over 90 days.",
                         "action": "Launch a re-engagement campaign with special offers.",
                         "potential_impact": "Could recover up to 30% of inactive customers."
                     })
-        except Exception:
-            pass
+            
+            # VIP customer recommendations
+            vip_customers = customer_analytics[customer_analytics['segment'] == 'VIP']
+            if len(vip_customers) > 0:
+                recommendations.append({
+                    "category": "Customers",
+                    "priority": "Low",
+                    "title": f"{len(vip_customers)} VIP Customers Identified",
+                    "description": "These customers are your most valuable. Consider a loyalty program.",
+                    "action": "Create exclusive offers and personalized service for VIPs.",
+                    "potential_impact": "Increase customer lifetime value and retention."
+                })
+    except Exception:
+        pass
     
     # 4. Expense-related recommendations
     expense_date_col = get_date_column(expenses_df)
@@ -643,6 +740,27 @@ def generate_alerts():
                     })
             except Exception:
                 pass
+    
+    # Customer-related alerts - FROM SALES DATA
+    try:
+        customer_analytics = get_customer_analytics_from_sales(sales_df)
+        
+        if not customer_analytics.empty:
+            # Alert for declining customer base
+            if 'days_since_last_purchase' in customer_analytics.columns:
+                active_customers = len(customer_analytics[customer_analytics['days_since_last_purchase'] <= 30])
+                total_customers = len(customer_analytics)
+                active_rate = (active_customers / total_customers) * 100 if total_customers > 0 else 0
+                
+                if active_rate < 20 and total_customers > 10:
+                    alerts.append({
+                        "level": "warning",
+                        "title": "Low Customer Retention",
+                        "message": f"Only {active_rate:.0f}% of customers are active (purchased in last 30 days).",
+                        "timestamp": datetime.now()
+                    })
+    except Exception:
+        pass
     
     # Anomaly alerts
     for anomaly in anomalies:

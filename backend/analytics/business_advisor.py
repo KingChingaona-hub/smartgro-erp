@@ -11,7 +11,8 @@ from backend.analytics.business_advisor_engine import (
     get_intelligent_recommendations,
     ai_sales_forecast,
     seasonal_trend_analysis,
-    generate_alerts
+    generate_alerts,
+    get_customer_analytics_from_sales
 )
 from backend.core.db_adapter import load_sales, load_products, load_customers
 
@@ -27,6 +28,19 @@ def to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+# ==============================
+# HELPER: Get date column
+# ==============================
+def get_date_column(df):
+    """Determine which date column exists in the dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in df.columns:
+            return col
+    return None
 
 
 # ==============================
@@ -71,12 +85,7 @@ def get_unduplicated_sales(sales_df):
         return sales_df.drop_duplicates(subset=[receipt_col])
     
     # If no receipt_no, try to deduplicate by date and amount
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_df.columns:
-            date_col = col
-            break
-    
+    date_col = get_date_column(sales_df)
     amount_col = get_amount_column(sales_df)
     
     if date_col and amount_col and date_col in sales_df.columns and amount_col in sales_df.columns:
@@ -105,6 +114,10 @@ def business_advisor_dashboard():
     # Get unduplicated sales for accurate metrics
     sales_undup = get_unduplicated_sales(sales_df)
     amount_col = get_amount_column(sales_undup)
+    date_col = get_date_column(sales_undup)
+    
+    # Get customer analytics from sales data
+    customer_analytics = get_customer_analytics_from_sales(sales_df)
     
     # ==============================
     # ALERTS SECTION (Top priority)
@@ -215,9 +228,9 @@ def business_advisor_dashboard():
         
         # Trend indicator
         if forecast.get("trend_direction") == "increasing":
-            st.success(f"Sales trend is **increasing** (projected {forecast.get('trend_slope', 0):.0f} per day)")
+            st.success(f"Sales trend is **increasing** (projected {forecast.get('trend_slope', 0):.2f} per day)")
         else:
-            st.warning(f"Sales trend is **decreasing** (projected {abs(forecast.get('trend_slope', 0)):.0f} per day)")
+            st.warning(f"Sales trend is **decreasing** (projected {abs(forecast.get('trend_slope', 0)):.2f} per day)")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -314,7 +327,7 @@ def business_advisor_dashboard():
             
             # Find the sales column
             sales_col = None
-            for col in ["final_total", "total", "sales"]:
+            for col in ["final_total", "total", "sales", amount_col] if amount_col else ["final_total", "total", "sales"]:
                 if col in weekly_df.columns:
                     sales_col = col
                     break
@@ -346,7 +359,7 @@ def business_advisor_dashboard():
                 
                 # Find the sales column
                 sales_col = None
-                for col in ["final_total", "total", "sales"]:
+                for col in ["final_total", "total", "sales", amount_col] if amount_col else ["final_total", "total", "sales"]:
                     if col in monthly_df.columns:
                         sales_col = col
                         break
@@ -403,7 +416,7 @@ def business_advisor_dashboard():
             st.metric("Lifetime Sales (Unduplicated)", f"${total_sales:,.2f}")
             
             # Show row counts for transparency
-            if amount_col and "items" in sales_undup.columns:
+            if "items" in sales_undup.columns:
                 total_items = to_float(sales_undup["items"].sum())
                 st.caption(f"{total_items:,.0f} items sold | {len(sales_undup)} receipts")
             else:
@@ -422,15 +435,80 @@ def business_advisor_dashboard():
                 st.caption(f"{len(products_df)} products")
     
     with col3:
-        if not customers_df.empty:
-            total_customers = len(customers_df)
-            repeat_customers = len(customers_df[customers_df["total_orders"] > 1]) if "total_orders" in customers_df.columns else 0
+        # Customer metrics from sales data
+        if not customer_analytics.empty:
+            total_customers = len(customer_analytics)
+            repeat_customers = len(customer_analytics[customer_analytics['total_orders'] > 1])
             repeat_rate = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
+            
+            # Get segment counts
+            vip_count = len(customer_analytics[customer_analytics['segment'] == 'VIP'])
+            regular_count = len(customer_analytics[customer_analytics['segment'] == 'Regular'])
+            new_count = len(customer_analytics[customer_analytics['segment'] == 'New'])
+            
             st.metric("Total Customers", total_customers)
-            st.caption(f"Repeat rate: {repeat_rate:.1f}%")
+            st.caption(f"Repeat rate: {repeat_rate:.1f}% | VIP: {vip_count} | Regular: {regular_count} | New: {new_count}")
         else:
-            st.metric("Total Customers", 0)
-            st.caption("Repeat rate: 0%")
+            # Fallback to customers table if sales data doesn't have customer info
+            if not customers_df.empty:
+                total_customers = len(customers_df)
+                repeat_customers = len(customers_df[customers_df["total_orders"] > 1]) if "total_orders" in customers_df.columns else 0
+                repeat_rate = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
+                st.metric("Total Customers", total_customers)
+                st.caption(f"Repeat rate: {repeat_rate:.1f}%")
+            else:
+                st.metric("Total Customers", 0)
+                st.caption("Repeat rate: 0%")
+    
+    # ==============================
+    # CUSTOMER SEGMENTATION DETAILS
+    # ==============================
+    if not customer_analytics.empty:
+        st.markdown("### Customer Segmentation Analysis")
+        st.caption("Based on sales data analysis")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_customers = len(customer_analytics)
+            st.metric("Total Customers", total_customers)
+        
+        with col2:
+            vip_count = len(customer_analytics[customer_analytics['segment'] == 'VIP'])
+            st.metric("VIP Customers", vip_count)
+        
+        with col3:
+            regular_count = len(customer_analytics[customer_analytics['segment'] == 'Regular'])
+            st.metric("Regular Customers", regular_count)
+        
+        with col4:
+            new_count = len(customer_analytics[customer_analytics['segment'] == 'New'])
+            st.metric("New Customers", new_count)
+        
+        # Customer segment distribution chart
+        segment_counts = customer_analytics['segment'].value_counts().reset_index()
+        segment_counts.columns = ['Segment', 'Count']
+        
+        fig_segment = px.pie(
+            segment_counts,
+            values='Count',
+            names='Segment',
+            title='Customer Segment Distribution',
+            color='Segment',
+            color_discrete_map={
+                'VIP': '#2ecc71',
+                'Regular': '#3498db',
+                'New': '#f39c12'
+            }
+        )
+        fig_segment.update_layout(height=350)
+        st.plotly_chart(fig_segment, use_container_width=True)
+        
+        # Top customers table
+        st.markdown("### Top Customers by Spending")
+        top_customers = customer_analytics.nlargest(10, 'total_spent')[['customer_id', 'total_spent', 'total_orders', 'avg_order_value', 'segment']]
+        top_customers.columns = ['Customer ID', 'Total Spent', 'Orders', 'Avg Order Value', 'Segment']
+        st.dataframe(top_customers, use_container_width=True, hide_index=True)
     
     # ==============================
     # EXPORT ADVISOR REPORT
@@ -484,8 +562,25 @@ Trend: {forecast.get('trend_direction', 'N/A').upper()}
 
 """
         
+        if not customer_analytics.empty:
+            report += f"""
+{'-'*40}
+CUSTOMER SEGMENTATION
+{'-'*40}
+Total Customers: {len(customer_analytics)}
+VIP Customers: {len(customer_analytics[customer_analytics['segment'] == 'VIP'])}
+Regular Customers: {len(customer_analytics[customer_analytics['segment'] == 'Regular'])}
+New Customers: {len(customer_analytics[customer_analytics['segment'] == 'New'])}
+Repeat Rate: {((len(customer_analytics[customer_analytics['total_orders'] > 1]) / len(customer_analytics)) * 100):.1f}%
+
+Top 5 Customers:
+"""
+            top_5 = customer_analytics.nlargest(5, 'total_spent')[['customer_id', 'total_spent', 'total_orders']]
+            for idx, row in top_5.iterrows():
+                report += f"  - {row['customer_id']}: ${row['total_spent']:,.2f} ({row['total_orders']} orders)\n"
+        
         st.download_button(
-            label="⬇ Download Advisor Report (TXT)",
+            label="Download Advisor Report (TXT)",
             data=report,
             file_name=f"business_advisor_report_{datetime.now().strftime('%Y%m%d')}.txt",
             mime="text/plain",
