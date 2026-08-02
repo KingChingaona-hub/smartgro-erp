@@ -1,4 +1,4 @@
-# backend/modules/floating_financials.py - Updated imports
+# backend/modules/floating_financials.py - Complete with Today/Previous split for gas sales
 
 import streamlit as st
 import pandas as pd
@@ -631,21 +631,72 @@ def credit_management_tab():
 
 
 # ==============================
-# GAS SALES TAB - RECORDING ONLY
+# GAS SALES TAB - WITH TODAY/PREVIOUS SPLIT
 # ==============================
 
 def gas_sales_tab():
-    """Gas Sales Tab - Recording only, no pending/transfer features"""
+    """Gas Sales Tab - Recording only, with Today/Previous split"""
     
+    # Get overall summary
     summary = get_gas_sales_summary()
     
+    # Get all records for splitting
+    all_records = get_gas_sales()
+    
+    # Calculate today's date
+    today = datetime.now().date()
+    
+    # Split records into today and previous
+    if not all_records.empty:
+        # Ensure sale_date is datetime
+        date_col = None
+        for col in ["sale_date", "created_at", "date"]:
+            if col in all_records.columns:
+                date_col = col
+                break
+        
+        if date_col:
+            all_records[date_col] = pd.to_datetime(all_records[date_col], errors="coerce")
+            all_records["is_today"] = all_records[date_col].dt.date == today
+        else:
+            all_records["is_today"] = False
+        
+        today_df = all_records[all_records["is_today"]]
+        previous_df = all_records[~all_records["is_today"]]
+        
+        # Calculate summaries
+        today_total_kgs = float(today_df["kgs"].sum()) if not today_df.empty and "kgs" in today_df.columns else 0
+        today_total_amount = float(today_df["total_amount"].sum()) if not today_df.empty and "total_amount" in today_df.columns else 0
+        today_count = len(today_df)
+        
+        previous_total_kgs = float(previous_df["kgs"].sum()) if not previous_df.empty and "kgs" in previous_df.columns else 0
+        previous_total_amount = float(previous_df["total_amount"].sum()) if not previous_df.empty and "total_amount" in previous_df.columns else 0
+        previous_count = len(previous_df)
+        
+        overall_total_kgs = float(all_records["kgs"].sum()) if "kgs" in all_records.columns else 0
+        overall_total_amount = float(all_records["total_amount"].sum()) if "total_amount" in all_records.columns else 0
+        overall_count = len(all_records)
+    else:
+        today_df = pd.DataFrame()
+        previous_df = pd.DataFrame()
+        today_total_kgs = 0
+        today_total_amount = 0
+        today_count = 0
+        previous_total_kgs = 0
+        previous_total_amount = 0
+        previous_count = 0
+        overall_total_kgs = 0
+        overall_total_amount = 0
+        overall_count = 0
+    
+    # Display overall summary metrics
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total KGs Sold", f"{summary['total_kgs']:,.2f}")
+        st.metric("Total KGs Sold", f"{overall_total_kgs:,.2f}")
     with col2:
-        st.metric("Total Amount", f"${summary['total_amount']:,.2f}")
+        st.metric("Total Amount", f"${overall_total_amount:,.2f}")
     with col3:
-        st.metric("Total Sales", f"{summary['total_count']}")
+        st.metric("Total Sales", f"{overall_count}")
     
     st.divider()
     
@@ -685,10 +736,10 @@ def gas_sales_tab():
     
     st.divider()
     
-    # Filters
+    # Filters for viewing records
     col1, col2, col3 = st.columns(3)
     with col1:
-        filter_gas_customer = st.text_input("Customer", key="gas_customer_filter")
+        filter_gas_customer = st.text_input("Filter by Customer", key="gas_customer_filter")
     with col2:
         filter_gas_date_from = st.date_input("From", value=None, key="gas_date_from")
     with col3:
@@ -721,10 +772,16 @@ def gas_sales_tab():
     if date_col:
         df_display[date_col] = pd.to_datetime(df_display[date_col], errors="coerce")
         df_display["Date"] = df_display[date_col].dt.strftime("%Y-%m-%d %H:%M")
+        df_display["is_today"] = df_display[date_col].dt.date == today
     else:
         df_display["Date"] = "N/A"
+        df_display["is_today"] = False
     
-    # Rename columns
+    # Split into Today and Previous
+    today_df_filtered = df_display[df_display["is_today"]]
+    previous_df_filtered = df_display[~df_display["is_today"]]
+    
+    # Rename columns for display
     rename_map = {
         "customer_name": "Customer",
         "kgs": "KGs",
@@ -732,31 +789,91 @@ def gas_sales_tab():
         "total_amount": "Total",
         "gas_sale_id": "ID"
     }
-    df_display = df_display.rename(columns=rename_map)
-    
-    # Display all records in a single table
-    st.markdown("### All Gas Sales Records")
     
     display_cols = ["Date", "Customer", "KGs", "Price/KG", "Total", "ID"]
-    available_cols = [col for col in display_cols if col in df_display.columns]
     
-    st.dataframe(
-        df_display[available_cols],
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
-            "Price/KG": st.column_config.NumberColumn("Price/KG", format="$%.2f"),
-            "KGs": st.column_config.NumberColumn("KGs", format="%.2f"),
-        }
-    )
+    # ==============================
+    # TODAY'S RECORDS
+    # ==============================
+    st.markdown("### Today's Records")
     
-    # Footer totals
-    st.divider()
+    if not today_df_filtered.empty:
+        # Calculate today's summary
+        today_total_kgs_display = float(today_df_filtered["KGs"].sum()) if "KGs" in today_df_filtered.columns else 0
+        today_total_amount_display = float(today_df_filtered["Total"].sum()) if "Total" in today_df_filtered.columns else 0
+        today_count_display = len(today_df_filtered)
+        
+        # Display today's summary cards
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Today's KGs", f"{today_total_kgs_display:,.2f}")
+        with col2:
+            st.metric("Today's Amount", f"${today_total_amount_display:,.2f}")
+        with col3:
+            st.metric("Today's Sales", f"{today_count_display}")
+        
+        # Display table
+        today_display = today_df_filtered.rename(columns=rename_map)
+        st.dataframe(
+            today_display[display_cols],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
+                "Price/KG": st.column_config.NumberColumn("Price/KG", format="$%.2f"),
+                "KGs": st.column_config.NumberColumn("KGs", format="%.2f"),
+            }
+        )
+    else:
+        st.info("No gas sales recorded for today")
+    
+    st.markdown("---")
+    
+    # ==============================
+    # PREVIOUS RECORDS
+    # ==============================
+    st.markdown("### Previous Records")
+    
+    if not previous_df_filtered.empty:
+        # Calculate previous summary
+        prev_total_kgs_display = float(previous_df_filtered["KGs"].sum()) if "KGs" in previous_df_filtered.columns else 0
+        prev_total_amount_display = float(previous_df_filtered["Total"].sum()) if "Total" in previous_df_filtered.columns else 0
+        prev_count_display = len(previous_df_filtered)
+        
+        # Display previous summary cards
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Previous KGs", f"{prev_total_kgs_display:,.2f}")
+        with col2:
+            st.metric("Previous Amount", f"${prev_total_amount_display:,.2f}")
+        with col3:
+            st.metric("Previous Sales", f"{prev_count_display}")
+        
+        # Display table
+        previous_display = previous_df_filtered.rename(columns=rename_map)
+        st.dataframe(
+            previous_display[display_cols],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
+                "Price/KG": st.column_config.NumberColumn("Price/KG", format="$%.2f"),
+                "KGs": st.column_config.NumberColumn("KGs", format="%.2f"),
+            }
+        )
+    else:
+        st.info("No previous gas sales records")
+    
+    # ==============================
+    # OVERALL FOOTER TOTALS
+    # ==============================
+    st.markdown("---")
+    st.markdown("### Overall Summary")
+    
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total KGs", f"{df['kgs'].sum():,.2f}" if 'kgs' in df.columns else "0.00")
+        st.metric("Total KGs", f"{overall_total_kgs:,.2f}")
     with col2:
-        st.metric("Total Amount", f"${df['total_amount'].sum():,.2f}" if 'total_amount' in df.columns else "$0.00")
+        st.metric("Total Amount", f"${overall_total_amount:,.2f}")
     with col3:
-        st.metric("Total Sales", len(df))
+        st.metric("Total Sales", f"{overall_count}")
