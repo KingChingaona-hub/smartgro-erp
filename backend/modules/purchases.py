@@ -1,6 +1,4 @@
 """
-backend/modules/purchases_page.py
-
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
 """
@@ -46,6 +44,27 @@ def supports_decimal(product_name, category=""):
             return True
     
     return False
+
+
+# ==============================
+# GET SUPPLIER SUGGESTIONS
+# ==============================
+def get_supplier_suggestions():
+    """Get unique supplier names from purchase history for autocomplete"""
+    try:
+        purchases_df = load_purchases()
+        if purchases_df.empty:
+            return []
+        
+        if "supplier" not in purchases_df.columns:
+            return []
+        
+        suppliers = purchases_df["supplier"].dropna().unique().tolist()
+        suppliers = [str(s).strip() for s in suppliers if str(s).strip()]
+        return sorted(set(suppliers))
+    except Exception as e:
+        print(f"Error getting supplier suggestions: {e}")
+        return []
 
 
 # ==============================
@@ -419,6 +438,79 @@ def get_po_details(po_number):
 
 
 # ==============================
+# SUPPLIER AUTOCOMPLETE COMPONENT
+# ==============================
+def supplier_autocomplete(key_suffix=""):
+    """Supplier input with autocomplete from existing suppliers"""
+    
+    # Get existing suppliers
+    supplier_suggestions = get_supplier_suggestions()
+    
+    # Get current value from session state
+    current_value = st.session_state.get(f"supplier_name_{key_suffix}", "")
+    
+    # Check if current value is new (not in suggestions)
+    is_new_supplier = current_value and current_value not in supplier_suggestions and current_value.strip()
+    
+    # Create options list with existing suppliers
+    options = supplier_suggestions.copy() if supplier_suggestions else []
+    
+    # Add current value if it's not in the list
+    if is_new_supplier:
+        options.append(current_value)
+    
+    # Always add an empty option at the beginning
+    options = [""] + sorted(set(options))
+    
+    # Find the index of current value
+    try:
+        current_index = options.index(current_value) if current_value in options else 0
+    except ValueError:
+        current_index = 0
+    
+    # Create two columns for input and new supplier indicator
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        selected_supplier = st.selectbox(
+            "Supplier Name *",
+            options=options,
+            index=current_index,
+            key=f"supplier_select_{key_suffix}",
+            placeholder="Type to search or select a supplier...",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        # Show indicator if it's a new supplier
+        if selected_supplier and selected_supplier not in get_supplier_suggestions():
+            st.caption("🆕 New Supplier")
+        else:
+            st.caption(" ")
+    
+    # Allow manual entry of new supplier via text input
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        new_supplier = st.text_input(
+            "Or type new supplier name",
+            value=selected_supplier if selected_supplier and selected_supplier not in get_supplier_suggestions() else "",
+            key=f"new_supplier_{key_suffix}",
+            placeholder="Enter new supplier name...",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        st.caption(" ")
+    
+    # If user typed a new name, use it
+    if new_supplier and new_supplier.strip():
+        return new_supplier.strip()
+    
+    return selected_supplier if selected_supplier else ""
+
+
+# ==============================
 # PURCHASES PAGE - OPTIMIZED WITH BATCH ADDITION
 # ==============================
 def purchases_page():
@@ -504,8 +596,8 @@ def purchases_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            supplier_name = st.text_input("Supplier Name *", key="po_supplier", 
-                                         placeholder="e.g., National Foods, Olivine, Delta")
+            # Replace text input with autocomplete
+            supplier_name = supplier_autocomplete("main")
         
         with col2:
             expected_date = st.date_input("Expected Delivery Date *", 
