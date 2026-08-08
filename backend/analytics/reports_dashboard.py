@@ -691,7 +691,7 @@ def reports_dashboard():
             st.info("No debtors data available")
     
     # ==============================
-    # COMBINED DASHBOARD SUMMARY
+    # COMBINED DASHBOARD SUMMARY - UPDATED WITH TOTAL INCOME
     # ==============================
     if report_type == "Combined":
         st.markdown("---")
@@ -712,7 +712,8 @@ def reports_dashboard():
         
         net_profit = total_sales - total_expenses + total_income
         
-        col1, col2, col3, col4 = st.columns(4)
+        # 5 columns for metrics including Total Income
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             st.metric(
@@ -730,13 +731,20 @@ def reports_dashboard():
         
         with col3:
             st.metric(
+                "Total Income",
+                f"${total_income:,.2f}",
+                help="Total other income"
+            )
+        
+        with col4:
+            st.metric(
                 "Net Profit",
                 f"${net_profit:,.2f}",
                 delta=f"{(net_profit / total_sales * 100):.1f}%" if total_sales > 0 else "0%",
                 help="Revenue minus expenses plus other income"
             )
         
-        with col4:
+        with col5:
             expense_ratio = (total_expenses / total_sales * 100) if total_sales > 0 else 0
             st.metric(
                 "Expense Ratio",
@@ -744,7 +752,8 @@ def reports_dashboard():
                 help="Expenses as percentage of revenue"
             )
         
-        # Key metrics row
+        # Key metrics row - 4 columns
+        st.markdown("---")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
