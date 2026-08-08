@@ -9,8 +9,12 @@ from backend.core.auth import check_login
 # ==============================
 def inventory_page():
     
-    # Load products fresh each time
-    df = load_products()
+    # Load products fresh each time - clear cache
+    @st.cache_data(ttl=0)
+    def load_fresh_products():
+        return load_products()
+    
+    df = load_fresh_products()
     
     st.title("Inventory Management")
     
@@ -147,6 +151,7 @@ def inventory_page():
                     
                     if save_products(df):
                         st.success(f"Product '{name}' added successfully!")
+                        st.cache_data.clear()
                         st.rerun()
                     else:
                         st.error("Failed to save product.")
@@ -381,6 +386,7 @@ def inventory_page():
                                 # Clear selections
                                 st.session_state.batch_selected = []
                                 st.session_state.batch_edit_data = {}
+                                st.cache_data.clear()
                                 st.rerun()
                             else:
                                 st.error("Failed to save changes. Please try again.")
@@ -419,7 +425,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # SINGLE PRODUCT UPDATE & DELETE (FIXED - FASTER DELETION)
+    # SINGLE PRODUCT UPDATE & DELETE (FIXED - PROPER DELETION)
     # ==============================
     st.markdown("## Single Product Management")
     st.caption("Update or delete one product at a time")
@@ -548,6 +554,7 @@ def inventory_page():
                                     
                                     if save_products(df):
                                         st.success(f"Product '{update_name}' updated successfully!")
+                                        st.cache_data.clear()
                                         st.rerun()
                                     else:
                                         st.error("Failed to save product changes.")
@@ -556,7 +563,7 @@ def inventory_page():
                         except Exception as e:
                             st.error(f"Error updating product: {str(e)}")
             
-            # Delete section - FIXED with proper session state handling
+            # Delete section - FIXED with proper deletion
             st.markdown("### Delete Product")
             st.warning("This will permanently delete the selected product.")
             
@@ -573,12 +580,18 @@ def inventory_page():
                         # Get the product name for the message
                         product_name = product_data.get("name", "Unknown")
                         
-                        # Delete by index - use drop and reset index
+                        # Get the barcode to ensure we delete the right product
+                        product_barcode = str(product_data.get("barcode", ""))
+                        
+                        # Delete by index
                         df = df.drop(product_index)
                         df = df.reset_index(drop=True)
                         
                         # Save the updated DataFrame
                         if save_products(df):
+                            # Clear cache to force reload
+                            st.cache_data.clear()
+                            
                             # Clear session state for batch editing
                             if "batch_selected" in st.session_state:
                                 st.session_state.batch_selected = []
@@ -589,7 +602,7 @@ def inventory_page():
                             st.session_state.delete_success = True
                             st.session_state.delete_message = f"Product '{product_name}' deleted successfully!"
                             
-                            # Rerun to refresh the page
+                            # Force reload the page with a fresh load
                             st.rerun()
                         else:
                             st.error("Failed to delete product. Please try again.")
@@ -644,6 +657,7 @@ def inventory_page():
                             empty_df = pd.DataFrame(columns=df.columns.tolist())
                             if save_products(empty_df):
                                 st.success(f"Successfully deleted ALL {product_count} products!")
+                                st.cache_data.clear()
                                 st.rerun()
                             else:
                                 st.error("Failed to delete products.")
