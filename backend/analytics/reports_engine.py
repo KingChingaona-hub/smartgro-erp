@@ -1,5 +1,5 @@
 # backend/analytics/reports_engine.py
-# Reports Engine - With correct column names for all data sources
+# Reports Engine - FIXED: Correct data sources for expenses, income, and debtors
 
 import pandas as pd
 import numpy as np
@@ -13,11 +13,18 @@ from backend.core.db_adapter import (
     load_products, 
     load_customers, 
     load_branches, 
-    load_expenses, 
     load_purchases, 
     load_debtors,
-    load_income,
     to_float
+)
+
+# Import from the correct modules
+from backend.modules.expenses import load_expenses
+from backend.modules.income import load_income
+from backend.core.floating_financials import (
+    get_credit_records,
+    get_credit_summary,
+    get_overdue_credits
 )
 
 
@@ -76,12 +83,39 @@ def find_column(df, possible_names, default=None):
     return None
 
 
+def get_receipt_column(df):
+    """Find receipt column in dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id", "invoice"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_unduplicated_sales(sales_df):
+    """Get unduplicated sales by receipt_no"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_df = sales_df.copy()
+    receipt_col = get_receipt_column(sales_df)
+    
+    if receipt_col and receipt_col in sales_df.columns:
+        return sales_df.drop_duplicates(subset=[receipt_col])
+    
+    return sales_df
+
+
 def get_sales_report_data(start_date, end_date):
     """Get sales data for reporting with proper column handling"""
     sales_df = load_sales()
     
     if sales_df.empty:
         return pd.DataFrame()
+    
+    # Get unduplicated sales
+    sales_df = get_unduplicated_sales(sales_df)
     
     sales_df = convert_decimal_to_float(sales_df)
     
@@ -97,10 +131,6 @@ def get_sales_report_data(start_date, end_date):
     
     if date_col != "date":
         sales_df["date"] = sales_df[date_col]
-    
-    receipt_col = find_column(sales_df, ['receipt_no', 'receipt', 'transaction_id', 'order_id', 'invoice'])
-    if receipt_col:
-        sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
     
     total_col = find_column(sales_df, ['total', 'final_total', 'amount', 'sale_amount', 'revenue'])
     if total_col is None:
@@ -155,8 +185,12 @@ def get_sales_report_data(start_date, end_date):
     return sales_df
 
 
+# ==============================
+# EXPENSES REPORT DATA - FIXED: Using expenses.py module
+# ==============================
+
 def get_expenses_report_data(start_date, end_date):
-    """Get expenses data from expenses table - FIXED with correct column names"""
+    """Get expenses data from expenses.py module - FIXED"""
     expenses_df = load_expenses()
     
     if expenses_df.empty:
@@ -164,8 +198,8 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df = convert_decimal_to_float(expenses_df)
     
-    # Correct date column: expense_date
-    date_col = find_column(expenses_df, ['expense_date', 'date', 'created_at'])
+    # Find date column - expenses.py uses "date"
+    date_col = find_column(expenses_df, ['date', 'expense_date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
     
@@ -178,7 +212,7 @@ def get_expenses_report_data(start_date, end_date):
     if date_col != "date":
         expenses_df["date"] = expenses_df[date_col]
     
-    # Correct amount column: amount
+    # Find amount column - expenses.py uses "amount"
     amount_col = find_column(expenses_df, ['amount'])
     if amount_col is None:
         expenses_df["amount"] = 0
@@ -187,7 +221,7 @@ def get_expenses_report_data(start_date, end_date):
     
     expenses_df["amount"] = expenses_df["amount"].astype(float)
     
-    # Correct category column: category
+    # Find category column - expenses.py uses "category"
     category_col = find_column(expenses_df, ['category'])
     if category_col is None:
         expenses_df["category"] = "Other"
@@ -219,8 +253,12 @@ def get_expenses_report_data(start_date, end_date):
     return expenses_df
 
 
+# ==============================
+# INCOME REPORT DATA - FIXED: Using income.py module
+# ==============================
+
 def get_income_report_data(start_date, end_date):
-    """Get income data from income table - FIXED with correct column names"""
+    """Get income data from income.py module - FIXED"""
     income_df = load_income()
     
     if income_df.empty:
@@ -228,8 +266,8 @@ def get_income_report_data(start_date, end_date):
     
     income_df = convert_decimal_to_float(income_df)
     
-    # Correct date column: income_date
-    date_col = find_column(income_df, ['income_date', 'date', 'created_at'])
+    # Find date column - income.py uses "date"
+    date_col = find_column(income_df, ['date', 'income_date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
     
@@ -242,7 +280,7 @@ def get_income_report_data(start_date, end_date):
     if date_col != "date":
         income_df["date"] = income_df[date_col]
     
-    # Correct amount column: amount
+    # Find amount column - income.py uses "amount"
     amount_col = find_column(income_df, ['amount'])
     if amount_col is None:
         income_df["amount"] = 0
@@ -251,8 +289,8 @@ def get_income_report_data(start_date, end_date):
     
     income_df["amount"] = income_df["amount"].astype(float)
     
-    # Correct source column: income_source
-    source_col = find_column(income_df, ['income_source'])
+    # Find source column - income.py uses "income_source"
+    source_col = find_column(income_df, ['income_source', 'source', 'type'])
     if source_col is None:
         income_df["source"] = "Other"
     else:
@@ -275,6 +313,79 @@ def get_income_report_data(start_date, end_date):
     
     return income_df
 
+
+# ==============================
+# DEBTORS REPORT DATA - FIXED: Using floating financials credit management
+# ==============================
+
+def get_debtors_report_data():
+    """Get debtors data from floating financials credit management - FIXED"""
+    try:
+        # Get credit records from floating financials
+        credit_df = get_credit_records()
+        
+        if credit_df.empty:
+            return pd.DataFrame()
+        
+        credit_df = convert_decimal_to_float(credit_df)
+        
+        # Map columns to expected names
+        # Customer name
+        if "customer_name" in credit_df.columns:
+            credit_df["customer_name"] = credit_df["customer_name"].fillna("Unknown").astype(str)
+        else:
+            credit_df["customer_name"] = "Unknown"
+        
+        # Phone
+        if "phone" in credit_df.columns:
+            credit_df["phone"] = credit_df["phone"].fillna("").astype(str)
+        else:
+            credit_df["phone"] = ""
+        
+        # Total amount
+        if "amount" in credit_df.columns:
+            credit_df["total_amount"] = pd.to_numeric(credit_df["amount"], errors="coerce").fillna(0).astype(float)
+        else:
+            credit_df["total_amount"] = 0
+        
+        # Amount paid
+        if "amount_paid" in credit_df.columns:
+            credit_df["amount_paid"] = pd.to_numeric(credit_df["amount_paid"], errors="coerce").fillna(0).astype(float)
+        else:
+            credit_df["amount_paid"] = 0
+        
+        # Balance
+        if "balance" in credit_df.columns:
+            credit_df["balance"] = pd.to_numeric(credit_df["balance"], errors="coerce").fillna(0).astype(float)
+        else:
+            credit_df["balance"] = credit_df["total_amount"] - credit_df["amount_paid"]
+        
+        # Status
+        if "status" in credit_df.columns:
+            credit_df["status"] = credit_df["status"].fillna("PENDING").astype(str)
+        else:
+            credit_df["status"] = "PENDING"
+        
+        # Credit type
+        if "credit_type" in credit_df.columns:
+            credit_df["credit_type"] = credit_df["credit_type"].fillna("OTHER").astype(str)
+        else:
+            credit_df["credit_type"] = "OTHER"
+        
+        # Expected repayment date
+        if "expected_repayment_date" in credit_df.columns:
+            credit_df["expected_repayment_date"] = pd.to_datetime(credit_df["expected_repayment_date"], errors="coerce")
+        
+        return credit_df
+        
+    except Exception as e:
+        print(f"Error getting debtors data: {e}")
+        return pd.DataFrame()
+
+
+# ==============================
+# OTHER REPORT FUNCTIONS
+# ==============================
 
 def get_purchases_report_data(start_date, end_date):
     """Get purchases data for reporting"""
@@ -477,71 +588,129 @@ def get_inventory_report_data():
     return inventory_data
 
 
-def get_debtors_report_data():
-    """Get debtors data for reporting"""
-    debtors_df = load_debtors()
+# ==============================
+# GENERATE REPORT FUNCTIONS
+# ==============================
+
+def generate_sales_report(start_date, end_date):
+    """Generate comprehensive sales report"""
+    sales_df = get_sales_report_data(start_date, end_date)
     
-    if debtors_df.empty:
-        return pd.DataFrame()
+    if sales_df.empty:
+        return {
+            "total_sales": 0,
+            "total_profit": 0,
+            "total_items": 0,
+            "total_transactions": 0,
+            "average_transaction": 0,
+            "profit_margin": 0,
+            "daily_sales": pd.DataFrame(),
+            "product_sales": pd.DataFrame(),
+            "payment_methods": pd.DataFrame(),
+            "customer_sales": pd.DataFrame()
+        }
     
-    debtors_df = convert_decimal_to_float(debtors_df)
+    total_sales = float(sales_df["total"].sum())
+    total_profit = float(sales_df["profit"].sum())
+    total_items = int(sales_df["items"].sum())
+    total_transactions = len(sales_df)
+    avg_transaction = total_sales / total_transactions if total_transactions > 0 else 0
+    profit_margin = (total_profit / total_sales * 100) if total_sales > 0 else 0
     
-    name_col = find_column(debtors_df, ['customer_name', 'name', 'client_name', 'debtor_name'])
-    if name_col is None:
-        debtors_df["customer_name"] = "Unknown"
-    elif name_col != "customer_name":
-        debtors_df["customer_name"] = debtors_df[name_col].fillna("Unknown").astype(str)
-    else:
-        debtors_df["customer_name"] = debtors_df["customer_name"].fillna("Unknown").astype(str)
+    daily_sales = sales_df.groupby(sales_df["date"].dt.date).agg({
+        "total": "sum",
+        "profit": "sum",
+        "items": "sum"
+    }).reset_index()
+    daily_sales.columns = ["date", "total", "profit", "items"]
+    daily_sales["total"] = daily_sales["total"].astype(float)
+    daily_sales["profit"] = daily_sales["profit"].astype(float)
+    daily_sales["items"] = daily_sales["items"].astype(int)
     
-    phone_col = find_column(debtors_df, ['phone', 'mobile', 'telephone', 'contact'])
-    if phone_col is None:
-        debtors_df["phone"] = ""
-    elif phone_col != "phone":
-        debtors_df["phone"] = debtors_df[phone_col].fillna("").astype(str)
-    else:
-        debtors_df["phone"] = debtors_df["phone"].fillna("").astype(str)
+    product_sales = sales_df.groupby("name").agg({
+        "total": "sum",
+        "profit": "sum",
+        "items": "sum"
+    }).reset_index()
+    product_sales = product_sales.sort_values("total", ascending=False)
+    product_sales["total"] = product_sales["total"].astype(float)
+    product_sales["profit"] = product_sales["profit"].astype(float)
+    product_sales["items"] = product_sales["items"].astype(int)
+    product_sales["margin"] = (product_sales["profit"] / product_sales["total"] * 100).fillna(0)
     
-    total_col = find_column(debtors_df, ['total_amount', 'amount', 'total', 'debt_amount'])
-    if total_col is None:
-        debtors_df["total_amount"] = 0
-    elif total_col != "total_amount":
-        debtors_df["total_amount"] = pd.to_numeric(debtors_df[total_col], errors="coerce").fillna(0)
-    else:
-        debtors_df["total_amount"] = pd.to_numeric(debtors_df["total_amount"], errors="coerce").fillna(0)
+    payment_methods = sales_df.groupby("payment_method").agg({
+        "total": "sum",
+        "profit": "sum"
+    }).reset_index()
+    payment_methods.columns = ["payment_method", "total", "profit"]
+    payment_methods["total"] = payment_methods["total"].astype(float)
+    payment_methods["profit"] = payment_methods["profit"].astype(float)
     
-    debtors_df["total_amount"] = debtors_df["total_amount"].astype(float)
+    customer_sales = sales_df.groupby("customer").agg({
+        "total": "sum",
+        "profit": "sum"
+    }).reset_index()
+    customer_sales.columns = ["customer", "total", "profit"]
+    customer_sales = customer_sales.sort_values("total", ascending=False)
+    customer_sales["total"] = customer_sales["total"].astype(float)
+    customer_sales["profit"] = customer_sales["profit"].astype(float)
     
-    paid_col = find_column(debtors_df, ['amount_paid', 'paid', 'payment', 'paid_amount'])
-    if paid_col is None:
-        debtors_df["amount_paid"] = 0
-    elif paid_col != "amount_paid":
-        debtors_df["amount_paid"] = pd.to_numeric(debtors_df[paid_col], errors="coerce").fillna(0)
-    else:
-        debtors_df["amount_paid"] = pd.to_numeric(debtors_df["amount_paid"], errors="coerce").fillna(0)
+    return {
+        "total_sales": total_sales,
+        "total_profit": total_profit,
+        "total_items": total_items,
+        "total_transactions": total_transactions,
+        "average_transaction": avg_transaction,
+        "profit_margin": profit_margin,
+        "daily_sales": daily_sales,
+        "product_sales": product_sales,
+        "payment_methods": payment_methods,
+        "customer_sales": customer_sales
+    }
+
+
+def generate_expense_report(start_date, end_date):
+    """Generate expense report - FIXED: Using expenses.py data"""
+    expenses_df = get_expenses_report_data(start_date, end_date)
     
-    debtors_df["amount_paid"] = debtors_df["amount_paid"].astype(float)
+    if expenses_df.empty:
+        return {
+            "total_expenses": 0,
+            "by_category": pd.DataFrame(),
+            "daily_expenses": pd.DataFrame(),
+            "by_vendor": pd.DataFrame()
+        }
     
-    if "balance" in debtors_df.columns:
-        debtors_df["balance"] = pd.to_numeric(debtors_df["balance"], errors="coerce").fillna(0)
-    else:
-        debtors_df["balance"] = debtors_df["total_amount"] - debtors_df["amount_paid"]
+    total_expenses = float(expenses_df["amount"].sum())
     
-    debtors_df["balance"] = debtors_df["balance"].astype(float)
+    by_category = expenses_df.groupby("category")["amount"].sum().reset_index()
+    by_category.columns = ["category", "amount"]
+    by_category = by_category.sort_values("amount", ascending=False)
+    by_category["amount"] = by_category["amount"].astype(float)
     
-    status_col = find_column(debtors_df, ['status', 'state', 'debt_status'])
-    if status_col is None:
-        debtors_df["status"] = "PENDING"
-    elif status_col != "status":
-        debtors_df["status"] = debtors_df[status_col].fillna("PENDING").astype(str)
-    else:
-        debtors_df["status"] = debtors_df["status"].fillna("PENDING").astype(str)
+    daily_expenses = expenses_df.groupby(expenses_df["date"].dt.date)["amount"].sum().reset_index()
+    daily_expenses.columns = ["date", "amount"]
+    daily_expenses["date"] = pd.to_datetime(daily_expenses["date"])
+    daily_expenses["amount"] = daily_expenses["amount"].astype(float)
+    daily_expenses = daily_expenses.sort_values("date")
     
-    return debtors_df
+    by_vendor = pd.DataFrame()
+    if "vendor" in expenses_df.columns:
+        by_vendor = expenses_df.groupby("vendor")["amount"].sum().reset_index()
+        by_vendor.columns = ["vendor", "amount"]
+        by_vendor = by_vendor.sort_values("amount", ascending=False)
+        by_vendor["amount"] = by_vendor["amount"].astype(float)
+    
+    return {
+        "total_expenses": total_expenses,
+        "by_category": by_category,
+        "daily_expenses": daily_expenses,
+        "by_vendor": by_vendor
+    }
 
 
 def generate_income_report(start_date, end_date):
-    """Generate income report - FIXED with correct column names"""
+    """Generate income report - FIXED: Using income.py data"""
     income_df = get_income_report_data(start_date, end_date)
     
     if income_df.empty:
@@ -570,118 +739,6 @@ def generate_income_report(start_date, end_date):
         "by_source": by_source,
         "daily_income": daily_income,
         "total_sources": len(by_source)
-    }
-
-
-def generate_sales_report(start_date, end_date):
-    """Generate comprehensive sales report"""
-    sales_df = get_sales_report_data(start_date, end_date)
-    
-    if sales_df.empty:
-        return {
-            "total_sales": 0,
-            "total_profit": 0,
-            "total_items": 0,
-            "total_transactions": 0,
-            "average_transaction": 0,
-            "profit_margin": 0,
-            "daily_sales": pd.DataFrame(),
-            "product_sales": pd.DataFrame(),
-            "payment_methods": pd.DataFrame(),
-            "customer_sales": pd.DataFrame()
-        }
-    
-    total_sales = float(sales_df["total"].sum())
-    total_profit = float(sales_df["profit"].sum())
-    total_items = int(sales_df["items"].sum())
-    total_transactions = sales_df["receipt_no"].nunique()
-    avg_transaction = total_sales / total_transactions if total_transactions > 0 else 0
-    profit_margin = (total_profit / total_sales * 100) if total_sales > 0 else 0
-    
-    daily_sales = sales_df.groupby(sales_df["date"].dt.date).agg({
-        "total": "sum",
-        "profit": "sum",
-        "items": "sum"
-    }).reset_index()
-    daily_sales.columns = ["date", "total", "profit", "items"]
-    daily_sales["total"] = daily_sales["total"].astype(float)
-    daily_sales["profit"] = daily_sales["profit"].astype(float)
-    daily_sales["items"] = daily_sales["items"].astype(int)
-    
-    product_sales = sales_df.groupby("name").agg({
-        "total": "sum",
-        "profit": "sum",
-        "items": "sum"
-    }).reset_index()
-    product_sales = product_sales.sort_values("total", ascending=False)
-    product_sales["total"] = product_sales["total"].astype(float)
-    product_sales["profit"] = product_sales["profit"].astype(float)
-    product_sales["items"] = product_sales["items"].astype(int)
-    product_sales["margin"] = (product_sales["profit"] / product_sales["total"] * 100).fillna(0)
-    
-    payment_methods = sales_df.groupby("payment_method").agg({
-        "total": "sum",
-        "profit": "sum",
-        "receipt_no": "nunique"
-    }).reset_index()
-    payment_methods.columns = ["payment_method", "total", "profit", "transactions"]
-    payment_methods["total"] = payment_methods["total"].astype(float)
-    payment_methods["profit"] = payment_methods["profit"].astype(float)
-    payment_methods["transactions"] = payment_methods["transactions"].astype(int)
-    
-    customer_sales = sales_df.groupby("customer").agg({
-        "total": "sum",
-        "profit": "sum",
-        "receipt_no": "nunique"
-    }).reset_index()
-    customer_sales.columns = ["customer", "total", "profit", "transactions"]
-    customer_sales = customer_sales.sort_values("total", ascending=False)
-    customer_sales["total"] = customer_sales["total"].astype(float)
-    customer_sales["profit"] = customer_sales["profit"].astype(float)
-    customer_sales["transactions"] = customer_sales["transactions"].astype(int)
-    
-    return {
-        "total_sales": total_sales,
-        "total_profit": total_profit,
-        "total_items": total_items,
-        "total_transactions": total_transactions,
-        "average_transaction": avg_transaction,
-        "profit_margin": profit_margin,
-        "daily_sales": daily_sales,
-        "product_sales": product_sales,
-        "payment_methods": payment_methods,
-        "customer_sales": customer_sales
-    }
-
-
-def generate_expense_report(start_date, end_date):
-    """Generate expense report - FIXED with correct column names"""
-    expenses_df = get_expenses_report_data(start_date, end_date)
-    
-    if expenses_df.empty:
-        return {
-            "total_expenses": 0,
-            "by_category": pd.DataFrame(),
-            "daily_expenses": pd.DataFrame()
-        }
-    
-    total_expenses = float(expenses_df["amount"].sum())
-    
-    by_category = expenses_df.groupby("category")["amount"].sum().reset_index()
-    by_category.columns = ["category", "amount"]
-    by_category = by_category.sort_values("amount", ascending=False)
-    by_category["amount"] = by_category["amount"].astype(float)
-    
-    daily_expenses = expenses_df.groupby(expenses_df["date"].dt.date)["amount"].sum().reset_index()
-    daily_expenses.columns = ["date", "amount"]
-    daily_expenses["date"] = pd.to_datetime(daily_expenses["date"])
-    daily_expenses["amount"] = daily_expenses["amount"].astype(float)
-    daily_expenses = daily_expenses.sort_values("date")
-    
-    return {
-        "total_expenses": total_expenses,
-        "by_category": by_category,
-        "daily_expenses": daily_expenses
     }
 
 
@@ -735,20 +792,18 @@ def generate_customer_report(start_date, end_date):
         }
     
     total_customers = sales_df["customer"].nunique()
-    customer_counts = sales_df.groupby("customer")["receipt_no"].nunique()
+    customer_counts = sales_df.groupby("customer")["date"].count()
     new_customers = len(customer_counts[customer_counts == 1])
     repeat_customers = len(customer_counts[customer_counts > 1])
     
     top_customers = sales_df.groupby("customer").agg({
         "total": "sum",
-        "profit": "sum",
-        "receipt_no": "nunique"
+        "profit": "sum"
     }).reset_index()
-    top_customers.columns = ["customer", "total", "profit", "transactions"]
+    top_customers.columns = ["customer", "total", "profit"]
     top_customers = top_customers.sort_values("total", ascending=False).head(10)
     top_customers["total"] = top_customers["total"].astype(float)
     top_customers["profit"] = top_customers["profit"].astype(float)
-    top_customers["transactions"] = top_customers["transactions"].astype(int)
     
     customer_retention = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
     
@@ -762,10 +817,68 @@ def generate_customer_report(start_date, end_date):
 
 
 def generate_debtors_report():
-    """Generate debtors report"""
-    debtors_df = get_debtors_report_data()
-    
-    if debtors_df.empty:
+    """Generate debtors report - FIXED: Using floating financials credit management"""
+    try:
+        debtors_df = get_debtors_report_data()
+        
+        if debtors_df.empty:
+            return {
+                "total_debt": 0,
+                "total_paid": 0,
+                "outstanding_balance": 0,
+                "debtors_count": 0,
+                "overdue_count": 0,
+                "by_status": pd.DataFrame(),
+                "by_type": pd.DataFrame(),
+                "top_debtors": pd.DataFrame()
+            }
+        
+        total_debt = float(debtors_df["total_amount"].sum())
+        total_paid = float(debtors_df["amount_paid"].sum())
+        outstanding_balance = float(debtors_df["balance"].sum())
+        debtors_count = len(debtors_df)
+        
+        # Calculate overdue
+        overdue_count = 0
+        if "expected_repayment_date" in debtors_df.columns:
+            now = pd.Timestamp.now()
+            debtors_df["expected_repayment_date"] = pd.to_datetime(debtors_df["expected_repayment_date"], errors="coerce")
+            overdue_count = len(debtors_df[
+                (debtors_df["expected_repayment_date"] < now) & 
+                (debtors_df["balance"] > 0)
+            ])
+        
+        by_status = debtors_df.groupby("status").agg({
+            "balance": "sum",
+            "total_amount": "sum"
+        }).reset_index()
+        by_status["balance"] = by_status["balance"].astype(float)
+        by_status["total_amount"] = by_status["total_amount"].astype(float)
+        
+        by_type = debtors_df.groupby("credit_type").agg({
+            "balance": "sum",
+            "total_amount": "sum"
+        }).reset_index()
+        by_type["balance"] = by_type["balance"].astype(float)
+        by_type["total_amount"] = by_type["total_amount"].astype(float)
+        
+        top_debtors = debtors_df.nlargest(10, "balance")[["customer_name", "phone", "balance", "total_amount", "status"]]
+        top_debtors["balance"] = top_debtors["balance"].astype(float)
+        top_debtors["total_amount"] = top_debtors["total_amount"].astype(float)
+        
+        return {
+            "total_debt": total_debt,
+            "total_paid": total_paid,
+            "outstanding_balance": outstanding_balance,
+            "debtors_count": debtors_count,
+            "overdue_count": overdue_count,
+            "by_status": by_status,
+            "by_type": by_type,
+            "top_debtors": top_debtors
+        }
+        
+    except Exception as e:
+        print(f"Error generating debtors report: {e}")
         return {
             "total_debt": 0,
             "total_paid": 0,
@@ -773,47 +886,13 @@ def generate_debtors_report():
             "debtors_count": 0,
             "overdue_count": 0,
             "by_status": pd.DataFrame(),
+            "by_type": pd.DataFrame(),
             "top_debtors": pd.DataFrame()
         }
-    
-    total_debt = float(debtors_df["total_amount"].sum())
-    total_paid = float(debtors_df["amount_paid"].sum())
-    outstanding_balance = float(debtors_df["balance"].sum())
-    debtors_count = len(debtors_df)
-    
-    overdue_count = 0
-    if "expected_repayment_date" in debtors_df.columns:
-        now = pd.Timestamp.now()
-        debtors_df["expected_repayment_date"] = pd.to_datetime(debtors_df["expected_repayment_date"], errors="coerce")
-        overdue_count = len(debtors_df[
-            (debtors_df["expected_repayment_date"] < now) & 
-            (debtors_df["balance"] > 0)
-        ])
-    
-    by_status = debtors_df.groupby("status").agg({
-        "balance": "sum",
-        "total_amount": "sum"
-    }).reset_index()
-    by_status["balance"] = by_status["balance"].astype(float)
-    by_status["total_amount"] = by_status["total_amount"].astype(float)
-    
-    top_debtors = debtors_df.nlargest(10, "balance")[["customer_name", "phone", "balance", "total_amount", "status"]]
-    top_debtors["balance"] = top_debtors["balance"].astype(float)
-    top_debtors["total_amount"] = top_debtors["total_amount"].astype(float)
-    
-    return {
-        "total_debt": total_debt,
-        "total_paid": total_paid,
-        "outstanding_balance": outstanding_balance,
-        "debtors_count": debtors_count,
-        "overdue_count": overdue_count,
-        "by_status": by_status,
-        "top_debtors": top_debtors
-    }
 
 
 # ==============================
-# HTML REPORT GENERATORS
+# HTML REPORT GENERATORS (Keep existing functions)
 # ==============================
 
 def get_report_header(title, start_date=None, end_date=None):
@@ -851,8 +930,70 @@ def get_report_footer():
     """
 
 
+# ==============================
+# PDF GENERATORS - FIXED
+# ==============================
+
+def generate_sales_report_pdf(start_date, end_date):
+    """Generate sales report PDF"""
+    report_data = generate_sales_report(start_date, end_date)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Sales Report - {COMPANY_NAME}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
+        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
+        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
+        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
+        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+        tr:nth-child(even) {{ background: #f8f9fa; }}
+        .section {{ margin-top: 30px; }}
+        .section-title {{ color: #2c3e50; border-bottom: 2px solid #2ecc71; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
+    </style>
+    </head>
+    <body>
+        <div class="company-header">
+            <h1>{COMPANY_NAME}</h1>
+            <p>{COMPANY_ADDRESS}</p>
+            <p>📞 {COMPANY_PHONE}</p>
+            <h2>Sales Report</h2>
+            <p>Period: {start_date} to {end_date}</p>
+            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        </div>
+        <div class="metrics">
+            <div class="metric-card"><div class="metric-value">${report_data['total_sales']:,.2f}</div><div class="metric-label">Total Sales</div></div>
+            <div class="metric-card"><div class="metric-value">${report_data['total_profit']:,.2f}</div><div class="metric-label">Total Profit</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['profit_margin']:.1f}%</div><div class="metric-label">Profit Margin</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['total_transactions']:,}</div><div class="metric-label">Transactions</div></div>
+        </div>
+    """
+    
+    if not report_data['product_sales'].empty:
+        html += f"""
+        <div class="section">
+            <h2 class="section-title">Top Products</h2>
+            <table><tr><th>Product</th><th>Revenue</th><th>Profit</th><th>Units</th><th>Margin</th></tr>
+        """
+        for _, row in report_data['product_sales'].head(10).iterrows():
+            html += f"<tr><td>{row['name'][:30]}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td><td>{row['items']}</td><td>{row['margin']:.1f}%</td></tr>"
+        html += "</table></div>"
+    
+    html += get_report_footer()
+    html += "</body></html>"
+    return html.encode('utf-8')
+
+
 def generate_income_report_pdf(start_date, end_date):
-    """Generate income report PDF with company name - FIXED"""
+    """Generate income report PDF - FIXED"""
     report_data = generate_income_report(start_date, end_date)
     
     html = f"""
@@ -878,14 +1019,7 @@ def generate_income_report_pdf(start_date, end_date):
     </style>
     </head>
     <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Income Report</h2>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
+        {get_report_header('Income Report', start_date, end_date)}
         <div class="metrics">
             <div class="metric-card"><div class="metric-value">${report_data['total_income']:,.2f}</div><div class="metric-label">Total Income</div></div>
             <div class="metric-card"><div class="metric-value">{report_data['total_sources']}</div><div class="metric-label">Income Sources</div></div>
@@ -905,189 +1039,13 @@ def generate_income_report_pdf(start_date, end_date):
             html += f"<tr><td>{row['source']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
         html += "</table></div>"
     
-    html += f"""
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html.encode('utf-8')
-
-
-def generate_sales_report_pdf(start_date, end_date):
-    """Generate a PDF sales report"""
-    try:
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER
-    except ImportError:
-        return generate_sales_report_html(start_date, end_date)
-    
-    report_data = generate_sales_report(start_date, end_date)
-    
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
-    
-    styles = getSampleStyleSheet()
-    company_title_style = ParagraphStyle('CompanyTitle', parent=styles['Heading1'], fontSize=24, spaceAfter=0, alignment=TA_CENTER, textColor=colors.HexColor('#1a237e'))
-    company_sub_style = ParagraphStyle('CompanySub', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, textColor=colors.HexColor('#555555'))
-    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading2'], fontSize=18, spaceAfter=12, alignment=TA_CENTER)
-    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=14, spaceAfter=10, spaceBefore=12)
-    
-    elements = []
-    
-    elements.append(Paragraph("AZIEL INVESTMENTS", company_title_style))
-    elements.append(Paragraph("Retreat Park, Harare", company_sub_style))
-    elements.append(Paragraph("📞 +263 78 290 5853", company_sub_style))
-    elements.append(Spacer(1, 10))
-    elements.append(Paragraph("SALES REPORT", title_style))
-    elements.append(Paragraph(f"Period: {start_date} to {end_date}", styles['Normal']))
-    elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
-    elements.append(Spacer(1, 20))
-    
-    elements.append(Paragraph("Summary", heading_style))
-    summary_data = [
-        ["Metric", "Value"],
-        ["Total Sales", f"${report_data['total_sales']:,.2f}"],
-        ["Total Profit", f"${report_data['total_profit']:,.2f}"],
-        ["Profit Margin", f"{report_data['profit_margin']:.1f}%"],
-        ["Total Items Sold", f"{report_data['total_items']:,}"],
-        ["Total Transactions", f"{report_data['total_transactions']:,}"],
-        ["Average Transaction", f"${report_data['average_transaction']:.2f}"]
-    ]
-    
-    summary_table = Table(summary_data, colWidths=[200, 200])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(summary_table)
-    elements.append(Spacer(1, 20))
-    
-    elements.append(Paragraph("Top Products", heading_style))
-    if not report_data['product_sales'].empty:
-        product_data = [["Product", "Revenue", "Profit", "Units", "Margin"]]
-        for _, row in report_data['product_sales'].head(10).iterrows():
-            product_data.append([
-                row['name'][:30],
-                f"${row['total']:,.2f}",
-                f"${row['profit']:,.2f}",
-                str(row['items']),
-                f"{row['margin']:.1f}%"
-            ])
-        
-        product_table = Table(product_data, colWidths=[120, 80, 80, 60, 60])
-        product_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTSIZE', (0, 1), (-1, -1), 9)
-        ]))
-        elements.append(product_table)
-    
-    elements.append(Spacer(1, 30))
-    footer_text = f"{COMPANY_NAME} - {COMPANY_ADDRESS} | 📞 {COMPANY_PHONE} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    elements.append(Paragraph(footer_text, styles['Normal']))
-    
-    doc.build(elements)
-    pdf_bytes = buffer.getvalue()
-    buffer.close()
-    
-    return pdf_bytes
-
-
-def generate_sales_report_html(start_date, end_date):
-    """Generate HTML sales report with company name"""
-    report_data = generate_sales_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Sales Report - {COMPANY_NAME}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; background: #f8f9fa; }}
-            .report-container {{ max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-            .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-            .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-            .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
-            .report-title {{ color: #2c3e50; margin-top: 10px; font-size: 22px; }}
-            .header {{ text-align: center; margin-bottom: 30px; }}
-            .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
-            .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #e9ecef; }}
-            .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
-            .metric-label {{ font-size: 14px; color: #7f8c8d; }}
-            table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-            th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
-            td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-            tr:nth-child(even) {{ background: #f8f9fa; }}
-            .section {{ margin-top: 30px; }}
-            .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-            .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-        </style>
-    </head>
-    <body>
-        <div class="report-container">
-            <div class="company-header">
-                <h1>{COMPANY_NAME}</h1>
-                <p>{COMPANY_ADDRESS}</p>
-                <p>📞 {COMPANY_PHONE}</p>
-                <h2 class="report-title">Sales Report</h2>
-                <p>Period: {start_date} to {end_date}</p>
-                <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            </div>
-            
-            <div class="metrics">
-                <div class="metric-card"><div class="metric-value">${report_data['total_sales']:,.2f}</div><div class="metric-label">Total Sales</div></div>
-                <div class="metric-card"><div class="metric-value">${report_data['total_profit']:,.2f}</div><div class="metric-label">Total Profit</div></div>
-                <div class="metric-card"><div class="metric-value">{report_data['profit_margin']:.1f}%</div><div class="metric-label">Profit Margin</div></div>
-                <div class="metric-card"><div class="metric-value">{report_data['total_transactions']:,}</div><div class="metric-label">Transactions</div></div>
-            </div>
-    """
-    
-    if not report_data['product_sales'].empty:
-        html += f"""
-            <div class="section">
-                <h2 class="section-title">Top Products</h2>
-                <table>
-                    <tr><th>Product</th><th>Revenue</th><th>Profit</th><th>Units</th><th>Margin</th></tr>
-        """
-        for _, row in report_data['product_sales'].head(10).iterrows():
-            html += f"<tr><td>{row['name']}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td><td>{row['items']:,}</td><td>{row['margin']:.1f}%</td></tr>"
-        html += "</table></div>"
-    
-    html += f"""
-            <div class="footer">
-                <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-                <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-                <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+    html += get_report_footer()
+    html += "</body></html>"
     return html.encode('utf-8')
 
 
 def generate_expenses_report_pdf(start_date, end_date):
-    """Generate expenses report PDF with company name - FIXED"""
+    """Generate expenses report PDF - FIXED"""
     report_data = generate_expense_report(start_date, end_date)
     
     html = f"""
@@ -1113,14 +1071,7 @@ def generate_expenses_report_pdf(start_date, end_date):
     </style>
     </head>
     <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Expenses Report</h2>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
+        {get_report_header('Expenses Report', start_date, end_date)}
         <div class="metrics">
             <div class="metric-card"><div class="metric-value">${report_data['total_expenses']:,.2f}</div><div class="metric-label">Total Expenses</div></div>
             <div class="metric-card"><div class="metric-value">{len(report_data['by_category'])}</div><div class="metric-label">Categories</div></div>
@@ -1140,234 +1091,13 @@ def generate_expenses_report_pdf(start_date, end_date):
             html += f"<tr><td>{row['category']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
         html += "</table></div>"
     
-    html += f"""
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html.encode('utf-8')
-
-
-def generate_purchases_report_pdf(start_date, end_date):
-    """Generate purchases report PDF with company name"""
-    report_data = generate_purchase_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Purchases Report - {COMPANY_NAME}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
-        .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
-        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
-        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
-        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
-        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-        tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Purchases Report</h2>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_purchases']:,.2f}</div><div class="metric-label">Total Purchases</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['by_supplier'])}</div><div class="metric-label">Suppliers</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['by_status'])}</div><div class="metric-label">Statuses</div></div>
-        </div>
-    """
-    
-    if not report_data['by_supplier'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Top Suppliers</h2>
-            <table><tr><th>Supplier</th><th>Amount</th></tr>
-        """
-        for _, row in report_data['by_supplier'].head(10).iterrows():
-            html += f"<tr><td>{row['supplier']}</td><td>${row['amount']:,.2f}</td></tr>"
-        html += "</table></div>"
-    
-    if not report_data['by_status'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Purchase Status</h2>
-            <table><tr><th>Status</th><th>Count</th></tr>
-        """
-        for _, row in report_data['by_status'].iterrows():
-            html += f"<tr><td>{row['status']}</td><td>{row['count']}</td></tr>"
-        html += "</table></div>"
-    
-    html += f"""
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html.encode('utf-8')
-
-
-def generate_customers_report_pdf(start_date, end_date):
-    """Generate customers report PDF with company name"""
-    report_data = generate_customer_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Customers Report - {COMPANY_NAME}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
-        .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
-        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
-        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
-        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
-        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-        tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Customers Report</h2>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">{report_data['total_customers']:,}</div><div class="metric-label">Total Customers</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['new_customers']:,}</div><div class="metric-label">New Customers</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['repeat_customers']:,}</div><div class="metric-label">Repeat Customers</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['customer_retention']:.1f}%</div><div class="metric-label">Retention Rate</div></div>
-        </div>
-    """
-    
-    if not report_data['top_customers'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Top Customers</h2>
-            <table><tr><th>Customer</th><th>Total Spent</th><th>Profit</th><th>Transactions</th></tr>
-        """
-        for _, row in report_data['top_customers'].iterrows():
-            html += f"<tr><td>{row['customer']}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td><td>{row['transactions']}</td></tr>"
-        html += "</table></div>"
-    
-    html += f"""
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html.encode('utf-8')
-
-
-def generate_debtors_report_pdf():
-    """Generate debtors report PDF with company name"""
-    report_data = generate_debtors_report()
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Debtors Report - {COMPANY_NAME}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
-        .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
-        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
-        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
-        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
-        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-        tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        .overdue {{ color: #e74c3c; }}
-        .paid {{ color: #27ae60; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Debtors Report</h2>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_debt']:,.2f}</div><div class="metric-label">Total Debt</div></div>
-            <div class="metric-card"><div class="metric-value">${report_data['total_paid']:,.2f}</div><div class="metric-label">Total Paid</div></div>
-            <div class="metric-card"><div class="metric-value">${report_data['outstanding_balance']:,.2f}</div><div class="metric-label">Outstanding Balance</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['debtors_count']}</div><div class="metric-label">Total Debtors</div></div>
-        </div>
-    """
-    
-    if not report_data['top_debtors'].empty:
-        html += """
-        <div class="section">
-            <h2 class="section-title">Top Debtors</h2>
-            <table><tr><th>Customer</th><th>Phone</th><th>Total Amount</th><th>Balance</th><th>Status</th></tr>
-        """
-        for _, row in report_data['top_debtors'].iterrows():
-            status_class = "overdue" if row['status'] == "OVERDUE" else "paid" if row['status'] == "PAID" else ""
-            html += f"""
-                <tr>
-                    <td>{row.get('customer_name', 'Unknown')}</td>
-                    <td>{row.get('phone', 'N/A')}</td>
-                    <td>${row.get('total_amount', 0):,.2f}</td>
-                    <td>${row.get('balance', 0):,.2f}</td>
-                    <td class="{status_class}">{row.get('status', 'PENDING')}</td>
-                </tr>
-            """
-        html += "</table></div>"
-    
-    html += f"""
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
-    </body>
-    </html>
-    """
+    html += get_report_footer()
+    html += "</body></html>"
     return html.encode('utf-8')
 
 
 def generate_inventory_report_pdf():
-    """Generate inventory report PDF with company name"""
+    """Generate inventory report PDF"""
     inventory_data = get_inventory_report_data()
     
     if inventory_data.empty:
@@ -1383,14 +1113,9 @@ def generate_inventory_report_pdf():
         </style>
         </head>
         <body>
-            <div class="company-header">
-                <h1>{COMPANY_NAME}</h1>
-                <p>{COMPANY_ADDRESS}</p>
-                <p>📞 {COMPANY_PHONE}</p>
-                <h2>Inventory Report</h2>
-                <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-            </div>
+            {get_report_header('Inventory Report')}
             <p>No inventory data available</p>
+            {get_report_footer()}
         </body>
         </html>
         """
@@ -1419,13 +1144,7 @@ def generate_inventory_report_pdf():
     </style>
     </head>
     <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Inventory Report</h2>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
+        {get_report_header('Inventory Report')}
         <div class="metrics">
             <div class="metric-card"><div class="metric-value">{len(inventory_data):,}</div><div class="metric-label">Total Products</div></div>
             <div class="metric-card"><div class="metric-value">${inventory_data['stock_value'].sum():,.2f}</div><div class="metric-label">Total Stock Value</div></div>
@@ -1440,7 +1159,7 @@ def generate_inventory_report_pdf():
     for _, row in inventory_data.head(20).iterrows():
         html += f"""
             <tr>
-                <td>{row.get('name', 'Unknown')}</td>
+                <td>{row.get('name', 'Unknown')[:30]}</td>
                 <td>{row.get('category', 'Uncategorized')}</td>
                 <td>{row.get('stock', 0)}</td>
                 <td>${row.get('price', 0):.2f}</td>
@@ -1451,19 +1170,181 @@ def generate_inventory_report_pdf():
     
     html += f"""
         </table></div>
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
+        {get_report_footer()}
     </body>
     </html>
     """
     return html.encode('utf-8')
 
 
+def generate_debtors_report_pdf():
+    """Generate debtors report PDF - FIXED: Using floating financials"""
+    report_data = generate_debtors_report()
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Debtors Report - {COMPANY_NAME}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
+        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
+        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
+        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
+        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+        tr:nth-child(even) {{ background: #f8f9fa; }}
+        .section {{ margin-top: 30px; }}
+        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
+    </style>
+    </head>
+    <body>
+        {get_report_header('Debtors Report')}
+        <div class="metrics">
+            <div class="metric-card"><div class="metric-value">${report_data['total_debt']:,.2f}</div><div class="metric-label">Total Debt</div></div>
+            <div class="metric-card"><div class="metric-value">${report_data['total_paid']:,.2f}</div><div class="metric-label">Total Paid</div></div>
+            <div class="metric-card"><div class="metric-value">${report_data['outstanding_balance']:,.2f}</div><div class="metric-label">Outstanding Balance</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['debtors_count']}</div><div class="metric-label">Total Debtors</div></div>
+        </div>
+    """
+    
+    if not report_data['top_debtors'].empty:
+        html += """
+        <div class="section">
+            <h2 class="section-title">Top Debtors</h2>
+            <table><tr><th>Customer</th><th>Phone</th><th>Total Amount</th><th>Balance</th><th>Status</th></tr>
+        """
+        for _, row in report_data['top_debtors'].iterrows():
+            status_color = "#e74c3c" if row['status'] == "OVERDUE" else "#27ae60" if row['status'] == "PAID" else "#f39c12"
+            html += f"""
+                <tr>
+                    <td>{row.get('customer_name', 'Unknown')}</td>
+                    <td>{row.get('phone', 'N/A')}</td>
+                    <td>${row.get('total_amount', 0):,.2f}</td>
+                    <td>${row.get('balance', 0):,.2f}</td>
+                    <td style="color:{status_color};font-weight:bold;">{row.get('status', 'PENDING')}</td>
+                </tr>
+            """
+        html += "</table></div>"
+    
+    html += get_report_footer()
+    html += "</body></html>"
+    return html.encode('utf-8')
+
+
+def generate_purchases_report_pdf(start_date, end_date):
+    """Generate purchases report PDF"""
+    report_data = generate_purchase_report(start_date, end_date)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Purchases Report - {COMPANY_NAME}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
+        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
+        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
+        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
+        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+        tr:nth-child(even) {{ background: #f8f9fa; }}
+        .section {{ margin-top: 30px; }}
+        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
+    </style>
+    </head>
+    <body>
+        {get_report_header('Purchases Report', start_date, end_date)}
+        <div class="metrics">
+            <div class="metric-card"><div class="metric-value">${report_data['total_purchases']:,.2f}</div><div class="metric-label">Total Purchases</div></div>
+            <div class="metric-card"><div class="metric-value">{len(report_data['by_supplier'])}</div><div class="metric-label">Suppliers</div></div>
+            <div class="metric-card"><div class="metric-value">{len(report_data['by_status'])}</div><div class="metric-label">Statuses</div></div>
+        </div>
+    """
+    
+    if not report_data['by_supplier'].empty:
+        html += f"""
+        <div class="section">
+            <h2 class="section-title">Top Suppliers</h2>
+            <table><tr><th>Supplier</th><th>Amount</th></tr>
+        """
+        for _, row in report_data['by_supplier'].head(10).iterrows():
+            html += f"<tr><td>{row['supplier']}</td><td>${row['amount']:,.2f}</td></tr>"
+        html += "</table></div>"
+    
+    html += get_report_footer()
+    html += "</body></html>"
+    return html.encode('utf-8')
+
+
+def generate_customers_report_pdf(start_date, end_date):
+    """Generate customers report PDF"""
+    report_data = generate_customer_report(start_date, end_date)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Customers Report - {COMPANY_NAME}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
+        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
+        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
+        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
+        .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
+        .metric-label {{ font-size: 14px; color: #7f8c8d; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
+        td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+        tr:nth-child(even) {{ background: #f8f9fa; }}
+        .section {{ margin-top: 30px; }}
+        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
+        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
+    </style>
+    </head>
+    <body>
+        {get_report_header('Customers Report', start_date, end_date)}
+        <div class="metrics">
+            <div class="metric-card"><div class="metric-value">{report_data['total_customers']:,}</div><div class="metric-label">Total Customers</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['new_customers']:,}</div><div class="metric-label">New Customers</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['repeat_customers']:,}</div><div class="metric-label">Repeat Customers</div></div>
+            <div class="metric-card"><div class="metric-value">{report_data['customer_retention']:.1f}%</div><div class="metric-label">Retention Rate</div></div>
+        </div>
+    """
+    
+    if not report_data['top_customers'].empty:
+        html += f"""
+        <div class="section">
+            <h2 class="section-title">Top Customers</h2>
+            <table><tr><th>Customer</th><th>Total Spent</th><th>Profit</th></tr>
+        """
+        for _, row in report_data['top_customers'].iterrows():
+            html += f"<tr><td>{row['customer']}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td></tr>"
+        html += "</table></div>"
+    
+    html += get_report_footer()
+    html += "</body></html>"
+    return html.encode('utf-8')
+
+
+def generate_sales_report_html(start_date, end_date):
+    """Generate HTML sales report"""
+    return generate_sales_report_pdf(start_date, end_date)
+
+
 def generate_combined_report_pdf(start_date, end_date):
-    """Generate combined report PDF with company name"""
+    """Generate combined report PDF"""
     sales_report = generate_sales_report(start_date, end_date)
     expense_report = generate_expense_report(start_date, end_date)
     income_report = generate_income_report(start_date, end_date)
@@ -1497,14 +1378,7 @@ def generate_combined_report_pdf(start_date, end_date):
     </style>
     </head>
     <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Combined Business Report</h2>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
+        {get_report_header('Combined Business Report', start_date, end_date)}
         
         <h2>Executive Summary</h2>
         <div class="metrics">
@@ -1575,11 +1449,7 @@ def generate_combined_report_pdf(start_date, end_date):
             <tr><td>Overdue Debtors</td><td>{debtors_report['overdue_count']}</td></tr>
         </table>
         
-        <div class="footer">
-            <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE} | This is a computer-generated report</p>
-            <p>© {datetime.now().year} {COMPANY_NAME}. All Rights Reserved.</p>
-        </div>
+        {get_report_footer()}
     </body>
     </html>
     """
