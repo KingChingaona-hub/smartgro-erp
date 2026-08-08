@@ -1,3 +1,6 @@
+# backend/modules/demand_forecasting.py
+# FIXED: Using unduplicated sales data for accurate forecasting
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,7 +18,7 @@ from backend.core.db_adapter import load_sales, load_products
 
 
 # ==============================
-# HELPER FUNCTIONS - FIXED
+# HELPER FUNCTIONS - FIXED WITH UNDUPLICATED DATA
 # ==============================
 
 def safe_float(value, default=0.0):
@@ -48,28 +51,51 @@ def find_column(df, possible_names, default=None):
     return default
 
 
-def get_column_mapping(df, column_types):
-    """
-    Helper function to find columns in a DataFrame
-    
-    Args:
-        df: DataFrame to search
-        column_types: dict with keys like 'product', 'date', 'total', 'items'
-                     and values being lists of possible column names
-    """
+def get_receipt_column(df):
+    """Find receipt number column"""
     if df is None or df.empty:
-        return {}
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id", "invoice_no"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_unduplicated_sales(sales_df):
+    """Get unduplicated sales by receipt_no to avoid revenue duplication"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
     
-    result = {}
-    for key, possible_names in column_types.items():
-        found = find_column(df, possible_names)
-        result[key] = found
+    sales_df = sales_df.copy()
+    receipt_col = get_receipt_column(sales_df)
     
-    return result
+    # If we have receipt_no, deduplicate
+    if receipt_col and receipt_col in sales_df.columns:
+        return sales_df.drop_duplicates(subset=[receipt_col])
+    
+    # If no receipt_no, try to deduplicate by date and amount
+    date_col = find_column(sales_df, ["date", "sale_date", "transaction_date", "created_at"])
+    amount_col = find_column(sales_df, ["final_total", "total", "amount", "sale_amount"])
+    
+    if date_col and amount_col and date_col in sales_df.columns and amount_col in sales_df.columns:
+        try:
+            # Create a composite key of date and total amount to identify duplicates
+            sales_df['_composite_key'] = sales_df[date_col].astype(str) + '_' + sales_df[amount_col].astype(str)
+            return sales_df.drop_duplicates(subset=['_composite_key']).drop(columns=['_composite_key'])
+        except:
+            return sales_df
+    
+    return sales_df
 
 
 def prepare_sales_data(sales_df, product_name=None):
-    """Prepare sales data for forecasting - FIXED"""
+    """Prepare sales data for forecasting - USING UNDUPLICATED SALES"""
+    
+    if sales_df.empty:
+        return None
+    
+    # Get unduplicated sales first
+    sales_df = get_unduplicated_sales(sales_df)
     
     if sales_df.empty:
         return None
@@ -115,7 +141,7 @@ def prepare_sales_data(sales_df, product_name=None):
         if df.empty:
             return None
         
-        # Use items column if available for quantity, otherwise use count
+        # Use items column if available for quantity, otherwise use total value
         if items_col and items_col in df.columns:
             daily_sales = df.groupby(df[date_col].dt.date)[items_col].sum().reset_index()
         else:
@@ -151,7 +177,7 @@ def add_time_features(df):
 
 
 def forecast_sales_linear(daily_sales, days=30):
-    """Linear regression forecast with confidence intervals - FIXED"""
+    """Linear regression forecast with confidence intervals - USING UNDUPLICATED DATA"""
     
     if daily_sales is None or len(daily_sales) < 7:
         return None
@@ -219,7 +245,7 @@ def forecast_sales_linear(daily_sales, days=30):
 
 
 def forecast_sales_random_forest(daily_sales, days=30):
-    """Random Forest forecast for better accuracy - FIXED"""
+    """Random Forest forecast for better accuracy - USING UNDUPLICATED DATA"""
     
     if daily_sales is None or len(daily_sales) < 14:
         return None
@@ -312,9 +338,15 @@ def calculate_eoq(annual_demand, order_cost, holding_cost_per_unit):
 
 
 def get_product_demand_metrics(product_name, sales_df, products_df):
-    """Get demand metrics for a specific product - FIXED"""
+    """Get demand metrics for a specific product - USING UNDUPLICATED DATA"""
     
     if sales_df.empty or products_df.empty:
+        return None
+    
+    # Get unduplicated sales
+    sales_df = get_unduplicated_sales(sales_df)
+    
+    if sales_df.empty:
         return None
     
     # Find columns
@@ -440,9 +472,15 @@ def get_product_demand_metrics(product_name, sales_df, products_df):
 
 
 def get_recommendations(sales_df, products_df):
-    """Generate product recommendations based on purchase patterns - FIXED"""
+    """Generate product recommendations based on purchase patterns - USING UNDUPLICATED DATA"""
     
     if sales_df.empty or len(sales_df) < 50:
+        return pd.DataFrame()
+    
+    # Get unduplicated sales
+    sales_df = get_unduplicated_sales(sales_df)
+    
+    if sales_df.empty:
         return pd.DataFrame()
     
     receipt_col = find_column(sales_df, ["receipt_no", "receipt", "transaction_id", "order_id", "invoice_no"])
@@ -485,9 +523,15 @@ def get_recommendations(sales_df, products_df):
 
 
 def identify_slow_movers(products_df, sales_df, days_threshold=90):
-    """Identify slow-moving products - FIXED"""
+    """Identify slow-moving products - USING UNDUPLICATED DATA"""
     
     if sales_df.empty or products_df.empty:
+        return pd.DataFrame()
+    
+    # Get unduplicated sales
+    sales_df = get_unduplicated_sales(sales_df)
+    
+    if sales_df.empty:
         return pd.DataFrame()
     
     date_col = find_column(sales_df, ["date", "sale_date", "transaction_date", "created_at"])
@@ -537,14 +581,19 @@ def identify_slow_movers(products_df, sales_df, days_threshold=90):
 # ==============================
 
 def demand_forecasting_dashboard():
-    """Main demand forecasting dashboard - FIXED"""
+    """Main demand forecasting dashboard - FIXED WITH UNDUPLICATED DATA"""
     
     st.title("AI-Powered Demand Forecasting")
     st.caption("Predict sales, identify trends, and optimize inventory with machine learning")
+    st.info("All revenue metrics are based on unduplicated sales data (one receipt per transaction)")
     
     # Load data
     sales_df = load_sales()
     products_df = load_products()
+    
+    # Show unduplicated count
+    sales_undup = get_unduplicated_sales(sales_df)
+    st.caption(f"Using {len(sales_undup)} unduplicated receipts (from {len(sales_df)} total records)")
     
     if sales_df.empty:
         st.warning("Not enough sales data for forecasting. Complete at least 7 days of sales.")
@@ -576,6 +625,7 @@ def demand_forecasting_dashboard():
     # ==============================
     with tab1:
         st.markdown("## 30-Day Sales Forecast")
+        st.caption("Based on unduplicated sales data")
         
         col1, col2 = st.columns(2)
         
@@ -625,7 +675,7 @@ def demand_forecasting_dashboard():
                             x=actual_df["date"],
                             y=actual_df["sales"],
                             mode="lines+markers",
-                            name="Actual Sales",
+                            name="Actual Sales (Unduplicated)",
                             line=dict(color="#3498db", width=2),
                             marker=dict(size=6)
                         ))
@@ -700,6 +750,7 @@ def demand_forecasting_dashboard():
     # ==============================
     with tab2:
         st.markdown("## Product Demand Analytics")
+        st.caption("Based on unduplicated sales data")
         
         if not products_df.empty and product_col_products:
             selected_product = st.selectbox("Select Product for Analysis", products_df[product_col_products].tolist(), key="analytics_product")
@@ -710,7 +761,7 @@ def demand_forecasting_dashboard():
                 if metrics:
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Total Sold", metrics['total_sold'])
+                        st.metric("Total Sold (Unduplicated)", metrics['total_sold'])
                     with col2:
                         st.metric("Sales/Day", f"{metrics['sales_per_day']:.1f}")
                     with col3:
@@ -746,7 +797,7 @@ def demand_forecasting_dashboard():
                                 pattern_df,
                                 x="Month",
                                 y="Sales",
-                                title="Monthly Sales Pattern",
+                                title="Monthly Sales Pattern (Unduplicated)",
                                 color="Sales",
                                 color_continuous_scale="Viridis"
                             )
@@ -770,7 +821,7 @@ def demand_forecasting_dashboard():
     # ==============================
     with tab3:
         st.markdown("## Frequently Bought Together")
-        st.caption("\"Customers who bought X also bought Y\" recommendations")
+        st.caption("\"Customers who bought X also bought Y\" recommendations based on unduplicated receipts")
         
         recommendations_df = get_recommendations(sales_df, products_df)
         
@@ -790,14 +841,14 @@ def demand_forecasting_dashboard():
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Not enough transaction data for recommendations. Need at least 50 transactions.")
+            st.info("Not enough transaction data for recommendations. Need at least 50 unduplicated transactions.")
     
     # ==============================
     # TAB 4: SLOW MOVERS
     # ==============================
     with tab4:
         st.markdown("## Slow-Moving Products")
-        st.caption("Products that need attention")
+        st.caption("Products that need attention based on unduplicated sales data")
         
         days_threshold = st.slider("Days without sale to classify as slow mover", 30, 180, 90)
         
