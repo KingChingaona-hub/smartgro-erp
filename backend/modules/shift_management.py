@@ -1,4 +1,5 @@
-# backend/modules/shift_management.py
+# backend/modules/shift_management.py - FIXED Shift History with unduplicated data
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -140,6 +141,114 @@ def get_total_revenue_unduplicated(sales_df):
     return 0.0
 
 
+def get_total_revenue_for_date_range(sales_df, start_date, end_date):
+    """Get total revenue for a date range from unduplicated sales"""
+    if sales_df is None or sales_df.empty:
+        return 0.0
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    if sales_undup.empty:
+        return 0.0
+    
+    # Find date column
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in sales_undup.columns:
+            date_col = col
+            break
+    
+    if date_col is None:
+        return 0.0
+    
+    # Convert to datetime
+    sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+    sales_undup = sales_undup.dropna(subset=[date_col])
+    
+    # Filter by date range
+    mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
+    filtered = sales_undup[mask]
+    
+    amount_col = get_amount_column(filtered)
+    if amount_col:
+        return safe_float(filtered[amount_col].sum())
+    
+    return 0.0
+
+
+def get_profit_for_date_range(sales_df, start_date, end_date):
+    """Get total profit for a date range from unduplicated sales"""
+    if sales_df is None or sales_df.empty:
+        return 0.0
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    if sales_undup.empty:
+        return 0.0
+    
+    # Find date column
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in sales_undup.columns:
+            date_col = col
+            break
+    
+    if date_col is None:
+        return 0.0
+    
+    # Convert to datetime
+    sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+    sales_undup = sales_undup.dropna(subset=[date_col])
+    
+    # Filter by date range
+    mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
+    filtered = sales_undup[mask]
+    
+    profit_col = None
+    for col in ["profit", "gross_profit"]:
+        if col in filtered.columns:
+            profit_col = col
+            break
+    
+    if profit_col:
+        return safe_float(filtered[profit_col].sum())
+    
+    # If no profit column, estimate 30% of revenue
+    amount_col = get_amount_column(filtered)
+    if amount_col:
+        return safe_float(filtered[amount_col].sum()) * 0.3
+    
+    return 0.0
+
+
+def get_transactions_for_date_range(sales_df, start_date, end_date):
+    """Get number of transactions for a date range from unduplicated sales"""
+    if sales_df is None or sales_df.empty:
+        return 0
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    if sales_undup.empty:
+        return 0
+    
+    # Find date column
+    date_col = None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
+        if col in sales_undup.columns:
+            date_col = col
+            break
+    
+    if date_col is None:
+        return 0
+    
+    # Convert to datetime
+    sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
+    sales_undup = sales_undup.dropna(subset=[date_col])
+    
+    # Filter by date range
+    mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
+    filtered = sales_undup[mask]
+    
+    return len(filtered)
+
+
 def shift_management_page():
     """Main shift management page - Branch Level (FIXED with correct data sources)"""
     
@@ -167,6 +276,7 @@ def shift_management_page():
     
     # Get unduplicated sales
     sales_undup = get_unduplicated_sales(sales_df)
+    total_revenue_all = get_total_revenue_unduplicated(sales_undup)
     
     # Get the active shift for this branch
     active_shift = get_active_shift_for_branch(user_branch)
@@ -445,7 +555,7 @@ def shift_management_page():
                     st.metric("Active Branches", total_branches)
     
     # ==============================
-    # TAB 2: SHIFT HISTORY - BRANCH SPECIFIC
+    # TAB 2: SHIFT HISTORY - BRANCH SPECIFIC - FIXED WITH UNDUPLICATED DATA
     # ==============================
     with tab2:
         st.markdown("## Shift History")
@@ -476,14 +586,19 @@ def shift_management_page():
         # Filter shifts
         filtered_shifts = shifts_df.copy()
         
+        # Get date range
+        start_date = None
+        end_date = None
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date, end_date = date_range
+        
         if not filtered_shifts.empty:
             # Filter by branch
             if "branch_id" in filtered_shifts.columns:
                 filtered_shifts = filtered_shifts[filtered_shifts["branch_id"] == user_branch]
             
             # Date filter
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                start_date, end_date = date_range
+            if start_date and end_date:
                 filtered_shifts["start_date"] = pd.to_datetime(filtered_shifts["start_time"]).dt.date
                 filtered_shifts = filtered_shifts[
                     (filtered_shifts["start_date"] >= start_date) & 
@@ -517,9 +632,6 @@ def shift_management_page():
                     "end_time": "End Time",
                     "opening_cash": "Opening Cash",
                     "closing_cash": "Closing Cash",
-                    "total_revenue": "Revenue",
-                    "profit": "Profit",
-                    "transactions": "Transactions",
                     "variance": "Variance",
                     "status": "Status"
                 }
@@ -527,7 +639,7 @@ def shift_management_page():
                 display_df = display_df.rename(columns=display_columns)
                 
                 # Select columns to show
-                show_cols = ["Shift ID", "Cashier", "Start Time", "End Time", "Revenue", "Transactions", "Status"]
+                show_cols = ["Shift ID", "Cashier", "Start Time", "End Time", "Status"]
                 available_cols = [col for col in show_cols if col in display_df.columns]
                 
                 st.dataframe(
@@ -535,22 +647,42 @@ def shift_management_page():
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "Revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
                         "Opening Cash": st.column_config.NumberColumn("Opening Cash", format="$%.2f"),
                         "Closing Cash": st.column_config.NumberColumn("Closing Cash", format="$%.2f"),
-                        "Variance": st.column_config.NumberColumn("Variance", format="$%.2f"),
-                        "Profit": st.column_config.NumberColumn("Profit", format="$%.2f")
+                        "Variance": st.column_config.NumberColumn("Variance", format="$%.2f")
                     }
                 )
                 
-                # Summary stats
+                # ==============================
+                # HISTORY SUMMARY - USING UNDUPLICATED SALES DATA
+                # ==============================
                 st.markdown("### History Summary")
                 
                 total_shifts = len(filtered_shifts)
-                total_revenue = filtered_shifts["total_revenue"].sum() if "total_revenue" in filtered_shifts.columns else 0
-                total_profit = filtered_shifts["profit"].sum() if "profit" in filtered_shifts.columns else 0
-                total_transactions = filtered_shifts["transactions"].sum() if "transactions" in filtered_shifts.columns else 0
                 
+                # Calculate revenue from unduplicated sales data for the date range
+                if start_date and end_date:
+                    total_revenue = get_total_revenue_for_date_range(sales_df, start_date, end_date)
+                    total_profit = get_profit_for_date_range(sales_df, start_date, end_date)
+                    total_transactions = get_transactions_for_date_range(sales_df, start_date, end_date)
+                else:
+                    total_revenue = get_total_revenue_unduplicated(sales_undup)
+                    total_profit = 0
+                    if not sales_undup.empty:
+                        profit_col = None
+                        for col in ["profit", "gross_profit"]:
+                            if col in sales_undup.columns:
+                                profit_col = col
+                                break
+                        if profit_col:
+                            total_profit = safe_float(sales_undup[profit_col].sum())
+                        else:
+                            amount_col = get_amount_column(sales_undup)
+                            if amount_col:
+                                total_profit = safe_float(sales_undup[amount_col].sum()) * 0.3
+                    total_transactions = len(sales_undup) if not sales_undup.empty else 0
+                
+                # Show metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Total Shifts", total_shifts)
@@ -559,7 +691,10 @@ def shift_management_page():
                 with col3:
                     st.metric("Total Profit", f"${total_profit:,.2f}")
                 with col4:
-                    st.metric("Transactions", f"{total_transactions:,.0f}")
+                    st.metric("Transactions", f"{total_transactions:,}")
+                
+                # Add note about data source
+                st.caption("Revenue and profit calculated from unduplicated sales data")
             else:
                 st.info("No shifts found matching the filters")
         else:
@@ -580,7 +715,6 @@ def shift_management_page():
         # Get expenses from expenses module
         total_expenses = 0
         if not expenses_df.empty and "amount" in expenses_df.columns:
-            # Filter by date for today
             if "date" in expenses_df.columns:
                 expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
                 today = datetime.now().date()
@@ -603,7 +737,6 @@ def shift_management_page():
         # Get debt payments from credit management
         debt_payments = 0
         if not credit_df.empty and "amount_paid" in credit_df.columns:
-            # Filter for today
             if "paid_at" in credit_df.columns:
                 credit_df["paid_at"] = pd.to_datetime(credit_df["paid_at"], errors="coerce")
                 today = datetime.now().date()
