@@ -88,12 +88,24 @@ def get_payment_method_column(df):
 
 
 def get_cashier_column(df):
-    """Find cashier column in dataframe"""
+    """Find cashier column in dataframe - MORE FLEXIBLE"""
     if df is None or df.empty:
         return None
-    for col in ["cashier", "cashier_name", "user", "username", "employee"]:
+    
+    # Check all columns for cashier-related names
+    cashier_keywords = ["cashier", "cashier_name", "user", "username", "employee", "staff", "salesperson", "seller"]
+    
+    for col in df.columns:
+        col_lower = str(col).lower()
+        for keyword in cashier_keywords:
+            if keyword in col_lower:
+                return col
+    
+    # Specific column names to check
+    for col in ["cashier", "cashier_name", "user", "username", "employee_name", "staff_name"]:
         if col in df.columns:
             return col
+    
     return None
 
 
@@ -101,7 +113,7 @@ def get_branch_column(df):
     """Find branch column in dataframe"""
     if df is None or df.empty:
         return None
-    for col in ["branch_id", "branch", "location"]:
+    for col in ["branch_id", "branch", "location", "store"]:
         if col in df.columns:
             return col
     return None
@@ -280,6 +292,15 @@ def get_cashier_performance_unduplicated(sales_df, branch_id=None):
     
     # Find cashier column
     cashier_col = get_cashier_column(sales_undup)
+    
+    # If no cashier column found, try to use user column from sales
+    if cashier_col is None:
+        for col in ["user", "username", "created_by", "recorded_by"]:
+            if col in sales_undup.columns:
+                cashier_col = col
+                break
+    
+    # If still no cashier column, return empty DataFrame
     if cashier_col is None:
         return pd.DataFrame()
     
@@ -302,11 +323,18 @@ def get_cashier_performance_unduplicated(sales_df, branch_id=None):
             profit_col = col
             break
     
+    # Get receipt column
+    receipt_col = get_receipt_column(sales_undup)
+    if receipt_col is None:
+        # Use index as fallback
+        receipt_col = "index"
+        sales_undup = sales_undup.reset_index()
+    
     # Group by cashier
     result = sales_undup.groupby(cashier_col).agg({
-        "receipt_no": "nunique",
+        receipt_col: "nunique",
     }).reset_index()
-    result = result.rename(columns={cashier_col: "Cashier", "receipt_no": "Transactions"})
+    result = result.rename(columns={cashier_col: "Cashier", receipt_col: "Transactions"})
     
     # Add revenue
     if amount_col:
@@ -963,8 +991,13 @@ def shift_management_page():
         else:
             # Check if we have sales data but no cashier column
             if not sales_undup.empty:
-                available_cols = sales_undup.columns.tolist()
-                st.info(f"No cashier data available in sales records. Available columns: {', '.join(available_cols[:10])}...")
+                st.warning("No cashier data available in sales records.")
+                
+                # Show available columns for debugging
+                with st.expander("Available columns in sales data"):
+                    st.write(sales_undup.columns.tolist())
+                
+                st.info("To enable cashier performance tracking, add a 'cashier' or 'user' column to your sales data.")
             else:
                 st.info("No sales data available to calculate performance")
 
