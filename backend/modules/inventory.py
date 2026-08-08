@@ -5,11 +5,11 @@ from backend.core.auth import check_login
 
 
 # ==============================
-# INVENTORY PAGE - WITH BATCH EDITING
+# INVENTORY PAGE - WITH BATCH DELETE
 # ==============================
 def inventory_page():
     
-    # Load products fresh each time - clear cache
+    # Load products fresh each time
     @st.cache_data(ttl=0)
     def load_fresh_products():
         return load_products()
@@ -161,7 +161,147 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # BATCH UPDATE PRODUCTS - MANUAL EDITING
+    # BATCH DELETE PRODUCTS
+    # ==============================
+    st.markdown("## Batch Delete Products")
+    st.caption("Select multiple products and delete them all at once")
+    
+    if not df.empty:
+        # Initialize session state for batch delete
+        if "batch_delete_selected" not in st.session_state:
+            st.session_state.batch_delete_selected = []
+        
+        # Display products with checkboxes
+        st.markdown("### Select Products to Delete")
+        
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            select_all_delete = st.checkbox("Select All", key="select_all_batch_delete")
+        
+        # Reset selection if select all
+        if select_all_delete:
+            st.session_state.batch_delete_selected = df.index.tolist()
+        
+        # Show products with checkboxes
+        cols_per_row = 2
+        product_list = df.to_dict('records')
+        
+        for i, product in enumerate(product_list):
+            col_idx = i % cols_per_row
+            if col_idx == 0:
+                cols = st.columns(cols_per_row)
+            
+            barcode = str(product.get("barcode", ""))
+            name = str(product.get("name", ""))
+            stock = float(product.get("stock", 0))
+            price = float(product.get("price", 0))
+            idx = i
+            
+            with cols[col_idx]:
+                is_selected = idx in st.session_state.batch_delete_selected
+                selected = st.checkbox(
+                    f"{name}\n(Stock: {stock:.2f} | Price: ${price:.2f})", 
+                    key=f"batch_delete_{barcode}_{i}",
+                    value=is_selected
+                )
+                
+                if selected and idx not in st.session_state.batch_delete_selected:
+                    st.session_state.batch_delete_selected.append(idx)
+                elif not selected and idx in st.session_state.batch_delete_selected:
+                    st.session_state.batch_delete_selected.remove(idx)
+        
+        # Show selected count and delete button
+        if st.session_state.batch_delete_selected:
+            st.markdown("---")
+            st.warning(f"**{len(st.session_state.batch_delete_selected)} products selected for deletion**")
+            
+            # Show selected products summary
+            with st.expander("Selected Products to Delete"):
+                selected_data = []
+                for idx in st.session_state.batch_delete_selected:
+                    if idx < len(df):
+                        product = df.iloc[idx]
+                        selected_data.append({
+                            "Name": product.get("name", ""),
+                            "Barcode": product.get("barcode", ""),
+                            "Stock": product.get("stock", 0),
+                            "Price": product.get("price", 0)
+                        })
+                
+                if selected_data:
+                    selected_df = pd.DataFrame(selected_data)
+                    st.dataframe(
+                        selected_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Stock": st.column_config.NumberColumn("Stock", format="%.2f"),
+                            "Price": st.column_config.NumberColumn("Price", format="$%.2f")
+                        }
+                    )
+            
+            # Confirmation and delete button
+            col1, col2, col3 = st.columns([1, 1, 1])
+            
+            with col1:
+                confirm_delete_batch = st.checkbox(
+                    f"I confirm deleting {len(st.session_state.batch_delete_selected)} products", 
+                    key="confirm_batch_delete"
+                )
+            
+            with col2:
+                if st.button("Clear Selection", use_container_width=True, key="clear_batch_delete"):
+                    st.session_state.batch_delete_selected = []
+                    st.rerun()
+            
+            with col3:
+                if st.button(
+                    f"Delete {len(st.session_state.batch_delete_selected)} Products", 
+                    type="secondary", 
+                    use_container_width=True,
+                    key="execute_batch_delete"
+                ):
+                    if confirm_delete_batch:
+                        try:
+                            # Get product names for the message
+                            product_names = []
+                            for idx in st.session_state.batch_delete_selected:
+                                if idx < len(df):
+                                    product_names.append(df.iloc[idx].get("name", "Unknown"))
+                            
+                            # Delete selected products (keep only those not selected)
+                            df = df.drop(st.session_state.batch_delete_selected)
+                            df = df.reset_index(drop=True)
+                            
+                            # Save the updated DataFrame
+                            if save_products(df):
+                                # Clear cache to force reload
+                                st.cache_data.clear()
+                                
+                                # Clear selection
+                                st.session_state.batch_delete_selected = []
+                                
+                                # Show success message
+                                st.success(f"Successfully deleted {len(product_names)} products: {', '.join(product_names[:5])}{'...' if len(product_names) > 5 else ''}")
+                                st.balloons()
+                                
+                                # Force reload
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete products. Please try again.")
+                        except Exception as e:
+                            st.error(f"Error deleting products: {str(e)}")
+                    else:
+                        st.error("Please confirm deletion by checking the box above.")
+        else:
+            st.info("Select products above to delete them in bulk")
+    else:
+        st.info("No products in inventory to delete.")
+    
+    st.markdown("---")
+    
+    # ==============================
+    # BATCH UPDATE PRODUCTS
     # ==============================
     st.markdown("## Batch Update Products")
     st.caption("Select multiple products, edit their details manually, then save all at once")
@@ -206,7 +346,7 @@ def inventory_page():
                 is_selected = idx in st.session_state.batch_selected
                 selected = st.checkbox(
                     f"{name}\n(Stock: {stock:.2f} | Price: ${price:.2f})", 
-                    key=f"batch_select_{barcode}_{i}",
+                    key=f"batch_edit_select_{barcode}_{i}",
                     value=is_selected
                 )
                 
@@ -255,7 +395,7 @@ def inventory_page():
                             new_name = st.text_input(
                                 "Name",
                                 value=edit_data.get("name", current_name),
-                                key=f"batch_name_{idx}",
+                                key=f"batch_edit_name_{idx}",
                                 label_visibility="collapsed"
                             )
                             st.caption("Product Name")
@@ -264,7 +404,7 @@ def inventory_page():
                             new_category = st.text_input(
                                 "Category",
                                 value=edit_data.get("category", product.get("category", "")),
-                                key=f"batch_category_{idx}",
+                                key=f"batch_edit_category_{idx}",
                                 label_visibility="collapsed"
                             )
                             st.caption("Category")
@@ -276,7 +416,7 @@ def inventory_page():
                                 value=float(edit_data.get("price", product.get("price", 0))),
                                 step=0.5,
                                 format="%.2f",
-                                key=f"batch_price_{idx}",
+                                key=f"batch_edit_price_{idx}",
                                 label_visibility="collapsed"
                             )
                             st.caption("Price ($)")
@@ -288,7 +428,7 @@ def inventory_page():
                                 value=float(edit_data.get("cost", product.get("cost", 0))),
                                 step=0.5,
                                 format="%.2f",
-                                key=f"batch_cost_{idx}",
+                                key=f"batch_edit_cost_{idx}",
                                 label_visibility="collapsed"
                             )
                             st.caption("Cost ($)")
@@ -300,7 +440,7 @@ def inventory_page():
                                 value=float(edit_data.get("stock", product.get("stock", 0))),
                                 step=0.5,
                                 format="%.2f",
-                                key=f"batch_stock_{idx}",
+                                key=f"batch_edit_stock_{idx}",
                                 label_visibility="collapsed"
                             )
                             st.caption("Stock")
@@ -314,7 +454,7 @@ def inventory_page():
                                 value=float(edit_data.get("reorder_level", product.get("reorder_level", 0))),
                                 step=0.5,
                                 format="%.2f",
-                                key=f"batch_reorder_{idx}",
+                                key=f"batch_edit_reorder_{idx}",
                                 label_visibility="collapsed"
                             )
                             st.caption("Reorder Level")
@@ -425,201 +565,105 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # SINGLE PRODUCT UPDATE & DELETE (FIXED - PROPER DELETION)
+    # SINGLE PRODUCT UPDATE (Legacy)
     # ==============================
-    st.markdown("## Single Product Management")
-    st.caption("Update or delete one product at a time")
+    st.markdown("## Single Product Update")
+    st.caption("Update one product at a time")
     
     if not df.empty:
-        # Create a list of product names with barcodes for identification
-        product_display_list = []
-        product_id_map = {}
+        product_names = df["name"].tolist()
+        selected_product = st.selectbox("Select Product to Update", product_names, key="update_product_select_single")
         
-        for idx, row in df.iterrows():
-            barcode = str(row.get("barcode", ""))
-            name = str(row.get("name", ""))
-            display_text = f"{name} (Barcode: {barcode})"
-            product_display_list.append(display_text)
-            product_id_map[display_text] = idx
-        
-        selected_display = st.selectbox(
-            "Select Product to Manage", 
-            product_display_list, 
-            key="update_product_select"
-        )
-        
-        if selected_display:
-            product_index = product_id_map[selected_display]
-            product_data = df.iloc[product_index]
+        if selected_product:
+            product_data = df[df["name"] == selected_product].iloc[0]
+            product_index = df[df["name"] == selected_product].index[0]
             
-            # Show current product info
-            with st.container(border=True):
-                st.markdown(f"**Current Product Details**")
+            name_lower = str(product_data["name"]).lower()
+            category_lower = str(product_data.get("category", "")).lower()
+            is_decimal_product = any(keyword in name_lower or keyword in category_lower 
+                                     for keyword in ["gas", "kg", "bread", "loaf", "flour", "sugar", 
+                                                     "rice", "maize meal", "cooking oil", "milk", 
+                                                     "liquid", "weight"])
+            
+            with st.form("update_product_form_single", clear_on_submit=False):
                 col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**Name:** {product_data.get('name', '')}")
-                    st.write(f"**Barcode:** {product_data.get('barcode', '')}")
-                    st.write(f"**Category:** {product_data.get('category', 'Uncategorized')}")
-                with col2:
-                    st.write(f"**Price:** ${float(product_data.get('price', 0)):.2f}")
-                    st.write(f"**Cost:** ${float(product_data.get('cost', 0)):.2f}")
-                    st.write(f"**Stock:** {float(product_data.get('stock', 0)):.2f}")
-                    st.write(f"**Reorder Level:** {float(product_data.get('reorder_level', 0)):.2f}")
-            
-            # Update section
-            with st.expander("Update Product", expanded=False):
-                name_lower = str(product_data.get("name", "")).lower()
-                category_lower = str(product_data.get("category", "")).lower()
-                is_decimal_product = any(keyword in name_lower or keyword in category_lower 
-                                         for keyword in ["gas", "kg", "bread", "loaf", "flour", "sugar", 
-                                                         "rice", "maize meal", "cooking oil", "milk", 
-                                                         "liquid", "weight"])
                 
-                with st.form("update_product_form", clear_on_submit=False):
-                    col1, col2 = st.columns(2)
+                with col1:
+                    update_barcode = st.text_input("Barcode", value=str(product_data["barcode"]), key="single_update_barcode")
+                    update_name = st.text_input("Product Name", value=product_data["name"], key="single_update_name")
+                    update_category = st.text_input("Category", value=product_data.get("category", ""), key="single_update_category")
+                    update_price = st.number_input(
+                        "Price ($)", 
+                        value=float(product_data["price"]), 
+                        min_value=0.0, 
+                        step=0.5, 
+                        format="%.2f",
+                        key="single_update_price"
+                    )
+                
+                with col2:
+                    update_cost = st.number_input(
+                        "Cost ($)", 
+                        value=float(product_data.get("cost", 0)), 
+                        min_value=0.0, 
+                        step=0.5, 
+                        format="%.2f",
+                        key="single_update_cost"
+                    )
                     
-                    with col1:
-                        update_barcode = st.text_input("Barcode", value=str(product_data.get("barcode", "")), key="update_barcode")
-                        update_name = st.text_input("Product Name", value=product_data.get("name", ""), key="update_name")
-                        update_category = st.text_input("Category", value=product_data.get("category", ""), key="update_category")
-                        update_price = st.number_input(
-                            "Price ($)", 
-                            value=float(product_data.get("price", 0)), 
-                            min_value=0.0, 
-                            step=0.5, 
-                            format="%.2f",
-                            key="update_price"
-                        )
-                    
-                    with col2:
-                        update_cost = st.number_input(
-                            "Cost ($)", 
-                            value=float(product_data.get("cost", 0)), 
-                            min_value=0.0, 
-                            step=0.5, 
-                            format="%.2f",
-                            key="update_cost"
-                        )
-                        
-                        current_stock = float(product_data.get("stock", 0))
-                        current_reorder = float(product_data.get("reorder_level", 0))
-                        
-                        if is_decimal_product:
-                            stock_step = 0.5
-                            stock_min = 0.0
-                            stock_format = "%.2f"
-                        else:
-                            stock_step = 1.0
-                            stock_min = 0.0
-                            stock_format = "%.0f"
-                        
-                        update_stock = st.number_input(
-                            "Stock", 
-                            min_value=stock_min, 
-                            value=current_stock, 
-                            step=stock_step,
-                            format=stock_format,
-                            key="update_stock"
-                        )
-                        
-                        update_reorder = st.number_input(
-                            "Reorder Level", 
-                            min_value=stock_min, 
-                            value=current_reorder, 
-                            step=stock_step,
-                            format=stock_format,
-                            key="update_reorder"
-                        )
+                    current_stock = float(product_data["stock"])
+                    current_reorder = float(product_data["reorder_level"])
                     
                     if is_decimal_product:
-                        st.info("Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
+                        stock_step = 0.5
+                        stock_min = 0.0
+                        stock_format = "%.2f"
+                    else:
+                        stock_step = 1.0
+                        stock_min = 0.0
+                        stock_format = "%.0f"
                     
-                    save_changes = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
+                    update_stock = st.number_input(
+                        "Stock", 
+                        min_value=stock_min, 
+                        value=current_stock, 
+                        step=stock_step,
+                        format=stock_format,
+                        key="single_update_stock"
+                    )
                     
-                    if save_changes:
-                        try:
-                            # Check if barcode already exists for another product
-                            if update_barcode.strip():
-                                existing = df[df["barcode"].astype(str) == update_barcode.strip()]
-                                if not existing.empty and existing.index[0] != product_index:
-                                    st.error(f"Barcode '{update_barcode.strip()}' already exists for another product!")
-                                else:
-                                    df.at[product_index, "barcode"] = update_barcode.strip()
-                                    df.at[product_index, "name"] = update_name
-                                    df.at[product_index, "category"] = update_category if update_category else "Uncategorized"
-                                    df.at[product_index, "price"] = float(update_price)
-                                    df.at[product_index, "cost"] = float(update_cost)
-                                    df.at[product_index, "stock"] = float(update_stock)
-                                    df.at[product_index, "reorder_level"] = float(update_reorder)
-                                    
-                                    if save_products(df):
-                                        st.success(f"Product '{update_name}' updated successfully!")
-                                        st.cache_data.clear()
-                                        st.rerun()
-                                    else:
-                                        st.error("Failed to save product changes.")
-                            else:
-                                st.error("Barcode cannot be empty!")
-                        except Exception as e:
-                            st.error(f"Error updating product: {str(e)}")
-            
-            # Delete section - FIXED with proper deletion
-            st.markdown("### Delete Product")
-            st.warning("This will permanently delete the selected product.")
-            
-            # Use a unique key for the checkbox
-            confirm_delete = st.checkbox(
-                f"Confirm delete '{product_data.get('name', '')}'", 
-                key=f"confirm_delete_{product_index}"
-            )
-            
-            # Use a unique key for the delete button
-            if st.button("Delete Product", type="secondary", use_container_width=True, key=f"delete_btn_{product_index}"):
-                if confirm_delete:
+                    update_reorder = st.number_input(
+                        "Reorder Level", 
+                        min_value=stock_min, 
+                        value=current_reorder, 
+                        step=stock_step,
+                        format=stock_format,
+                        key="single_update_reorder"
+                    )
+                
+                if is_decimal_product:
+                    st.info("Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
+                
+                save_changes = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
+                
+                if save_changes:
                     try:
-                        # Get the product name for the message
-                        product_name = product_data.get("name", "Unknown")
+                        df.at[product_index, "barcode"] = update_barcode.strip()
+                        df.at[product_index, "name"] = update_name
+                        df.at[product_index, "category"] = update_category if update_category else "Uncategorized"
+                        df.at[product_index, "price"] = float(update_price)
+                        df.at[product_index, "cost"] = float(update_cost)
+                        df.at[product_index, "stock"] = float(update_stock)
+                        df.at[product_index, "reorder_level"] = float(update_reorder)
                         
-                        # Get the barcode to ensure we delete the right product
-                        product_barcode = str(product_data.get("barcode", ""))
-                        
-                        # Delete by index
-                        df = df.drop(product_index)
-                        df = df.reset_index(drop=True)
-                        
-                        # Save the updated DataFrame
                         if save_products(df):
-                            # Clear cache to force reload
+                            st.success(f"Product '{update_name}' updated successfully!")
                             st.cache_data.clear()
-                            
-                            # Clear session state for batch editing
-                            if "batch_selected" in st.session_state:
-                                st.session_state.batch_selected = []
-                            if "batch_edit_data" in st.session_state:
-                                st.session_state.batch_edit_data = {}
-                            
-                            # Set success message in session state
-                            st.session_state.delete_success = True
-                            st.session_state.delete_message = f"Product '{product_name}' deleted successfully!"
-                            
-                            # Force reload the page with a fresh load
                             st.rerun()
                         else:
-                            st.error("Failed to delete product. Please try again.")
+                            st.error("Failed to save product changes.")
                     except Exception as e:
-                        st.error(f"Error deleting product: {str(e)}")
-                else:
-                    st.error("Please confirm deletion by checking the box above.")
-            
-            # Display success message if deletion was successful
-            if st.session_state.get("delete_success", False):
-                st.success(st.session_state.get("delete_message", "Product deleted successfully!"))
-                st.balloons()
-                # Clear the flag after displaying
-                st.session_state.delete_success = False
-                st.session_state.delete_message = ""
-    else:
-        st.info("No products in inventory. Add your first product above.")
+                        st.error(f"Error updating product: {str(e)}")
     
     # ==============================
     # DELETE ALL PRODUCTS - ADMIN ONLY
