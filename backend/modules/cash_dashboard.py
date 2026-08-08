@@ -1,4 +1,5 @@
-# backend/modules/cash_dashboard.py
+# backend/modules/cash_dashboard.py - Fixed version with unduplicated revenue
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -79,6 +80,16 @@ def get_payment_method_column(df):
     if df is None or df.empty:
         return None
     for col in ["payment_method", "payment_type", "payment"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_date_column(df):
+    """Find date column"""
+    if df is None or df.empty:
+        return None
+    for col in ["sale_date", "date", "transaction_date", "created_at"]:
         if col in df.columns:
             return col
     return None
@@ -350,7 +361,7 @@ def cash_dashboard():
                 else:
                     st.info("Only managers and owners can close shifts.")
         
-        # Shift history
+        # Shift history - FIXED: Use unduplicated sales for total revenue
         st.markdown("---")
         st.markdown("### Shift History (This Branch)")
         
@@ -372,16 +383,26 @@ def cash_dashboard():
                 st.dataframe(display_shifts, use_container_width=True, hide_index=True)
                 
                 total_shifts = len(branch_shifts)
-                total_revenue = safe_float(branch_shifts["total_revenue"].sum()) if "total_revenue" in branch_shifts.columns else 0
+                
+                # FIXED: Get total revenue from unduplicated sales, not from shift records
+                total_revenue_undup = safe_float(get_total_revenue_unduplicated(sales_undup))
+                
+                # Also get total from shifts for comparison (if available)
+                shifts_total = safe_float(branch_shifts["total_revenue"].sum()) if "total_revenue" in branch_shifts.columns else 0
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total Shifts", total_shifts)
                 with col2:
-                    st.metric("Total Revenue", f"${total_revenue:,.2f}")
+                    # Use unduplicated revenue
+                    st.metric("Total Revenue (Unduplicated)", f"${total_revenue_undup:,.2f}")
                 with col3:
                     active_count = len(branch_shifts[branch_shifts["status"] == "OPEN"])
                     st.metric("Active Shifts", active_count)
+                
+                # Show warning if there's a discrepancy
+                if shifts_total > 0 and abs(shifts_total - total_revenue_undup) > 1:
+                    st.warning(f"Note: Shift records show ${shifts_total:,.2f} but unduplicated sales show ${total_revenue_undup:,.2f}. Using unduplicated sales for accuracy.")
             else:
                 st.info("No shift history found for this branch")
         else:
@@ -403,11 +424,7 @@ def cash_dashboard():
         today_total_revenue = 0
         
         if not sales_undup.empty and amount_col:
-            date_col = None
-            for col in ["sale_date", "date", "transaction_date"]:
-                if col in sales_undup.columns:
-                    date_col = col
-                    break
+            date_col = get_date_column(sales_undup)
             
             if date_col:
                 sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
@@ -450,11 +467,7 @@ def cash_dashboard():
         # Show transaction details
         if not sales_undup.empty:
             st.subheader("Today's Transactions")
-            date_col = None
-            for col in ["sale_date", "date", "transaction_date"]:
-                if col in sales_undup.columns:
-                    date_col = col
-                    break
+            date_col = get_date_column(sales_undup)
             
             if date_col:
                 sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
@@ -651,11 +664,7 @@ def cash_dashboard():
     
     if st.button("Generate Daily Report", use_container_width=True):
         today = datetime.now().date()
-        date_col = None
-        for col in ["sale_date", "date", "transaction_date"]:
-            if col in sales_undup.columns:
-                date_col = col
-                break
+        date_col = get_date_column(sales_undup)
         
         today_cash_sales = 0
         today_credit_sales = 0
