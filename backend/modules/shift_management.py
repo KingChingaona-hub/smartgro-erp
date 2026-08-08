@@ -19,10 +19,129 @@ from backend.modules.shift_manager import (
     get_shift_summary,
     get_cashier_shift_history
 )
+from backend.modules.expenses import load_expenses
+from backend.modules.income import load_income
+from backend.core.floating_financials import get_credit_records, get_credit_summary
+
+
+# ==============================
+# HELPER FUNCTIONS
+# ==============================
+
+def safe_float(value, default=0.0):
+    """Safely convert value to float"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def get_unduplicated_sales(sales_df):
+    """Get unduplicated sales by receipt_no to avoid revenue duplication"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_df = sales_df.copy()
+    receipt_col = None
+    for col in ["receipt_no", "receipt", "transaction_id"]:
+        if col in sales_df.columns:
+            receipt_col = col
+            break
+    
+    if receipt_col and receipt_col in sales_df.columns:
+        return sales_df.drop_duplicates(subset=[receipt_col])
+    
+    return sales_df
+
+
+def get_receipt_column(df):
+    """Find receipt column in dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["receipt_no", "receipt", "transaction_id", "order_id", "invoice"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_amount_column(df):
+    """Find amount column in dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["final_total", "total", "amount", "sale_amount", "revenue"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_payment_method_column(df):
+    """Find payment method column in dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["payment_method", "payment_type", "payment", "method"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_cash_sales_unduplicated(sales_df):
+    """Get cash sales from unduplicated receipts"""
+    if sales_df is None or sales_df.empty:
+        return 0.0
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    if sales_undup.empty:
+        return 0.0
+    
+    payment_col = get_payment_method_column(sales_undup)
+    amount_col = get_amount_column(sales_undup)
+    
+    if payment_col and amount_col:
+        cash_sales = sales_undup[sales_undup[payment_col].str.upper().isin(["CASH", "ECOCASH"])]
+        return safe_float(cash_sales[amount_col].sum())
+    
+    return 0.0
+
+
+def get_credit_sales_unduplicated(sales_df):
+    """Get credit sales from unduplicated receipts"""
+    if sales_df is None or sales_df.empty:
+        return 0.0
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    if sales_undup.empty:
+        return 0.0
+    
+    payment_col = get_payment_method_column(sales_undup)
+    amount_col = get_amount_column(sales_undup)
+    
+    if payment_col and amount_col:
+        credit_sales = sales_undup[sales_undup[payment_col].str.upper() == "CREDIT"]
+        return safe_float(credit_sales[amount_col].sum())
+    
+    return 0.0
+
+
+def get_total_revenue_unduplicated(sales_df):
+    """Get total revenue from unduplicated sales"""
+    if sales_df is None or sales_df.empty:
+        return 0.0
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    if sales_undup.empty:
+        return 0.0
+    
+    amount_col = get_amount_column(sales_undup)
+    if amount_col:
+        return safe_float(sales_undup[amount_col].sum())
+    
+    return 0.0
 
 
 def shift_management_page():
-    """Main shift management page - Branch Level (FIXED)"""
+    """Main shift management page - Branch Level (FIXED with correct data sources)"""
     
     st.title("Shift Management")
     st.caption("Manage branch shifts, track performance, and monitor activity")
@@ -37,8 +156,17 @@ def shift_management_page():
     # Check if user can manage shifts (manager, admin, owner)
     can_manage_shifts = user_role in ["owner", "manager", "admin"]
     
-    # Load shifts data - FIXED: Load here so it's available everywhere
+    # Load shifts data
     shifts_df = load_shifts()
+    
+    # Load correct data sources
+    sales_df = load_sales()
+    expenses_df = load_expenses()
+    income_df = load_income()
+    credit_df = get_credit_records()
+    
+    # Get unduplicated sales
+    sales_undup = get_unduplicated_sales(sales_df)
     
     # Get the active shift for this branch
     active_shift = get_active_shift_for_branch(user_branch)
@@ -91,7 +219,6 @@ def shift_management_page():
                     if success:
                         st.sidebar.success(f"Shift started! ID: {result}")
                         st.sidebar.info(f"Opening Cash: ${opening_cash:.2f}")
-                        # Update session state
                         st.session_state.active_shift_id = result
                         st.session_state.branch_shift_active = True
                         st.rerun()
@@ -162,31 +289,60 @@ def shift_management_page():
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            # Get shift metrics
-                            sales_df = load_sales()
-                            cash_df = load_cash()
+                            # Get shift metrics from correct sources
+                            shift_sales = sales_undup[sales_undup["shift_id"] == shift_id] if not sales_undup.empty else pd.DataFrame()
                             
-                            # Calculate metrics for this shift
-                            shift_sales = sales_df[sales_df["shift_id"] == shift_id] if not sales_df.empty else pd.DataFrame()
-                            shift_cash = cash_df[cash_df["shift_id"] == shift_id] if not cash_df.empty else pd.DataFrame()
-                            
-                            total_sales = shift_sales["final_total"].sum() if not shift_sales.empty else 0
+                            total_sales = safe_float(shift_sales["final_total"].sum()) if not shift_sales.empty else 0
                             total_transactions = len(shift_sales)
-                            total_profit = shift_sales["profit"].sum() if not shift_sales.empty else 0
-                            cash_sales = shift_cash[shift_cash["type"] == "CASH_SALE"]["amount"].sum() if not shift_cash.empty else 0
-                            credit_sales = shift_cash[shift_cash["type"] == "CREDIT_SALE"]["amount"].sum() if not shift_cash.empty else 0
-                            debt_payments = shift_cash[shift_cash["type"] == "DEBT_PAYMENT"]["amount"].sum() if not shift_cash.empty else 0
-                            expenses = shift_cash[shift_cash["type"] == "EXPENSE"]["amount"].sum() if not shift_cash.empty else 0
+                            total_profit = safe_float(shift_sales["profit"].sum()) if not shift_sales.empty else 0
+                            
+                            # Get cash and credit sales
+                            cash_sales = get_cash_sales_unduplicated(shift_sales)
+                            credit_sales = get_credit_sales_unduplicated(shift_sales)
                             
                             st.metric("Total Sales", f"${total_sales:,.2f}")
+                            st.metric("Cash Sales", f"${cash_sales:,.2f}")
+                            st.metric("Credit Sales", f"${credit_sales:,.2f}")
                             st.metric("Total Profit", f"${total_profit:,.2f}")
                             st.metric("Transactions", f"{total_transactions}")
                         
                         with col2:
+                            # Get expenses for this shift from expenses module
+                            shift_expenses = 0
+                            if not expenses_df.empty and "shift_id" in expenses_df.columns:
+                                shift_expenses = safe_float(expenses_df[expenses_df["shift_id"] == shift_id]["amount"].sum())
+                            elif not expenses_df.empty:
+                                # If no shift_id, use expenses from today
+                                if "date" in expenses_df.columns:
+                                    expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
+                                    today = datetime.now().date()
+                                    today_expenses = expenses_df[expenses_df["date"].dt.date == today]
+                                    shift_expenses = safe_float(today_expenses["amount"].sum())
+                            
+                            # Get income for this shift from income module
+                            shift_income = 0
+                            if not income_df.empty and "shift_id" in income_df.columns:
+                                shift_income = safe_float(income_df[income_df["shift_id"] == shift_id]["amount"].sum())
+                            elif not income_df.empty:
+                                if "date" in income_df.columns:
+                                    income_df["date"] = pd.to_datetime(income_df["date"], errors="coerce")
+                                    today = datetime.now().date()
+                                    today_income = income_df[income_df["date"].dt.date == today]
+                                    shift_income = safe_float(today_income["amount"].sum())
+                            
+                            # Get debt payments from credit management
+                            debt_payments = 0
+                            if not credit_df.empty and "amount_paid" in credit_df.columns:
+                                debt_payments = safe_float(credit_df["amount_paid"].sum())
+                            
+                            st.metric("Expenses", f"${shift_expenses:,.2f}")
+                            st.metric("Income", f"${shift_income:,.2f}")
+                            st.metric("Debt Payments", f"${debt_payments:,.2f}")
+                            
                             closing_cash = st.number_input(
                                 "Closing Cash ($)",
                                 min_value=0.0,
-                                value=float(active_shift.get("opening_cash", 0) + cash_sales + debt_payments - expenses),
+                                value=float(active_shift.get("opening_cash", 0) + cash_sales + debt_payments - shift_expenses),
                                 step=10.0
                             )
                             
@@ -230,7 +386,6 @@ def shift_management_page():
                 branch = row.get('branch_id', 'N/A')
                 start_time = row.get('start_time')
                 
-                # Convert time to string safely
                 if hasattr(start_time, 'strftime'):
                     time_str = start_time.strftime("%Y-%m-%d %H:%M")
                 else:
@@ -253,7 +408,6 @@ def shift_management_page():
                     if not shift.empty:
                         shift_data = shift.iloc[0]
                         
-                        # Display shift details
                         col1, col2, col3 = st.columns(3)
                         
                         start_time = shift_data.get('start_time')
@@ -418,33 +572,68 @@ def shift_management_page():
         st.markdown("## Shift Summary")
         st.caption(f"Summary for branch: {user_branch}")
         
-        # Get cash summary for this branch
-        cash_summary = get_cash_summary()
+        # Get cash summary from correct sources
+        cash_sales = get_cash_sales_unduplicated(sales_undup)
+        credit_sales = get_credit_sales_unduplicated(sales_undup)
+        total_revenue = get_total_revenue_unduplicated(sales_undup)
         
-        if cash_summary:
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Opening Cash", f"${cash_summary.get('opening_cash', 0):,.2f}")
-            with col2:
-                st.metric("Cash Sales", f"${cash_summary.get('cash_sales', 0):,.2f}")
-            with col3:
-                st.metric("Credit Sales", f"${cash_summary.get('credit_sales', 0):,.2f}")
-            with col4:
-                st.metric("Total Revenue", f"${cash_summary.get('total_revenue', 0):,.2f}")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Expenses", f"${cash_summary.get('expenses', 0):,.2f}")
-            with col2:
-                st.metric("Deposits", f"${cash_summary.get('deposits', 0):,.2f}")
-            with col3:
-                st.metric("Transactions", cash_summary.get('transactions_count', 0))
-            with col4:
-                st.metric("Variance", f"${cash_summary.get('variance', 0):,.2f}")
-        else:
-            st.info("No cash summary data available")
+        # Get expenses from expenses module
+        total_expenses = 0
+        if not expenses_df.empty and "amount" in expenses_df.columns:
+            # Filter by date for today
+            if "date" in expenses_df.columns:
+                expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
+                today = datetime.now().date()
+                today_expenses = expenses_df[expenses_df["date"].dt.date == today]
+                total_expenses = safe_float(today_expenses["amount"].sum())
+            else:
+                total_expenses = safe_float(expenses_df["amount"].sum())
+        
+        # Get income from income module
+        total_income = 0
+        if not income_df.empty and "amount" in income_df.columns:
+            if "date" in income_df.columns:
+                income_df["date"] = pd.to_datetime(income_df["date"], errors="coerce")
+                today = datetime.now().date()
+                today_income = income_df[income_df["date"].dt.date == today]
+                total_income = safe_float(today_income["amount"].sum())
+            else:
+                total_income = safe_float(income_df["amount"].sum())
+        
+        # Get debt payments from credit management
+        debt_payments = 0
+        if not credit_df.empty and "amount_paid" in credit_df.columns:
+            # Filter for today
+            if "paid_at" in credit_df.columns:
+                credit_df["paid_at"] = pd.to_datetime(credit_df["paid_at"], errors="coerce")
+                today = datetime.now().date()
+                today_payments = credit_df[credit_df["paid_at"].dt.date == today]
+                debt_payments = safe_float(today_payments["amount_paid"].sum())
+            else:
+                debt_payments = safe_float(credit_df["amount_paid"].sum())
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Cash Sales", f"${cash_sales:,.2f}")
+        with col2:
+            st.metric("Credit Sales", f"${credit_sales:,.2f}")
+        with col3:
+            st.metric("Total Revenue", f"${total_revenue:,.2f}")
+        with col4:
+            st.metric("Debt Payments", f"${debt_payments:,.2f}")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Expenses", f"${total_expenses:,.2f}")
+        with col2:
+            st.metric("Income", f"${total_income:,.2f}")
+        with col3:
+            st.metric("Transactions", len(sales_undup) if not sales_undup.empty else 0)
+        with col4:
+            net = total_revenue - total_expenses + total_income
+            st.metric("Net Cash Flow", f"${net:,.2f}")
         
         # Daily trend - branch specific
         st.markdown("### Daily Shift Performance")

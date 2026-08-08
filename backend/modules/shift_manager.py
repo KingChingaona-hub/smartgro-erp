@@ -6,6 +6,12 @@ from datetime import datetime, timedelta
 from backend.core.db_adapter import load_shifts as db_load_shifts, save_shifts as db_save_shifts, load_users
 from decimal import Decimal
 
+# Import from correct data sources
+from backend.modules.expenses import load_expenses
+from backend.modules.income import load_income
+from backend.core.floating_financials import get_credit_records
+
+
 # ==============================
 # SHIFT NAMES AND TIME SLOTS
 # ==============================
@@ -285,7 +291,7 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
 
 
 # ==============================
-# UPDATE SHIFT STATS
+# UPDATE SHIFT STATS - FIXED WITH CORRECT DATA SOURCES
 # ==============================
 def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, expenses=0, transactions=0):
     """Update shift statistics during the shift"""
@@ -318,6 +324,41 @@ def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, 
     
     save_shifts(df)
     return True
+
+
+# ==============================
+# GET SHIFT CASH SALES - FROM UNDUPLICATED DATA
+# ==============================
+def get_shift_cash_sales_from_data(shift_id, sales_df):
+    """Get cash sales for a shift from unduplicated sales data"""
+    if sales_df is None or sales_df.empty:
+        return 0.0
+    
+    # Filter by shift_id if column exists
+    if "shift_id" in sales_df.columns:
+        shift_sales = sales_df[sales_df["shift_id"] == shift_id]
+    else:
+        # If no shift_id, try to use date
+        shift = get_active_shift_for_branch(st.session_state.get("user_branch", "HO"))
+        if shift and "start_time" in shift:
+            start_time = pd.to_datetime(shift["start_time"])
+            # Get sales from start time
+            if "sale_date" in sales_df.columns:
+                sales_df["sale_date"] = pd.to_datetime(sales_df["sale_date"])
+                shift_sales = sales_df[sales_df["sale_date"] >= start_time]
+            else:
+                shift_sales = pd.DataFrame()
+        else:
+            shift_sales = pd.DataFrame()
+    
+    if shift_sales.empty:
+        return 0.0
+    
+    # Get unduplicated sales
+    from backend.core.db_adapter import load_sales
+    from backend.analytics.reports_engine import get_unduplicated_sales, get_cash_sales_unduplicated
+    
+    return get_cash_sales_unduplicated(shift_sales)
 
 
 # ==============================
