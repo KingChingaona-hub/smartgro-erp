@@ -1,4 +1,6 @@
 """
+backend/modules/purchases_page.py
+
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
 """
@@ -417,10 +419,10 @@ def get_po_details(po_number):
 
 
 # ==============================
-# PURCHASES PAGE - OPTIMIZED
+# PURCHASES PAGE - OPTIMIZED WITH BATCH ADDITION
 # ==============================
 def purchases_page():
-    """Enhanced Purchases Management Page with Auto-Stock Update"""
+    """Enhanced Purchases Management Page with Batch Addition to Cart"""
     
     st.title("Purchases and Suppliers Management")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
@@ -450,6 +452,12 @@ def purchases_page():
         st.session_state.refresh_required = False
     if "confirm_delete_all" not in st.session_state:
         st.session_state.confirm_delete_all = False
+    if "batch_selected_products" not in st.session_state:
+        st.session_state.batch_selected_products = []
+    if "batch_quantities" not in st.session_state:
+        st.session_state.batch_quantities = {}
+    if "show_batch_add" not in st.session_state:
+        st.session_state.show_batch_add = False
     
     # Handle refresh after deletion
     if st.session_state.refresh_required:
@@ -505,9 +513,231 @@ def purchases_page():
                                          value=datetime.now().date() + timedelta(days=7),
                                          key="po_expected_date")
         
+        st.markdown("---")
         st.markdown("### Add Products to Order")
         
+        # ==============================
+        # BATCH ADDITION SECTION
+        # ==============================
         if not products_df.empty:
+            st.markdown("#### Batch Add Products from Supplier")
+            st.caption("Select multiple products to add to your order at once")
+            
+            # Batch selection
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                search_batch = st.text_input("Search Products for Batch", key="batch_search", 
+                                            placeholder="Type product name or barcode to filter...")
+            
+            with col2:
+                # Select all checkbox
+                select_all_batch = st.checkbox("Select All Products", key="select_all_batch")
+            
+            with col3:
+                if st.button("Show Batch Add", key="show_batch_add_btn", use_container_width=True):
+                    st.session_state.show_batch_add = not st.session_state.show_batch_add
+                    if st.session_state.show_batch_add:
+                        # Reset selections when showing
+                        st.session_state.batch_selected_products = []
+                        st.session_state.batch_quantities = {}
+            
+            if st.session_state.show_batch_add:
+                # Filter products based on search
+                filtered_for_batch = products_df.copy()
+                if search_batch:
+                    filtered_for_batch = products_df[
+                        products_df["name"].astype(str).str.contains(search_batch, case=False) |
+                        products_df["barcode"].astype(str).str.contains(search_batch, case=False)
+                    ]
+                
+                if not filtered_for_batch.empty:
+                    st.markdown("##### Select Products and Enter Quantities")
+                    
+                    # Display products in a grid with checkboxes and quantity inputs
+                    cols_per_row = 3
+                    product_list = filtered_for_batch.to_dict('records')
+                    
+                    # Initialize session state for batch quantities if needed
+                    for i, product in enumerate(product_list):
+                        barcode = str(product.get("barcode", ""))
+                        if barcode not in st.session_state.batch_quantities:
+                            st.session_state.batch_quantities[barcode] = 1.0
+                    
+                    # Select all logic
+                    if select_all_batch:
+                        for product in product_list:
+                            barcode = str(product.get("barcode", ""))
+                            if barcode not in st.session_state.batch_selected_products:
+                                st.session_state.batch_selected_products.append(barcode)
+                    
+                    # Display products with checkboxes and quantity inputs
+                    for i, product in enumerate(product_list):
+                        col_idx = i % cols_per_row
+                        if col_idx == 0:
+                            cols = st.columns(cols_per_row)
+                        
+                        barcode = str(product.get("barcode", ""))
+                        name = str(product.get("name", ""))
+                        stock = float(product.get("stock", 0))
+                        cost = float(product.get("cost", 0))
+                        price = float(product.get("price", 0))
+                        category = str(product.get("category", ""))
+                        
+                        is_decimal = supports_decimal(name, category)
+                        
+                        with cols[col_idx]:
+                            with st.container(border=True):
+                                # Checkbox for selection
+                                is_selected = barcode in st.session_state.batch_selected_products
+                                selected = st.checkbox(
+                                    f"**{name}**", 
+                                    key=f"batch_check_{barcode}",
+                                    value=is_selected
+                                )
+                                
+                                if selected and barcode not in st.session_state.batch_selected_products:
+                                    st.session_state.batch_selected_products.append(barcode)
+                                elif not selected and barcode in st.session_state.batch_selected_products:
+                                    st.session_state.batch_selected_products.remove(barcode)
+                                
+                                st.caption(f"Category: {category if category else 'Uncategorized'}")
+                                st.caption(f"Stock: {stock:.2f} | Cost: ${cost:.2f}")
+                                
+                                # Quantity input
+                                if is_decimal:
+                                    qty = st.number_input(
+                                        "Qty",
+                                        min_value=0.0,
+                                        value=st.session_state.batch_quantities.get(barcode, 1.0),
+                                        step=0.5,
+                                        format="%.2f",
+                                        key=f"batch_qty_{barcode}",
+                                        label_visibility="collapsed"
+                                    )
+                                    st.caption("Decimal quantities supported")
+                                else:
+                                    qty = st.number_input(
+                                        "Qty",
+                                        min_value=1,
+                                        value=int(st.session_state.batch_quantities.get(barcode, 1)),
+                                        step=1,
+                                        key=f"batch_qty_{barcode}",
+                                        label_visibility="collapsed"
+                                    )
+                                
+                                st.session_state.batch_quantities[barcode] = qty
+                    
+                    # Action buttons for batch
+                    if st.session_state.batch_selected_products:
+                        st.markdown("---")
+                        st.markdown(f"**{len(st.session_state.batch_selected_products)} products selected**")
+                        
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        
+                        with col1:
+                            if st.button("Clear Selection", key="clear_batch_selection", use_container_width=True):
+                                st.session_state.batch_selected_products = []
+                                st.session_state.batch_quantities = {}
+                                st.rerun()
+                        
+                        with col2:
+                            # Preview selected products
+                            preview_btn = st.button("Preview Selected", key="preview_batch", use_container_width=True)
+                            if preview_btn:
+                                selected_products = []
+                                for barcode in st.session_state.batch_selected_products:
+                                    product = products_df[products_df["barcode"].astype(str) == barcode]
+                                    if not product.empty:
+                                        p = product.iloc[0]
+                                        qty = st.session_state.batch_quantities.get(barcode, 1)
+                                        cost_val = float(p.get("cost", 0))
+                                        selected_products.append({
+                                            "name": str(p.get("name", "")),
+                                            "barcode": barcode,
+                                            "quantity": float(qty),
+                                            "cost": cost_val,
+                                            "total": float(qty) * cost_val,
+                                            "category": str(p.get("category", "New Purchase"))
+                                        })
+                                
+                                if selected_products:
+                                    preview_df = pd.DataFrame(selected_products)
+                                    st.dataframe(
+                                        preview_df[["name", "quantity", "cost", "total"]],
+                                        use_container_width=True,
+                                        hide_index=True,
+                                        column_config={
+                                            "quantity": st.column_config.NumberColumn("Qty", format="%.2f"),
+                                            "cost": st.column_config.NumberColumn("Unit Cost", format="$%.2f"),
+                                            "total": st.column_config.NumberColumn("Total", format="$%.2f")
+                                        }
+                                    )
+                                    st.info(f"Total: ${preview_df['total'].sum():,.2f}")
+                        with col3:
+                            # Add to cart button
+                            if st.button("Add Selected to Cart", type="primary", key="add_batch_to_cart", use_container_width=True):
+                                if not supplier_name or not supplier_name.strip():
+                                    st.error("Please enter a supplier name first")
+                                else:
+                                    added_count = 0
+                                    for barcode in st.session_state.batch_selected_products:
+                                        product = products_df[products_df["barcode"].astype(str) == barcode]
+                                        if not product.empty:
+                                            p = product.iloc[0]
+                                            qty = st.session_state.batch_quantities.get(barcode, 1)
+                                            
+                                            if qty <= 0:
+                                                continue
+                                            
+                                            cost_val = float(p.get("cost", 0))
+                                            category_val = str(p.get("category", "")).strip()
+                                            if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
+                                                category_val = "New Purchase"
+                                            
+                                            # Check if already in cart
+                                            existing = False
+                                            for item in st.session_state.po_cart:
+                                                if str(item["barcode"]) == barcode:
+                                                    if isinstance(qty, float):
+                                                        item["quantity"] = float(item["quantity"]) + qty
+                                                    else:
+                                                        item["quantity"] = int(item["quantity"]) + int(qty)
+                                                    item["total"] = item["quantity"] * item["cost"]
+                                                    existing = True
+                                                    break
+                                            
+                                            if not existing:
+                                                st.session_state.po_cart.append({
+                                                    "barcode": barcode,
+                                                    "name": str(p.get("name", "")),
+                                                    "quantity": float(qty),
+                                                    "cost": cost_val,
+                                                    "total": cost_val * float(qty),
+                                                    "category": category_val
+                                                })
+                                            added_count += 1
+                                    
+                                    if added_count > 0:
+                                        st.success(f"Added {added_count} products to cart for {supplier_name}")
+                                        # Clear batch selection after adding
+                                        st.session_state.batch_selected_products = []
+                                        st.session_state.batch_quantities = {}
+                                        st.rerun()
+                                    else:
+                                        st.warning("No products were added. Check quantities.")
+                    else:
+                        st.info("Select products above to add them to your cart")
+                else:
+                    st.info("No products found matching your search")
+        st.markdown("---")
+        
+        # ==============================
+        # SINGLE PRODUCT ADD (Existing)
+        # ==============================
+        if not products_df.empty:
+            st.markdown("#### Add Single Product")
+            
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
             
             with col1:
@@ -574,42 +804,45 @@ def purchases_page():
                 if selected_product is not None:
                     add_button = st.button("Add to Order", key="add_to_po", use_container_width=True)
                     if add_button:
-                        existing = False
-                        barcode_str = str(selected_product["barcode"])
-                        for item in st.session_state.po_cart:
-                            if str(item["barcode"]) == barcode_str:
-                                if isinstance(po_qty, float):
-                                    item["quantity"] = float(item["quantity"]) + po_qty
-                                else:
-                                    item["quantity"] = int(item["quantity"]) + int(po_qty)
-                                item["total"] = item["quantity"] * item["cost"]
-                                existing = True
-                                break
-                        
-                        if not existing:
-                            cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
-                            category_val = str(selected_product.get("category", "")).strip()
-                            if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
-                                category_val = "New Purchase"
-                            
-                            if isinstance(po_qty, float):
-                                quantity_val = float(po_qty)
-                            else:
-                                quantity_val = int(po_qty)
-                            
-                            st.session_state.po_cart.append({
-                                "barcode": str(selected_product["barcode"]),
-                                "name": str(selected_product["name"]),
-                                "quantity": quantity_val,
-                                "cost": cost_val,
-                                "total": cost_val * quantity_val,
-                                "category": category_val
-                            })
-                        
-                        if isinstance(po_qty, float) and po_qty % 1 != 0:
-                            st.success(f"Added {po_qty:.2f} x {selected_product['name']} to order")
+                        if not supplier_name or not supplier_name.strip():
+                            st.error("Please enter a supplier name first")
                         else:
-                            st.success(f"Added {int(po_qty)} x {selected_product['name']} to order")
+                            existing = False
+                            barcode_str = str(selected_product["barcode"])
+                            for item in st.session_state.po_cart:
+                                if str(item["barcode"]) == barcode_str:
+                                    if isinstance(po_qty, float):
+                                        item["quantity"] = float(item["quantity"]) + po_qty
+                                    else:
+                                        item["quantity"] = int(item["quantity"]) + int(po_qty)
+                                    item["total"] = item["quantity"] * item["cost"]
+                                    existing = True
+                                    break
+                            
+                            if not existing:
+                                cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
+                                category_val = str(selected_product.get("category", "")).strip()
+                                if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
+                                    category_val = "New Purchase"
+                                
+                                if isinstance(po_qty, float):
+                                    quantity_val = float(po_qty)
+                                else:
+                                    quantity_val = int(po_qty)
+                                
+                                st.session_state.po_cart.append({
+                                    "barcode": str(selected_product["barcode"]),
+                                    "name": str(selected_product["name"]),
+                                    "quantity": quantity_val,
+                                    "cost": cost_val,
+                                    "total": cost_val * quantity_val,
+                                    "category": category_val
+                                })
+                            
+                            if isinstance(po_qty, float) and po_qty % 1 != 0:
+                                st.success(f"Added {po_qty:.2f} x {selected_product['name']} to order")
+                            else:
+                                st.success(f"Added {int(po_qty)} x {selected_product['name']} to order")
             
             with col4:
                 clear_button = st.button("Clear Cart", use_container_width=True)
@@ -617,6 +850,11 @@ def purchases_page():
                     st.session_state.po_cart = []
                     st.success("Cart cleared!")
         
+        st.markdown("---")
+        
+        # ==============================
+        # MANUAL ITEM ENTRY (Existing)
+        # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
@@ -658,7 +896,9 @@ def purchases_page():
                 add_manual_button = st.form_submit_button("Add Item", use_container_width=True)
                 
                 if add_manual_button:
-                    if manual_item_name and manual_item_name.strip():
+                    if not supplier_name or not supplier_name.strip():
+                        st.error("Please enter a supplier name first")
+                    elif manual_item_name and manual_item_name.strip():
                         category_input = manual_item_category.strip()
                         
                         if category_input:
@@ -704,6 +944,9 @@ def purchases_page():
                     else:
                         st.error("Please enter an item name")
         
+        # ==============================
+        # CART DISPLAY (Existing)
+        # ==============================
         st.markdown("---")
         st.markdown("### Purchase Order Cart")
         
@@ -727,6 +970,19 @@ def purchases_page():
             
             po_total = po_cart_df["total"].sum()
             st.info(f"**Total Order Value: ${po_total:,.2f}**")
+            
+            # Remove item from cart
+            st.markdown("#### Remove Item from Cart")
+            item_to_remove = st.selectbox(
+                "Select item to remove",
+                [item["name"] for item in st.session_state.po_cart],
+                key="remove_item_select"
+            )
+            
+            if st.button("Remove Selected Item", key="remove_item_btn", use_container_width=True):
+                st.session_state.po_cart = [item for item in st.session_state.po_cart if item["name"] != item_to_remove]
+                st.success(f"Removed '{item_to_remove}' from cart")
+                st.rerun()
             
             col1, col2 = st.columns(2)
             
@@ -920,7 +1176,7 @@ Contact: +263 78 290 5853
             st.info("Review the preview above and click 'Confirm and Create PO' to save.")
     
     # ==============================
-    # TAB 2: RECEIVE STOCK
+    # TAB 2: RECEIVE STOCK (Existing - No changes)
     # ==============================
     with tab2:
         st.markdown("## Receive Stock - Auto Update Inventory")
@@ -984,7 +1240,7 @@ Contact: +263 78 290 5853
                         st.info(f"PO Total: ${po_total:,.2f}")
                         
                         # ============================================================
-                        # DELETE PURCHASE ORDER - FIXED
+                        # DELETE PURCHASE ORDER
                         # ============================================================
                         if po_details['status'] == "PENDING":
                             st.markdown("---")
@@ -1125,7 +1381,7 @@ Contact: +263 78 290 5853
                                 st.rerun()
     
     # ==============================
-    # TAB 3: SUPPLIER PERFORMANCE
+    # TAB 3: SUPPLIER PERFORMANCE (Existing - No changes)
     # ==============================
     with tab3:
         st.markdown("## Supplier Performance Dashboard")
@@ -1166,7 +1422,7 @@ Contact: +263 78 290 5853
                 st.dataframe(low_fulfillment[["Supplier", "Fulfillment Rate"]], use_container_width=True, hide_index=True)
     
     # ==============================
-    # TAB 4: PURCHASE HISTORY
+    # TAB 4: PURCHASE HISTORY (Existing - No changes)
     # ==============================
     with tab4:
         st.markdown("## Purchase History")
