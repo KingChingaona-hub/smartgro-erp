@@ -654,7 +654,7 @@ def reports_dashboard():
                 st.markdown("### Debtors by Type")
                 fig = px.bar(
                     debtors_report['by_type'],
-                    x="type",
+                    x="credit_type",
                     y="balance",
                     title="Debtors by Credit Type",
                     color="balance",
