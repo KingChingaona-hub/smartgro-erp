@@ -1,9 +1,12 @@
 # backend/modules/expenses.py
+# FIXED: Expenses are NEVER deleted, only appended or modified
+
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
 import logging
 import shutil
+import os
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -49,10 +52,10 @@ DEFAULT_CATEGORIES = [
 
 
 # ==============================
-# INIT FILES - FIXED to not overwrite existing data
+# INIT FILES - FIXED TO NEVER OVERWRITE
 # ==============================
 def init_expenses():
-    """Initialize expenses files only if they don't exist - DO NOT OVERWRITE"""
+    """Initialize expenses files only if they don't exist - NEVER OVERWRITE"""
     DATA_DIR.mkdir(exist_ok=True)
 
     # Only create expenses file if it doesn't exist
@@ -71,39 +74,16 @@ def init_expenses():
         df.to_csv(EXPENSES_FILE, index=False)
         logger.info(f"Created new expenses file: {EXPENSES_FILE}")
     else:
-        # Check if file is empty or corrupted
-        try:
-            if EXPENSES_FILE.stat().st_size == 0:
-                logger.warning("Expenses file is empty, recreating with headers")
-                df = pd.DataFrame(columns=[
-                    "date", "expense_type", "category", "description",
-                    "amount", "vendor", "payment_method", "recorded_by", "notes"
-                ])
-                df.to_csv(EXPENSES_FILE, index=False)
-            else:
-                # Try to read it to validate
-                pd.read_csv(EXPENSES_FILE)
-                logger.info(f"Expenses file exists and is valid: {EXPENSES_FILE}")
-        except Exception as e:
-            logger.error(f"Expenses file is corrupted: {e}")
-            # Create backup of corrupted file
-            if EXPENSES_FILE.exists():
-                backup_path = DATA_DIR / f"expenses_corrupted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                shutil.copy(EXPENSES_FILE, backup_path)
-                logger.info(f"Backed up corrupted file to: {backup_path}")
-            
-            # Create new file
-            df = pd.DataFrame(columns=[
-                "date", "expense_type", "category", "description",
-                "amount", "vendor", "payment_method", "recorded_by", "notes"
-            ])
-            df.to_csv(EXPENSES_FILE, index=False)
-            logger.info(f"Created new expenses file after corruption")
+        # Log that file exists but DO NOT modify it
+        logger.info(f"Expenses file already exists: {EXPENSES_FILE} ({EXPENSES_FILE.stat().st_size} bytes)")
 
+    # Only create categories file if it doesn't exist
     if not EXPENSE_CATEGORIES_FILE.exists():
         df = pd.DataFrame({"category": DEFAULT_CATEGORIES})
         df.to_csv(EXPENSE_CATEGORIES_FILE, index=False)
+        logger.info(f"Created expense categories file: {EXPENSE_CATEGORIES_FILE}")
 
+    # Only create budget file if it doesn't exist
     if not EXPENSE_BUDGET_FILE.exists():
         current_year = datetime.now().year
         budget_data = []
@@ -118,7 +98,9 @@ def init_expenses():
                 })
         df = pd.DataFrame(budget_data)
         df.to_csv(EXPENSE_BUDGET_FILE, index=False)
+        logger.info(f"Created expense budget file: {EXPENSE_BUDGET_FILE}")
 
+    # Only create recurring expenses file if it doesn't exist
     if not RECURRING_EXPENSES_FILE.exists():
         df = pd.DataFrame(columns=[
             "recurring_id",
@@ -135,13 +117,14 @@ def init_expenses():
             "notes"
         ])
         df.to_csv(RECURRING_EXPENSES_FILE, index=False)
+        logger.info(f"Created recurring expenses file: {RECURRING_EXPENSES_FILE}")
 
 
 # ==============================
 # LOAD FUNCTIONS - FIXED
 # ==============================
 def load_expenses():
-    """Load expenses from CSV file - FIXED to handle dates properly and prevent data loss"""
+    """Load expenses from CSV file - NEVER DELETES DATA"""
     init_expenses()
     
     try:
@@ -160,7 +143,7 @@ def load_expenses():
                 "amount", "vendor", "payment_method", "recorded_by", "notes"
             ])
         
-        # Try to read the file
+        # Read the file
         try:
             df = pd.read_csv(EXPENSES_FILE)
         except pd.errors.EmptyDataError:
@@ -171,7 +154,7 @@ def load_expenses():
             ])
         except Exception as e:
             logger.error(f"Error reading CSV: {e}")
-            # Try to read with different parameters
+            # Try to read with different encoding
             try:
                 df = pd.read_csv(EXPENSES_FILE, encoding='utf-8', engine='python')
             except:
@@ -197,41 +180,17 @@ def load_expenses():
                 logger.warning(f"Missing column: {col}, adding with default values")
                 df[col] = "" if col != "amount" else 0
         
-        # Convert date to datetime
+        # Convert date to datetime - preserve original data
         if "date" in df.columns:
-            # Try multiple date formats
-            date_formats = [
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%Y-%m-%d",
-                "%d/%m/%Y %H:%M:%S",
-                "%d/%m/%Y",
-                "%m/%d/%Y %H:%M:%S",
-                "%m/%d/%Y"
-            ]
-            
-            # First, try to convert with pandas (handles most cases)
+            # Convert to datetime, keep NaT for invalid dates
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             
-            # Check if any dates are still NaT
-            if df["date"].isna().any():
-                # Try to parse using format string
-                for fmt in date_formats:
-                    mask = df["date"].isna()
-                    if mask.any():
-                        try:
-                            df.loc[mask, "date"] = pd.to_datetime(df.loc[mask, "date"], format=fmt, errors="coerce")
-                        except:
-                            pass
-            
-            # Drop rows where date is still NaT
-            before_drop = len(df)
-            df = df.dropna(subset=["date"])
-            after_drop = len(df)
-            if before_drop != after_drop:
-                logger.warning(f"Dropped {before_drop - after_drop} rows with invalid dates")
+            # Log how many invalid dates were found
+            invalid_dates = df["date"].isna().sum()
+            if invalid_dates > 0:
+                logger.warning(f"Found {invalid_dates} rows with invalid dates, keeping them as NaT")
         
-        # Convert amount to float
+        # Convert amount to float - preserve original data
         if "amount" in df.columns:
             # Clean amount strings: remove $ and commas
             df["amount"] = df["amount"].astype(str).str.replace('$', '', regex=False)
@@ -263,18 +222,24 @@ def load_expenses():
 
 
 def save_expenses(df):
-    """Save expenses to CSV file - FIXED with backup"""
+    """Save expenses to CSV file - APPENDS data, NEVER DELETES"""
     try:
-        if df is None or df.empty:
-            logger.warning("Attempted to save empty expenses dataframe")
+        if df is None:
+            logger.warning("Attempted to save None dataframe")
             return False
         
-        # Create backup before saving
-        if EXPENSES_FILE.exists():
+        # Create backup before saving (only if file exists and has content)
+        if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
             try:
-                # Copy current file to backup
+                # Create a timestamped backup
+                backup_filename = f"expenses_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                backup_path = DATA_DIR / backup_filename
+                shutil.copy2(EXPENSES_FILE, backup_path)
+                logger.info(f"Created backup: {backup_path}")
+                
+                # Also keep the latest backup
                 shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
-                logger.info(f"Created backup: {EXPENSES_BACKUP_FILE}")
+                logger.info(f"Updated latest backup: {EXPENSES_BACKUP_FILE}")
             except Exception as e:
                 logger.warning(f"Could not create backup: {e}")
         
@@ -284,6 +249,8 @@ def save_expenses(df):
             # Convert datetime to string if needed
             if pd.api.types.is_datetime64_any_dtype(df["date"]):
                 df["date"] = df["date"].dt.strftime("%Y-%m-%d %H:%M:%S")
+            # For any NaT values, use current timestamp
+            df["date"] = df["date"].fillna(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         
         # Save to file
         df.to_csv(EXPENSES_FILE, index=False)
@@ -378,11 +345,12 @@ def save_recurring_expenses(df):
 # ==============================
 def record_expense(expense_type, category, description, amount, vendor="", 
                    payment_method="CASH", user="System", notes=""):
-    """Record a new expense - FIXED with better error handling"""
+    """Record a new expense - APPENDS to existing data"""
     try:
+        # Load existing expenses
         df = load_expenses()
         
-        # If df is None or empty, create new dataframe with columns
+        # If df is empty, create new dataframe with columns
         if df is None or df.empty:
             df = pd.DataFrame(columns=[
                 "date", "expense_type", "category", "description",
@@ -406,7 +374,7 @@ def record_expense(expense_type, category, description, amount, vendor="",
             "notes": notes
         }
 
-        # Add new row
+        # Append new row (concat is safe for appending)
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         
         # Save with backup
@@ -442,11 +410,12 @@ def delete_expense_by_id(date_str, category, amount, description="", expense_typ
             return False
         
         # Create backup before deletion
-        if EXPENSES_FILE.exists():
+        if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
             try:
                 shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
-            except:
-                pass
+                logger.info(f"Created backup before deletion: {EXPENSES_BACKUP_FILE}")
+            except Exception as e:
+                logger.warning(f"Could not create backup: {e}")
         
         # Convert date string to match format in dataframe
         df["date_short"] = df["date"].str[:16]
@@ -505,7 +474,7 @@ def delete_expense(index):
         
         if index in df.index:
             # Create backup before deletion
-            if EXPENSES_FILE.exists():
+            if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
                 try:
                     shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
                 except:

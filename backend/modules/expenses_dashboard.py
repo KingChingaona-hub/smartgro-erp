@@ -17,7 +17,8 @@ from backend.modules.expenses import (
     add_recurring_expense,
     process_recurring_expenses,
     add_expense_category,
-    load_recurring_expenses
+    load_recurring_expenses,
+    EXPENSES_FILE
 )
 
 
@@ -57,7 +58,7 @@ def expenses_dashboard():
         st.session_state.dashboard_category_added = False
         st.session_state.dashboard_category_message = ""
 
-    # Load categories
+    # Load categories - this calls init_expenses() which should NOT delete data
     categories = load_expense_categories()
     
     # ==============================
@@ -111,6 +112,7 @@ def expenses_dashboard():
                         st.session_state.dashboard_expense_message = message
                         st.success(f"{message}")
                         st.balloons()
+                        st.rerun()
                     else:
                         st.error(f"Failed to record expense: {message}")
                 else:
@@ -140,7 +142,6 @@ def expenses_dashboard():
                             if success:
                                 st.session_state.dashboard_category_added = True
                                 st.session_state.dashboard_category_message = f"Category '{new_category.strip()}' added successfully!"
-                                # Use st.rerun() once after setting session state
                                 st.rerun()
                             else:
                                 st.error("Failed to add category. Please try again.")
@@ -175,6 +176,7 @@ def expenses_dashboard():
                 if budget_amount > 0:
                     set_budget(budget_year, budget_month, selected_cat, budget_amount)
                     st.success(f"Budget set for {selected_cat}: ${budget_amount:.2f}")
+                    st.rerun()
                 else:
                     st.error("Please enter a budget amount greater than 0")
         
@@ -252,7 +254,7 @@ def expenses_dashboard():
             st.info("No budget data available. Set budgets above.")
     
     # ==============================
-    # TAB 3: EXPENSE ANALYTICS - FIXED
+    # TAB 3: EXPENSE ANALYTICS
     # ==============================
     with tab3:
         st.markdown("## Expense Analytics")
@@ -372,7 +374,7 @@ def expenses_dashboard():
                             notes=rec_notes
                         )
                         st.success(f"Recurring expense '{rec_description}' added!")
-                        #st.rerun()
+                        st.rerun()
                     else:
                         st.error("Please enter description and amount")
         
@@ -383,6 +385,7 @@ def expenses_dashboard():
             processed = process_recurring_expenses()
             if processed:
                 st.success(f"Processed {len(processed)} recurring expenses: {', '.join(processed)}")
+                st.rerun()
             else:
                 st.info("No recurring expenses due today")
         
@@ -400,10 +403,18 @@ def expenses_dashboard():
             st.info("No recurring expenses set up")
     
     # ==============================
-    # TAB 5: ALL EXPENSES - FIXED (No delete button issue)
+    # TAB 5: ALL EXPENSES
     # ==============================
     with tab5:
         st.markdown("## All Expense Records")
+        
+        # Show file info for debugging
+        with st.expander("Debug Info"):
+            if EXPENSES_FILE.exists():
+                st.write(f"File: {EXPENSES_FILE}")
+                st.write(f"File size: {EXPENSES_FILE.stat().st_size} bytes")
+            else:
+                st.warning(f"Expenses file not found at: {EXPENSES_FILE}")
         
         expenses_df = load_expenses()
         
@@ -459,8 +470,11 @@ def expenses_dashboard():
                 mime="text/csv",
                 key="download_expenses_dash"
             )
+            
+            # Show total count
+            st.caption(f"Showing {len(filtered_df)} records")
         else:
-            st.info("No expenses recorded yet")
+            st.info("No expenses recorded yet. Use the 'Record Expense' tab to add your first expense.")
 
 
 # ==============================
