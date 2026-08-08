@@ -12,7 +12,10 @@ from backend.modules.expenses import (
     add_expense_category,
     debug_expenses_file,
     recover_from_backup,
-    EXPENSES_FILE
+    EXPENSES_FILE,
+    get_expenses_by_category,
+    get_monthly_trend,
+    get_largest_expenses
 )
 
 
