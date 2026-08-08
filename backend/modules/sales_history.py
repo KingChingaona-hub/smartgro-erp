@@ -1,8 +1,9 @@
 # backend/modules/sales_history.py
-# Sales History with proper deduplication and product names
+# Sales History with proper deduplication, product names, and date filters
 
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timedelta
 from backend.core.db_adapter import load_sales
 
 
@@ -44,7 +45,7 @@ def find_column(df, possible_names, default=None):
 # SALES HISTORY PAGE
 # ==============================
 def sales_history_page():
-    """Sales History with proper deduplication and product names"""
+    """Sales History with proper deduplication, product names, and date filters"""
 
     st.title("Sales History")
     st.caption("View all sales transactions with product details")
@@ -68,6 +69,17 @@ def sales_history_page():
             ).fillna(0)
 
     # ==============================
+    # FIND DATE COLUMN
+    # ==============================
+    date_col = find_column(df, ["sale_date", "date", "transaction_date", "created_at"])
+    
+    # Convert date column to datetime
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        # Create a date-only column for filtering
+        df["date_only"] = df[date_col].dt.date
+
+    # ==============================
     # FIND PRODUCT NAME COLUMN
     # ==============================
     product_name_col = None
@@ -88,17 +100,115 @@ def sales_history_page():
         unique_receipts_df = df.drop_duplicates(subset=[receipt_col], keep="first").copy()
     
     # ==============================
-    # FILTER SECTION
+    # FILTER SECTION - WITH DATE RANGE
     # ==============================
     st.subheader("Filter Sales")
-
+    
+    # Quick date filters
+    st.markdown("### Quick Date Filters")
+    
+    quick_filters = st.columns(7)
+    
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    last_7_days = today - timedelta(days=7)
+    last_30_days = today - timedelta(days=30)
+    this_month_start = today.replace(day=1)
+    last_month_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    
+    filter_type = None
+    filter_date = None
+    
+    with quick_filters[0]:
+        if st.button("Today", use_container_width=True, key="filter_today"):
+            filter_type = "today"
+    with quick_filters[1]:
+        if st.button("Yesterday", use_container_width=True, key="filter_yesterday"):
+            filter_type = "yesterday"
+    with quick_filters[2]:
+        if st.button("Last 7 Days", use_container_width=True, key="filter_7days"):
+            filter_type = "last_7_days"
+    with quick_filters[3]:
+        if st.button("Last 30 Days", use_container_width=True, key="filter_30days"):
+            filter_type = "last_30_days"
+    with quick_filters[4]:
+        if st.button("This Month", use_container_width=True, key="filter_this_month"):
+            filter_type = "this_month"
+    with quick_filters[5]:
+        if st.button("Last Month", use_container_width=True, key="filter_last_month"):
+            filter_type = "last_month"
+    with quick_filters[6]:
+        if st.button("Clear", use_container_width=True, key="filter_clear"):
+            filter_type = "clear"
+    
+    st.markdown("---")
+    
+    # Custom date range
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        start_date = st.date_input(
+            "Start Date",
+            value=today - timedelta(days=30) if filter_type is None else None,
+            key="start_date_filter"
+        )
+    
+    with col2:
+        end_date = st.date_input(
+            "End Date",
+            value=today,
+            key="end_date_filter"
+        )
+    
+    with col3:
+        st.caption("Apply custom date range or use quick filters above")
+        if st.button("Apply Date Range", use_container_width=True, key="apply_date_range"):
+            filter_type = "custom"
+    
+    st.markdown("---")
+    
+    # Apply filters to dataframe
+    filtered_df = df.copy()
+    
+    # Apply quick filter
+    if filter_type == "today":
+        filtered_df = filtered_df[filtered_df["date_only"] == today]
+        st.info(f"Showing sales for Today: {today.strftime('%Y-%m-%d')}")
+    elif filter_type == "yesterday":
+        filtered_df = filtered_df[filtered_df["date_only"] == yesterday]
+        st.info(f"Showing sales for Yesterday: {yesterday.strftime('%Y-%m-%d')}")
+    elif filter_type == "last_7_days":
+        filtered_df = filtered_df[filtered_df["date_only"] >= last_7_days]
+        st.info(f"Showing sales for Last 7 Days: {last_7_days.strftime('%Y-%m-%d')} to {today.strftime('%Y-%m-%d')}")
+    elif filter_type == "last_30_days":
+        filtered_df = filtered_df[filtered_df["date_only"] >= last_30_days]
+        st.info(f"Showing sales for Last 30 Days: {last_30_days.strftime('%Y-%m-%d')} to {today.strftime('%Y-%m-%d')}")
+    elif filter_type == "this_month":
+        filtered_df = filtered_df[filtered_df["date_only"] >= this_month_start]
+        st.info(f"Showing sales for This Month: {this_month_start.strftime('%Y-%m-%d')} to {today.strftime('%Y-%m-%d')}")
+    elif filter_type == "last_month":
+        filtered_df = filtered_df[
+            (filtered_df["date_only"] >= last_month_start) & 
+            (filtered_df["date_only"] < this_month_start)
+        ]
+        st.info(f"Showing sales for Last Month: {last_month_start.strftime('%Y-%m-%d')} to {(this_month_start - timedelta(days=1)).strftime('%Y-%m-%d')}")
+    elif filter_type == "clear":
+        filtered_df = df.copy()
+        st.info("Showing all sales")
+    elif filter_type == "custom":
+        if start_date and end_date:
+            filtered_df = filtered_df[
+                (filtered_df["date_only"] >= start_date) & 
+                (filtered_df["date_only"] <= end_date)
+            ]
+            st.info(f"Showing sales from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+    
+    # Additional search filters
     col1, col2, col3 = st.columns(3)
 
     search_barcode = col1.text_input("Barcode")
     search_receipt = col2.text_input("Receipt No")
     search_name = col3.text_input("Product Name")
-
-    filtered_df = df.copy()
 
     if search_barcode:
         filtered_df = filtered_df[
@@ -124,18 +234,21 @@ def sales_history_page():
     st.markdown("---")
 
     # ==============================
-    # SALES TABLE - WITH PRODUCT NAMES
+    # SALES TABLE - WITH ALL COLUMNS
     # ==============================
     st.subheader("Sales Records")
-
-    # Define display columns without duplicates
-    display_cols = []
     
-    # List of columns to display with their display names
+    # Show filter summary
+    if filter_type and filter_type != "clear":
+        st.caption(f"Filtered: {len(filtered_df)} item rows")
+    else:
+        st.caption(f"Total: {len(filtered_df)} item rows")
+
+    # Define display columns - ALL columns
+    display_cols = []
     col_map = {}
     
     # Date column
-    date_col = find_column(filtered_df, ["sale_date", "date", "transaction_date"])
     if date_col:
         col_map[date_col] = "Date"
     
@@ -158,6 +271,11 @@ def sales_history_page():
     if qty_col:
         col_map[qty_col] = "Qty"
     
+    # Price column
+    price_col = find_column(filtered_df, ["price", "unit_price", "selling_price"])
+    if price_col:
+        col_map[price_col] = "Price"
+    
     # Total column
     total_col = find_column(filtered_df, ["final_total", "total", "amount"])
     if total_col:
@@ -178,6 +296,26 @@ def sales_history_page():
     if customer_col:
         col_map[customer_col] = "Customer"
     
+    # Customer phone
+    phone_col = find_column(filtered_df, ["customer_phone", "phone", "Phone"])
+    if phone_col:
+        col_map[phone_col] = "Phone"
+    
+    # Cashier
+    cashier_col = find_column(filtered_df, ["cashier", "user", "username"])
+    if cashier_col:
+        col_map[cashier_col] = "Cashier"
+    
+    # Shift ID
+    shift_col = find_column(filtered_df, ["shift_id", "shift"])
+    if shift_col:
+        col_map[shift_col] = "Shift"
+    
+    # Notes
+    notes_col = find_column(filtered_df, ["notes", "note", "description"])
+    if notes_col:
+        col_map[notes_col] = "Notes"
+    
     # Get the column names from the map
     display_cols = list(col_map.keys())
     
@@ -191,12 +329,13 @@ def sales_history_page():
         # Configure columns
         config = {}
         for col in display_df.columns:
-            if col in ["Total", "Profit"]:
+            if col in ["Total", "Profit", "Price"]:
                 config[col] = st.column_config.NumberColumn(col, format="$%.2f")
             elif col == "Qty":
                 config[col] = st.column_config.NumberColumn(col, format="%.2f")
-            elif col == "Date":
-                config[col] = st.column_config.DatetimeColumn(col, format="YYYY-MM-DD HH:mm")
+            elif col in ["Date", date_col]:
+                if date_col in display_df.columns:
+                    config["Date"] = st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm")
         
         st.dataframe(
             display_df,
@@ -216,18 +355,19 @@ def sales_history_page():
     st.markdown("---")
     st.subheader("Summary")
 
-    # Calculate totals from unique receipts for accurate revenue and profit
-    if unique_receipts_df is not None and not unique_receipts_df.empty:
-        total_col = find_column(unique_receipts_df, ["final_total", "total", "amount"])
-        profit_col = find_column(unique_receipts_df, ["profit"])
+    # Get filtered unique receipts for accurate totals
+    if receipt_col:
+        filtered_unique_receipts = filtered_df.drop_duplicates(subset=[receipt_col], keep="first").copy()
+        total_col = find_column(filtered_unique_receipts, ["final_total", "total", "amount"])
+        profit_col = find_column(filtered_unique_receipts, ["profit"])
         
         if total_col:
-            total_sales = safe_float(unique_receipts_df[total_col].sum())
+            total_sales = safe_float(filtered_unique_receipts[total_col].sum())
         else:
             total_sales = 0
             
         if profit_col:
-            total_profit = safe_float(unique_receipts_df[profit_col].sum())
+            total_profit = safe_float(filtered_unique_receipts[profit_col].sum())
         else:
             total_profit = 0
     else:
@@ -336,8 +476,8 @@ def sales_history_page():
     )
 
     if receipt_search:
-        receipt_df = df[
-            df["receipt_no"]
+        receipt_df = filtered_df[
+            filtered_df["receipt_no"]
             .astype(str) == receipt_search
         ]
 
