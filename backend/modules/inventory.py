@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_products, save_products
 from backend.core.auth import check_login
+import traceback
 
 
 # ==============================
@@ -161,7 +162,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # BATCH DELETE PRODUCTS
+    # BATCH DELETE PRODUCTS - FIXED
     # ==============================
     st.markdown("## Batch Delete Products")
     st.caption("Select multiple products and delete them all at once")
@@ -270,27 +271,36 @@ def inventory_page():
                                     product_names.append(df.iloc[idx].get("name", "Unknown"))
                             
                             # Delete selected products (keep only those not selected)
-                            df = df.drop(st.session_state.batch_delete_selected)
-                            df = df.reset_index(drop=True)
+                            # Use a different approach - create a new dataframe without the selected indices
+                            keep_indices = [i for i in df.index if i not in st.session_state.batch_delete_selected]
+                            df_new = df.loc[keep_indices].copy()
+                            df_new = df_new.reset_index(drop=True)
                             
-                            # Save the updated DataFrame
-                            if save_products(df):
-                                # Clear cache to force reload
-                                st.cache_data.clear()
-                                
-                                # Clear selection
-                                st.session_state.batch_delete_selected = []
-                                
-                                # Show success message
-                                st.success(f"Successfully deleted {len(product_names)} products: {', '.join(product_names[:5])}{'...' if len(product_names) > 5 else ''}")
-                                st.balloons()
-                                
-                                # Force reload
-                                st.rerun()
+                            # Verify the deletion
+                            deleted_count = len(df) - len(df_new)
+                            
+                            if deleted_count == len(st.session_state.batch_delete_selected):
+                                # Save the updated DataFrame
+                                if save_products(df_new):
+                                    # Clear cache to force reload
+                                    st.cache_data.clear()
+                                    
+                                    # Clear selection
+                                    st.session_state.batch_delete_selected = []
+                                    
+                                    # Show success message
+                                    st.success(f"Successfully deleted {deleted_count} products: {', '.join(product_names[:5])}{'...' if len(product_names) > 5 else ''}")
+                                    st.balloons()
+                                    
+                                    # Force reload
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to save changes. Please check the database connection.")
                             else:
-                                st.error("Failed to delete products. Please try again.")
+                                st.error(f"Failed to delete products. Expected {len(st.session_state.batch_delete_selected)} but deleted {deleted_count}.")
                         except Exception as e:
                             st.error(f"Error deleting products: {str(e)}")
+                            st.code(traceback.format_exc())
                     else:
                         st.error("Please confirm deletion by checking the box above.")
         else:
