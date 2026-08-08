@@ -121,7 +121,7 @@ def inventory_page():
             stock = st.number_input("Stock", min_value=0.0, step=0.5, format="%.2f", key="add_stock")
             reorder_level = st.number_input("Reorder Level", min_value=0.0, step=0.5, format="%.2f", key="add_reorder")
             
-            st.caption("💡 Use decimals (e.g., 0.5, 1.5) for gas, bread, and weight-based products")
+            st.caption("Use decimals (e.g., 0.5, 1.5) for gas, bread, and weight-based products")
         
         submitted = st.form_submit_button("Add Product", type="primary", use_container_width=True)
         
@@ -226,7 +226,7 @@ def inventory_page():
         if st.session_state.batch_selected:
             st.markdown("---")
             st.markdown(f"### Editing {len(st.session_state.batch_selected)} Product(s)")
-            st.info("💡 Edit the fields below for each selected product. Changes will be saved together when you click 'Save All Changes'.")
+            st.info("Edit the fields below for each selected product. Changes will be saved together when you click 'Save All Changes'.")
             
             # Create editable fields for each selected product
             with st.form("batch_edit_form", clear_on_submit=False):
@@ -419,7 +419,7 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # SINGLE PRODUCT UPDATE & DELETE (FIXED)
+    # SINGLE PRODUCT UPDATE & DELETE (FIXED - FASTER DELETION)
     # ==============================
     st.markdown("## Single Product Management")
     st.caption("Update or delete one product at a time")
@@ -526,7 +526,7 @@ def inventory_page():
                         )
                     
                     if is_decimal_product:
-                        st.info("🔢 Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
+                        st.info("Decimal quantities supported for this product (e.g., 0.5, 1.5, 2.0)")
                     
                     save_changes = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
                     
@@ -556,7 +556,7 @@ def inventory_page():
                         except Exception as e:
                             st.error(f"Error updating product: {str(e)}")
             
-            # Delete section - FIXED
+            # Delete section - FIXED with proper session state handling
             st.markdown("### Delete Product")
             st.warning("This will permanently delete the selected product.")
             
@@ -566,30 +566,45 @@ def inventory_page():
                 key=f"confirm_delete_{product_index}"
             )
             
+            # Use a unique key for the delete button
             if st.button("Delete Product", type="secondary", use_container_width=True, key=f"delete_btn_{product_index}"):
                 if confirm_delete:
                     try:
                         # Get the product name for the message
                         product_name = product_data.get("name", "Unknown")
                         
-                        # Delete by index
+                        # Delete by index - use drop and reset index
                         df = df.drop(product_index)
                         df = df.reset_index(drop=True)
                         
+                        # Save the updated DataFrame
                         if save_products(df):
-                            st.success(f"Product '{product_name}' deleted successfully!")
                             # Clear session state for batch editing
                             if "batch_selected" in st.session_state:
                                 st.session_state.batch_selected = []
                             if "batch_edit_data" in st.session_state:
                                 st.session_state.batch_edit_data = {}
+                            
+                            # Set success message in session state
+                            st.session_state.delete_success = True
+                            st.session_state.delete_message = f"Product '{product_name}' deleted successfully!"
+                            
+                            # Rerun to refresh the page
                             st.rerun()
                         else:
-                            st.error("Failed to delete product.")
+                            st.error("Failed to delete product. Please try again.")
                     except Exception as e:
                         st.error(f"Error deleting product: {str(e)}")
                 else:
                     st.error("Please confirm deletion by checking the box above.")
+            
+            # Display success message if deletion was successful
+            if st.session_state.get("delete_success", False):
+                st.success(st.session_state.get("delete_message", "Product deleted successfully!"))
+                st.balloons()
+                # Clear the flag after displaying
+                st.session_state.delete_success = False
+                st.session_state.delete_message = ""
     else:
         st.info("No products in inventory. Add your first product above.")
     
