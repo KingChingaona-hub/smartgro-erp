@@ -1,4 +1,4 @@
-# backend/modules/shift_management.py - FIXED Shift History with unduplicated data
+# backend/modules/shift_management.py - COMPLETE FIXED VERSION
 
 import streamlit as st
 import pandas as pd
@@ -82,6 +82,26 @@ def get_payment_method_column(df):
     if df is None or df.empty:
         return None
     for col in ["payment_method", "payment_type", "payment", "method"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_cashier_column(df):
+    """Find cashier column in dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["cashier", "cashier_name", "user", "username", "employee"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_branch_column(df):
+    """Find branch column in dataframe"""
+    if df is None or df.empty:
+        return None
+    for col in ["branch_id", "branch", "location"]:
         if col in df.columns:
             return col
     return None
@@ -249,6 +269,92 @@ def get_transactions_for_date_range(sales_df, start_date, end_date):
     return len(filtered)
 
 
+def get_cashier_performance_unduplicated(sales_df, branch_id=None):
+    """Get cashier performance from unduplicated sales data"""
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame()
+    
+    sales_undup = get_unduplicated_sales(sales_df)
+    if sales_undup.empty:
+        return pd.DataFrame()
+    
+    # Find cashier column
+    cashier_col = get_cashier_column(sales_undup)
+    if cashier_col is None:
+        return pd.DataFrame()
+    
+    # Filter by branch if branch_id provided and branch column exists
+    if branch_id:
+        branch_col = get_branch_column(sales_undup)
+        if branch_col:
+            sales_undup = sales_undup[sales_undup[branch_col] == branch_id]
+    
+    if sales_undup.empty:
+        return pd.DataFrame()
+    
+    # Get amount column
+    amount_col = get_amount_column(sales_undup)
+    
+    # Get profit column
+    profit_col = None
+    for col in ["profit", "gross_profit"]:
+        if col in sales_undup.columns:
+            profit_col = col
+            break
+    
+    # Group by cashier
+    result = sales_undup.groupby(cashier_col).agg({
+        "receipt_no": "nunique",
+    }).reset_index()
+    result = result.rename(columns={cashier_col: "Cashier", "receipt_no": "Transactions"})
+    
+    # Add revenue
+    if amount_col:
+        revenue_by_cashier = sales_undup.groupby(cashier_col)[amount_col].sum().reset_index()
+        revenue_by_cashier.columns = [cashier_col, "Total Revenue"]
+        result = result.merge(revenue_by_cashier, on=cashier_col, how="left")
+        result = result.rename(columns={cashier_col: "Cashier"})
+    else:
+        result["Total Revenue"] = 0
+    
+    # Add items sold if available
+    if "items" in sales_undup.columns:
+        items_by_cashier = sales_undup.groupby(cashier_col)["items"].sum().reset_index()
+        items_by_cashier.columns = [cashier_col, "Items Sold"]
+        result = result.merge(items_by_cashier, on=cashier_col, how="left")
+        result = result.rename(columns={cashier_col: "Cashier"})
+    else:
+        result["Items Sold"] = 0
+    
+    # Add profit
+    if profit_col:
+        profit_by_cashier = sales_undup.groupby(cashier_col)[profit_col].sum().reset_index()
+        profit_by_cashier.columns = [cashier_col, "Total Profit"]
+        result = result.merge(profit_by_cashier, on=cashier_col, how="left")
+        result = result.rename(columns={cashier_col: "Cashier"})
+    else:
+        # Estimate profit as 30% of revenue
+        result["Total Profit"] = result["Total Revenue"] * 0.3
+    
+    # Fill NaN values
+    result = result.fillna(0)
+    
+    # Calculate average revenue per transaction
+    result["Avg/Transaction"] = result.apply(
+        lambda row: row["Total Revenue"] / row["Transactions"] if row["Transactions"] > 0 else 0,
+        axis=1
+    )
+    
+    # Sort by revenue
+    result = result.sort_values("Total Revenue", ascending=False)
+    
+    return result
+
+
+# ==============================
+# MAIN SHIFT MANAGEMENT PAGE
+# ==============================
+
 def shift_management_page():
     """Main shift management page - Branch Level (FIXED with correct data sources)"""
     
@@ -276,7 +382,6 @@ def shift_management_page():
     
     # Get unduplicated sales
     sales_undup = get_unduplicated_sales(sales_df)
-    total_revenue_all = get_total_revenue_unduplicated(sales_undup)
     
     # Get the active shift for this branch
     active_shift = get_active_shift_for_branch(user_branch)
@@ -292,12 +397,12 @@ def shift_management_page():
     
     # Active shift status in sidebar
     if is_shift_active:
-        st.sidebar.success(f"🟢 Shift ACTIVE")
+        st.sidebar.success(f"Shift ACTIVE")
         st.sidebar.caption(f"ID: {shift_id[:12]}...")
         st.sidebar.caption(f"Started by: {active_shift.get('cashier_name', 'Unknown')}")
         st.sidebar.caption(f"Opening Cash: ${active_shift.get('opening_cash', 0):.2f}")
     else:
-        st.sidebar.warning("🔴 No Active Shift")
+        st.sidebar.warning("No Active Shift")
         if can_manage_shifts:
             st.sidebar.info("Start a shift using the form below")
     
@@ -341,7 +446,7 @@ def shift_management_page():
     # Display active shifts in sidebar (all branches)
     all_active_shifts = get_all_active_shifts()
     if not all_active_shifts.empty:
-        st.sidebar.subheader("🟢 Active Shifts (All Branches)")
+        st.sidebar.subheader("Active Shifts (All Branches)")
         for _, shift in all_active_shifts.iterrows():
             start_time = shift.get('start_time')
             if hasattr(start_time, 'strftime'):
@@ -371,7 +476,7 @@ def shift_management_page():
     # TAB 1: ACTIVE SHIFTS
     # ==============================
     with tab1:
-        st.markdown("## 🟢 Active Shifts")
+        st.markdown("## Active Shifts")
         
         if all_active_shifts.empty:
             st.info("No active shifts at the moment")
@@ -388,7 +493,7 @@ def shift_management_page():
                 """)
                 
                 if can_manage_shifts:
-                    if st.button("🛑 End This Shift", type="primary", use_container_width=True):
+                    if st.button("End This Shift", type="primary", use_container_width=True):
                         st.session_state.end_shift_id = shift_id
                         st.session_state.show_end_shift = True
                         st.rerun()
@@ -422,7 +527,6 @@ def shift_management_page():
                             if not expenses_df.empty and "shift_id" in expenses_df.columns:
                                 shift_expenses = safe_float(expenses_df[expenses_df["shift_id"] == shift_id]["amount"].sum())
                             elif not expenses_df.empty:
-                                # If no shift_id, use expenses from today
                                 if "date" in expenses_df.columns:
                                     expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
                                     today = datetime.now().date()
@@ -536,7 +640,7 @@ def shift_management_page():
                         
                         with col3:
                             st.metric("Opening Cash", f"${shift_data.get('opening_cash', 0):.2f}")
-                            st.metric("Status", f"🟢 {shift_data.get('status', 'OPEN')}")
+                            st.metric("Status", f"{shift_data.get('status', 'OPEN')}")
             
             # Quick stats
             if not all_active_shifts.empty:
@@ -555,7 +659,7 @@ def shift_management_page():
                     st.metric("Active Branches", total_branches)
     
     # ==============================
-    # TAB 2: SHIFT HISTORY - BRANCH SPECIFIC - FIXED WITH UNDUPLICATED DATA
+    # TAB 2: SHIFT HISTORY - FIXED WITH UNDUPLICATED DATA
     # ==============================
     with tab2:
         st.markdown("## Shift History")
@@ -657,6 +761,7 @@ def shift_management_page():
                 # HISTORY SUMMARY - USING UNDUPLICATED SALES DATA
                 # ==============================
                 st.markdown("### History Summary")
+                st.caption("Revenue and profit calculated from unduplicated sales data")
                 
                 total_shifts = len(filtered_shifts)
                 
@@ -692,9 +797,6 @@ def shift_management_page():
                     st.metric("Total Profit", f"${total_profit:,.2f}")
                 with col4:
                     st.metric("Transactions", f"{total_transactions:,}")
-                
-                # Add note about data source
-                st.caption("Revenue and profit calculated from unduplicated sales data")
             else:
                 st.info("No shifts found matching the filters")
         else:
@@ -801,84 +903,70 @@ def shift_management_page():
             st.info("No shift data available")
     
     # ==============================
-    # TAB 4: SHIFT PERFORMANCE - BRANCH LEVEL
+    # TAB 4: SHIFT PERFORMANCE - FIXED WITH UNDUPLICATED DATA
     # ==============================
     with tab4:
         st.markdown("## Shift Performance")
         st.caption(f"Performance for branch: {user_branch}")
+        st.caption("Revenue and profit calculated from unduplicated sales data")
         
-        if not shifts_df.empty and "cashier_name" in shifts_df.columns:
-            # Filter by branch
-            branch_shifts = shifts_df[shifts_df["branch_id"] == user_branch] if "branch_id" in shifts_df.columns else shifts_df
+        # Get cashier performance from unduplicated sales data
+        cashier_performance = get_cashier_performance_unduplicated(sales_df, user_branch)
+        
+        if not cashier_performance.empty:
+            st.markdown("### Cashier Performance Ranking")
             
-            if not branch_shifts.empty:
-                # Cashier performance
-                cashier_performance = branch_shifts.groupby("cashier_name").agg({
-                    "shift_id": "count",
-                    "total_revenue": "sum",
-                    "profit": "sum",
-                    "transactions": "sum"
-                }).reset_index()
-                
-                cashier_performance.columns = ["Cashier", "Shifts", "Total Revenue", "Total Profit", "Transactions"]
-                cashier_performance["Avg Revenue/Shift"] = cashier_performance["Total Revenue"] / cashier_performance["Shifts"]
-                cashier_performance["Avg Profit/Shift"] = cashier_performance["Total Profit"] / cashier_performance["Shifts"]
-                
-                # Sort by revenue
-                cashier_performance = cashier_performance.sort_values("Total Revenue", ascending=False)
-                
-                # Display
-                st.markdown("### Cashier Performance Ranking")
-                
-                st.dataframe(
-                    cashier_performance,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Cashier": "Cashier",
-                        "Shifts": "Shifts",
-                        "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
-                        "Total Profit": st.column_config.NumberColumn("Total Profit", format="$%.2f"),
-                        "Transactions": "Transactions",
-                        "Avg Revenue/Shift": st.column_config.NumberColumn("Avg Revenue/Shift", format="$%.2f"),
-                        "Avg Profit/Shift": st.column_config.NumberColumn("Avg Profit/Shift", format="$%.2f")
-                    }
+            st.dataframe(
+                cashier_performance,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Cashier": "Cashier",
+                    "Transactions": "Transactions",
+                    "Items Sold": st.column_config.NumberColumn("Items Sold", format="%.0f"),
+                    "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
+                    "Total Profit": st.column_config.NumberColumn("Total Profit", format="$%.2f"),
+                    "Avg/Transaction": st.column_config.NumberColumn("Avg/Transaction", format="$%.2f")
+                }
+            )
+            
+            # Visualization
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig = px.bar(
+                    cashier_performance.head(10),
+                    x="Cashier",
+                    y="Total Revenue",
+                    title=f"Top Cashiers by Revenue - {user_branch}",
+                    color="Total Revenue",
+                    color_continuous_scale="Greens",
+                    text="Total Revenue"
                 )
-                
-                # Visualization
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig = px.bar(
-                        cashier_performance.head(10),
-                        x="Cashier",
-                        y="Total Revenue",
-                        title=f"Top Cashiers by Revenue - {user_branch}",
-                        color="Total Revenue",
-                        color_continuous_scale="Greens",
-                        text="Total Revenue"
-                    )
-                    fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                with col2:
-                    fig = px.bar(
-                        cashier_performance.head(10),
-                        x="Cashier",
-                        y="Transactions",
-                        title=f"Top Cashiers by Transactions - {user_branch}",
-                        color="Transactions",
-                        color_continuous_scale="Blues",
-                        text="Transactions"
-                    )
-                    fig.update_traces(texttemplate="%{text}", textposition="outside")
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No performance data available for this branch")
+                fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                fig = px.bar(
+                    cashier_performance.head(10),
+                    x="Cashier",
+                    y="Transactions",
+                    title=f"Top Cashiers by Transactions - {user_branch}",
+                    color="Transactions",
+                    color_continuous_scale="Blues",
+                    text="Transactions"
+                )
+                fig.update_traces(texttemplate="%{text}", textposition="outside")
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No performance data available")
+            # Check if we have sales data but no cashier column
+            if not sales_undup.empty:
+                available_cols = sales_undup.columns.tolist()
+                st.info(f"No cashier data available in sales records. Available columns: {', '.join(available_cols[:10])}...")
+            else:
+                st.info("No sales data available to calculate performance")
 
 
 # ==============================
