@@ -47,8 +47,9 @@ def supports_decimal(product_name, category=""):
 
 
 # ==============================
-# GET SUPPLIER SUGGESTIONS
+# GET SUPPLIER SUGGESTIONS - WITH CACHING
 # ==============================
+@st.cache_data(ttl=300)
 def get_supplier_suggestions():
     """Get unique supplier names from purchase history for autocomplete"""
     try:
@@ -438,12 +439,12 @@ def get_po_details(po_number):
 
 
 # ==============================
-# SUPPLIER AUTOCOMPLETE COMPONENT
+# SUPPLIER AUTOCOMPLETE COMPONENT - OPTIMIZED
 # ==============================
 def supplier_autocomplete(key_suffix=""):
-    """Supplier input with autocomplete from existing suppliers"""
+    """Supplier input with autocomplete from existing suppliers - OPTIMIZED"""
     
-    # Get existing suppliers
+    # Get existing suppliers with caching
     supplier_suggestions = get_supplier_suggestions()
     
     # Get current value from session state
@@ -483,7 +484,7 @@ def supplier_autocomplete(key_suffix=""):
     
     with col2:
         # Show indicator if it's a new supplier
-        if selected_supplier and selected_supplier not in get_supplier_suggestions():
+        if selected_supplier and selected_supplier not in supplier_suggestions:
             st.caption("🆕 New Supplier")
         else:
             st.caption(" ")
@@ -494,7 +495,7 @@ def supplier_autocomplete(key_suffix=""):
     with col1:
         new_supplier = st.text_input(
             "Or type new supplier name",
-            value=selected_supplier if selected_supplier and selected_supplier not in get_supplier_suggestions() else "",
+            value=selected_supplier if selected_supplier and selected_supplier not in supplier_suggestions else "",
             key=f"new_supplier_{key_suffix}",
             placeholder="Enter new supplier name...",
             label_visibility="collapsed"
@@ -514,12 +515,17 @@ def supplier_autocomplete(key_suffix=""):
 # PURCHASES PAGE - OPTIMIZED WITH BATCH ADDITION
 # ==============================
 def purchases_page():
-    """Enhanced Purchases Management Page with Batch Addition to Cart"""
+    """Enhanced Purchases Management Page with Batch Addition to Cart - OPTIMIZED"""
     
     st.title("Purchases and Suppliers Management")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
     
-    products_df = load_products()
+    # Load products once with caching
+    @st.cache_data(ttl=60)
+    def load_products_cached():
+        return load_products()
+    
+    products_df = load_products_cached()
     
     # Initialize session state
     if "po_cart" not in st.session_state:
@@ -584,7 +590,7 @@ def purchases_page():
     ])
     
     # ==============================
-    # TAB 1: CREATE PURCHASE ORDER
+    # TAB 1: CREATE PURCHASE ORDER - OPTIMIZED
     # ==============================
     with tab1:
         st.markdown("## Create Purchase Order")
@@ -609,7 +615,7 @@ def purchases_page():
         st.markdown("### Add Products to Order")
         
         # ==============================
-        # BATCH ADDITION SECTION
+        # BATCH ADDITION SECTION - OPTIMIZED
         # ==============================
         if not products_df.empty:
             st.markdown("#### Batch Add Products from Supplier")
@@ -825,7 +831,7 @@ def purchases_page():
         st.markdown("---")
         
         # ==============================
-        # SINGLE PRODUCT ADD (Existing)
+        # SINGLE PRODUCT ADD - OPTIMIZED
         # ==============================
         if not products_df.empty:
             st.markdown("#### Add Single Product")
@@ -945,7 +951,7 @@ def purchases_page():
         st.markdown("---")
         
         # ==============================
-        # MANUAL ITEM ENTRY (Existing)
+        # MANUAL ITEM ENTRY - OPTIMIZED
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
@@ -1037,7 +1043,7 @@ def purchases_page():
                         st.error("Please enter an item name")
         
         # ==============================
-        # CART DISPLAY (Existing)
+        # CART DISPLAY - OPTIMIZED
         # ==============================
         st.markdown("---")
         st.markdown("### Purchase Order Cart")
@@ -1274,7 +1280,12 @@ Contact: +263 78 290 5853
         st.markdown("## Receive Stock - Auto Update Inventory")
         st.caption("Confirm receipt of stock. Inventory will be automatically updated.")
         
-        purchases_df = load_purchases()
+        # Load purchases with caching
+        @st.cache_data(ttl=60)
+        def load_purchases_cached():
+            return load_purchases()
+        
+        purchases_df = load_purchases_cached()
         
         if purchases_df.empty:
             st.info("No purchase orders found. Create a PO first in the Create Purchase Order tab.")
@@ -1519,7 +1530,12 @@ Contact: +263 78 290 5853
     with tab4:
         st.markdown("## Purchase History")
         
-        purchases_df = load_purchases()
+        # Load purchases with caching
+        @st.cache_data(ttl=60)
+        def load_purchases_history():
+            return load_purchases()
+        
+        purchases_df = load_purchases_history()
         
         if purchases_df.empty:
             st.info("No purchase records found.")
