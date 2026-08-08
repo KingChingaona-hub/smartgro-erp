@@ -12,11 +12,8 @@ from backend.core.db_adapter import (
     load_sales,
     load_products,
     load_customers,
-    load_expenses,
     load_purchases,
-    load_debtors,
     load_shifts,
-    load_income,
     to_float
 )
 
@@ -115,6 +112,7 @@ def reports_dashboard():
     if report_type == "Sales" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Sales Report")
+        st.caption("Revenue metrics based on unduplicated sales data")
         
         sales_data = get_sales_report_data(start_date, end_date)
         
@@ -207,7 +205,8 @@ def reports_dashboard():
                     label="Download Sales Data (CSV)",
                     data=csv_data,
                     file_name=f"sales_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key="sales_csv"
                 )
             
             with col2:
@@ -232,6 +231,7 @@ def reports_dashboard():
     if report_type == "Expenses" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Expenses Report")
+        st.caption("Expense data sourced from expenses module")
         
         # Use reports_engine functions
         expenses_data = get_expenses_report_data(start_date, end_date)
@@ -301,7 +301,8 @@ def reports_dashboard():
                     label="Download Expenses Data (CSV)",
                     data=csv_data,
                     file_name=f"expenses_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key="expenses_csv"
                 )
             
             with col2:
@@ -320,6 +321,7 @@ def reports_dashboard():
     if report_type == "Income" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Income Report")
+        st.caption("Income data sourced from income module")
         
         # Use reports_engine functions
         income_data = get_income_report_data(start_date, end_date)
@@ -389,7 +391,8 @@ def reports_dashboard():
                     label="Download Income Data (CSV)",
                     data=csv_data,
                     file_name=f"income_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key="income_csv"
                 )
             
             with col2:
@@ -461,7 +464,8 @@ def reports_dashboard():
                     label="Download Purchases Data (CSV)",
                     data=csv_data,
                     file_name=f"purchases_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key="purchases_csv"
                 )
         else:
             st.info("No purchases data available for the selected period")
@@ -495,6 +499,16 @@ def reports_dashboard():
             low_stock = inventory_data[inventory_data['stock'] < 5]
             if not low_stock.empty:
                 st.warning(f"{len(low_stock)} products have low stock (less than 5 units)")
+                st.dataframe(
+                    low_stock[["name", "stock", "price", "stock_value"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "stock": st.column_config.NumberColumn("Stock", format="%.0f"),
+                        "price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                        "stock_value": st.column_config.NumberColumn("Stock Value", format="$%.2f")
+                    }
+                )
             
             # Download buttons
             col1, col2, col3 = st.columns(3)
@@ -505,7 +519,8 @@ def reports_dashboard():
                     label="Download Inventory Data (CSV)",
                     data=csv_data,
                     file_name=f"inventory_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key="inventory_csv"
                 )
             
             with col2:
@@ -567,7 +582,8 @@ def reports_dashboard():
                         label="Download Customers Data (CSV)",
                         data=csv_data,
                         file_name=f"customers_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
+                        mime="text/csv",
+                        key="customers_csv"
                     )
             
             with col2:
@@ -581,11 +597,12 @@ def reports_dashboard():
             st.info("No customer data available for the selected period")
     
     # ==============================
-    # DEBTORS REPORT
+    # DEBTORS REPORT - FIXED: Using floating financials credit management
     # ==============================
     if report_type == "Debtors" or report_type == "Combined":
         st.markdown("---")
         st.markdown("## Debtors Report")
+        st.caption("Debtor data sourced from Credit Management (Floating Financials)")
         
         debtors_report = generate_debtors_report()
         
@@ -601,7 +618,7 @@ def reports_dashboard():
                 st.metric("Debtors", f"{debtors_report['debtors_count']}")
             
             if debtors_report['overdue_count'] > 0:
-                st.error(f"{debtors_report['overdue_count']} overdue debtors require attention!")
+                st.error(f"⚠️ {debtors_report['overdue_count']} overdue debtors require attention!")
             
             # Top debtors
             if not debtors_report['top_debtors'].empty:
@@ -619,6 +636,35 @@ def reports_dashboard():
                     }
                 )
             
+            # By status
+            if not debtors_report['by_status'].empty:
+                st.markdown("### Debtors by Status")
+                fig = px.pie(
+                    debtors_report['by_status'],
+                    values="balance",
+                    names="status",
+                    title="Debtors by Status",
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # By type
+            if not debtors_report['by_type'].empty:
+                st.markdown("### Debtors by Type")
+                fig = px.bar(
+                    debtors_report['by_type'],
+                    x="type",
+                    y="balance",
+                    title="Debtors by Credit Type",
+                    color="balance",
+                    color_continuous_scale="Blues",
+                    text="balance"
+                )
+                fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
+            
             # Download buttons
             col1, col2, col3 = st.columns(3)
             
@@ -630,7 +676,8 @@ def reports_dashboard():
                         label="Download Debtors Data (CSV)",
                         data=csv_data,
                         file_name=f"debtors_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
+                        mime="text/csv",
+                        key="debtors_csv"
                     )
             
             with col2:
@@ -649,6 +696,7 @@ def reports_dashboard():
     if report_type == "Combined":
         st.markdown("---")
         st.markdown("## Executive Summary")
+        st.caption("All metrics based on unduplicated data")
         
         sales_report = generate_sales_report(start_date, end_date)
         expense_report = generate_expense_report(start_date, end_date)
@@ -670,7 +718,7 @@ def reports_dashboard():
             st.metric(
                 "Total Revenue",
                 f"${total_sales:,.2f}",
-                help="Total sales revenue"
+                help="Total sales revenue (unduplicated)"
             )
         
         with col2:
@@ -726,6 +774,17 @@ def reports_dashboard():
                 f"{sales_report['total_transactions']:,}",
                 help="Number of sales transactions"
             )
+        
+        # Combined report download
+        st.markdown("---")
+        st.markdown("### Download Combined Report")
+        
+        if st.button("Download Combined Report (PDF)", key="combined_pdf", use_container_width=True):
+            with st.spinner("Generating combined report..."):
+                pdf_bytes = generate_combined_report_pdf(start_date, end_date)
+                b64 = base64.b64encode(pdf_bytes).decode()
+                href = f'<a href="data:application/pdf;base64,{b64}" download="combined_report_{datetime.now().strftime("%Y%m%d")}.pdf">Download Combined Report PDF</a>'
+                st.markdown(href, unsafe_allow_html=True)
 
 
 # ==============================
