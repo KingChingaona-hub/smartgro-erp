@@ -719,7 +719,7 @@ def welcome_page():
             if st.session_state.get("role") == "cashier":
                 st.session_state.current_page = "POS"
             else:
-                st.session_state.current_page = "Stock Dashboard"
+                st.session_state.current_page = "Cash Dashboard"
             # Use st.rerun() only once
             st.rerun()
     

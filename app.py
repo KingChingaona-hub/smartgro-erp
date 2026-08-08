@@ -514,7 +514,7 @@ def login_page():
                         if role == "cashier":
                             st.session_state.current_page = "POS"
                         else:
-                            st.session_state.current_page = "Stock Dashboard"
+                            st.session_state.current_page = "Cash Dashboard"
             
                         try:
                             show_toast(f"Welcome back, {username}!", "success")
@@ -570,7 +570,7 @@ def main_app():
     except:
         branch_name = "Unknown"
     
-    page = st.session_state.get("current_page", "Stock Dashboard")
+    page = st.session_state.get("current_page", "Cash Dashboard")
     
     # ==============================
     # CHECK IF WELCOME PAGE SHOULD BE SHOWN
