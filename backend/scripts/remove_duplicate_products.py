@@ -16,62 +16,93 @@ import pandas as pd
 import argparse
 import streamlit as st
 from backend.core.db_adapter import load_products, save_products
+import traceback
 
 
 def remove_duplicates_from_database_by_name(dry_run=False):
     """
     Remove duplicate products from Neon database by NAME
     """
-    # Load products from database
-    df = load_products()
-    
-    if df.empty:
-        return False, "No products found in database.", None
-    
-    original_count = len(df)
-    print(f"Total products in database: {original_count}")
-    
-    # Check for name column
-    if "name" not in df.columns:
-        return False, "No 'name' column found in products table!", None
-    
-    # Create a normalized name column for comparison (lowercase, stripped)
-    df["name_normalized"] = df["name"].str.lower().str.strip()
-    
-    # Find duplicates by normalized name
-    duplicate_names = df[df["name_normalized"].duplicated(keep=False)]["name_normalized"].unique()
-    print(f"Duplicate names found: {len(duplicate_names)}")
-    
-    if len(duplicate_names) == 0:
-        return True, "No duplicates found!", df
-    
-    # Show duplicates before removal
-    print("\nDuplicate products found:")
-    for name in duplicate_names:
-        dup_rows = df[df["name_normalized"] == name]
-        print(f"  '{name}': {len(dup_rows)} duplicates - {dup_rows['name'].tolist()}")
-        for _, row in dup_rows.iterrows():
-            print(f"    - ID: {row.get('id', 'N/A')}, Barcode: {row.get('barcode', 'N/A')}, Stock: {row.get('stock', 0)}")
-    
-    if dry_run:
-        return True, f"DRY RUN: Would remove {len(duplicate_names)} duplicate groups.", df
-    
-    # Remove duplicates - KEEP FIRST OCCURRENCE based on name
-    df_clean = df.drop_duplicates(subset=["name_normalized"], keep="first")
-    new_count = len(df_clean)
-    removed_count = original_count - new_count
-    
-    print(f"\nNew rows after removal: {new_count}")
-    print(f"Removed rows: {removed_count}")
-    
-    # Remove the temporary normalized column before saving
-    df_clean = df_clean.drop(columns=["name_normalized"])
-    
-    # Save to database
-    if save_products(df_clean):
-        return True, f"Successfully removed {removed_count} duplicate products by name. {new_count} products remain.", df_clean
-    else:
-        return False, "Failed to save cleaned products to database!", None
+    try:
+        # Load products from database
+        df = load_products()
+        
+        if df.empty:
+            return False, "No products found in database.", None
+        
+        original_count = len(df)
+        print(f"Total products in database: {original_count}")
+        
+        # Check for name column
+        if "name" not in df.columns:
+            return False, "No 'name' column found in products table!", None
+        
+        # Create a normalized name column for comparison (lowercase, stripped)
+        df["name_normalized"] = df["name"].str.lower().str.strip()
+        
+        # Find duplicates by normalized name
+        duplicate_names = df[df["name_normalized"].duplicated(keep=False)]["name_normalized"].unique()
+        print(f"Duplicate names found: {len(duplicate_names)}")
+        
+        if len(duplicate_names) == 0:
+            return True, "No duplicates found!", df
+        
+        # Show duplicates before removal
+        print("\nDuplicate products found:")
+        for name in duplicate_names:
+            dup_rows = df[df["name_normalized"] == name]
+            print(f"  '{name}': {len(dup_rows)} duplicates")
+            for idx, row in dup_rows.iterrows():
+                print(f"    - Index: {idx}, Name: {row['name']}, Barcode: {row.get('barcode', 'N/A')}, Stock: {row.get('stock', 0)}")
+        
+        if dry_run:
+            return True, f"DRY RUN: Would remove {len(duplicate_names)} duplicate groups.", df
+        
+        # Get indices to keep (first occurrence of each name)
+        keep_indices = df.groupby("name_normalized")["name"].first().index
+        print(f"\nKeeping {len(keep_indices)} unique names")
+        
+        # Get rows to keep
+        df_keep = df[df["name_normalized"].isin(keep_indices)]
+        
+        # For each duplicate group, keep only the first row
+        df_clean = df.drop_duplicates(subset=["name_normalized"], keep="first")
+        new_count = len(df_clean)
+        removed_count = original_count - new_count
+        
+        print(f"New rows after removal: {new_count}")
+        print(f"Removed rows: {removed_count}")
+        
+        # Remove the temporary normalized column before saving
+        df_clean = df_clean.drop(columns=["name_normalized"])
+        
+        # Reset index to ensure clean save
+        df_clean = df_clean.reset_index(drop=True)
+        
+        # Debug: Show what we're about to save
+        print(f"\nSaving {len(df_clean)} products to database...")
+        print(f"Columns being saved: {df_clean.columns.tolist()}")
+        
+        # Save to database
+        save_success = save_products(df_clean)
+        
+        if save_success:
+            # Verify by reloading
+            df_verify = load_products()
+            verify_count = len(df_verify)
+            print(f"Verification - products in database after save: {verify_count}")
+            
+            if verify_count == new_count:
+                return True, f"Successfully removed {removed_count} duplicate products by name. {new_count} products remain.", df_clean
+            else:
+                return False, f"Save appeared successful but count mismatch. Expected {new_count}, got {verify_count}", None
+        else:
+            return False, "Failed to save cleaned products to database!", None
+            
+    except Exception as e:
+        print(f"Error: {e}")
+        traceback.print_exc()
+        return False, f"Error: {str(e)}", None
 
 
 def duplicate_products_page():
@@ -123,9 +154,12 @@ def duplicate_products_page():
     with col1:
         if st.button("Preview Changes", use_container_width=True):
             with st.spinner("Previewing changes..."):
-                success, message, _ = remove_duplicates_from_database_by_name(dry_run=True)
+                success, message, preview_df = remove_duplicates_from_database_by_name(dry_run=True)
                 if success:
                     st.success(message)
+                    if preview_df is not None and not preview_df.empty:
+                        st.subheader("Preview of unique products")
+                        st.dataframe(preview_df.head(20), use_container_width=True)
                     st.info("Run 'Remove Duplicates' to apply changes.")
                 else:
                     st.error(message)
@@ -147,6 +181,9 @@ def duplicate_products_page():
                     st.rerun()
                 else:
                     st.error(message)
+                    # Show error details
+                    with st.expander("Error Details"):
+                        st.code(str(message))
     
     with col3:
         if st.button("Refresh", use_container_width=True):
@@ -192,18 +229,23 @@ def main():
         for name in duplicate_names:
             dup_rows = df[df["name_normalized"] == name]
             print(f"  '{name}': {len(dup_rows)} duplicates")
-            for _, row in dup_rows.iterrows():
-                print(f"    - ID: {row.get('id', 'N/A')}, Name: {row['name']}, Stock: {row.get('stock', 0)}")
+            for idx, row in dup_rows.iterrows():
+                print(f"    - Index: {idx}, Name: {row['name']}, Barcode: {row.get('barcode', 'N/A')}, Stock: {row.get('stock', 0)}")
     
     print("\n" + "=" * 60)
     
     if args.dry_run:
         print("DRY RUN MODE - No changes will be made")
         print(f"Would remove {len(duplicate_names)} duplicate groups")
+        
+        # Show what would be removed
+        for name in duplicate_names:
+            dup_rows = df[df["name_normalized"] == name]
+            print(f"  '{name}': Keeping '{dup_rows.iloc[0]['name']}', removing {len(dup_rows)-1} others")
         return
     
     if not args.yes:
-        response = input(f"\nWARNING: This will remove {len(duplicate_names)} duplicate groups. Continue? (yes/no): ")
+        response = input(f"\nWARNING: This will remove duplicates for {len(duplicate_names)} product names. Continue? (yes/no): ")
         if response.lower() != "yes":
             print("Operation cancelled.")
             return
@@ -214,6 +256,11 @@ def main():
     print("\n" + "=" * 60)
     print(message)
     print("=" * 60)
+    
+    # Verify
+    print("\nVerifying...")
+    df_verify = load_products()
+    print(f"Products in database after cleanup: {len(df_verify)}")
 
 
 if __name__ == "__main__":
