@@ -497,20 +497,43 @@ def save_products(df, branch_id=None):
                 try:
                     data = row.to_dict()
                     
-                    # Get clean data with defaults
+                    # Get clean data with defaults - ensure all required fields exist
                     barcode = str(data.get("barcode", "")).strip()
                     name = str(data.get("name", "")).strip()
                     category = str(data.get("category", "Uncategorized")).strip()
-                    price = float(data.get("price", 0))
-                    cost = float(data.get("cost", 0))
-                    stock = float(data.get("stock", 0))
-                    reorder_level = float(data.get("reorder_level", 0))
                     
-                    # Skip if no name
+                    # Convert numeric values with error handling
+                    try:
+                        price = float(data.get("price", 0))
+                    except (ValueError, TypeError):
+                        price = 0.0
+                    
+                    try:
+                        cost = float(data.get("cost", 0))
+                    except (ValueError, TypeError):
+                        cost = 0.0
+                    
+                    try:
+                        stock = float(data.get("stock", 0))
+                    except (ValueError, TypeError):
+                        stock = 0.0
+                    
+                    try:
+                        reorder_level = float(data.get("reorder_level", 0))
+                    except (ValueError, TypeError):
+                        reorder_level = 0.0
+                    
+                    # Skip if no name - but log it
                     if not name:
-                        validation_errors.append(f"Row {idx}: Missing name")
+                        validation_errors.append(f"Row {idx}: Missing name, skipping")
                         continue
                     
+                    # If no barcode, generate one from name
+                    if not barcode:
+                        barcode = name.replace(" ", "_").upper()[:20]
+                        print(f"Row {idx}: Generated barcode '{barcode}' for '{name}'")
+                    
+                    # Insert the product
                     cur.execute("""
                         INSERT INTO products (branch_id, barcode, name, category, price, cost, stock, reorder_level)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -526,24 +549,39 @@ def save_products(df, branch_id=None):
                     ))
                     inserted_count += 1
                     
+                    # Commit every 100 rows to avoid large transactions
+                    if inserted_count % 100 == 0:
+                        conn.commit()
+                        print(f"Committed {inserted_count} products so far...")
+                    
                 except Exception as e:
                     print(f"Error inserting row {idx}: {e}")
                     print(f"Row data: {row.to_dict()}")
                     validation_errors.append(f"Row {idx}: {str(e)}")
                     continue
             
-            if validation_errors:
-                print(f"Validation errors: {validation_errors}")
-            
+            # Final commit
             conn.commit()
             print(f"Inserted {inserted_count} products for branch: {branch_id}")
             
-            # Verify the save
-            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (branch_id,))
-            count = cur.fetchone()[0]
-            print(f"Verification: {count} products in database for branch: {branch_id}")
+            if validation_errors:
+                print(f"Validation errors: {validation_errors}")
+                # Don't fail if there were validation errors, but log them
             
-            return True
+            # Verify the save
+            try:
+                cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (branch_id,))
+                count = cur.fetchone()[0]
+                print(f"Verification: {count} products in database for branch: {branch_id}")
+                
+                if count != inserted_count:
+                    print(f"WARNING: Expected {inserted_count} but found {count}")
+                    # Don't return false, just warn
+            except Exception as e:
+                print(f"Verification error: {e}")
+            
+            # Return success even if there were validation errors, as long as some products were inserted
+            return inserted_count > 0 or df.empty
             
     except Exception as e:
         print(f"Error saving products: {e}")

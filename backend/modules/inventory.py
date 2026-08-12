@@ -5,6 +5,88 @@ from backend.core.db_adapter import load_products, save_products
 from backend.core.auth import check_login
 from backend.scripts.remove_duplicate_products import duplicate_products_page
 import traceback
+import numpy as np
+
+
+# ==============================
+# HELPER: Clean DataFrame for saving
+# ==============================
+def clean_dataframe_for_save(df):
+    """Clean DataFrame to ensure all data is valid for database save"""
+    if df.empty:
+        return df
+    
+    # Create a copy to avoid modifying original
+    df_clean = df.copy()
+    
+    # Ensure required columns exist
+    required_cols = ["barcode", "name", "category", "price", "cost", "stock", "reorder_level"]
+    for col in required_cols:
+        if col not in df_clean.columns:
+            if col in ["price", "cost", "stock", "reorder_level"]:
+                df_clean[col] = 0
+            else:
+                df_clean[col] = ""
+    
+    # Clean string columns
+    for col in ["barcode", "name", "category"]:
+        if col in df_clean.columns:
+            df_clean[col] = df_clean[col].fillna("").astype(str).str.strip()
+            # Replace empty with default
+            if col == "name":
+                df_clean.loc[df_clean[col] == "", col] = "Unknown Product"
+            if col == "category":
+                df_clean.loc[df_clean[col] == "", col] = "Uncategorized"
+            if col == "barcode":
+                # Generate barcode if empty
+                mask = df_clean[col] == ""
+                df_clean.loc[mask, col] = "BC-" + df_clean.loc[mask].index.astype(str)
+    
+    # Convert numeric columns
+    for col in ["price", "cost", "stock", "reorder_level"]:
+        if col in df_clean.columns:
+            df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce").fillna(0)
+    
+    return df_clean
+
+
+# ==============================
+# HELPER: Save with retry
+# ==============================
+def save_with_retry(df, max_retries=3):
+    """Attempt to save with multiple retries"""
+    for attempt in range(max_retries):
+        try:
+            print(f"Save attempt {attempt + 1}/{max_retries}")
+            # Clean data before saving
+            df_clean = clean_dataframe_for_save(df)
+            print(f"Cleaned data: {len(df_clean)} rows, columns: {df_clean.columns.tolist()}")
+            
+            # Try to save
+            success = save_products(df_clean)
+            if success:
+                print(f"Save successful on attempt {attempt + 1}")
+                return True, "Products saved successfully!", df_clean
+            else:
+                print(f"Save failed on attempt {attempt + 1}")
+                # If it's the last attempt, show more details
+                if attempt == max_retries - 1:
+                    # Try to identify the problematic row
+                    for idx, row in df_clean.iterrows():
+                        try:
+                            # Test each row individually
+                            test_df = pd.DataFrame([row])
+                            save_products(test_df)
+                        except Exception as e:
+                            print(f"Problematic row {idx}: {e}")
+                            print(f"Row data: {row.to_dict()}")
+        except Exception as e:
+            print(f"Attempt {attempt + 1} error: {e}")
+            traceback.print_exc()
+            if attempt == max_retries - 1:
+                return False, f"Error after {max_retries} attempts: {str(e)}", df
+    
+    return False, "Failed to save after multiple attempts", df
 
 
 # ==============================
@@ -187,12 +269,13 @@ def inventory_page():
                     else:
                         df = pd.concat([df, new_row], ignore_index=True)
                     
-                    if save_products(df):
+                    success, message, _ = save_with_retry(df)
+                    if success:
                         st.success(f"Product '{name}' added successfully!")
                         st.cache_data.clear()
                         st.rerun()
                     else:
-                        st.error("Failed to save product.")
+                        st.error(f"Failed to save product: {message}")
             else:
                 st.error("Barcode, Name, and Price are required.")
     
@@ -317,7 +400,8 @@ def inventory_page():
                             
                             if deleted_count == len(st.session_state.batch_delete_selected):
                                 # Save the updated DataFrame
-                                if save_products(df_new):
+                                success, message, _ = save_with_retry(df_new)
+                                if success:
                                     # Clear cache to force reload
                                     st.cache_data.clear()
                                     
@@ -331,7 +415,7 @@ def inventory_page():
                                     # Force reload
                                     st.rerun()
                                 else:
-                                    st.error("Failed to save changes. Please check the database connection.")
+                                    st.error(f"Failed to save changes: {message}")
                             else:
                                 st.error(f"Failed to delete products. Expected {len(st.session_state.batch_delete_selected)} but deleted {deleted_count}.")
                         except Exception as e:
@@ -566,7 +650,8 @@ def inventory_page():
                                     df.at[idx, "reorder_level"] = float(data.get("reorder_level", df.at[idx, "reorder_level"]))
                             
                             # Save all changes at once
-                            if save_products(df):
+                            success, message, _ = save_with_retry(df)
+                            if success:
                                 st.success(f"Successfully updated {len(st.session_state.batch_selected)} products!")
                                 st.balloons()
                                 # Clear selections
@@ -575,10 +660,34 @@ def inventory_page():
                                 st.cache_data.clear()
                                 st.rerun()
                             else:
-                                st.error("Failed to save changes. Please try again.")
+                                st.error(f"Failed to save changes: {message}")
+                                # Show debug info
+                                with st.expander("Debug Info"):
+                                    st.write("First 5 rows of data being saved:")
+                                    st.dataframe(df.head(5))
+                                    st.write("Data types:")
+                                    st.write(df.dtypes)
+                                    
+                                    # Check for common issues
+                                    issues = []
+                                    if "name" in df.columns:
+                                        empty_names = df[df["name"].isna() | (df["name"] == "")]
+                                        if not empty_names.empty:
+                                            issues.append(f"Found {len(empty_names)} products with empty names")
+                                    
+                                    if "barcode" in df.columns:
+                                        empty_barcodes = df[df["barcode"].isna() | (df["barcode"] == "")]
+                                        if not empty_barcodes.empty:
+                                            issues.append(f"Found {len(empty_barcodes)} products with empty barcodes")
+                                    
+                                    if issues:
+                                        st.warning("Issues found:")
+                                        for issue in issues:
+                                            st.write(f"- {issue}")
                                 
                         except Exception as e:
                             st.error(f"Error saving products: {str(e)}")
+                            st.code(traceback.format_exc())
             
             # Show summary of selected products
             with st.expander("Selected Products Summary"):
@@ -702,12 +811,13 @@ def inventory_page():
                         df.at[product_index, "stock"] = float(update_stock)
                         df.at[product_index, "reorder_level"] = float(update_reorder)
                         
-                        if save_products(df):
+                        success, message, _ = save_with_retry(df)
+                        if success:
                             st.success(f"Product '{update_name}' updated successfully!")
                             st.cache_data.clear()
                             st.rerun()
                         else:
-                            st.error("Failed to save product changes.")
+                            st.error(f"Failed to save product changes: {message}")
                     except Exception as e:
                         st.error(f"Error updating product: {str(e)}")
     
@@ -745,12 +855,13 @@ def inventory_page():
                             st.info("No products to delete.")
                         else:
                             empty_df = pd.DataFrame(columns=df.columns.tolist())
-                            if save_products(empty_df):
+                            success, message, _ = save_with_retry(empty_df)
+                            if success:
                                 st.success(f"Successfully deleted ALL {product_count} products!")
                                 st.cache_data.clear()
                                 st.rerun()
                             else:
-                                st.error("Failed to delete products.")
+                                st.error(f"Failed to delete products: {message}")
                     else:
                         st.error("Invalid admin password. Deletion cancelled.")
     else:
