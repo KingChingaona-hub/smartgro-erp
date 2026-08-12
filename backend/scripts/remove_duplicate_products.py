@@ -168,7 +168,7 @@ def remove_duplicate_products(keep="first", merge_stock=True, dry_run=False, use
     Remove duplicate products from inventory
     
     Args:
-        keep: Which duplicate to keep ('first', 'last', or False to keep all)
+        keep: Which duplicate to keep ('first', 'last')
         merge_stock: If True, merge stock of duplicates into the kept product
         dry_run: If True, only show what would be removed without saving
         use_direct: If True, use direct CSV loading
@@ -183,58 +183,81 @@ def remove_duplicate_products(keep="first", merge_stock=True, dry_run=False, use
     
     original_count = len(df)
     
-    # Create backup
-    backup_df = df.copy()
-    
-    # Track changes
-    changes = []
-    
     if "barcode" not in df.columns:
         return False, "No 'barcode' column found in data", df
     
-    if merge_stock:
-        # Group by barcode and merge duplicates
-        grouped = df.groupby("barcode")
-        new_rows = []
-        
-        for barcode, group in grouped:
-            if len(group) > 1:
-                # Merge stock and keep the first one
-                first_row = group.iloc[0].copy()
-                total_stock = group["stock"].sum()
-                total_cost = (group["stock"] * group["cost"]).sum() / total_stock if total_stock > 0 else 0
-                total_price = (group["stock"] * group["price"]).sum() / total_stock if total_stock > 0 else 0
-                
-                first_row["stock"] = total_stock
-                first_row["cost"] = total_cost
-                first_row["price"] = total_price
-                
-                new_rows.append(first_row)
-                
-                changes.append({
-                    "barcode": barcode,
-                    "kept": first_row["name"],
-                    "merged": group["name"].tolist(),
-                    "total_stock": total_stock
-                })
-            else:
-                new_rows.append(group.iloc[0])
-        
-        df_new = pd.DataFrame(new_rows)
-    else:
-        # Just remove duplicates without merging
-        df_new = df.drop_duplicates(subset=["barcode"], keep=keep)
+    # Create a copy to work with
+    df_work = df.copy()
     
-    removed_count = original_count - len(df_new)
+    # Find duplicate barcodes
+    duplicate_barcodes = df_work[df_work["barcode"].duplicated(keep=False)]["barcode"].unique()
+    
+    if len(duplicate_barcodes) == 0:
+        return True, "No duplicate products found to remove.", df_work
+    
+    # Process each duplicate barcode
+    rows_to_keep = []
+    merged_rows = []
+    
+    for barcode in duplicate_barcodes:
+        # Get all rows with this barcode
+        rows = df_work[df_work["barcode"] == barcode]
+        
+        if len(rows) <= 1:
+            rows_to_keep.append(rows.iloc[0])
+            continue
+        
+        if merge_stock:
+            # Merge all rows into one
+            merged_row = rows.iloc[0].copy()
+            
+            # Sum the stock
+            total_stock = rows["stock"].sum()
+            
+            # Calculate weighted average cost and price
+            total_cost_weighted = (rows["stock"] * rows["cost"]).sum()
+            total_price_weighted = (rows["stock"] * rows["price"]).sum()
+            
+            avg_cost = total_cost_weighted / total_stock if total_stock > 0 else 0
+            avg_price = total_price_weighted / total_stock if total_stock > 0 else 0
+            
+            merged_row["stock"] = total_stock
+            merged_row["cost"] = avg_cost
+            merged_row["price"] = avg_price
+            
+            # Keep the name from the first row (or most common name)
+            name_counts = rows["name"].value_counts()
+            merged_row["name"] = name_counts.index[0] if not name_counts.empty else rows.iloc[0]["name"]
+            
+            merged_rows.append(merged_row)
+        else:
+            # Keep only the first row (or last based on keep parameter)
+            if keep == "first":
+                rows_to_keep.append(rows.iloc[0])
+            else:
+                rows_to_keep.append(rows.iloc[-1])
+    
+    # Combine all rows
+    if merge_stock:
+        # Add non-duplicate rows
+        non_duplicate_rows = df_work[~df_work["barcode"].isin(duplicate_barcodes)]
+        result_rows = pd.concat([pd.DataFrame(merged_rows), non_duplicate_rows], ignore_index=True)
+    else:
+        result_rows = pd.DataFrame(rows_to_keep)
+    
+    # Reset index
+    result_rows = result_rows.reset_index(drop=True)
+    
+    removed_count = original_count - len(result_rows)
     
     if dry_run:
-        return True, f"DRY RUN: Would remove {removed_count} duplicate products. {len(df_new)} products would remain.", df_new
+        return True, f"DRY RUN: Would remove {removed_count} duplicate products. {len(result_rows)} products would remain.", result_rows
     
     # Save the cleaned data
-    if save_products(df_new):
-        return True, f"Successfully removed {removed_count} duplicate products. {len(df_new)} products remain.", df_new
+    if save_products(result_rows):
+        return True, f"Successfully removed {removed_count} duplicate products. {len(result_rows)} products remain.", result_rows
     else:
-        return False, "Failed to save cleaned products", backup_df
+        return False, "Failed to save cleaned products", df
 
 
 def duplicate_products_page():
@@ -272,15 +295,21 @@ def duplicate_products_page():
     
     # Show duplicate details
     st.subheader("Duplicate Products Details")
-    st.dataframe(
-        report_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Stock": st.column_config.NumberColumn("Stock", format="%.2f"),
-            "Total Value": st.column_config.NumberColumn("Total Value", format="$%.2f")
-        }
-    )
+    
+    # Display each duplicate group in detail
+    for idx, row in report_df.iterrows():
+        with st.expander(f"Duplicate Group {idx+1}: {row['Type']} - {row['Identifier']}"):
+            st.write(f"**Type:** {row['Type']}")
+            st.write(f"**Identifier:** {row['Identifier']}")
+            st.write(f"**Count:** {row['Count']}")
+            st.write(f"**Products:** {', '.join(row['Products'])}")
+            st.write(f"**Total Stock:** {row['Stock']:.2f}")
+            st.write(f"**Total Value:** ${row['Total Value']:.2f}")
+            
+            # Show the actual rows
+            if "barcode" in df.columns:
+                dup_rows = df[df["barcode"] == row['Identifier']]
+                st.dataframe(dup_rows[["name", "barcode", "stock", "price", "cost"]], use_container_width=True)
     
     st.markdown("---")
     
@@ -297,14 +326,39 @@ def duplicate_products_page():
         )
     
     with col2:
-        st.warning("⚠️ This action cannot be undone. Make sure you have a backup.")
+        keep_option = st.selectbox(
+            "Which duplicate to keep",
+            ["first", "last"],
+            index=0,
+            help="'first' keeps the first occurrence, 'last' keeps the last occurrence."
+        )
     
-    col1, col2 = st.columns(2)
+    st.warning("⚠️ This action cannot be undone. Make sure you have a backup.")
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
+        if st.button("Preview Changes", use_container_width=True):
+            with st.spinner("Previewing changes..."):
+                success, message, preview_df = remove_duplicate_products(
+                    keep=keep_option, 
+                    merge_stock=merge_stock, 
+                    dry_run=True
+                )
+                if success:
+                    st.success(message)
+                    st.dataframe(preview_df, use_container_width=True)
+                else:
+                    st.error(message)
+    
+    with col2:
         if st.button("Remove Duplicates", type="primary", use_container_width=True):
             with st.spinner("Removing duplicates..."):
-                success, message, new_df = remove_duplicate_products(merge_stock=merge_stock)
+                success, message, new_df = remove_duplicate_products(
+                    keep=keep_option, 
+                    merge_stock=merge_stock, 
+                    dry_run=False
+                )
                 if success:
                     st.success(message)
                     st.balloons()
@@ -313,7 +367,7 @@ def duplicate_products_page():
                 else:
                     st.error(message)
     
-    with col2:
+    with col3:
         if st.button("Refresh", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
