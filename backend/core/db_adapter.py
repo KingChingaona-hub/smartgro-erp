@@ -477,13 +477,19 @@ def save_products(df, branch_id=None):
             if cur is None or conn is None:
                 return False
             
+            # DELETE ALL existing products for this branch first
+            cur.execute("DELETE FROM products WHERE branch_id = %s", (branch_id,))
+            print(f"Deleted all products for branch: {branch_id}")
+            
             if df.empty:
-                cur.execute("DELETE FROM products WHERE branch_id = %s", (branch_id,))
                 conn.commit()
                 print(f"All products deleted for branch: {branch_id}")
                 return True
             
+            # Insert the cleaned data
             validation_errors = []
+            inserted_count = 0
+            
             for idx, row in df.iterrows():
                 data = row.to_dict()
                 is_valid, errors, clean_data = validate_product_data(data)
@@ -495,27 +501,42 @@ def save_products(df, branch_id=None):
                 cur.execute("""
                     INSERT INTO products (branch_id, barcode, name, category, price, cost, stock, reorder_level)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (branch_id, barcode) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        category = EXCLUDED.category,
-                        price = EXCLUDED.price,
-                        cost = EXCLUDED.cost,
-                        stock = EXCLUDED.stock,
-                        reorder_level = EXCLUDED.reorder_level
-                """, (branch_id, clean_data.get("barcode", ""), clean_data.get("name", ""), 
-                      clean_data.get("category", ""), clean_data.get("price", 0), 
-                      clean_data.get("cost", 0), clean_data.get("stock", 0), 
-                      clean_data.get("reorder_level", 0)))
+                """, (
+                    branch_id, 
+                    clean_data.get("barcode", ""), 
+                    clean_data.get("name", ""), 
+                    clean_data.get("category", ""), 
+                    clean_data.get("price", 0), 
+                    clean_data.get("cost", 0), 
+                    clean_data.get("stock", 0), 
+                    clean_data.get("reorder_level", 0)
+                ))
+                inserted_count += 1
             
             if validation_errors:
                 print(f"Validation errors: {validation_errors}")
             
             conn.commit()
+            print(f"Inserted {inserted_count} products for branch: {branch_id}")
+            
+            # Verify the save
+            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (branch_id,))
+            count = cur.fetchone()[0]
+            print(f"Verification: {count} products in database for branch: {branch_id}")
+            
+            # If verification fails, something went wrong
+            if count != inserted_count:
+                print(f"WARNING: Expected {inserted_count} but found {count}")
+                return False
+            
             return True
+            
     except Exception as e:
         print(f"Error saving products: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-
+    
 # ==============================
 # SALES FUNCTIONS
 # ==============================
