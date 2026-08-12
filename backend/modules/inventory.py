@@ -3,12 +3,12 @@ import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_products, save_products
 from backend.core.auth import check_login
-from backend.scripts.remove_duplicate_products import find_duplicate_products, remove_duplicate_products
+from backend.scripts.remove_duplicate_products import duplicate_products_page
 import traceback
 
 
 # ==============================
-# INVENTORY PAGE - WITH BATCH DELETE
+# INVENTORY PAGE - WITH BATCH DELETE AND DUPLICATE CLEANUP
 # ==============================
 def inventory_page():
     
@@ -110,102 +110,37 @@ def inventory_page():
     st.markdown("---")
     
     # ==============================
-    # DUPLICATE PRODUCTS CLEANUP - IMPORTED FROM MODULE
+    # DUPLICATE PRODUCTS CLEANUP TOOL
     # ==============================
-    st.markdown("## Duplicate Products Cleanup")
-    st.caption("Find and remove duplicate products in your inventory")
+    st.markdown("## Tools")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("Find Duplicate Products", use_container_width=True, key="find_duplicates_btn"):
-            with st.spinner("Scanning for duplicates..."):
-                report_df, summary = find_duplicate_products()
-                
-                if report_df.empty:
-                    st.success("No duplicate products found! Your inventory is clean.")
-                    st.session_state.duplicate_report = None
-                    st.session_state.duplicate_summary = None
-                    st.session_state.show_duplicates = False
-                else:
-                    st.session_state.duplicate_report = report_df
-                    st.session_state.duplicate_summary = summary
-                    st.session_state.show_duplicates = True
-                    st.rerun()
-    
-    with col2:
-        if st.button("Go to Full Cleanup Tool", use_container_width=True, key="go_to_cleanup_tool"):
+        if st.button("Duplicate Products Cleanup", use_container_width=True, key="go_to_duplicate_cleanup"):
+            # Set the page to show duplicate cleanup
             st.session_state.current_page = "Duplicate Products"
+            st.session_state.show_duplicate_cleanup = True
             st.rerun()
     
-    # Show duplicate results if available
-    if st.session_state.get("show_duplicates", False):
-        report_df = st.session_state.get("duplicate_report")
-        summary = st.session_state.get("duplicate_summary")
+    with col2:
+        if st.button("Refresh Inventory", use_container_width=True, key="refresh_inventory"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    # Show duplicate cleanup if flag is set
+    if st.session_state.get("show_duplicate_cleanup", False):
+        st.markdown("---")
+        st.markdown("## Duplicate Products Cleanup")
+        st.caption("Find and remove duplicate products in your inventory")
         
-        if report_df is not None and not report_df.empty:
-            # Display summary
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Products", summary['total_products'])
-            with col2:
-                st.metric("Barcode Duplicates", summary['barcode_duplicates'])
-            with col3:
-                st.metric("Name Duplicates", summary['name_duplicates'])
-            
-            st.markdown("---")
-            
-            # Show duplicate details
-            st.subheader("Duplicate Products Details")
-            st.dataframe(
-                report_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Stock": st.column_config.NumberColumn("Stock", format="%.2f"),
-                    "Total Value": st.column_config.NumberColumn("Total Value", format="$%.2f")
-                }
-            )
-            
-            st.markdown("---")
-            
-            # Cleanup options
-            st.subheader("Quick Cleanup")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                merge_stock = st.checkbox(
-                    "Merge stock of duplicates",
-                    value=True,
-                    help="If checked, stock from duplicate products will be added together into the kept product."
-                )
-            
-            with col2:
-                st.caption(" ")
-                st.warning("⚠️ This action cannot be undone.")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("Remove Duplicates Now", type="primary", use_container_width=True, key="remove_duplicates_btn"):
-                    with st.spinner("Removing duplicates..."):
-                        success, message, new_df = remove_duplicate_products(merge_stock=merge_stock)
-                        if success:
-                            st.success(message)
-                            st.balloons()
-                            st.session_state.show_duplicates = False
-                            st.session_state.duplicate_report = None
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.error(message)
-            
-            with col2:
-                if st.button("Cancel", use_container_width=True, key="cancel_duplicates_btn"):
-                    st.session_state.show_duplicates = False
-                    st.session_state.duplicate_report = None
-                    st.rerun()
+        # Call the duplicate cleanup function
+        duplicate_products_page()
+        
+        # Add a button to close the cleanup tool
+        if st.button("Close Cleanup Tool", use_container_width=True):
+            st.session_state.show_duplicate_cleanup = False
+            st.rerun()
     
     st.markdown("---")
     
