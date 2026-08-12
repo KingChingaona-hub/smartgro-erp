@@ -1,7 +1,7 @@
-# backend/scripts/remove_duplicate_products.py
+# backend/scripts/remove_duplicate_products.py - Direct SQL version
 """
 Script to remove duplicate products from inventory - BY NAME
-For Neon PostgreSQL Database
+For Neon PostgreSQL Database - Direct SQL approach
 """
 
 import sys
@@ -15,107 +15,139 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 import argparse
 import streamlit as st
-from backend.core.db_adapter import load_products, save_products, get_current_branch
+from backend.core.db_adapter import load_products, get_db_connection, get_current_branch
 import traceback
 
 
-def remove_duplicates_from_database_by_name(dry_run=False):
+def remove_duplicates_direct_sql(dry_run=False):
     """
-    Remove duplicate products from Neon database by NAME
+    Remove duplicate products using direct SQL - bypasses save_products
     """
+    conn = None
+    cursor = None
+    
     try:
+        # Get database connection
+        conn = get_db_connection()
+        if conn is None:
+            return False, "Failed to connect to database", None
+        
+        cursor = conn.cursor()
+        
         # Get current branch
         current_branch = get_current_branch()
         print(f"Current branch: {current_branch}")
         
-        # Load products from database
-        df = load_products()
+        # First, find duplicates by name
+        cursor.execute("""
+            SELECT name, COUNT(*) as count, 
+                   array_agg(id) as ids,
+                   array_agg(barcode) as barcodes,
+                   array_agg(stock) as stocks,
+                   SUM(stock) as total_stock
+            FROM products 
+            WHERE branch_id = %s
+            GROUP BY name
+            HAVING COUNT(*) > 1
+            ORDER BY name
+        """, (current_branch,))
         
-        if df.empty:
-            return False, "No products found in database.", None
+        duplicates = cursor.fetchall()
         
-        original_count = len(df)
-        print(f"Total products in database: {original_count}")
+        if not duplicates:
+            cursor.close()
+            conn.close()
+            return True, "No duplicate products found!", None
         
-        # Filter to current branch if branch_id column exists
-        branch_col = None
-        if "branch_id" in df.columns:
-            branch_col = "branch_id"
-            df_branch = df[df[branch_col] == current_branch]
-            print(f"Products for current branch: {len(df_branch)}")
-        else:
-            df_branch = df
-        
-        if df_branch.empty:
-            return False, f"No products found for branch: {current_branch}", None
-        
-        # Check for name column
-        if "name" not in df_branch.columns:
-            return False, "No 'name' column found in products table!", None
-        
-        # Create a normalized name column for comparison (lowercase, stripped)
-        df_branch["name_normalized"] = df_branch["name"].str.lower().str.strip()
-        
-        # Find duplicates by normalized name
-        duplicate_names = df_branch[df_branch["name_normalized"].duplicated(keep=False)]["name_normalized"].unique()
-        print(f"Duplicate names found: {len(duplicate_names)}")
-        
-        if len(duplicate_names) == 0:
-            return True, "No duplicates found!", df_branch
-        
-        # Show duplicates before removal
-        print("\nDuplicate products found:")
-        for name in duplicate_names:
-            dup_rows = df_branch[df_branch["name_normalized"] == name]
-            print(f"  '{name}': {len(dup_rows)} duplicates")
-            for idx, row in dup_rows.iterrows():
-                print(f"    - Index: {idx}, Name: {row['name']}, Barcode: {row.get('barcode', 'N/A')}, Stock: {row.get('stock', 0)}")
+        print(f"Found {len(duplicates)} duplicate product names")
+        for dup in duplicates:
+            print(f"  '{dup[0]}': {dup[1]} duplicates - IDs: {dup[2]}")
         
         if dry_run:
-            return True, f"DRY RUN: Would remove {len(duplicate_names)} duplicate groups.", df_branch
+            cursor.close()
+            conn.close()
+            return True, f"DRY RUN: Would remove {len(duplicates)} duplicate groups", None
         
-        # Remove duplicates - KEEP FIRST OCCURRENCE based on name
-        df_clean = df_branch.drop_duplicates(subset=["name_normalized"], keep="first")
-        new_count = len(df_clean)
-        removed_count = len(df_branch) - new_count
+        # Begin transaction
+        cursor.execute("BEGIN")
         
-        print(f"New rows after removal: {new_count}")
-        print(f"Removed rows: {removed_count}")
+        # For each duplicate group, keep the first one and delete the rest
+        deleted_count = 0
+        kept_ids = []
         
-        # Remove the temporary normalized column before saving
-        df_clean = df_clean.drop(columns=["name_normalized"])
-        
-        # Reset index to ensure clean save
-        df_clean = df_clean.reset_index(drop=True)
-        
-        # Debug: Show what we're about to save
-        print(f"\nSaving {len(df_clean)} products to database...")
-        print(f"Columns being saved: {df_clean.columns.tolist()}")
-        
-        # Save to database
-        save_success = save_products(df_clean, current_branch)
-        
-        if save_success:
-            # Verify by reloading
-            df_verify = load_products()
-            verify_count = len(df_verify)
-            print(f"Verification - products in database after save: {verify_count}")
+        for name, count, ids, barcodes, stocks, total_stock in duplicates:
+            # Keep the first ID (lowest)
+            keep_id = ids[0]
+            kept_ids.append(keep_id)
+            print(f"  Keeping ID {keep_id} for '{name}', deleting {len(ids)-1} others")
             
-            if verify_count == new_count:
-                return True, f"Successfully removed {removed_count} duplicate products by name. {new_count} products remain.", df_clean
-            else:
-                return False, f"Save appeared successful but count mismatch. Expected {new_count}, got {verify_count}", None
+            # Delete all except the one to keep
+            delete_ids = ids[1:]  # All except the first one
+            for delete_id in delete_ids:
+                cursor.execute("DELETE FROM products WHERE id = %s AND branch_id = %s", (delete_id, current_branch))
+                deleted_count += 1
+        
+        # Commit the transaction
+        conn.commit()
+        print(f"Deleted {deleted_count} duplicate products")
+        
+        # Verify
+        cursor.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (current_branch,))
+        total = cursor.fetchone()[0]
+        print(f"Total products after cleanup: {total}")
+        
+        # Show remaining products with counts
+        cursor.execute("""
+            SELECT name, COUNT(*) 
+            FROM products 
+            WHERE branch_id = %s
+            GROUP BY name 
+            HAVING COUNT(*) > 1
+        """, (current_branch,))
+        remaining_dups = cursor.fetchall()
+        
+        if remaining_dups:
+            print("WARNING: Still have duplicates!")
+            for dup in remaining_dups:
+                print(f"  '{dup[0]}': {dup[1]} duplicates")
         else:
-            return False, "Failed to save cleaned products to database!", None
-            
+            print("SUCCESS: No duplicates remaining!")
+        
+        # Load updated data
+        df_updated = load_products()
+        
+        cursor.close()
+        conn.close()
+        
+        if deleted_count > 0:
+            return True, f"Successfully deleted {deleted_count} duplicate products. {total} products remain.", df_updated
+        else:
+            return True, "No duplicates found to delete.", df_updated
+        
     except Exception as e:
         print(f"Error: {e}")
         traceback.print_exc()
+        if conn:
+            try:
+                conn.rollback()
+            except:
+                pass
         return False, f"Error: {str(e)}", None
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def duplicate_cleanup_page():
-    """Streamlit page for duplicate products cleanup - Database version"""
+    """Streamlit page for duplicate products cleanup - Direct SQL version"""
     
     st.title("Duplicate Products Cleanup")
     st.caption("Find and remove duplicate products from database by name")
@@ -185,12 +217,9 @@ def duplicate_cleanup_page():
     with col1:
         if st.button("Preview Changes", use_container_width=True, key="preview_duplicates"):
             with st.spinner("Previewing changes..."):
-                success, message, preview_df = remove_duplicates_from_database_by_name(dry_run=True)
+                success, message, preview_df = remove_duplicates_direct_sql(dry_run=True)
                 if success:
                     st.success(message)
-                    if preview_df is not None and not preview_df.empty:
-                        st.subheader("Preview of unique products")
-                        st.dataframe(preview_df.head(20), use_container_width=True)
                     st.info("Run 'Remove Duplicates' to apply changes.")
                 else:
                     st.error(message)
@@ -198,14 +227,14 @@ def duplicate_cleanup_page():
     with col2:
         if st.button("Remove Duplicates", type="primary", use_container_width=True, key="remove_duplicates_btn"):
             with st.spinner("Removing duplicates from database..."):
-                success, message, new_df = remove_duplicates_from_database_by_name(dry_run=False)
+                success, message, new_df = remove_duplicates_direct_sql(dry_run=False)
                 if success:
                     st.success(message)
                     st.balloons()
                     st.cache_data.clear()
                     
                     # Show remaining products
-                    if new_df is not None:
+                    if new_df is not None and not new_df.empty:
                         st.subheader("Remaining Products")
                         st.dataframe(new_df, use_container_width=True)
                     
@@ -227,7 +256,7 @@ duplicate_products_page = duplicate_cleanup_page
 
 
 def main():
-    """Main function with command line arguments - Database version"""
+    """Main function with command line arguments"""
     parser = argparse.ArgumentParser(description="Remove duplicate products from database by NAME")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be removed without saving")
     parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm removal without prompting")
@@ -239,85 +268,11 @@ def main():
     print("REMOVE DUPLICATE PRODUCTS FROM DATABASE (BY NAME)")
     print("=" * 60)
     
-    print("\nLoading products from database...")
-    df = load_products()
-    
-    if df.empty:
-        print("No products found in database!")
-        return
-    
-    print(f"Total products in database: {len(df)}")
-    
-    # Get current branch
-    try:
-        current_branch = get_current_branch()
-        print(f"Current branch: {current_branch}")
-        
-        # Filter to current branch
-        if "branch_id" in df.columns:
-            df_branch = df[df["branch_id"] == current_branch]
-            print(f"Products for current branch: {len(df_branch)}")
-        else:
-            df_branch = df
-    except:
-        df_branch = df
-    
-    if df_branch.empty:
-        print(f"No products found for branch: {current_branch}")
-        return
-    
-    # Create normalized name column
-    df_branch["name_normalized"] = df_branch["name"].str.lower().str.strip()
-    
-    # Find duplicates by normalized name
-    duplicate_names = df_branch[df_branch["name_normalized"].duplicated(keep=False)]["name_normalized"].unique()
-    print(f"Duplicate names found: {len(duplicate_names)}")
-    
-    if len(duplicate_names) == 0:
-        print("No duplicate products found!")
-        return
-    
-    if args.debug:
-        print("\nDuplicate products:")
-        for name in duplicate_names:
-            dup_rows = df_branch[df_branch["name_normalized"] == name]
-            print(f"  '{name}': {len(dup_rows)} duplicates")
-            for idx, row in dup_rows.iterrows():
-                print(f"    - Index: {idx}, Name: {row['name']}, Barcode: {row.get('barcode', 'N/A')}, Stock: {row.get('stock', 0)}")
-    
-    print("\n" + "=" * 60)
-    
-    if args.dry_run:
-        print("DRY RUN MODE - No changes will be made")
-        print(f"Would remove {len(duplicate_names)} duplicate groups")
-        
-        # Show what would be removed
-        for name in duplicate_names:
-            dup_rows = df_branch[df_branch["name_normalized"] == name]
-            print(f"  '{name}': Keeping '{dup_rows.iloc[0]['name']}', removing {len(dup_rows)-1} others")
-        return
-    
-    if not args.yes:
-        response = input(f"\nWARNING: This will remove duplicates for {len(duplicate_names)} product names. Continue? (yes/no): ")
-        if response.lower() != "yes":
-            print("Operation cancelled.")
-            return
-    
-    print("\nRemoving duplicates...")
-    success, message, _ = remove_duplicates_from_database_by_name(dry_run=False)
+    success, message, df = remove_duplicates_direct_sql(dry_run=args.dry_run)
     
     print("\n" + "=" * 60)
     print(message)
     print("=" * 60)
-    
-    # Verify
-    print("\nVerifying...")
-    df_verify = load_products()
-    if "branch_id" in df_verify.columns:
-        df_verify_branch = df_verify[df_verify["branch_id"] == current_branch]
-        print(f"Products in database after cleanup: {len(df_verify_branch)}")
-    else:
-        print(f"Products in database after cleanup: {len(df_verify)}")
 
 
 if __name__ == "__main__":
