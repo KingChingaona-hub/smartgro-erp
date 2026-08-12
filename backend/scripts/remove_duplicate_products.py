@@ -28,17 +28,36 @@ def find_products_file():
         Path("inventory.csv"),
         Path("data/inventory.csv"),
         Path("backend/data/inventory.csv"),
+        Path("/mount/src/smartgro-erp/data/products.csv"),
+        Path("/mount/src/smartgro-erp/products.csv"),
     ]
     
-    # Also check DATA_DIR
+    # Also check DATA_DIR from db_adapter
     if DATA_DIR:
         possible_paths.append(DATA_DIR / "products.csv")
         possible_paths.append(DATA_DIR / "inventory.csv")
+        possible_paths.append(DATA_DIR)
+    
+    # Also check the current working directory
+    cwd = Path.cwd()
+    possible_paths.append(cwd / "data/products.csv")
+    possible_paths.append(cwd / "products.csv")
     
     for path in possible_paths:
-        if path.exists():
+        if path and path.exists():
             return path
     
+    return None
+
+
+def get_products_file_from_db_adapter():
+    """Try to get the products file path from db_adapter"""
+    try:
+        from backend.core.db_adapter import PRODUCTS_FILE as DB_PRODUCTS_FILE
+        if DB_PRODUCTS_FILE and DB_PRODUCTS_FILE.exists():
+            return DB_PRODUCTS_FILE
+    except:
+        pass
     return None
 
 
@@ -47,11 +66,32 @@ def force_remove_duplicates_by_name():
     FORCE REMOVE duplicates directly from CSV file using NAME
     This bypasses all Streamlit and db_adapter logic
     """
-    # Find the products file
-    found_file = find_products_file()
+    # First try to get file from db_adapter
+    found_file = get_products_file_from_db_adapter()
+    
+    # If not found, search for it
+    if not found_file:
+        found_file = find_products_file()
     
     if not found_file:
-        return False, "Products file not found!", None
+        # Try to get from load_products to find the source
+        try:
+            df_test = load_products()
+            if not df_test.empty:
+                # Try to find where this data came from
+                for path in [
+                    Path("data/products.csv"),
+                    Path("products.csv"),
+                    Path("inventory.csv"),
+                ]:
+                    if path.exists():
+                        found_file = path
+                        break
+        except:
+            pass
+    
+    if not found_file:
+        return False, "Products file not found! Please specify the file path.", None
     
     try:
         # Read the file
@@ -76,6 +116,8 @@ def force_remove_duplicates_by_name():
         print(f"Duplicate names found: {len(duplicate_names)}")
         
         if len(duplicate_names) == 0:
+            # Remove temporary column
+            df = df.drop(columns=["name_normalized"])
             return True, "No duplicates found!", df
         
         # Show duplicates before removal
@@ -98,6 +140,13 @@ def force_remove_duplicates_by_name():
         df_clean.to_csv(found_file, index=False)
         print(f"Saved cleaned file to: {found_file}")
         
+        # Also try to save using db_adapter to ensure both are in sync
+        try:
+            save_products(df_clean)
+            print("Also saved using db_adapter")
+        except:
+            pass
+        
         # Verify
         df_verify = pd.read_csv(found_file)
         verify_count = len(df_verify)
@@ -105,7 +154,7 @@ def force_remove_duplicates_by_name():
         if verify_count == new_count:
             return True, f"Successfully removed {removed_count} duplicate products by name. {new_count} products remain.", df_clean
         else:
-            return False, "Verification failed - counts don't match!", None
+            return False, f"Verification failed - expected {new_count} but got {verify_count}", None
             
     except Exception as e:
         return False, f"Error: {str(e)}", None
@@ -164,6 +213,13 @@ def duplicate_products_page():
     
     st.info(f"Total products in inventory: **{len(df)}**")
     
+    # Show the file path
+    found_file = get_products_file_from_db_adapter() or find_products_file()
+    if found_file:
+        st.caption(f"Products file: `{found_file}`")
+    else:
+        st.caption("Products file location: Unknown")
+    
     # Show duplicate analysis by name
     if "name" in df.columns:
         df["name_normalized"] = df["name"].str.lower().str.strip()
@@ -221,6 +277,7 @@ def main():
     parser = argparse.ArgumentParser(description="FORCE REMOVE duplicate products from inventory by NAME")
     parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm removal without prompting")
     parser.add_argument("--debug", action="store_true", help="Show debug information")
+    parser.add_argument("--file", help="Specify the products file path")
     
     args = parser.parse_args()
     
@@ -229,7 +286,20 @@ def main():
     print("=" * 60)
     
     # Find products file
-    found_file = find_products_file()
+    found_file = None
+    
+    if args.file:
+        found_file = Path(args.file)
+        if not found_file.exists():
+            print(f"File not found: {args.file}")
+            return
+    else:
+        # First try to get file from db_adapter
+        found_file = get_products_file_from_db_adapter()
+        
+        # If not found, search for it
+        if not found_file:
+            found_file = find_products_file()
     
     if found_file:
         print(f"Products file found: {found_file}")
@@ -251,6 +321,8 @@ def main():
                         print(f"  '{name}': {len(dup_rows)} duplicates - {dup_rows['name'].tolist()}")
     else:
         print("Products file NOT found!")
+        print("Please specify the file path using --file option:")
+        print("  python backend/scripts/remove_duplicate_products.py --file /path/to/products.csv --yes")
         return
     
     print("\n" + "=" * 60)
