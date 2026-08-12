@@ -1,6 +1,6 @@
 # backend/scripts/remove_duplicate_products.py
 """
-Script to remove duplicate products from inventory - FORCE DELETE VERSION
+Script to remove duplicate products from inventory - BY NAME
 Run this script to clean up duplicate products
 """
 
@@ -42,9 +42,9 @@ def find_products_file():
     return None
 
 
-def force_remove_duplicates():
+def force_remove_duplicates_by_name():
     """
-    FORCE REMOVE duplicates directly from CSV file
+    FORCE REMOVE duplicates directly from CSV file using NAME
     This bypasses all Streamlit and db_adapter logic
     """
     # Find the products file
@@ -64,29 +64,35 @@ def force_remove_duplicates():
         if original_count == 0:
             return False, "File is empty!", None
         
-        # Check for barcode column
-        if "barcode" not in df.columns:
-            return False, "No 'barcode' column found!", None
+        # Check for name column
+        if "name" not in df.columns:
+            return False, "No 'name' column found!", None
         
-        # Print duplicate barcodes for debugging
-        duplicate_barcodes = df[df["barcode"].duplicated(keep=False)]["barcode"].unique()
-        print(f"Duplicate barcodes found: {len(duplicate_barcodes)}")
+        # Create a normalized name column for comparison (lowercase, stripped)
+        df["name_normalized"] = df["name"].str.lower().str.strip()
         
-        if len(duplicate_barcodes) == 0:
+        # Find duplicates by normalized name
+        duplicate_names = df[df["name_normalized"].duplicated(keep=False)]["name_normalized"].unique()
+        print(f"Duplicate names found: {len(duplicate_names)}")
+        
+        if len(duplicate_names) == 0:
             return True, "No duplicates found!", df
         
         # Show duplicates before removal
-        for barcode in duplicate_barcodes:
-            dup_rows = df[df["barcode"] == barcode]
-            print(f"  {barcode}: {len(dup_rows)} duplicates - {dup_rows['name'].tolist()}")
+        for name in duplicate_names:
+            dup_rows = df[df["name_normalized"] == name]
+            print(f"  '{name}': {len(dup_rows)} duplicates - {dup_rows['name'].tolist()}")
         
-        # Remove duplicates - KEEP FIRST OCCURRENCE
-        df_clean = df.drop_duplicates(subset=["barcode"], keep="first")
+        # Remove duplicates - KEEP FIRST OCCURRENCE based on name
+        df_clean = df.drop_duplicates(subset=["name_normalized"], keep="first")
         new_count = len(df_clean)
         removed_count = original_count - new_count
         
         print(f"New rows after removal: {new_count}")
         print(f"Removed rows: {removed_count}")
+        
+        # Remove the temporary normalized column before saving
+        df_clean = df_clean.drop(columns=["name_normalized"])
         
         # Save the cleaned file
         df_clean.to_csv(found_file, index=False)
@@ -97,7 +103,7 @@ def force_remove_duplicates():
         verify_count = len(df_verify)
         
         if verify_count == new_count:
-            return True, f"Successfully removed {removed_count} duplicate products. {new_count} products remain.", df_clean
+            return True, f"Successfully removed {removed_count} duplicate products by name. {new_count} products remain.", df_clean
         else:
             return False, "Verification failed - counts don't match!", None
             
@@ -105,11 +111,47 @@ def force_remove_duplicates():
         return False, f"Error: {str(e)}", None
 
 
-def duplicate_products_page():
-    """Streamlit page for duplicate products cleanup - FORCE DELETE VERSION"""
+def find_duplicate_by_name():
+    """Find duplicate products by name"""
+    df = load_products()
     
-    st.title("Duplicate Products Cleanup (Force Delete)")
-    st.caption("Find and FORCE REMOVE duplicate products from inventory by barcode")
+    if df.empty:
+        return pd.DataFrame(), {"total_products": 0, "name_duplicates": 0}
+    
+    # Create normalized name column
+    df["name_normalized"] = df["name"].str.lower().str.strip()
+    
+    # Find duplicates by name
+    name_duplicates = df[df["name_normalized"].duplicated(keep=False)]
+    name_dup_count = len(name_duplicates)
+    
+    summary = {
+        "total_products": len(df),
+        "name_duplicates": name_dup_count
+    }
+    
+    # Create detailed report
+    report_data = []
+    for name in df[df["name_normalized"].duplicated(keep=False)]["name_normalized"].unique():
+        products = df[df["name_normalized"] == name]
+        report_data.append({
+            "Type": "Name Duplicate",
+            "Name": name,
+            "Count": len(products),
+            "Products": products["name"].tolist(),
+            "Stock": products["stock"].sum(),
+            "Total Value": (products["stock"] * products["price"]).sum()
+        })
+    
+    report_df = pd.DataFrame(report_data)
+    return report_df, summary
+
+
+def duplicate_products_page():
+    """Streamlit page for duplicate products cleanup - BY NAME"""
+    
+    st.title("Duplicate Products Cleanup (By Name)")
+    st.caption("Find and FORCE REMOVE duplicate products from inventory by name")
     
     st.warning("⚠️ This will directly modify the products CSV file. Make sure you have a backup!")
     
@@ -122,37 +164,38 @@ def duplicate_products_page():
     
     st.info(f"Total products in inventory: **{len(df)}**")
     
-    # Show duplicate analysis
-    if "barcode" in df.columns:
-        duplicate_barcodes = df[df["barcode"].duplicated(keep=False)]["barcode"].unique()
+    # Show duplicate analysis by name
+    if "name" in df.columns:
+        df["name_normalized"] = df["name"].str.lower().str.strip()
+        duplicate_names = df[df["name_normalized"].duplicated(keep=False)]["name_normalized"].unique()
         
-        if len(duplicate_barcodes) > 0:
-            st.error(f"Found {len(duplicate_barcodes)} barcodes with duplicates!")
+        if len(duplicate_names) > 0:
+            st.error(f"Found {len(duplicate_names)} product names with duplicates!")
             
             # Show duplicates in detail
-            st.subheader("Duplicate Products")
-            for barcode in duplicate_barcodes:
-                dup_rows = df[df["barcode"] == barcode]
-                with st.expander(f"Barcode: {barcode} ({len(dup_rows)} duplicates)"):
+            st.subheader("Duplicate Products by Name")
+            for name in duplicate_names:
+                dup_rows = df[df["name_normalized"] == name]
+                with st.expander(f"Name: {name} ({len(dup_rows)} duplicates)"):
                     st.dataframe(dup_rows[["name", "barcode", "stock", "price", "cost"]], use_container_width=True)
         else:
-            st.success("No duplicate barcodes found!")
+            st.success("No duplicate product names found!")
             return
     else:
-        st.error("No 'barcode' column found in products data!")
+        st.error("No 'name' column found in products data!")
         return
     
     st.markdown("---")
-    st.markdown("### Force Delete Duplicates")
+    st.markdown("### Force Delete Duplicates by Name")
     
-    st.warning("⚠️ This will keep ONLY the first occurrence of each barcode and delete all others.")
+    st.warning("⚠️ This will keep ONLY the first occurrence of each product name and delete all others.")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("FORCE REMOVE DUPLICATES", type="primary", use_container_width=True):
-            with st.spinner("Force removing duplicates..."):
-                success, message, new_df = force_remove_duplicates()
+        if st.button("FORCE REMOVE DUPLICATES BY NAME", type="primary", use_container_width=True):
+            with st.spinner("Force removing duplicates by name..."):
+                success, message, new_df = force_remove_duplicates_by_name()
                 if success:
                     st.success(message)
                     st.balloons()
@@ -174,15 +217,15 @@ def duplicate_products_page():
 
 
 def main():
-    """Main function with command line arguments - FORCE DELETE VERSION"""
-    parser = argparse.ArgumentParser(description="FORCE REMOVE duplicate products from inventory")
+    """Main function with command line arguments - FORCE DELETE BY NAME"""
+    parser = argparse.ArgumentParser(description="FORCE REMOVE duplicate products from inventory by NAME")
     parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm removal without prompting")
     parser.add_argument("--debug", action="store_true", help="Show debug information")
     
     args = parser.parse_args()
     
     print("=" * 60)
-    print("FORCE DUPLICATE PRODUCTS REMOVAL TOOL")
+    print("FORCE DUPLICATE PRODUCTS REMOVAL TOOL (BY NAME)")
     print("=" * 60)
     
     # Find products file
@@ -195,15 +238,17 @@ def main():
         if args.debug:
             df_raw = pd.read_csv(found_file)
             print(f"\nTotal products: {len(df_raw)}")
-            if "barcode" in df_raw.columns:
-                dup_count = df_raw["barcode"].duplicated().sum()
-                print(f"Duplicate rows: {dup_count}")
+            if "name" in df_raw.columns:
+                # Create normalized names
+                df_raw["name_normalized"] = df_raw["name"].str.lower().str.strip()
+                dup_count = df_raw["name_normalized"].duplicated().sum()
+                print(f"Duplicate rows by name: {dup_count}")
                 if dup_count > 0:
-                    dup_barcodes = df_raw[df_raw["barcode"].duplicated(keep=False)]["barcode"].unique()
-                    print(f"Duplicate barcodes: {len(dup_barcodes)}")
-                    for barcode in dup_barcodes:
-                        dup_rows = df_raw[df_raw["barcode"] == barcode]
-                        print(f"  {barcode}: {len(dup_rows)} duplicates - {dup_rows['name'].tolist()}")
+                    dup_names = df_raw[df_raw["name_normalized"].duplicated(keep=False)]["name_normalized"].unique()
+                    print(f"Duplicate names: {len(dup_names)}")
+                    for name in dup_names:
+                        dup_rows = df_raw[df_raw["name_normalized"] == name]
+                        print(f"  '{name}': {len(dup_rows)} duplicates - {dup_rows['name'].tolist()}")
     else:
         print("Products file NOT found!")
         return
@@ -211,13 +256,13 @@ def main():
     print("\n" + "=" * 60)
     
     if not args.yes:
-        response = input("WARNING: This will permanently delete duplicate products. Continue? (yes/no): ")
+        response = input("WARNING: This will permanently delete duplicate products by name. Continue? (yes/no): ")
         if response.lower() != "yes":
             print("Operation cancelled.")
             return
     
-    print("\nRemoving duplicates...")
-    success, message, df = force_remove_duplicates()
+    print("\nRemoving duplicates by name...")
+    success, message, df = force_remove_duplicates_by_name()
     
     print("\n" + "=" * 60)
     print(message)
