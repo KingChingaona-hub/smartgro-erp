@@ -60,6 +60,8 @@ def safe_execute(func, *args, **kwargs):
         print(traceback.format_exc())
         return None
 
+from backend.scripts.remove_duplicate_products import duplicate_products_page
+
 # ==============================
 # CORE SYSTEM IMPORTS
 # ==============================
@@ -867,6 +869,14 @@ def main_app():
         elif page == "Documents":
             if role in ["owner", "manager"]:
                 documents_page()
+            else:
+                st.error("You don't have permission to access this page")
+                
+        # Add this route in the routing engine section (after the other routes)
+
+        elif page == "Duplicate Products":
+            if can_access_feature(role, "inventory_view") or role in ["owner", "manager"]:
+                duplicate_products_page()
             else:
                 st.error("You don't have permission to access this page")
 
