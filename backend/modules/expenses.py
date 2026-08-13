@@ -1,5 +1,6 @@
 # backend/modules/expenses.py
 # FIXED: Expenses are NEVER deleted, only appended or modified
+# Added emergency backup and better data protection
 
 import pandas as pd
 from pathlib import Path
@@ -21,6 +22,7 @@ EXPENSE_CATEGORIES_FILE = DATA_DIR / "expense_categories.csv"
 EXPENSE_BUDGET_FILE = DATA_DIR / "expense_budget.csv"
 RECURRING_EXPENSES_FILE = DATA_DIR / "recurring_expenses.csv"
 EXPENSES_BACKUP_FILE = DATA_DIR / "expenses_backup.csv"
+EXPENSES_EMERGENCY_BACKUP = DATA_DIR / "expenses_emergency_backup.csv"  # Added emergency backup
 
 
 # ==============================
@@ -75,7 +77,27 @@ def init_expenses():
         logger.info(f"Created new expenses file: {EXPENSES_FILE}")
     else:
         # Log that file exists but DO NOT modify it
-        logger.info(f"Expenses file already exists: {EXPENSES_FILE} ({EXPENSES_FILE.stat().st_size} bytes)")
+        file_size = EXPENSES_FILE.stat().st_size
+        logger.info(f"Expenses file already exists: {EXPENSES_FILE} ({file_size} bytes)")
+        
+        # If file exists but is empty, it might be corrupted
+        if file_size == 0:
+            logger.warning(f"Expenses file is empty ({file_size} bytes). Checking backup...")
+            # Try to recover from backup
+            if EXPENSES_BACKUP_FILE.exists() and EXPENSES_BACKUP_FILE.stat().st_size > 0:
+                try:
+                    shutil.copy2(EXPENSES_BACKUP_FILE, EXPENSES_FILE)
+                    logger.info(f"Recovered expenses file from backup")
+                except Exception as e:
+                    logger.error(f"Failed to recover from backup: {e}")
+            elif EXPENSES_EMERGENCY_BACKUP.exists() and EXPENSES_EMERGENCY_BACKUP.stat().st_size > 0:
+                try:
+                    shutil.copy2(EXPENSES_EMERGENCY_BACKUP, EXPENSES_FILE)
+                    logger.info(f"Recovered expenses file from emergency backup")
+                except Exception as e:
+                    logger.error(f"Failed to recover from emergency backup: {e}")
+            else:
+                logger.warning("No backup available to recover")
 
     # Only create categories file if it doesn't exist
     if not EXPENSE_CATEGORIES_FILE.exists():
@@ -183,10 +205,14 @@ def load_expenses():
         # Convert date to datetime - preserve original data
         if "date" in df.columns:
             # Convert to datetime, keep NaT for invalid dates
-            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            try:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            except Exception as e:
+                logger.warning(f"Date conversion error: {e}")
+                # Keep as is if conversion fails
             
             # Log how many invalid dates were found
-            invalid_dates = df["date"].isna().sum()
+            invalid_dates = df["date"].isna().sum() if "date" in df.columns else 0
             if invalid_dates > 0:
                 logger.warning(f"Found {invalid_dates} rows with invalid dates, keeping them as NaT")
         
@@ -206,7 +232,11 @@ def load_expenses():
         
         logger.info(f"Successfully loaded {len(df)} expense records")
         if not df.empty:
-            logger.info(f"Date range: {df['date'].min()} to {df['date'].max()}")
+            if "date" in df.columns:
+                try:
+                    logger.info(f"Date range: {df['date'].min()} to {df['date'].max()}")
+                except:
+                    pass
             logger.info(f"Total expenses: ${df['amount'].sum():,.2f}")
         
         return df
@@ -228,20 +258,30 @@ def save_expenses(df):
             logger.warning("Attempted to save None dataframe")
             return False
         
-        # Create backup before saving (only if file exists and has content)
+        # Don't save empty dataframe - prevent data loss
+        if df.empty:
+            logger.warning("Attempted to save empty dataframe - skipping to prevent data loss")
+            return False
+        
+        # Create multiple backups before saving
         if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
             try:
                 # Create a timestamped backup
                 backup_filename = f"expenses_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                 backup_path = DATA_DIR / backup_filename
                 shutil.copy2(EXPENSES_FILE, backup_path)
-                logger.info(f"Created backup: {backup_path}")
+                logger.info(f"Created timestamped backup: {backup_path}")
                 
-                # Also keep the latest backup
+                # Keep the latest backup
                 shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
                 logger.info(f"Updated latest backup: {EXPENSES_BACKUP_FILE}")
+                
+                # Create emergency backup
+                shutil.copy2(EXPENSES_FILE, EXPENSES_EMERGENCY_BACKUP)
+                logger.info(f"Updated emergency backup: {EXPENSES_EMERGENCY_BACKUP}")
+                
             except Exception as e:
-                logger.warning(f"Could not create backup: {e}")
+                logger.warning(f"Could not create backups: {e}")
         
         # Ensure date is in string format for saving
         if "date" in df.columns and not df.empty:
@@ -413,7 +453,8 @@ def delete_expense_by_id(date_str, category, amount, description="", expense_typ
         if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
             try:
                 shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
-                logger.info(f"Created backup before deletion: {EXPENSES_BACKUP_FILE}")
+                shutil.copy2(EXPENSES_FILE, EXPENSES_EMERGENCY_BACKUP)
+                logger.info(f"Created backups before deletion")
             except Exception as e:
                 logger.warning(f"Could not create backup: {e}")
         
@@ -863,7 +904,19 @@ def get_top_expenses(n=10, year=None, month=None):
 # ==============================
 def recover_from_backup():
     """Recover expenses from backup file"""
-    if EXPENSES_BACKUP_FILE.exists():
+    # Try emergency backup first
+    if EXPENSES_EMERGENCY_BACKUP.exists() and EXPENSES_EMERGENCY_BACKUP.stat().st_size > 0:
+        try:
+            df = pd.read_csv(EXPENSES_EMERGENCY_BACKUP)
+            if not df.empty:
+                save_expenses(df)
+                logger.info(f"Recovered {len(df)} expenses from emergency backup")
+                return True, f"Recovered {len(df)} expenses from emergency backup"
+        except Exception as e:
+            logger.error(f"Emergency backup recovery failed: {e}")
+    
+    # Try regular backup
+    if EXPENSES_BACKUP_FILE.exists() and EXPENSES_BACKUP_FILE.stat().st_size > 0:
         try:
             df = pd.read_csv(EXPENSES_BACKUP_FILE)
             if not df.empty:
@@ -872,6 +925,7 @@ def recover_from_backup():
                 return True, f"Recovered {len(df)} expenses from backup"
         except Exception as e:
             logger.error(f"Backup recovery failed: {e}")
+    
     return False, "No backup available"
 
 
@@ -888,6 +942,11 @@ def debug_expenses_file():
             
             if file_size == 0:
                 print("File is empty!")
+                # Check if backup exists
+                if EXPENSES_BACKUP_FILE.exists() and EXPENSES_BACKUP_FILE.stat().st_size > 0:
+                    print(f"Backup exists with size: {EXPENSES_BACKUP_FILE.stat().st_size} bytes")
+                if EXPENSES_EMERGENCY_BACKUP.exists() and EXPENSES_EMERGENCY_BACKUP.stat().st_size > 0:
+                    print(f"Emergency backup exists with size: {EXPENSES_EMERGENCY_BACKUP.stat().st_size} bytes")
                 return
             
             with open(EXPENSES_FILE, 'r') as f:
@@ -904,11 +963,17 @@ def debug_expenses_file():
         else:
             print(f"File does not exist: {EXPENSES_FILE}")
             
-        # Check backup
+        # Check backups
         if EXPENSES_BACKUP_FILE.exists():
             backup_size = EXPENSES_BACKUP_FILE.stat().st_size
             print(f"\nBackup file exists: {EXPENSES_BACKUP_FILE}")
             print(f"Backup size: {backup_size} bytes")
+        
+        if EXPENSES_EMERGENCY_BACKUP.exists():
+            emergency_size = EXPENSES_EMERGENCY_BACKUP.stat().st_size
+            print(f"\nEmergency backup exists: {EXPENSES_EMERGENCY_BACKUP}")
+            print(f"Emergency backup size: {emergency_size} bytes")
+            
     except Exception as e:
         print(f"Debug error: {e}")
 
