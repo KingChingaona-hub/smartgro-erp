@@ -606,6 +606,8 @@ def debug_products():
 
 # backend/core/db_adapter.py - FIXED save_products function
 
+# backend/core/db_adapter.py - FIXED save_products function
+
 def save_products(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
@@ -616,17 +618,13 @@ def save_products(df, branch_id=None):
                 print("ERROR: Database connection failed")
                 return False
             
-            # DELETE ALL existing products for this branch first
-            cur.execute("DELETE FROM products WHERE branch_id = %s", (branch_id,))
-            print(f"Deleted all products for branch: {branch_id}")
-            
             if df.empty:
-                conn.commit()
-                print(f"All products deleted for branch: {branch_id}")
+                print("DataFrame is empty, nothing to save")
                 return True
             
-            # Insert the data
+            # Insert or update products - DO NOT DELETE ALL
             inserted_count = 0
+            updated_count = 0
             
             for idx, row in df.iterrows():
                 try:
@@ -667,10 +665,17 @@ def save_products(df, branch_id=None):
                     if not barcode:
                         barcode = name.replace(" ", "_").upper()[:20]
                     
-                    # Insert the product
+                    # Use UPSERT (INSERT ON CONFLICT DO UPDATE) instead of DELETE
                     cur.execute("""
                         INSERT INTO products (branch_id, barcode, name, category, price, cost, stock, reorder_level)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (branch_id, barcode) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            category = EXCLUDED.category,
+                            price = EXCLUDED.price,
+                            cost = EXCLUDED.cost,
+                            stock = EXCLUDED.stock,
+                            reorder_level = EXCLUDED.reorder_level
                     """, (
                         branch_id, 
                         barcode, 
@@ -681,14 +686,19 @@ def save_products(df, branch_id=None):
                         stock, 
                         reorder_level
                     ))
-                    inserted_count += 1
+                    
+                    # Check if it was an insert or update
+                    if cur.rowcount == 1:
+                        inserted_count += 1
+                    else:
+                        updated_count += 1
                     
                 except Exception as e:
-                    print(f"Error inserting row {idx}: {e}")
+                    print(f"Error processing row {idx}: {e}")
                     continue
             
             conn.commit()
-            print(f"Inserted {inserted_count} products for branch: {branch_id}")
+            print(f"Saved {inserted_count} new and {updated_count} updated products for branch: {branch_id}")
             
             # Verify the save
             try:
@@ -698,14 +708,13 @@ def save_products(df, branch_id=None):
             except Exception as e:
                 print(f"Verification error: {e}")
             
-            return inserted_count > 0
+            return True
             
     except Exception as e:
         print(f"Error saving products: {e}")
         import traceback
         traceback.print_exc()
         return False
-    
     
 # ==============================
 # SALES FUNCTIONS
