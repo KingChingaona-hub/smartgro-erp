@@ -94,14 +94,50 @@ def save_with_retry(df, max_retries=3):
 # ==============================
 def inventory_page():
     
-    # Load products fresh each time
-    @st.cache_data(ttl=0)
+    # Load products fresh each time - REMOVED CACHE TO GET FRESH DATA
     def load_fresh_products():
         return load_products()
     
     df = load_fresh_products()
     
     st.title("Inventory Management")
+    
+    # ==============================
+    # DEBUG: Check what's loaded
+    # ==============================
+    st.sidebar.markdown("### Debug Info")
+    st.sidebar.write(f"Products loaded: {len(df)}")
+    
+    if not df.empty:
+        st.sidebar.write(f"Columns: {df.columns.tolist()}")
+        # Show branch distribution if available
+        if "branch_id" in df.columns:
+            branches = df["branch_id"].value_counts()
+            st.sidebar.write("Products by branch:")
+            for branch, count in branches.items():
+                st.sidebar.write(f"  {branch}: {count}")
+        # Show sample
+        st.sidebar.write(f"First product: {df.iloc[0]['name'] if 'name' in df.columns else 'N/A'}")
+        st.sidebar.write(f"Last product: {df.iloc[-1]['name'] if 'name' in df.columns else 'N/A'}")
+    else:
+        st.sidebar.error("❌ No products loaded!")
+        
+        # Try to check database directly
+        try:
+            from backend.core.db_adapter import get_db_connection, get_current_branch
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                current_branch = get_current_branch()
+                cursor.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (current_branch,))
+                count = cursor.fetchone()[0]
+                if count > 0:
+                    st.sidebar.error(f"⚠️ Found {count} products in database but they're not loading!")
+                    st.sidebar.info(f"Current branch: {current_branch}")
+                cursor.close()
+                conn.close()
+        except Exception as e:
+            st.sidebar.write(f"Debug error: {e}")
     
     # ==============================
     # DISPLAY CURRENT BRANCH
@@ -187,7 +223,7 @@ def inventory_page():
         )
         st.caption(f"Total products: {len(df)}")
     else:
-        st.info("No products in inventory. Add your first product below.")
+        st.warning("No products in inventory. Add your first product below.")
     
     st.markdown("---")
     

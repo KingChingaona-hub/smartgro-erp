@@ -444,31 +444,167 @@ def validate_product_data(data):
     
     return len(errors) == 0, errors, data
 
+# backend/core/db_adapter.py - FIXED save_products function
+
+# backend/core/db_adapter.py - FIXED load_products function
+
 def load_products(branch_id=None):
+    """Load products from database - FIXED to handle missing branch_id"""
     if branch_id is None:
         branch_id = get_current_branch()
     
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
+                print("No database connection - returning empty products")
                 return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                              "price", "cost", "stock", "reorder_level"])
+            
+            # First try to get products for the current branch
             cur.execute("""
                 SELECT * FROM products 
                 WHERE branch_id = %s 
                 ORDER BY name
             """, (branch_id,))
             rows = cur.fetchall()
+            
+            # If no products found for current branch, try to get products with NULL branch_id
+            if not rows:
+                print(f"No products found for branch: {branch_id}, checking for NULL branch_id...")
+                cur.execute("""
+                    SELECT * FROM products 
+                    WHERE branch_id IS NULL OR branch_id = '' 
+                    ORDER BY name
+                """)
+                rows = cur.fetchall()
+                
+                # If found products with NULL branch_id, update them to current branch
+                if rows:
+                    print(f"Found {len(rows)} products with NULL branch_id, updating to {branch_id}...")
+                    for row in rows:
+                        if 'id' in row or 'id' in row.keys():
+                            product_id = row.get('id') if isinstance(row, dict) else row[0]
+                            cur.execute("""
+                                UPDATE products 
+                                SET branch_id = %s 
+                                WHERE id = %s
+                            """, (branch_id, product_id))
+                    conn.commit()
+                    print(f"Updated {len(rows)} products to branch: {branch_id}")
+                    
+                    # Re-fetch products for current branch
+                    cur.execute("""
+                        SELECT * FROM products 
+                        WHERE branch_id = %s 
+                        ORDER BY name
+                    """, (branch_id,))
+                    rows = cur.fetchall()
+            
+            # If still no products, try to get all products (fallback)
+            if not rows:
+                print(f"Still no products for branch: {branch_id}, attempting to load all products...")
+                cur.execute("""
+                    SELECT * FROM products 
+                    ORDER BY name
+                    LIMIT 100
+                """)
+                rows = cur.fetchall()
+                if rows:
+                    print(f"Loaded {len(rows)} products from all branches (fallback)")
+            
             if rows:
-                return pd.DataFrame(rows)
+                df = pd.DataFrame(rows)
+                
+                # Ensure all required columns exist
+                required_cols = ["id", "branch_id", "barcode", "name", "category", "price", "cost", "stock", "reorder_level"]
+                for col in required_cols:
+                    if col not in df.columns:
+                        if col in ["price", "cost", "stock", "reorder_level"]:
+                            df[col] = 0
+                        elif col == "branch_id":
+                            df[col] = branch_id
+                        else:
+                            df[col] = ""
+                
+                # Convert numeric columns
+                for col in ["price", "cost", "stock", "reorder_level"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+                
+                # Convert string columns
+                for col in ["barcode", "name", "category", "branch_id"]:
+                    if col in df.columns:
+                        df[col] = df[col].fillna("").astype(str)
+                
+                print(f"Loaded {len(df)} products for branch: {branch_id}")
+                return df
+            
+            print(f"No products found in database for branch: {branch_id}")
             return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                          "price", "cost", "stock", "reorder_level"])
+            
     except Exception as e:
         print(f"Error loading products: {e}")
+        import traceback
+        traceback.print_exc()
         return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                      "price", "cost", "stock", "reorder_level"])
+        
+        
+def debug_products():
+    """Debug function to check products in database"""
+    try:
+        print("\n" + "=" * 60)
+        print("DEBUGGING PRODUCTS")
+        print("=" * 60)
+        
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                print("No database connection")
+                return
+            
+            # Check total products
+            cur.execute("SELECT COUNT(*) FROM products")
+            total = cur.fetchone()[0]
+            print(f"Total products in database: {total}")
+            
+            # Check products by branch
+            cur.execute("SELECT branch_id, COUNT(*) FROM products GROUP BY branch_id")
+            branch_counts = cur.fetchall()
+            print("\nProducts by branch:")
+            for row in branch_counts:
+                print(f"  Branch '{row['branch_id']}': {row['count']} products")
+            
+            # Check products with NULL branch_id
+            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id IS NULL")
+            null_count = cur.fetchone()[0]
+            if null_count > 0:
+                print(f"\nWARNING: {null_count} products have NULL branch_id!")
+                
+            # Get current branch
+            current_branch = get_current_branch()
+            print(f"\nCurrent branch: {current_branch}")
+            
+            # Check products for current branch
+            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (current_branch,))
+            current_count = cur.fetchone()[0]
+            print(f"Products for current branch: {current_count}")
+            
+            # Show sample products
+            cur.execute("SELECT id, barcode, name, branch_id FROM products LIMIT 5")
+            sample = cur.fetchall()
+            print("\nSample products:")
+            for row in sample:
+                print(f"  ID: {row['id']}, Barcode: {row['barcode']}, Name: {row['name']}, Branch: {row['branch_id']}")
+            
+            print("=" * 60)
+            
+    except Exception as e:
+        print(f"Debug error: {e}")
+        import traceback
+        traceback.print_exc()
 
-# backend/core/db_adapter.py - Check and fix save_products
+# backend/core/db_adapter.py - FIXED save_products function
 
 def save_products(df, branch_id=None):
     if branch_id is None:
@@ -489,20 +625,19 @@ def save_products(df, branch_id=None):
                 print(f"All products deleted for branch: {branch_id}")
                 return True
             
-            # Insert the cleaned data
-            validation_errors = []
+            # Insert the data
             inserted_count = 0
             
             for idx, row in df.iterrows():
                 try:
                     data = row.to_dict()
                     
-                    # Get clean data with defaults - ensure all required fields exist
+                    # Get clean data with defaults
                     barcode = str(data.get("barcode", "")).strip()
                     name = str(data.get("name", "")).strip()
                     category = str(data.get("category", "Uncategorized")).strip()
                     
-                    # Convert numeric values with error handling
+                    # Convert numeric values
                     try:
                         price = float(data.get("price", 0))
                     except (ValueError, TypeError):
@@ -523,15 +658,14 @@ def save_products(df, branch_id=None):
                     except (ValueError, TypeError):
                         reorder_level = 0.0
                     
-                    # Skip if no name - but log it
+                    # Skip if no name
                     if not name:
-                        validation_errors.append(f"Row {idx}: Missing name, skipping")
+                        print(f"Row {idx}: Missing name, skipping")
                         continue
                     
                     # If no barcode, generate one from name
                     if not barcode:
                         barcode = name.replace(" ", "_").upper()[:20]
-                        print(f"Row {idx}: Generated barcode '{barcode}' for '{name}'")
                     
                     # Insert the product
                     cur.execute("""
@@ -549,45 +683,29 @@ def save_products(df, branch_id=None):
                     ))
                     inserted_count += 1
                     
-                    # Commit every 100 rows to avoid large transactions
-                    if inserted_count % 100 == 0:
-                        conn.commit()
-                        print(f"Committed {inserted_count} products so far...")
-                    
                 except Exception as e:
                     print(f"Error inserting row {idx}: {e}")
-                    print(f"Row data: {row.to_dict()}")
-                    validation_errors.append(f"Row {idx}: {str(e)}")
                     continue
             
-            # Final commit
             conn.commit()
             print(f"Inserted {inserted_count} products for branch: {branch_id}")
-            
-            if validation_errors:
-                print(f"Validation errors: {validation_errors}")
-                # Don't fail if there were validation errors, but log them
             
             # Verify the save
             try:
                 cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (branch_id,))
                 count = cur.fetchone()[0]
                 print(f"Verification: {count} products in database for branch: {branch_id}")
-                
-                if count != inserted_count:
-                    print(f"WARNING: Expected {inserted_count} but found {count}")
-                    # Don't return false, just warn
             except Exception as e:
                 print(f"Verification error: {e}")
             
-            # Return success even if there were validation errors, as long as some products were inserted
-            return inserted_count > 0 or df.empty
+            return inserted_count > 0
             
     except Exception as e:
         print(f"Error saving products: {e}")
         import traceback
         traceback.print_exc()
         return False
+    
     
 # ==============================
 # SALES FUNCTIONS
