@@ -485,7 +485,7 @@ def supplier_autocomplete(key_suffix=""):
     with col2:
         # Show indicator if it's a new supplier
         if selected_supplier and selected_supplier not in supplier_suggestions:
-            st.caption("🆕 New Supplier")
+            st.caption("New Supplier")
         else:
             st.caption(" ")
     
@@ -951,13 +951,13 @@ def purchases_page():
         st.markdown("---")
         
         # ==============================
-        # MANUAL ITEM ENTRY - OPTIMIZED
+        # MANUAL ITEM ENTRY - UPDATED WITH PRICE FIELD
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
         
         with st.form(key="add_manual_form", clear_on_submit=True):
-            col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1, 1, 1])
+            col1, col2, col3, col4, col5, col6 = st.columns([2, 1.5, 1, 1, 1, 1])
             
             with col1:
                 manual_item_name = st.text_input("Item Name *", key="manual_item_name", placeholder="e.g., New Product X, Delivery Fee")
@@ -967,8 +967,13 @@ def purchases_page():
             
             with col3:
                 manual_item_cost = st.number_input("Cost Price ($)", min_value=0.01, value=0.01, step=5.0, key="manual_item_cost")
+                st.caption("Cost at purchase")
             
             with col4:
+                manual_item_price = st.number_input("Selling Price ($)", min_value=0.01, value=0.01, step=5.0, key="manual_item_price")
+                st.caption("Price to sell at")
+            
+            with col5:
                 is_decimal_manual = supports_decimal(manual_item_name, manual_item_category)
                 
                 if is_decimal_manual:
@@ -980,7 +985,7 @@ def purchases_page():
                         format="%.2f", 
                         key="manual_item_qty"
                     )
-                    st.caption("Decimal quantities supported for this product")
+                    st.caption("Decimal quantities supported")
                 else:
                     manual_item_qty = st.number_input(
                         "Quantity", 
@@ -990,13 +995,17 @@ def purchases_page():
                         key="manual_item_qty"
                     )
             
-            with col5:
+            with col6:
                 add_manual_button = st.form_submit_button("Add Item", use_container_width=True)
-                
-                if add_manual_button:
-                    if not supplier_name or not supplier_name.strip():
-                        st.error("Please enter a supplier name first")
-                    elif manual_item_name and manual_item_name.strip():
+            
+            if add_manual_button:
+                if not supplier_name or not supplier_name.strip():
+                    st.error("Please enter a supplier name first")
+                elif manual_item_name and manual_item_name.strip():
+                    # Validate that either cost or price is provided
+                    if manual_item_cost <= 0 and manual_item_price <= 0:
+                        st.error("Please enter at least a cost price or selling price")
+                    else:
                         category_input = manual_item_category.strip()
                         
                         if category_input:
@@ -1004,9 +1013,17 @@ def purchases_page():
                         else:
                             category = "New Purchase"
                         
+                        # Use cost if provided, otherwise use price
+                        cost_val = float(manual_item_cost) if manual_item_cost > 0 else float(manual_item_price) * 0.7
+                        price_val = float(manual_item_price) if manual_item_price > 0 else float(manual_item_cost) * 1.3
+                        
+                        # Ensure price is at least cost
+                        if price_val < cost_val:
+                            price_val = cost_val * 1.3
+                        
                         existing = False
                         for item in st.session_state.po_cart:
-                            if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == float(manual_item_cost):
+                            if str(item["name"]).lower() == manual_item_name.lower() and float(item["cost"]) == cost_val:
                                 if isinstance(manual_item_qty, float):
                                     item["quantity"] = float(item["quantity"]) + manual_item_qty
                                 else:
@@ -1014,6 +1031,9 @@ def purchases_page():
                                 item["total"] = item["quantity"] * item["cost"]
                                 if category != "New Purchase":
                                     item["category"] = category
+                                # Update price if provided
+                                if manual_item_price > 0:
+                                    item["price"] = price_val
                                 existing = True
                                 break
                         
@@ -1028,19 +1048,20 @@ def purchases_page():
                                 "barcode": unique_barcode,
                                 "name": str(manual_item_name).strip(),
                                 "quantity": qty_val,
-                                "cost": float(manual_item_cost),
-                                "total": float(manual_item_cost) * qty_val,
+                                "cost": cost_val,
+                                "price": price_val,
+                                "total": cost_val * qty_val,
                                 "category": category
                             })
                             
                             if isinstance(manual_item_qty, float) and manual_item_qty % 1 != 0:
-                                st.success(f"Added {manual_item_qty:.2f} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
+                                st.success(f"Added {manual_item_qty:.2f} x {manual_item_name} (Cost: ${cost_val:.2f}, Price: ${price_val:.2f}) - Category: {category}")
                             else:
-                                st.success(f"Added {int(manual_item_qty)} x {manual_item_name} (${manual_item_cost:.2f} each) - Category: {category}")
+                                st.success(f"Added {int(manual_item_qty)} x {manual_item_name} (Cost: ${cost_val:.2f}, Price: ${price_val:.2f}) - Category: {category}")
                         else:
                             st.success(f"Updated {manual_item_name} quantity")
-                    else:
-                        st.error("Please enter an item name")
+                else:
+                    st.error("Please enter an item name")
         
         # ==============================
         # CART DISPLAY - OPTIMIZED
@@ -1051,9 +1072,14 @@ def purchases_page():
         if st.session_state.po_cart:
             po_cart_df = pd.DataFrame(st.session_state.po_cart)
             
-            display_cols = ["name", "quantity", "cost", "total"]
+            # Add price column if available
+            display_cols = ["name", "quantity", "cost", "price", "total"]
             if "category" in po_cart_df.columns:
                 display_cols.insert(1, "category")
+            
+            # Check if price column exists, if not add it with default
+            if "price" not in po_cart_df.columns:
+                po_cart_df["price"] = po_cart_df["cost"] * 1.3
             
             st.dataframe(
                 po_cart_df[display_cols],
@@ -1062,6 +1088,7 @@ def purchases_page():
                 column_config={
                     "quantity": st.column_config.NumberColumn("Quantity", format="%.2f"),
                     "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
+                    "price": st.column_config.NumberColumn("Selling Price ($)", format="$%.2f"),
                     "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
                 }
             )
@@ -1118,7 +1145,7 @@ def purchases_page():
             st.markdown(f"**Supplier:** {preview['supplier']}")
             st.markdown(f"**Expected Date:** {preview['expected_date']}")
             
-            display_cols = ["name", "quantity", "cost", "total"]
+            display_cols = ["name", "quantity", "cost", "price", "total"]
             if "category" in preview['po_cart_df'].columns:
                 display_cols.insert(1, "category")
             
@@ -1129,6 +1156,7 @@ def purchases_page():
                 column_config={
                     "quantity": st.column_config.NumberColumn("Quantity", format="%.2f"),
                     "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
+                    "price": st.column_config.NumberColumn("Selling Price ($)", format="$%.2f"),
                     "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
                 }
             )
