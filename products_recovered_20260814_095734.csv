@@ -1,0 +1,339 @@
+name,category,barcode,price,cost,stock,reorder_level,source
+Pacific Storm,From Purchases,PACIFICST,0.5135802469135803,0.03333333333333333,1460.0,5,both
+Branson Mint,From Purchases,BRANSONMI,0.7205555555555555,0.023333333333333334,820.0,5,both
+Eggs,From Purchases,EGGS,1.5042857142857142,0.14,819.0,5,both
+Airtime,From Purchases,AIRTIME,3.2403846153846154,0.92,674.0,5,both
+Dandy,From Purchases,DANDY,0.2806896551724138,0.02,600.0,5,both
+Bread,From Purchases,BREAD,1.8412698412698414,0.93,535.0,5,both
+Branson Flame,From Purchases,BRANSONFL,0.41888888888888887,0.02,400.0,5,both
+Everest,From Purchases,EVEREST,1.0338461538461539,0.06,400.0,5,both
+Maputi,From Purchases,MAPUTI,0.9588235294117647,0.05,360.0,5,both
+Gas,From Purchases,GAS,36.833333333333336,1.45,350.0,5,both
+Breeze,From Purchases,BREEZE,0.45,0.04,330.0,5,both
+Candles,From Purchases,CANDLES,0.3125,0.15,306.0,5,both
+Toffee,From Purchases,TOFFEE,0.2892857142857143,0.015,300.0,5,both
+Softcare pamper L,From Purchases,SOFTCAREP,1.82,0.1,308.0,5,both
+Honey Pots Maheu,From Purchases,HONEYPOTS,0.5,0.04,200.0,5,both
+Pacific Breeze,From Purchases,PACIFICBR,0.35625,0.03,200.0,5,both
+Nappies Xl,From Purchases,NAPPIESXL,1.3975,0.1,200.0,5,both
+Mints Sweets,From Purchases,MINTSSWEE,0.40789473684210525,0.01,465.0,5,both
+Spaghetti,From Purchases,SPAGHETTI,0.9583333333333334,0.4266666666666667,152.0,5,both
+Pop Sweets,From Purchases,POPSWEETS,0.42295081967213116,0.05,258.0,5,both
+Wildcat,From Purchases,WILDCAT,0.6428571428571429,0.4166666666666667,140.0,5,both
+Nappies Large,From Purchases,NAPPIESLA,0.6410344827586207,0.1,143.0,5,both
+HB Pencil,From Purchases,HBPENCIL,0.0,0.05,100.0,5,purchases
+Yoghurt,From Purchases,YOGHURT,0.9545454545454546,0.45,90.0,5,both
+Kellogs Noodles,From Purchases,KELLOGSNO,2.475,0.25,80.0,5,both
+Gas Rubber S,From Purchases,GASRUBBER,0.65,0.06,74.0,5,both
+2 Ply Tissue,From Purchases,2PLYTISS,1.18,0.39,72.0,5,both
+Zapnax,From Purchases,ZAPNAX,0.4318181818181818,0.225,72.0,5,both
+Wildcat Can 300ml,From Purchases,WILDCATCA,0.5576923076923077,0.41,72.0,5,both
+Captain,From Purchases,CAPTAIN,0.7127659574468085,0.46,72.0,5,both
+Torch Battery,From Purchases,TORCHBATT,0.48,0.05,70.0,5,both
+Polony Small,From Purchases,POLONYSMA,0.9146341463414634,0.4,75.0,5,both
+Pfuko Buttermilk,From Purchases,PFUKOBUTT,1.0909090909090908,0.48333333333333334,61.0,5,both
+Cascade 500ml,From Purchases,CASCADE50,0.6944444444444444,0.45,100.0,5,both
+Dendairy 1l,From Purchases,DENDAIRY1,2.923076923076923,1.42,60.0,5,both
+Boom paste,From Purchases,BOOMPASTE,0.6704545454545454,0.45,60.0,5,both
+Lobel Creams,From Purchases,LOBELCREA,0.603448275862069,0.43,70.0,5,both
+Pfuko Traditional,From Purchases,PFUKOTRAD,0.7,0.46,60.0,5,both
+Yummy Biscuits,From Purchases,YUMMYBISC,0.5,0.4,55.0,5,both
+Peanut Butter 300ml,From Purchases,PEANUTBUT,1.0588235294117647,0.83,51.0,5,both
+Lighter,From Purchases,LIGHTER,0.34210526315789475,0.18,50.0,5,both
+Tapi Tapi Sugar 2kg,From Purchases,TAPITAPI,3.055555555555556,2.433333333333333,50.0,5,both
+Kunaka Mealie Meal 10kg,From Purchases,KUNAKAMEA,5.294117647058823,4.25,50.0,5,both
+Green Rizla,From Purchases,GREENRIZL,0.38461538461538464,0.16,50.0,5,both
+Revive Straw 250ml,From Purchases,REVIVESTR,0.46444444444444444,0.325,48.0,5,both
+Mauya,From Purchases,MAUYA,0.6071428571428571,0.42,51.0,5,both
+Fresh Pack 20's,From Purchases,FRESHPACK,1.5,1.1,48.0,5,both
+Fresh Milk,From Purchases,FRESHMILK,0.5769230769230769,0.42,48.0,5,both
+Toothbrush,From Purchases,TOOTHBRUSH,0.25,0.09,46.0,5,both
+Mega snacks,From Purchases,MEGASNACK,0.36904761904761907,0.22,42.0,5,both
+Gunanzi,From Purchases,GUNANZI,0.40714285714285714,0.22,57.0,5,both
+Wildcat Can,From Purchases,WILDCATCA1,0.75,0.41,40.0,5,both
+Gango,From Purchases,GANGO,0.45689655172413796,0.22,53.0,5,both
+Usavi Royco,From Purchases,USAVIROYC,0.6875,0.29,40.0,5,both
+Yummy Yummy Biscuits,From Purchases,YUMMYYUMM,0.6666666666666666,0.4,40.0,5,both
+Jumbo,From Purchases,JUMBO,0.5,0.22,64.0,5,both
+Hi-life Soap,From Purchases,HILIFESO,0.6818181818181818,0.45,40.0,5,both
+Spuds 75g,From Purchases,SPUDS75G,1.0,0.8,39.0,5,both
+Champions,From Purchases,CHAMPIONS,0.3443396226415094,0.22,73.0,5,both
+Sting,From Purchases,STING,0.5357142857142857,0.4166666666666667,38.0,5,both
+Boom Paste,From Purchases,BOOMPASTE1,1.0,0.43,38.0,5,both
+Kambucha,From Purchases,KAMBUCHA,1.1627906976744187,0.79,50.0,5,both
+Pepsi 750ml,From Purchases,PEPSI750M,0.5147058823529411,0.375,36.0,5,both
+Sparkle 2l,From Purchases,SPARKLE2L,1.0454545454545454,0.8666666666666667,35.0,5,both
+Revive 500ml,From Purchases,REVIVE500,0.65625,0.415,35.0,5,both
+Revive 1l,From Purchases,REVIVE1L,1.2352941176470589,0.83,32.0,5,both
+Jumbo Bun,From Purchases,JUMBOBUN,0.7962962962962963,0.4,43.0,5,both
+Shortbread Biscuits,From Purchases,SHORTBREAD,0.6428571428571429,0.44,32.0,5,both
+Top Pops,From Purchases,TOPPOPS,0.3680555555555556,0.22,53.0,5,both
+Hullets Sugar 2kg,From Purchases,HULLETSSU,3.047727272727273,2.5,30.0,5,both
+Ideal Parboiled 2kg,From Purchases,IDEALPARB,2.6153846153846154,1.75,30.0,5,both
+Pencil Rubber,From Purchases,PENCILRUB,0.0,0.06,30.0,5,purchases
+Top pos,From Purchases,TOPPOS,0.0,0.22,29.0,5,purchases
+Sugar 500g,From Purchases,SUGAR500G,0.6136363636363636,0.3,27.0,5,both
+Polony S,From Purchases,POLONYS,1.25,0.4,26.0,5,both
+Element,From Purchases,ELEMENT,0.0,0.7,26.0,5,purchases
+Remote Battery,From Purchases,REMOTEBAT,0.0,0.05,26.0,5,purchases
+Course Salt 1kg,From Purchases,COURSESAL,0.0,0.3,25.0,5,purchases
+Raha Rice 2kg,From Purchases,RAHARICE,0.0,1.8,24.0,5,purchases
+Pure Drop 2l,From Purchases,PUREDROP,4.083333333333333,3.1266666666666665,24.0,5,both
+Coke 2l,From Purchases,COKE2L,2.0952380952380953,1.75,24.0,5,both
+Coke Pet,From Purchases,COKEPET,0.5757575757575758,0.41,38.0,5,both
+Ufresh Maheu,From Purchases,UFRESHMAH,0.5,0.41,24.0,5,both
+Everyday Powdered Milk 400g,From Purchases,EVERYDAYP,3.5,3.25,24.0,5,both
+Ellis Brown Satchets,From Purchases,ELLISBROW,2.3863636363636362,1.35,24.0,5,both
+Montys Beans,From Purchases,MONTYSBEA,1.0833333333333333,0.83,24.0,5,both
+Blue Seal 100ml,From Purchases,BLUESEAL,1.1176470588235294,0.75,24.0,5,both
+Mirinda 750ml,From Purchases,MIRINDA75,0.5394736842105263,0.38,41.0,5,both
+Cerevita,From Purchases,CEREVITA,3.9375,2.67,24.0,5,both
+Bhuru,From Purchases,BHURU,1.1111111111111112,0.7,24.0,5,both
+Switch Element,From Purchases,SWITCHELE,1.0,0.71,24.0,5,both
+Pearlenta 10kg,From Purchases,PEARLENTA,8.0,6.25,23.0,5,both
+Vim,From Purchases,VIM,1.0,0.79,23.0,5,both
+Jade soap,From Purchases,JADESOAP,0.97,0.55,23.0,5,both
+8mm writing,From Purchases,8MMWRITIN,0.25,0.15,22.0,5,both
+Shortbread,From Purchases,SHORTBREAD1,0.0,0.43,21.0,5,purchases
+Special tea,From Purchases,SPECIALTE,0.2,0.15,20.0,5,both
+Mega,From Purchases,MEGA,0.5,0.3,20.0,5,both
+Cremora Satchets,From Purchases,CREMORASA,1.8666666666666667,1.25,20.0,5,both
+Raha White Rice 2kg,From Purchases,RAHAWHITE,2.857142857142857,1.8,30.0,5,both
+Nice Biscuits,From Purchases,NICEBISCU,0.5,0.3,20.0,5,both
+13mm Maths,From Purchases,13MMMATHS,0.0,0.15,20.0,5,purchases
+Kunaka Mealie Meal 5kg,From Purchases,KUNAKAMEA1,3.176470588235294,2.3,20.0,5,both
+Zimgold 2l,From Purchases,ZIMGOLD2L,3.75,3.165,20.0,5,both
+Red Seal Fine Salt 1kg,From Purchases,REDSEALF,0.5,0.45,20.0,5,both
+Macaroni 500g,From Purchases,MACARONI5,0.8636363636363636,0.4,20.0,5,both
+Lacto,From Purchases,LACTO,1.12,0.55,20.0,5,both
+Mupedzanzara Mealie Meal 10kg,From Purchases,MUPEDZANZA,5.907692307692308,4.25,20.0,5,both
+King Kurls,From Purchases,KINGKURLS,0.625,0.3,20.0,5,both
+Gas Plate Rubber,From Purchases,GASPLATE,0.75,0.1,20.0,5,both
+wipes,From Purchases,WIPES,0.0,1.04,19.0,5,purchases
+popcorns,From Purchases,POPCORNS,0.0,0.5,18.0,5,purchases
+Special Tea,From Purchases,SPECIALTE1,0.0,0.15,18.0,5,purchases
+Munchies 1kg,From Purchases,MUNCHIES1,3.0,2.0,18.0,5,both
+Citro 1l,From Purchases,CITRO1L,1.0909090909090908,0.83,18.0,5,both
+Zimba Nax,From Purchases,ZIMBANAX,0.5833333333333334,0.2,18.0,5,both
+Beginners Pencil,From Purchases,BEGINNERS,0.0,0.15,18.0,5,purchases
+Olivine Beans,From Purchases,OLIVINEBE,1.3733333333333333,0.81,18.0,5,both
+Sunny Jam,From Purchases,SUNNYJAM,0.0,1.33,17.0,5,purchases
+Plain Books,From Purchases,PLAINBOOK,0.0,0.15,16.0,5,purchases
+Golden Glow 2l,From Purchases,GOLDENGLO,3.9,2.85,16.0,5,both
+MaQ 2kg,From Purchases,MAQ2KG,5.958333333333333,4.75,16.0,5,both
+Rich Rolls,From Purchases,RICHROLLS,0.4642857142857143,0.06,16.0,5,both
+Amazon Cookies,From Purchases,AMAZONCOO,0.6785714285714286,0.4,19.0,5,both
+Tembeya,From Purchases,TEMBEYA,0.6,0.41,15.0,5,both
+Pads,From Purchases,PADS,1.0,0.56,15.0,5,both
+Ricoffy 100g,From Purchases,RICOFFY10,2.0,1.37,15.0,5,both
+Silver tea,From Purchases,SILVERTEA,0.0,0.15,15.0,5,purchases
+Donurt,From Purchases,DONURT,0.7222222222222222,0.4,14.0,5,both
+Cascade 1l,From Purchases,CASCADE1L,1.1333333333333333,0.83,17.0,5,both
+Steri/Life 500ml,From Purchases,STERI/LIFE,0.0,0.75,13.0,5,purchases
+Closeup,From Purchases,CLOSEUP,1.0,0.92,13.0,5,both
+Mayonnaise Tangy,From Purchases,MAYONNAISE,0.0,2.33,13.0,5,purchases
+Instant Porridge 1kg,From Purchases,INSTANTPO,1.5,1.08,12.0,5,both
+Joe Biscuits,From Purchases,JOEBISCUI,0.38636363636363635,0.2,17.0,5,both
+Ingrams Tripple Glycerine,From Purchases,INGRAMSTR,3.0,2.17,12.0,5,both
+Cherry Pet,From Purchases,CHERRYPET,0.65,0.41,13.0,5,both
+Fun and Fresh,From Purchases,FUNANDFR,2.3181818181818183,1.08,17.0,5,both
+Steri 500ml,From Purchases,STERI500M,1.1875,0.67,19.0,5,both
+Cashel Valley Beans,From Purchases,CASHELVAL,1.1111111111111112,0.83,12.0,5,both
+Boom 1kg,From Purchases,BOOM1KG,2.5,1.08,14.0,5,both
+Aloha 1kg,From Purchases,ALOHA1KG,2.5,1.08,12.0,5,both
+Dettol,From Purchases,DETTOL,0.0,0.01,12.0,5,purchases
+Colgate 100ml,From Purchases,COLGATE10,1.25,0.75,12.0,5,both
+Sunsoya 2l,From Purchases,SUNSOYA2L,4.410714285714286,2.88,19.0,5,both
+Peanut Butter 1l,From Purchases,PEANUTBUT1,3.0,2.37,12.0,5,both
+Tangy Mayonnaise,From Purchases,TANGYMAYO,3.0,2.5,12.0,5,both
+Dark N Lovely,From Purchases,DARKNLOV,0.0,5.0,11.0,5,purchases
+Gloria Flour 2kg,From Purchases,GLORIAFLO,2.3636363636363638,1.11,13.0,5,both
+Ufresh,From Purchases,UFRESH,1.0,0.41,10.0,5,both
+Dragon,From Purchases,DRAGON,0.0,0.7,10.0,5,purchases
+Mr Rice White 2kg,From Purchases,MRRICEWH,2.111111111111111,1.7,19.0,5,both
+Sunlight,From Purchases,SUNLIGHT,2.0,1.7,10.0,5,both
+Fine Salt 1kg,From Purchases,FINESALT,0.575,0.3,23.0,5,both
+Charhons Quality Biscuits 500g,From Purchases,CHARHONSQ,1.5,1.0,10.0,5,both
+Polony Large,From Purchases,POLONYLAR,1.0,0.7,10.0,5,both
+Pfuko Trad,From Purchases,PFUKOTRAD1,0.5,0.45,10.0,5,both
+Sugar 1kg,From Purchases,SUGAR1KG,1.0,0.8,9.0,5,both
+Quench 2l,From Purchases,QUENCH2L,3.0,2.33,9.0,5,both
+Rabroy Cream,From Purchases,RABROYCRE,0.0,1.25,9.0,5,purchases
+Olivine 2l,From Purchases,OLIVINE2L,3.7916666666666665,3.06,13.0,5,both
+Tomco Beans,From Purchases,TOMCOBEAN,0.0,0.75,8.0,5,purchases
+Aloha 2kg,From Purchases,ALOHA2KG,5.0,4.13,8.0,5,both
+Ruler,From Purchases,RULER,0.5,0.3,8.0,5,both
+Boom 2kg,From Purchases,BOOM2KG,5.0,4.13,8.0,5,both
+Snack Chocolate,From Purchases,SNACKCHOC,0.5,0.25,7.0,5,both
+Satchets Stasoft,From Purchases,SATCHETSS,0.0,1.16,7.0,5,purchases
+Olive Spray,From Purchases,OLIVESPRA,0.0,1.5,7.0,5,purchases
+Sona,From Purchases,SONA,0.0,0.5,7.0,5,purchases
+Natural Joy,From Purchases,NATURALJO,1.2727272727272727,0.83,14.0,5,both
+Revive 250ml Straw,From Purchases,REVIVE250,0.0,0.22,6.0,5,purchases
+Smoothie,From Purchases,SMOOTHIE,0.0,0.54,6.0,5,purchases
+Protex Soap,From Purchases,PROTEXSOA,1.0,0.66,6.0,5,both
+Cerelac Porridge 200ge,From Purchases,CERELACPO,2.5,1.83,6.0,5,both
+Oil Sheen Spray,From Purchases,OILSHEEN,2.0,1.16,6.0,5,both
+Mazoe Rasberry 2l,From Purchases,MAZOERASB,3.5,2.95,6.0,5,both
+Mazoe Blackberry,From Purchases,MAZOEBLAC,3.5,2.95,6.0,5,both
+Revive maheu 500ml,From Purchases,REVIVEMAH,0.0,0.45,6.0,5,purchases
+Proton Cookies 1kg,From Purchases,PROTONCOO,3.5,2.67,6.0,5,both
+VapuRob,From Purchases,VAPUROB,0.0,0.33,6.0,5,purchases
+Proton 1kg,From Purchases,PROTON1KG,0.0,3.2,6.0,5,purchases
+100 percent Juice,From Purchases,100PERCEN,0.0,1.11,6.0,5,purchases
+sunny porr,From Purchases,SUNNYPORR,0.0,1.08,5.0,5,purchases
+Dry Lemon,From Purchases,DRYLEMON,0.0,0.7,5.0,5,purchases
+Spuds 35g,From Purchases,SPUDS35G,0.7083333333333334,0.4,17.0,5,both
+skala,From Purchases,SKALA,0.0,0.58,5.0,5,purchases
+Handy Andy,From Purchases,HANDYANDY,0.0,1.5,5.0,5,purchases
+Boom 750ml,From Purchases,BOOM750ML,2.0,1.7,5.0,5,both
+Charhons Quality Biscuits 1kg,From Purchases,CHARHONSQ1,4.375,2.17,5.0,5,both
+Mr Rice 5kg,From Purchases,MRRICE5K,5.0,4.5,4.0,5,both
+Dlite 375ml,From Purchases,DLITE375M,1.1666666666666667,0.67,14.0,5,both
+Sta-soft 2l,From Purchases,STASOFT2,0.0,2.77,4.0,5,purchases
+Ideal Parboiled  5kg,From Purchases,IDEALPARB1,5.0,4.5,5.0,5,both
+Raha White Rice 5kg,From Purchases,RAHAWHITE1,5.0,4.5,6.0,5,both
+Plastic Covers,From Purchases,PLASTICCO,0.0,0.3,4.0,5,purchases
+Olivine Cooking oilo 2l,From Purchases,OLIVINECO,0.0,3.12,4.0,5,purchases
+Rajah,From Purchases,RAJAH,0.0,0.7,3.0,5,purchases
+Water 2l,From Purchases,WATER2L,0.5,0.33,3.0,5,both
+Cards,From Purchases,CARDS,0.0,0.3,3.0,5,purchases
+Top Mixed Jam,From Purchases,TOPMIXED,1.5,1.16,3.0,5,both
+Bull Brand Beef,From Purchases,BULLBRAND,1.95,1.5,2.0,5,both
+Graph Books,From Purchases,GRAPHBOOK,0.0,0.3,2.0,5,purchases
+Paineeze,From Purchases,PAINEEZE,0.624,0.04,48.0,5,both
+Raha Rice 5kg,From Purchases,RAHARICE1,0.0,4.7,2.0,5,purchases
+1 Ply Tissue,From Purchases,1PLYTISS,0.0,0.14,1.0,5,purchases
+Stella tea,From Purchases,STELLATEA,0.0,0.3,1.0,5,purchases
+Softcare Pamper L,From Purchases,SOFTCAREP1,0.0,0.1,1.0,5,purchases
+Tsunami,From Purchases,TSUNAMI,0.5,0.25,3.0,5,both
+Proton 500g,From Purchases,PROTON500,0.0,1.6,1.0,5,purchases
+Revive Maheu 1l,From Purchases,REVIVEMAH1,0.0,0.83,1.0,5,purchases
+Matches,From Sales,MATCHES,0.3625,0.25375,87.0,5,sales
+Pegasus,From Sales,PEGASUS,0.6,0.42,60.0,5,sales
+Cake,From Sales,CAKE,0.725,0.5075,58.0,5,sales
+Amazon ball gums,From Sales,AMAZONBAL,0.33125,0.23187499999999997,53.0,5,sales
+Kiss Kids M,From Sales,KISSKIDS,1.9066666666666667,1.3346666666666667,44.0,5,sales
+Shumba Maheu,From Sales,SHUMBAMAH,0.6590909090909091,0.4613636363636363,29.0,5,sales
+Halls,From Sales,HALLS,0.348,0.24359999999999996,29.0,5,sales
+Rocket Chocolate,From Sales,ROCKETCHO,0.390625,0.2734375,25.0,5,sales
+Milkit,From Sales,MILKIT,0.75,0.5249999999999999,21.0,5,sales
+Fruta,From Sales,FRUTA,0.6,0.42,18.0,5,sales
+Snacks Chocolate,From Sales,SNACKSCHO,0.7083333333333334,0.49583333333333335,17.0,5,sales
+Madison,From Sales,MADISON,0.36833333333333335,0.2578333333333333,17.0,5,sales
+Mega zapnax,From Sales,MEGAZAPNA,0.4,0.27999999999999997,16.0,5,sales
+Nappies Medium,From Sales,NAPPIESME,0.6933333333333334,0.48533333333333334,16.0,5,sales
+Switch Dragon,From Sales,SWITCHDRA,1.2727272727272727,0.8909090909090909,14.0,5,sales
+Munchies 150g,From Sales,MUNCHIES11,0.5384615384615384,0.37692307692307686,14.0,5,sales
+Lifeboy Soap,From Sales,LIFEBOYSO,1.3,0.9099999999999999,13.0,5,sales
+Eclairs 3in1,From Sales,ECLAIRS3I,0.21666666666666667,0.15166666666666667,13.0,5,sales
+Matemba 50g,From Sales,MATEMBA50,1.0,0.7,12.0,5,sales
+Fizzy Dip,From Sales,FIZZYDIP,0.4583333333333333,0.3208333333333333,11.0,5,sales
+Chunks 500g,From Sales,CHUNKS500,0.55,0.385,11.0,5,sales
+Revive Maheu 500ml,From Sales,REVIVEMAH2,0.5,0.35,11.0,5,sales
+Chew Bubblegums,From Sales,CHEWBUBBL,0.325,0.22749999999999998,11.0,5,sales
+Coated Biscuits 100g,From Sales,COATEDBIS,1.03125,0.7218749999999999,11.0,5,sales
+Nappies Small,From Sales,NAPPIESSM,0.325,0.22749999999999998,10.0,5,sales
+Buttercup 250g,From Sales,BUTTERCUP,1.0,0.7,10.0,5,sales
+Proton Cookies 500g,From Sales,PROTONCOO1,2.125,1.4874999999999998,10.0,5,sales
+Buttercup 500g,From Sales,BUTTERCUP1,2.2222222222222223,1.5555555555555556,10.0,5,sales
+Maaz,From Sales,MAAZ,2.0,1.4,10.0,5,sales
+Nibbles 100g,From Sales,NIBBLES10,1.125,0.7875,9.0,5,sales
+Bella  Spaghetti,From Sales,BELLASPA,2.25,1.575,9.0,5,sales
+Blue Band 250g,From Sales,BLUEBAND,1.0,0.7,9.0,5,sales
+Softcare Pads,From Sales,SOFTCAREP2,1.0,0.7,9.0,5,sales
+Aloha 500g,From Sales,ALOHA500G,1.5,1.0499999999999998,9.0,5,sales
+Flash,From Sales,FLASH,0.26,0.182,8.0,5,sales
+Dorco Razor,From Sales,DORCORAZO,0.26666666666666666,0.18666666666666665,8.0,5,sales
+Brothers,From Sales,BROTHERS,0.5,0.35,8.0,5,sales
+Stoney Pet,From Sales,STONEYPET,0.8,0.5599999999999999,8.0,5,sales
+Maheu Ekumusha,From Sales,MAHEUEKUM,0.8,0.5599999999999999,8.0,5,sales
+Bhuku Regonzo,From Sales,BHUKUREGO,0.5833333333333334,0.4083333333333333,7.0,5,sales
+Lays 23g,From Sales,LAYS23G,0.7,0.48999999999999994,7.0,5,sales
+Coated Biscuits 250g,From Sales,COATEDBIS1,2.3333333333333335,1.6333333333333333,7.0,5,sales
+Boom 500g,From Sales,BOOM500G,1.5,1.0499999999999998,7.0,5,sales
+Revive 1l Maheu,From Sales,REVIVE1L1,1.0,0.7,7.0,5,sales
+Quickbrew tea bags,From Sales,QUICKBREW,1.25,0.875,7.0,5,sales
+Know soup,From Sales,KNOWSOUP,0.5833333333333334,0.4083333333333333,7.0,5,sales
+Tomco,From Sales,TOMCO,1.0,0.7,6.0,5,sales
+Koo Beans,From Sales,KOOBEANS,1.25,0.875,6.0,5,sales
+Pencils HB,From Sales,PENCILSHB,0.3,0.21,6.0,5,sales
+Green Bar,From Sales,GREENBAR,3.0,2.0999999999999996,6.0,5,sales
+Lux Soap,From Sales,LUXSOAP,1.0,0.7,6.0,5,sales
+Mr Sauce,From Sales,MRSAUCE,1.0,0.7,6.0,5,sales
+Coarse Salt 1kg,From Sales,COARSESAL,0.625,0.4375,5.0,5,sales
+Geisha,From Sales,GEISHA,1.6666666666666667,1.1666666666666667,5.0,5,sales
+Karinga Royco,From Sales,KARINGARO,0.5,0.35,5.0,5,sales
+Sparletta Cherry 2l,From Sales,SPARLETTA,3.3333333333333335,2.3333333333333335,5.0,5,sales
+Grown Ups Porridge,From Sales,GROWNUPS,3.125,2.1875,5.0,5,sales
+Big Ben Blue Bar,From Sales,BIGBENBL,1.5,1.0499999999999998,5.0,5,sales
+Mallows,From Sales,MALLOWS,0.325,0.22749999999999998,5.0,5,sales
+Popcorn,From Sales,POPCORN,1.25,0.875,5.0,5,sales
+Energy Peanut Butter 300ml,From Sales,ENERGYPEA,1.0,0.7,5.0,5,sales
+Nandi,From Sales,NANDI,0.4166666666666667,0.2916666666666667,5.0,5,sales
+Dlite 750ml,From Sales,DLITE750M,1.5,1.0499999999999998,5.0,5,sales
+Mega Popcorn,From Sales,MEGAPOPCO,0.5,0.35,5.0,5,sales
+Sunny Porridge 1kg,From Sales,SUNNYPORR1,1.46,1.022,5.0,5,sales
+Ingrams Tissue Oil,From Sales,INGRAMSTI,3.5,2.4499999999999997,4.0,5,sales
+Vapurob,From Sales,VAPUROB1,0.6666666666666666,0.4666666666666666,4.0,5,sales
+Silver Tea,From Sales,SILVERTEA1,0.5,0.35,4.0,5,sales
+Water 5l,From Sales,WATER5L,1.3333333333333333,0.9333333333333332,4.0,5,sales
+Black Polish,From Sales,BLACKPOLI,1.0,0.7,4.0,5,sales
+Eversharp Pens,From Sales,EVERSHARP,0.25,0.175,4.0,5,sales
+Chilli L,From Sales,CHILLIL,1.0,0.7,4.0,5,sales
+Baby crez,From Sales,BABYCREZ,2.6666666666666665,1.8666666666666665,4.0,5,sales
+Hair Remover,From Sales,HAIRREMOV,0.6666666666666666,0.4666666666666666,4.0,5,sales
+Sun Jam 500g,From Sales,SUNJAM50,1.5,1.0499999999999998,4.0,5,sales
+Coolsplash 5l,From Sales,COOLSPLASH,4.0,2.8,4.0,5,sales
+Stella Tea,From Sales,STELLATEA1,0.5,0.35,3.0,5,sales
+Macaroni 3kg,From Sales,MACARONI3,4.5,3.15,3.0,5,sales
+Mazoe orange 2l,From Sales,MAZOEORAN,4.0,2.8,3.0,5,sales
+Jupyter,From Sales,JUPYTER,0.5,0.35,3.0,5,sales
+Rajah Medium,From Sales,RAJAHMEDI,1.0,0.7,3.0,5,sales
+Colgate 50ml,From Sales,COLGATE50,0.5,0.35,3.0,5,sales
+Sta-Soft 2l,From Sales,STASOFT21,3.0,2.0999999999999996,3.0,5,sales
+Cosmolive,From Sales,COSMOLIVE,1.5,1.0499999999999998,3.0,5,sales
+Gas Product,From Sales,GASPRODUC,6.0,4.199999999999999,3.0,5,sales
+Skala,From Sales,SKALA1,1.0,0.7,3.0,5,sales
+Softcare Baby Wipes 80pcs,From Sales,SOFTCAREB,1.75,1.2249999999999999,3.0,5,sales
+Kings choice,From Sales,KINGSCHOI,1.0,0.7,3.0,5,sales
+Blue seal 250ml,From Sales,BLUESEAL1,2.5,1.75,3.0,5,sales
+Rabroy Sauce,From Sales,RABROYSAU,1.5,1.0499999999999998,2.0,5,sales
+Cornflakes Nutri Active 300g,From Sales,CORNFLAKES,2.0,1.4,2.0,5,sales
+1 Quire,From Sales,1QUIRE,1.0,0.7,2.0,5,sales
+Domestos,From Sales,DOMESTOS,2.0,1.4,2.0,5,sales
+Playing Cards,From Sales,PLAYINGCA,0.5,0.35,2.0,5,sales
+2 Quire,From Sales,2QUIRE,2.0,1.4,2.0,5,sales
+Marie Biscuits,From Sales,MARIEBISC,0.5,0.35,2.0,5,sales
+Brown Rizla,From Sales,BROWNRIZL,0.5,0.35,2.0,5,sales
+Bally House 2l,From Sales,BALLYHOUS,3.0,2.0999999999999996,2.0,5,sales
+Ingrams Men,From Sales,INGRAMSME,7.0,4.8999999999999995,2.0,5,sales
+Smoothie 1l,From Sales,SMOOTHIE1,1.0,0.7,2.0,5,sales
+Bantley Pens,From Sales,BANTLEYPE,0.5,0.35,2.0,5,sales
+Frimax,From Sales,FRIMAX,2.0,1.4,2.0,5,sales
+72 pages Writing,From Sales,72PAGESW,0.5,0.35,2.0,5,sales
+Locks S,From Sales,LOCKSS,1.0,0.7,2.0,5,sales
+Clere Men,From Sales,CLEREMEN,2.5,1.75,2.0,5,sales
+Locks M,From Sales,LOCKSM,2.0,1.4,1.0,5,sales
+Dark and Lovely,From Sales,DARKANDL,6.0,4.199999999999999,1.0,5,sales
+Tsono,From Sales,TSONO,0.5,0.35,1.0,5,sales
+Pencil Beginners,From Sales,PENCILBEG,0.25,0.175,1.0,5,sales
+Sta-soft satchets,From Sales,STASOFTS,2.0,1.4,1.0,5,sales
+Mega Flour 2kg,From Sales,MEGAFLOUR,2.0,1.4,1.0,5,sales
+Mega Snax,From Sales,MEGASNAX,0.5,0.35,1.0,5,sales
+Sona Soap,From Sales,SONASOAP,0.7,0.48999999999999994,1.0,5,sales
+Macaroni 400g,From Sales,MACARONI4,0.5,0.35,1.0,5,sales
+Maths Sets Oxford,From Sales,MATHSSETS,1.0,0.7,1.0,5,sales
+Mosquito Coil,From Sales,MOSQUITOC,0.5,0.35,1.0,5,sales
+Olivine Cooking oil 2l,From Sales,OLIVINECO1,3.5,2.4499999999999997,1.0,5,sales
+Chocolate Milk,From Sales,CHOCOLATE,0.75,0.5249999999999999,1.0,5,sales
+Basmat 5kg,From Sales,BASMAT5KG,12.0,8.399999999999999,1.0,5,sales
+Blue Band 500g,From Sales,BLUEBAND1,2.0,1.4,1.0,5,sales
+Dettol Soap,From Sales,DETTOLSOA,1.0,0.7,1.0,5,sales
+Sunlight 750ml,From Sales,SUNLIGHT7,2.0,1.4,1.0,5,sales
+Instant Porridge 500g,From Sales,INSTANTPO1,1.0,0.7,1.0,5,sales
+Corn Flakes  Willards,From Sales,CORNFLAKE,2.5,1.75,1.0,5,sales
+Instant Cereal Porridge 1kg,From Sales,INSTANTCE,1.0,0.7,1.0,5,sales
+Rabroy Salad,From Sales,RABROYSAL,2.0,1.4,1.0,5,sales
+Honey,From Sales,HONEY,3.0,2.0999999999999996,1.0,5,sales
+Gas - Gas Product,From Sales,GASGAS,1.0,0.7,0.0,5,sales
