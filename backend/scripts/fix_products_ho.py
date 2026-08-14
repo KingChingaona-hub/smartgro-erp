@@ -11,7 +11,25 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from backend.core.db_adapter import get_db_connection, get_db_cursor
+import psycopg2
+from backend.core.db_adapter import get_db_url
+
+
+def get_direct_connection():
+    """Get a direct database connection"""
+    database_url = get_db_url()
+    if database_url:
+        from urllib.parse import urlparse
+        parsed = urlparse(database_url)
+        return psycopg2.connect(
+            host=parsed.hostname,
+            port=parsed.port or 5432,
+            database=parsed.path.lstrip('/'),
+            user=parsed.username,
+            password=parsed.password,
+            sslmode='require'
+        )
+    return None
 
 
 def fix_products_for_ho():
@@ -21,59 +39,85 @@ def fix_products_for_ho():
     print("FIX PRODUCTS FOR HO BRANCH")
     print("=" * 60)
     
+    conn = None
+    cursor = None
+    
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
-                print("Failed to connect to database")
-                return
-            
-            # 1. Check current state
-            cur.execute("SELECT COUNT(*) FROM products")
-            total = cur.fetchone()[0]
-            print(f"\nTotal products in database: {total}")
-            
-            if total == 0:
-                print("No products found in database!")
-                return
-            
-            # 2. Check products by branch
-            cur.execute("SELECT branch_id, COUNT(*) FROM products GROUP BY branch_id")
-            branch_counts = cur.fetchall()
-            print("\nProducts by branch:")
-            for row in branch_counts:
-                branch_id = row[0] if row[0] is not None else "NULL"
-                print(f"  Branch '{branch_id}': {row[1]} products")
-            
-            # 3. Update ALL products to HO branch (including NULL)
-            print("\nUpdating ALL products to HO branch...")
-            cur.execute("UPDATE products SET branch_id = 'HO'")
-            updated = cur.rowcount
-            print(f"Updated {updated} products to HO branch")
-            
-            # 4. Commit changes
-            conn.commit()
-            print("\nChanges committed successfully!")
-            
-            # 5. Verify
-            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = 'HO'")
-            ho_count = cur.fetchone()[0]
-            print(f"\nProducts in HO branch after update: {ho_count}")
-            
-            # 6. Show sample products
-            cur.execute("SELECT id, barcode, name, branch_id FROM products LIMIT 10")
-            sample = cur.fetchall()
-            print("\nSample products in HO branch:")
-            for row in sample:
-                print(f"  ID: {row[0]}, Barcode: {row[1]}, Name: {row[2]}, Branch: {row[3]}")
-            
-            print("\n" + "=" * 60)
-            print("FIX COMPLETE - All products are now in HO branch")
-            print("=" * 60)
-            
+        # Get direct connection
+        conn = get_direct_connection()
+        if conn is None:
+            print("Failed to connect to database")
+            return
+        
+        cursor = conn.cursor()
+        
+        # 1. Check current state
+        cursor.execute("SELECT COUNT(*) FROM products")
+        total = cursor.fetchone()[0]
+        print(f"\nTotal products in database: {total}")
+        
+        if total == 0:
+            print("No products found in database!")
+            cursor.close()
+            conn.close()
+            return
+        
+        # 2. Check products by branch
+        cursor.execute("SELECT branch_id, COUNT(*) FROM products GROUP BY branch_id")
+        branch_counts = cursor.fetchall()
+        print("\nProducts by branch:")
+        for row in branch_counts:
+            branch_id = row[0] if row[0] is not None else "NULL"
+            print(f"  Branch '{branch_id}': {row[1]} products")
+        
+        # 3. Update ALL products to HO branch (including NULL)
+        print("\nUpdating ALL products to HO branch...")
+        cursor.execute("UPDATE products SET branch_id = 'HO'")
+        updated = cursor.rowcount
+        print(f"Updated {updated} products to HO branch")
+        
+        # 4. Commit changes
+        conn.commit()
+        print("\nChanges committed successfully!")
+        
+        # 5. Verify
+        cursor.execute("SELECT COUNT(*) FROM products WHERE branch_id = 'HO'")
+        ho_count = cursor.fetchone()[0]
+        print(f"\nProducts in HO branch after update: {ho_count}")
+        
+        # 6. Show sample products
+        cursor.execute("SELECT id, barcode, name, branch_id FROM products LIMIT 10")
+        sample = cursor.fetchall()
+        print("\nSample products in HO branch:")
+        for row in sample:
+            print(f"  ID: {row[0]}, Barcode: {row[1]}, Name: {row[2]}, Branch: {row[3]}")
+        
+        print("\n" + "=" * 60)
+        print("FIX COMPLETE - All products are now in HO branch")
+        print("=" * 60)
+        
+        cursor.close()
+        conn.close()
+        
     except Exception as e:
         print(f"Error: {e}")
         import traceback
         traceback.print_exc()
+        if conn:
+            try:
+                conn.rollback()
+            except:
+                pass
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def check_products():
@@ -83,45 +127,65 @@ def check_products():
     print("CHECK PRODUCTS IN DATABASE")
     print("=" * 60)
     
+    conn = None
+    cursor = None
+    
     try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
-                print("Failed to connect to database")
-                return
-            
-            # Check total
-            cur.execute("SELECT COUNT(*) FROM products")
-            total = cur.fetchone()[0]
-            print(f"\nTotal products: {total}")
-            
-            if total == 0:
-                print("No products found in database!")
-                return
-            
-            # Check by branch
-            cur.execute("SELECT branch_id, COUNT(*) FROM products GROUP BY branch_id")
-            branches = cur.fetchall()
-            print("\nProducts by branch:")
-            for row in branches:
-                branch_id = row[0] if row[0] is not None else "NULL"
-                print(f"  Branch '{branch_id}': {row[1]} products")
-            
-            # Check current branch (HO)
-            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = 'HO'")
-            ho_count = cur.fetchone()[0]
-            print(f"\nProducts in HO branch: {ho_count}")
-            
-            # Show sample products
-            cur.execute("SELECT id, barcode, name, branch_id FROM products LIMIT 5")
-            sample = cur.fetchall()
-            print("\nSample products:")
-            for row in sample:
-                print(f"  ID: {row[0]}, Barcode: {row[1]}, Name: {row[2]}, Branch: {row[3]}")
-            
+        conn = get_direct_connection()
+        if conn is None:
+            print("Failed to connect to database")
+            return
+        
+        cursor = conn.cursor()
+        
+        # Check total
+        cursor.execute("SELECT COUNT(*) FROM products")
+        total = cursor.fetchone()[0]
+        print(f"\nTotal products: {total}")
+        
+        if total == 0:
+            print("No products found in database!")
+            cursor.close()
+            conn.close()
+            return
+        
+        # Check by branch
+        cursor.execute("SELECT branch_id, COUNT(*) FROM products GROUP BY branch_id")
+        branches = cursor.fetchall()
+        print("\nProducts by branch:")
+        for row in branches:
+            branch_id = row[0] if row[0] is not None else "NULL"
+            print(f"  Branch '{branch_id}': {row[1]} products")
+        
+        # Check current branch (HO)
+        cursor.execute("SELECT COUNT(*) FROM products WHERE branch_id = 'HO'")
+        ho_count = cursor.fetchone()[0]
+        print(f"\nProducts in HO branch: {ho_count}")
+        
+        # Show sample products
+        cursor.execute("SELECT id, barcode, name, branch_id FROM products LIMIT 5")
+        sample = cursor.fetchall()
+        print("\nSample products:")
+        for row in sample:
+            print(f"  ID: {row[0]}, Barcode: {row[1]}, Name: {row[2]}, Branch: {row[3]}")
+        
+        cursor.close()
+        conn.close()
+        
     except Exception as e:
         print(f"Error: {e}")
         import traceback
         traceback.print_exc()
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 if __name__ == "__main__":
