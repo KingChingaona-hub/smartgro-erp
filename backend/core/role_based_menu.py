@@ -261,8 +261,7 @@ def get_navigation_menu(role):
             "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Scanner"],
             "👥 Customers": ["Customer Dashboard", "Customer App"],
             "💰 Credit & Debtors": ["Debtors", "Debtors Dashboard"],
-            "💳 Floating Financials": ["Floating Financials"],  # ADDED
-            "📊 Reports": ["Reports Dashboard"],
+            "💳 Floating Financials": ["Floating Financials"],  
             "📱 Mobile": ["Mobile Dashboard"],
             "🎤 Voice": ["Voice Commands"]
         }
