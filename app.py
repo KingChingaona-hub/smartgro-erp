@@ -1,4 +1,4 @@
-# app.py - Fixed version with Customer App removed and Mobile Mode disabled
+# app.py - COMPLETE FIXED VERSION
 import os
 os.environ['TZ'] = 'Africa/Harare'
 try:
@@ -99,7 +99,7 @@ from backend.core.db_adapter import (
 from backend.core.auth import init_users, check_login, can_access_feature, get_user_permissions
 from backend.core.branch_manager import branch_selector, get_current_branch, set_user_branch
 from backend.core.branch_auth import branch_selection_page, get_current_branch as get_branch_code, BRANCHES
-from backend.core.role_based_menu import get_navigation_menu
+from backend.core.role_based_menu import get_visible_modules, get_navigation_menu
 from backend.core.theme_manager import (
     apply_theme, 
     get_page_theme, 
@@ -540,7 +540,7 @@ def login_page():
                     print(traceback.format_exc())
 
 # ==============================
-# MAIN APP - FLAT ALPHABETICAL NAVIGATION
+# MAIN APP - FLAT ALPHABETICAL NAVIGATION - FIXED
 # ==============================
 def main_app():
     # ==============================
@@ -613,7 +613,7 @@ def main_app():
         print(f"Animation initialization error: {e}")
     
     # ==============================
-    # SIDEBAR - FLAT ALPHABETICAL NAVIGATION
+    # SIDEBAR - FLAT ALPHABETICAL NAVIGATION - FIXED
     # ==============================
     
     st.sidebar.markdown(f"""
@@ -637,29 +637,31 @@ def main_app():
     st.sidebar.markdown("---")
     
     # ==============================
-    # FLAT ALPHABETICAL NAVIGATION - REMOVED Customer App AND Customer Insights
+    # FLAT ALPHABETICAL NAVIGATION - FIXED: Using get_visible_modules() directly
     # ==============================
     try:
-        navigation_menu = get_navigation_menu(role)
+        # IMPORTANT: Use get_visible_modules() instead of get_navigation_menu()
+        all_items = get_visible_modules(role)
+        
+        # Remove any modules you want to hide
+        exclude = ["Customer App", "Customer Insights"]
+        all_items = [item for item in all_items if item not in exclude]
+        
+        # Sort alphabetically
+        all_items = sorted(all_items)
+        
+        # Display debug info to confirm count (you can remove this later)
+        st.sidebar.write(f"📊 {len(all_items)} modules loaded")
+        
     except Exception as e:
         st.error(f"Error loading navigation: {str(e)}")
         print(f"Navigation error: {e}")
         print(traceback.format_exc())
-        navigation_menu = {}
+        all_items = ["Stock Dashboard", "Inventory", "POS"]
     
     selected_page = None
     
-    all_items = []
     try:
-        for category, items in navigation_menu.items():
-            for item in items:
-                # Skip Customer App and Customer Insights if they appear in navigation
-                if item in ["Customer App", "Customer Insights"]:
-                    continue
-                all_items.append(item)
-        
-        all_items = sorted(all_items)
-        
         for item in all_items:
             button_key = f"nav_{item.replace(' ', '_').replace('&', '').replace('/', '_').replace('-', '_')}"
             if st.sidebar.button(f"{item}", key=button_key, use_container_width=True):
