@@ -240,15 +240,33 @@ def get_visible_modules(role):
     }
     
     visible_modules = []
-    for module, permission in all_modules.items():
-        if can_access_feature(role, permission):
-            visible_modules.append(module)
     
-    # Ensure unique modules
-    visible_modules = list(dict.fromkeys(visible_modules))
-    return visible_modules
-
-
+    # CASHIER - Show ALL modules (no filtering)
+    if role == "cashier":
+        # Return all modules that cashiers should see
+        cashier_modules = [
+            "POS", "Sales History", "Stock Dashboard", "Inventory", 
+            "Barcode Scanner", "Customer Dashboard", "Debtors", 
+            "Debtors Dashboard", "Floating Financials", "Mobile Dashboard", 
+            "Voice Commands"
+        ]
+        return cashier_modules
+    
+    # MANAGER - Show all modules except owner-only ones
+    elif role == "manager":
+        excluded = ["Branch Management", "User Management", "Settings", "White Label", "Multi-Tenant", "API Developer"]
+        return [m for m in all_modules.keys() if m not in excluded]
+    
+    # OWNER - Show EVERYTHING
+    elif role == "owner":
+        return list(all_modules.keys())
+    
+    # Default fallback - show basic modules
+    else:
+        return ["POS", "Sales History", "Stock Dashboard", "Inventory", 
+                "Customer Dashboard", "Debtors", "Floating Financials"]
+        
+        
 def get_navigation_menu(role):
     """Get the complete navigation structure based on role"""
     
