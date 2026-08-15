@@ -140,12 +140,12 @@ def _get_permission_key(item):
     elif item == "Supplier Bidding Portal":
         return "supplier_bidding"
     
-    # Return None if no mapping found - but we'll handle this differently
+    # Return None if no mapping found
     return None
 
 
 # ============================================================
-# COMPLETE REWRITE - get_visible_modules FIXED
+# get_visible_modules - FIXED
 # ============================================================
 
 def get_visible_modules(role):
@@ -237,25 +237,35 @@ def get_visible_modules(role):
         {"name": "Settings", "permission": "settings"},
     ]
     
-    # If owner, return ALL modules
+    # CASHIER - RESTRICTED ACCESS
+    if role == "cashier":
+        cashier_modules = [
+            "POS",
+            "Sales History",
+            "Barcode Scanner",
+            "Customer Dashboard",
+            "Floating Financials"
+        ]
+        return sorted(cashier_modules)
+    
+    # OWNER - FULL ACCESS
     if role == "owner":
         return sorted([m["name"] for m in all_modules])
     
-    # For other roles, filter based on permissions
-    visible_modules = []
-    for module in all_modules:
-        # Check if role has permission for this module
-        if can_access_feature(role, module["permission"]):
-            visible_modules.append(module["name"])
+    # MANAGER - FILTERED ACCESS
+    if role == "manager":
+        visible_modules = []
+        for module in all_modules:
+            if can_access_feature(role, module["permission"]):
+                visible_modules.append(module["name"])
+        return sorted(list(dict.fromkeys(visible_modules)))
     
-    # Remove duplicates and sort
-    visible_modules = sorted(list(dict.fromkeys(visible_modules)))
-    
-    return visible_modules
+    # DEFAULT FALLBACK
+    return sorted(["POS", "Sales History", "Stock Dashboard", "Customer Dashboard"])
 
 
 # ============================================================
-# get_navigation_menu - KEPT FOR BACKWARD COMPATIBILITY
+# get_navigation_menu - FIXED
 # ============================================================
 
 def get_navigation_menu(role):
@@ -264,7 +274,16 @@ def get_navigation_menu(role):
     # Get all visible modules for this role
     visible_modules = get_visible_modules(role)
     
-    # Define category groupings
+    # CASHIER - RESTRICTED MENU
+    if role == "cashier":
+        return {
+            "🛒 Sales": ["POS", "Sales History"],
+            "📷 Scanner": ["Barcode Scanner"],
+            "👥 Customers": ["Customer Dashboard"],
+            "💳 Financial": ["Floating Financials"]
+        }
+    
+    # Define category groupings for Manager and Owner
     categories = {
         "🛒 Sales": ["POS", "Sales Dashboard", "Sales History", "Returns & Refunds"],
         "📦 Stock": ["Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner", "Duplicate Products", "Inventory Optimizer"],
@@ -313,6 +332,15 @@ def get_mobile_menu(role):
     """Get simplified mobile-optimized menu structure"""
     
     visible_modules = get_visible_modules(role)
+    
+    # CASHIER - RESTRICTED MOBILE MENU
+    if role == "cashier":
+        return {
+            "🛒 Sales": ["POS", "Sales History"],
+            "📷 Scan": ["Barcode Scanner"],
+            "👥 Customers": ["Customer Dashboard"],
+            "💳 Financial": ["Floating Financials"]
+        }
     
     # Simplified menu for mobile devices
     mobile_menu = {
