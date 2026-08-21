@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import os
 from urllib.parse import urlparse, parse_qs
+import uuid
 
 # ==============================
 # IMPORT VALIDATION MODULE
@@ -444,10 +445,6 @@ def validate_product_data(data):
     
     return len(errors) == 0, errors, data
 
-# backend/core/db_adapter.py - FIXED save_products function
-
-# backend/core/db_adapter.py - FIXED load_products function
-
 def load_products(branch_id=None):
     """Load products from database - FIXED to handle missing branch_id"""
     if branch_id is None:
@@ -460,7 +457,6 @@ def load_products(branch_id=None):
                 return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                              "price", "cost", "stock", "reorder_level"])
             
-            # First try to get products for the current branch
             cur.execute("""
                 SELECT * FROM products 
                 WHERE branch_id = %s 
@@ -468,54 +464,14 @@ def load_products(branch_id=None):
             """, (branch_id,))
             rows = cur.fetchall()
             
-            # If no products found for current branch, try to get products with NULL branch_id
             if not rows:
-                print(f"No products found for branch: {branch_id}, checking for NULL branch_id...")
-                cur.execute("""
-                    SELECT * FROM products 
-                    WHERE branch_id IS NULL OR branch_id = '' 
-                    ORDER BY name
-                """)
-                rows = cur.fetchall()
-                
-                # If found products with NULL branch_id, update them to current branch
-                if rows:
-                    print(f"Found {len(rows)} products with NULL branch_id, updating to {branch_id}...")
-                    for row in rows:
-                        if 'id' in row or 'id' in row.keys():
-                            product_id = row.get('id') if isinstance(row, dict) else row[0]
-                            cur.execute("""
-                                UPDATE products 
-                                SET branch_id = %s 
-                                WHERE id = %s
-                            """, (branch_id, product_id))
-                    conn.commit()
-                    print(f"Updated {len(rows)} products to branch: {branch_id}")
-                    
-                    # Re-fetch products for current branch
-                    cur.execute("""
-                        SELECT * FROM products 
-                        WHERE branch_id = %s 
-                        ORDER BY name
-                    """, (branch_id,))
-                    rows = cur.fetchall()
-            
-            # If still no products, try to get all products (fallback)
-            if not rows:
-                print(f"Still no products for branch: {branch_id}, attempting to load all products...")
-                cur.execute("""
-                    SELECT * FROM products 
-                    ORDER BY name
-                    LIMIT 100
-                """)
-                rows = cur.fetchall()
-                if rows:
-                    print(f"Loaded {len(rows)} products from all branches (fallback)")
+                print(f"No products found for branch: {branch_id}")
+                return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
+                                             "price", "cost", "stock", "reorder_level"])
             
             if rows:
                 df = pd.DataFrame(rows)
                 
-                # Ensure all required columns exist
                 required_cols = ["id", "branch_id", "barcode", "name", "category", "price", "cost", "stock", "reorder_level"]
                 for col in required_cols:
                     if col not in df.columns:
@@ -526,12 +482,10 @@ def load_products(branch_id=None):
                         else:
                             df[col] = ""
                 
-                # Convert numeric columns
                 for col in ["price", "cost", "stock", "reorder_level"]:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
                 
-                # Convert string columns
                 for col in ["barcode", "name", "category", "branch_id"]:
                     if col in df.columns:
                         df[col] = df[col].fillna("").astype(str)
@@ -539,7 +493,6 @@ def load_products(branch_id=None):
                 print(f"Loaded {len(df)} products for branch: {branch_id}")
                 return df
             
-            print(f"No products found in database for branch: {branch_id}")
             return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                          "price", "cost", "stock", "reorder_level"])
             
@@ -549,64 +502,6 @@ def load_products(branch_id=None):
         traceback.print_exc()
         return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                      "price", "cost", "stock", "reorder_level"])
-        
-        
-def debug_products():
-    """Debug function to check products in database"""
-    try:
-        print("\n" + "=" * 60)
-        print("DEBUGGING PRODUCTS")
-        print("=" * 60)
-        
-        with get_db_cursor() as (cur, conn):
-            if cur is None:
-                print("No database connection")
-                return
-            
-            # Check total products
-            cur.execute("SELECT COUNT(*) FROM products")
-            total = cur.fetchone()[0]
-            print(f"Total products in database: {total}")
-            
-            # Check products by branch
-            cur.execute("SELECT branch_id, COUNT(*) FROM products GROUP BY branch_id")
-            branch_counts = cur.fetchall()
-            print("\nProducts by branch:")
-            for row in branch_counts:
-                print(f"  Branch '{row['branch_id']}': {row['count']} products")
-            
-            # Check products with NULL branch_id
-            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id IS NULL")
-            null_count = cur.fetchone()[0]
-            if null_count > 0:
-                print(f"\nWARNING: {null_count} products have NULL branch_id!")
-                
-            # Get current branch
-            current_branch = get_current_branch()
-            print(f"\nCurrent branch: {current_branch}")
-            
-            # Check products for current branch
-            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (current_branch,))
-            current_count = cur.fetchone()[0]
-            print(f"Products for current branch: {current_count}")
-            
-            # Show sample products
-            cur.execute("SELECT id, barcode, name, branch_id FROM products LIMIT 5")
-            sample = cur.fetchall()
-            print("\nSample products:")
-            for row in sample:
-                print(f"  ID: {row['id']}, Barcode: {row['barcode']}, Name: {row['name']}, Branch: {row['branch_id']}")
-            
-            print("=" * 60)
-            
-    except Exception as e:
-        print(f"Debug error: {e}")
-        import traceback
-        traceback.print_exc()
-
-# backend/core/db_adapter.py - FIXED save_products function
-
-# backend/core/db_adapter.py - FIXED save_products function
 
 def save_products(df, branch_id=None):
     if branch_id is None:
@@ -622,7 +517,6 @@ def save_products(df, branch_id=None):
                 print("DataFrame is empty, nothing to save")
                 return True
             
-            # Insert or update products - DO NOT DELETE ALL
             inserted_count = 0
             updated_count = 0
             
@@ -630,12 +524,10 @@ def save_products(df, branch_id=None):
                 try:
                     data = row.to_dict()
                     
-                    # Get clean data with defaults
                     barcode = str(data.get("barcode", "")).strip()
                     name = str(data.get("name", "")).strip()
                     category = str(data.get("category", "Uncategorized")).strip()
                     
-                    # Convert numeric values
                     try:
                         price = float(data.get("price", 0))
                     except (ValueError, TypeError):
@@ -656,16 +548,13 @@ def save_products(df, branch_id=None):
                     except (ValueError, TypeError):
                         reorder_level = 0.0
                     
-                    # Skip if no name
                     if not name:
                         print(f"Row {idx}: Missing name, skipping")
                         continue
                     
-                    # If no barcode, generate one from name
                     if not barcode:
                         barcode = name.replace(" ", "_").upper()[:20]
                     
-                    # Use UPSERT (INSERT ON CONFLICT DO UPDATE) instead of DELETE
                     cur.execute("""
                         INSERT INTO products (branch_id, barcode, name, category, price, cost, stock, reorder_level)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -687,7 +576,6 @@ def save_products(df, branch_id=None):
                         reorder_level
                     ))
                     
-                    # Check if it was an insert or update
                     if cur.rowcount == 1:
                         inserted_count += 1
                     else:
@@ -700,7 +588,6 @@ def save_products(df, branch_id=None):
             conn.commit()
             print(f"Saved {inserted_count} new and {updated_count} updated products for branch: {branch_id}")
             
-            # Verify the save
             try:
                 cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (branch_id,))
                 count = cur.fetchone()[0]
@@ -715,7 +602,7 @@ def save_products(df, branch_id=None):
         import traceback
         traceback.print_exc()
         return False
-    
+
 # ==============================
 # SALES FUNCTIONS
 # ==============================
@@ -810,7 +697,7 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
     except Exception as e:
         print(f"Error loading sales: {e}")
         return pd.DataFrame()
-    
+
 def save_sales(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
@@ -1449,7 +1336,7 @@ def get_debt_aging():
     return df
 
 # ==============================
-# EXPENSE FUNCTIONS
+# EXPENSE FUNCTIONS - FIXED
 # ==============================
 def validate_expense_data(data):
     errors = {}
@@ -1524,10 +1411,8 @@ def save_expenses(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    # Make a copy to avoid modifying original
     df = df.copy()
     
-    # Ensure required columns exist with defaults
     required_cols = ['date', 'expense_type', 'category', 'description', 'amount', 
                      'vendor', 'payment_method', 'recorded_by', 'notes']
     
@@ -1538,17 +1423,14 @@ def save_expenses(df, branch_id=None):
             else:
                 df[col] = ''
     
-    # Convert date column
     if 'date' in df.columns:
         df['date'] = pd.to_datetime(df['date'], errors='coerce').fillna(datetime.now())
     
-    # Convert numeric columns
     numeric_cols = ['amount']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # Fill empty strings
     string_cols = ['expense_type', 'category', 'description', 'vendor', 'payment_method', 'recorded_by', 'notes']
     for col in string_cols:
         if col in df.columns:
@@ -1564,33 +1446,20 @@ def save_expenses(df, branch_id=None):
                 print("DataFrame is empty, nothing to save")
                 return True
             
-            # FIXED: Use INSERT with ON CONFLICT to handle updates
             inserted_count = 0
-            updated_count = 0
             
             for idx, row in df.iterrows():
                 try:
-                    # Generate unique ID if not exists
                     expense_id = row.get('id')
-                    if not expense_id or pd.isna(expense_id):
-                        expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{idx}"
+                    if not expense_id or pd.isna(expense_id) or str(expense_id) == 'nan':
+                        expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
                     
-                    # Use INSERT with ON CONFLICT DO UPDATE
                     cur.execute("""
                         INSERT INTO expenses (
                             id, branch_id, expense_date, expense_type, category, 
                             description, amount, vendor, payment_method, recorded_by, notes
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (id) DO UPDATE SET
-                            expense_date = EXCLUDED.expense_date,
-                            expense_type = EXCLUDED.expense_type,
-                            category = EXCLUDED.category,
-                            description = EXCLUDED.description,
-                            amount = EXCLUDED.amount,
-                            vendor = EXCLUDED.vendor,
-                            payment_method = EXCLUDED.payment_method,
-                            recorded_by = EXCLUDED.recorded_by,
-                            notes = EXCLUDED.notes
+                        ON CONFLICT (id) DO NOTHING
                     """, (
                         expense_id,
                         branch_id,
@@ -1605,11 +1474,7 @@ def save_expenses(df, branch_id=None):
                         row.get('notes', '')
                     ))
                     
-                    # Check if it was an insert or update
-                    if cur.rowcount == 1:
-                        inserted_count += 1
-                    else:
-                        updated_count += 1
+                    inserted_count += 1
                     
                 except Exception as e:
                     print(f"Error saving expense row {idx}: {e}")
@@ -1617,9 +1482,8 @@ def save_expenses(df, branch_id=None):
                     continue
             
             conn.commit()
-            print(f"Saved {inserted_count} new and {updated_count} updated expenses for branch: {branch_id}")
+            print(f"Saved {inserted_count} expenses for branch: {branch_id}")
             
-            # Verify save
             try:
                 cur.execute("SELECT COUNT(*) FROM expenses WHERE branch_id = %s", (branch_id,))
                 count = cur.fetchone()[0]
@@ -1846,9 +1710,10 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
             print(f"Invalid vendor: {msg}")
             return False
     
-    # Create a single-row DataFrame
+    expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    
     new_row = pd.DataFrame([{
-        "id": f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}",  # Add unique ID
+        "id": expense_id,
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "expense_type": sanitize_string(expense_type, 50),
         "category": sanitize_string(category, 100),
@@ -1860,7 +1725,6 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
         "notes": sanitize_string(notes, 500)
     }])
     
-    # Save only the new row - don't load and resave all records
     success = save_expenses(new_row)
     
     if success:
@@ -1890,7 +1754,7 @@ def update_budget_actuals(category, amount):
         save_expense_budget(budget_df)
 
 # ==============================
-# INCOME FUNCTIONS
+# INCOME FUNCTIONS - FIXED
 # ==============================
 def load_income(branch_id=None, date_from=None, date_to=None):
     if branch_id is None:
@@ -1928,10 +1792,8 @@ def save_income(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    # Make a copy to avoid modifying original
     df = df.copy()
     
-    # Ensure required columns exist with defaults
     required_cols = ['date', 'income_source', 'description', 'amount', 'recorded_by']
     
     for col in required_cols:
@@ -1941,17 +1803,14 @@ def save_income(df, branch_id=None):
             else:
                 df[col] = ''
     
-    # Convert date column
     if 'date' in df.columns:
         df['date'] = pd.to_datetime(df['date'], errors='coerce').fillna(datetime.now())
     
-    # Convert numeric columns
     numeric_cols = ['amount']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # Fill empty strings
     string_cols = ['income_source', 'description', 'recorded_by']
     for col in string_cols:
         if col in df.columns:
@@ -1967,29 +1826,20 @@ def save_income(df, branch_id=None):
                 print("DataFrame is empty, nothing to save")
                 return True
             
-            # FIXED: Use INSERT with ON CONFLICT to handle updates
             inserted_count = 0
-            updated_count = 0
             
             for idx, row in df.iterrows():
                 try:
-                    # Generate unique ID if not exists
                     income_id = row.get('id')
-                    if not income_id or pd.isna(income_id):
-                        income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{idx}"
+                    if not income_id or pd.isna(income_id) or str(income_id) == 'nan':
+                        income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
                     
-                    # Use INSERT with ON CONFLICT DO UPDATE
                     cur.execute("""
                         INSERT INTO income (
                             id, branch_id, income_date, income_source, 
                             description, amount, recorded_by
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (id) DO UPDATE SET
-                            income_date = EXCLUDED.income_date,
-                            income_source = EXCLUDED.income_source,
-                            description = EXCLUDED.description,
-                            amount = EXCLUDED.amount,
-                            recorded_by = EXCLUDED.recorded_by
+                        ON CONFLICT (id) DO NOTHING
                     """, (
                         income_id,
                         branch_id,
@@ -2000,11 +1850,7 @@ def save_income(df, branch_id=None):
                         row.get('recorded_by', 'system')
                     ))
                     
-                    # Check if it was an insert or update
-                    if cur.rowcount == 1:
-                        inserted_count += 1
-                    else:
-                        updated_count += 1
+                    inserted_count += 1
                     
                 except Exception as e:
                     print(f"Error saving income row {idx}: {e}")
@@ -2012,9 +1858,8 @@ def save_income(df, branch_id=None):
                     continue
             
             conn.commit()
-            print(f"Saved {inserted_count} new and {updated_count} updated income records for branch: {branch_id}")
+            print(f"Saved {inserted_count} income records for branch: {branch_id}")
             
-            # Verify save
             try:
                 cur.execute("SELECT COUNT(*) FROM income WHERE branch_id = %s", (branch_id,))
                 count = cur.fetchone()[0]
@@ -2029,7 +1874,7 @@ def save_income(df, branch_id=None):
         import traceback
         traceback.print_exc()
         return False
-    
+
 def get_monthly_income(month=None):
     df = load_income()
     
@@ -2053,9 +1898,10 @@ def record_income(income_source, description, amount, user="System"):
         print(f"Invalid amount: {msg}")
         return False
     
-    # Create a single-row DataFrame
+    income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    
     new_row = pd.DataFrame([{
-        "id": f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}",  # Add unique ID
+        "id": income_id,
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "income_source": sanitize_string(income_source, 100),
         "description": sanitize_string(description, 200),
@@ -2063,12 +1909,9 @@ def record_income(income_source, description, amount, user="System"):
         "recorded_by": sanitize_string(user, 50)
     }])
     
-    # Save only the new row - don't load and resave all records
     return save_income(new_row)
 
-
 def get_total_income():
-    """Get total income all time"""
     df = load_income()
     return df["amount"].sum() if not df.empty else 0
 
@@ -3836,7 +3679,6 @@ def process_checkout_batch(branch_id, checkout_data):
             if cur is None or conn is None:
                 return False, "No database connection"
             
-            # Extract data
             cart = checkout_data.get("cart", [])
             receipt_no = checkout_data.get("receipt_no", "")
             payment_method = checkout_data.get("payment_method", "CASH")
@@ -3853,7 +3695,6 @@ def process_checkout_batch(branch_id, checkout_data):
             if not receipt_no:
                 return False, "No receipt number"
             
-            # 1. UPDATE STOCK - All products in one go
             for item in cart:
                 cur.execute("""
                     UPDATE products 
@@ -3861,7 +3702,6 @@ def process_checkout_batch(branch_id, checkout_data):
                     WHERE branch_id = %s AND barcode = %s
                 """, (item["qty"], branch_id, item["barcode"]))
             
-            # 2. INSERT SALES - All items in one go
             for item in cart:
                 selling_total = float(item["price"]) * int(item["qty"])
                 cost_total = float(item.get("cost", 0)) * int(item["qty"])
@@ -3877,7 +3717,6 @@ def process_checkout_batch(branch_id, checkout_data):
                       payment_method, customer_name, customer_phone,
                       final_total, shift_id, cashier))
             
-            # 3. CASH REGISTER
             if payment_method == "CASH":
                 cur.execute("""
                     INSERT INTO cash_register (branch_id, cash_date, shift_id, type, 
@@ -3901,7 +3740,6 @@ def process_checkout_batch(branch_id, checkout_data):
                     """, (branch_id, f"DEBT-{receipt_no}", now, customer_name, 
                           customer_phone, final_total, 0, final_total, "NOT PAID", "LOW"))
             
-            # 4. UPDATE SHIFT STATS
             if shift_id:
                 cur.execute("""
                     UPDATE shifts 
@@ -3917,7 +3755,6 @@ def process_checkout_batch(branch_id, checkout_data):
                     shift_id
                 ))
             
-            # 5. UPDATE CUSTOMER
             if customer_phone:
                 cur.execute("SELECT * FROM customers WHERE branch_id = %s AND phone = %s", (branch_id, customer_phone))
                 existing = cur.fetchone()
@@ -3939,7 +3776,6 @@ def process_checkout_batch(branch_id, checkout_data):
                         VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, (branch_id, customer_id, customer_name, customer_phone, 1, final_total, now))
             
-            # 6. LOYALTY POINTS
             if customer_phone and payment_method != "CREDIT":
                 try:
                     points_earned = int(final_total)
@@ -3965,7 +3801,6 @@ def process_checkout_batch(branch_id, checkout_data):
                 except Exception as e:
                     print(f"Loyalty points error (non-critical): {e}")
             
-            # COMMIT ALL CHANGES
             conn.commit()
             
             return True, "Checkout completed successfully"
@@ -4052,10 +3887,11 @@ __all__ = [
     "record_expense",
     "get_monthly_income",
     "record_income",
+    "get_total_income",
     "load_users",
     "save_users",
     "init_users",
-    "process_checkout_batch",  # FAST CHECKOUT
+    "process_checkout_batch",
     "generate_receipt_number",
     "init_data_folder",
     "init_database",
