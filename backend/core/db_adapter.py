@@ -2148,163 +2148,61 @@ def load_purchases(branch_id=None):
         print(f"Error loading purchases: {e}")
         return pd.DataFrame()
 
-def save_purchases(df, branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
+# ==============================
+# CREATE PURCHASE ORDER - FIXED
+# ==============================
+def create_purchase_order(supplier, items, expected_date):
+    """Create a purchase order before receiving stock - FIXED"""
     
-    try:
-        with get_db_cursor() as (cur, conn):
-            if cur is None or conn is None:
-                return False
-            
-            # If DataFrame is empty, delete ALL purchases for this branch
-            if df.empty:
-                cur.execute("DELETE FROM purchases WHERE branch_id = %s", (branch_id,))
-                conn.commit()
-                print(f"Deleted all purchases for branch: {branch_id}")
-                return True
-            
-            # First, get all existing PO numbers in the database for this branch
-            cur.execute("SELECT DISTINCT po_number FROM purchases WHERE branch_id = %s", (branch_id,))
-            existing_rows = cur.fetchall()
-            existing_pos = [row[0] for row in existing_rows] if existing_rows else []
-            
-            # Get PO numbers in the new DataFrame
-            new_pos = df["po_number"].unique().tolist() if "po_number" in df.columns else []
-            
-            # Find POs to delete (exist in DB but not in new DataFrame)
-            if existing_pos and new_pos:
-                pos_to_delete = set(existing_pos) - set(new_pos)
-                
-                # Delete POs that are no longer in the DataFrame
-                for po in pos_to_delete:
-                    cur.execute("DELETE FROM purchases WHERE branch_id = %s AND po_number = %s", (branch_id, po))
-                    print(f"Deleted PO: {po}")
-            
-            # Now upsert the remaining records
-            validation_errors = []
-            saved_count = 0
-            
-            for idx, row in df.iterrows():
-                # Skip rows with missing required fields
-                if not row.get("po_number") or not row.get("barcode"):
-                    validation_errors.append(f"Row {idx}: missing po_number or barcode")
-                    continue
-                
-                if 'supplier' in row:
-                    valid, msg = validate_supplier_name(row["supplier"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid supplier - {msg}")
-                        continue
-                
-                if 'barcode' in row:
-                    valid, msg = validate_barcode(row["barcode"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid barcode - {msg}")
-                        continue
-                
-                if 'quantity_ordered' in row:
-                    valid, qty, msg = validate_quantity(row["quantity_ordered"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid quantity - {msg}")
-                        continue
-                    row["quantity_ordered"] = qty
-                
-                if 'cost_price' in row:
-                    valid, amount, msg = validate_amount(row["cost_price"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid cost price - {msg}")
-                        continue
-                    row["cost_price"] = amount
-                
-                if 'total_cost' in row:
-                    valid, amount, msg = validate_amount(row["total_cost"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid total cost - {msg}")
-                        continue
-                    row["total_cost"] = amount
-                
-                # Check if this specific row exists (by po_number and barcode)
-                cur.execute("""
-                    SELECT COUNT(*) FROM purchases 
-                    WHERE branch_id = %s AND po_number = %s AND barcode = %s
-                """, (branch_id, row["po_number"], row["barcode"]))
-                
-                result = cur.fetchone()
-                exists = result[0] > 0 if result else False
-                
-                if exists:
-                    # Update existing record
-                    cur.execute("""
-                        UPDATE purchases SET
-                            date_ordered = %s,
-                            supplier = %s,
-                            product_name = %s,
-                            quantity_ordered = %s,
-                            quantity_received = %s,
-                            cost_price = %s,
-                            total_cost = %s,
-                            expected_date = %s,
-                            status = %s,
-                            payment_status = %s,
-                            invoice_no = %s
-                        WHERE branch_id = %s AND po_number = %s AND barcode = %s
-                    """, (
-                        row.get("date_ordered"),
-                        row.get("supplier", ""),
-                        row.get("product_name", ""),
-                        row.get("quantity_ordered", 0),
-                        row.get("quantity_received", 0),
-                        row.get("cost_price", 0),
-                        row.get("total_cost", 0),
-                        row.get("expected_date"),
-                        row.get("status", "PENDING"),
-                        row.get("payment_status", "UNPAID"),
-                        row.get("invoice_no", ""),
-                        branch_id,
-                        row.get("po_number", ""),
-                        row.get("barcode", "")
-                    ))
-                else:
-                    # Insert new record
-                    cur.execute("""
-                        INSERT INTO purchases (
-                            branch_id, po_number, date_ordered, supplier,
-                            product_name, barcode, quantity_ordered, quantity_received,
-                            cost_price, total_cost, expected_date, status, payment_status, invoice_no
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        branch_id,
-                        row.get("po_number", ""),
-                        row.get("date_ordered"),
-                        row.get("supplier", ""),
-                        row.get("product_name", ""),
-                        row.get("barcode", ""),
-                        row.get("quantity_ordered", 0),
-                        row.get("quantity_received", 0),
-                        row.get("cost_price", 0),
-                        row.get("total_cost", 0),
-                        row.get("expected_date"),
-                        row.get("status", "PENDING"),
-                        row.get("payment_status", "UNPAID"),
-                        row.get("invoice_no", "")
-                    ))
-                
-                saved_count += 1
-            
-            if validation_errors:
-                print(f"Validation errors: {validation_errors}")
-            
-            conn.commit()
-            print(f"Saved {saved_count} purchase items successfully")
-            
-            return True
-            
-    except Exception as e:
-        print(f"Error saving purchases: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    if not supplier or not supplier.strip():
+        return None, None, "Supplier name is required"
+    
+    if not items or len(items) == 0:
+        return None, None, "No items in purchase order"
+    
+    po_number = generate_po_number()
+    
+    po_data = []
+    
+    for idx, item in enumerate(items):
+        if not item.get("name"):
+            continue
+        
+        cost = float(item.get("cost", 0))
+        quantity = float(item.get("quantity", 1))
+        
+        category = str(item.get("category", "")).strip()
+        if not category or category == "nan" or category == "None" or category == "":
+            category = "New Purchase"
+        
+        # Ensure barcode exists and is unique
+        barcode = str(item.get("barcode", ""))
+        if not barcode or barcode == "nan" or barcode == "None" or barcode == "":
+            barcode = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}-{idx}"
+        
+        po_data.append({
+            "po_number": po_number,
+            "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "supplier": supplier.strip(),
+            "product_name": str(item.get("name", "Unknown")),
+            "barcode": barcode,
+            "quantity_ordered": quantity,
+            "cost_price": cost,
+            "total_cost": quantity * cost,
+            "expected_date": str(expected_date),
+            "date_received": "",
+            "quantity_received": 0,
+            "status": "PENDING",
+            "payment_status": "UNPAID",
+            "invoice_no": "",
+            "category": category
+        })
+    
+    if not po_data:
+        return None, None, "No valid items to add to purchase order"
+    
+    po_df = pd.DataFrame(po_data)
+    return po_number, po_df, None
     
     
 # ==============================
