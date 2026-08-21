@@ -2166,14 +2166,14 @@ def save_purchases(df, branch_id=None):
             
             # First, get all existing PO numbers in the database for this branch
             cur.execute("SELECT DISTINCT po_number FROM purchases WHERE branch_id = %s", (branch_id,))
-            existing_pos = [row[0] for row in cur.fetchall()]
+            existing_rows = cur.fetchall()
+            existing_pos = [row[0] for row in existing_rows] if existing_rows else []
             
             # Get PO numbers in the new DataFrame
-            new_pos = df["po_number"].unique().tolist()
+            new_pos = df["po_number"].unique().tolist() if "po_number" in df.columns else []
             
             # Find POs to delete (exist in DB but not in new DataFrame)
-            # Only delete if we actually have data in the database
-            if existing_pos:
+            if existing_pos and new_pos:
                 pos_to_delete = set(existing_pos) - set(new_pos)
                 
                 # Delete POs that are no longer in the DataFrame
@@ -2230,7 +2230,8 @@ def save_purchases(df, branch_id=None):
                     WHERE branch_id = %s AND po_number = %s AND barcode = %s
                 """, (branch_id, row["po_number"], row["barcode"]))
                 
-                exists = cur.fetchone()[0] > 0
+                result = cur.fetchone()
+                exists = result[0] > 0 if result else False
                 
                 if exists:
                     # Update existing record
@@ -2297,12 +2298,6 @@ def save_purchases(df, branch_id=None):
             conn.commit()
             print(f"Saved {saved_count} purchase items successfully")
             
-            # Log what was deleted (for debugging)
-            if existing_pos:
-                deleted_count = len(pos_to_delete) if 'pos_to_delete' in locals() else 0
-                if deleted_count > 0:
-                    print(f"Deleted {deleted_count} purchase orders")
-            
             return True
             
     except Exception as e:
@@ -2310,6 +2305,7 @@ def save_purchases(df, branch_id=None):
         import traceback
         traceback.print_exc()
         return False
+    
     
 # ==============================
 # CASH REGISTER FUNCTIONS

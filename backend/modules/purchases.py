@@ -69,9 +69,6 @@ def get_supplier_suggestions():
 
 
 # ==============================
-# CREATE PURCHASE ORDER - OPTIMIZED
-# ==============================
-# ==============================
 # CREATE PURCHASE ORDER - FIXED
 # ==============================
 def create_purchase_order(supplier, items, expected_date):
@@ -87,7 +84,7 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_data = []
     
-    for item in items:
+    for idx, item in enumerate(items):
         if not item.get("name"):
             continue
         
@@ -98,12 +95,17 @@ def create_purchase_order(supplier, items, expected_date):
         if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
         
+        # Ensure barcode exists
+        barcode = str(item.get("barcode", ""))
+        if not barcode or barcode == "nan" or barcode == "None" or barcode == "":
+            barcode = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}-{idx}"
+        
         po_data.append({
             "po_number": po_number,
             "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "supplier": supplier.strip(),
             "product_name": str(item.get("name", "Unknown")),
-            "barcode": str(item.get("barcode", f"ITEM-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(po_data)}")),
+            "barcode": barcode,
             "quantity_ordered": quantity,
             "cost_price": cost,
             "total_cost": quantity * cost,
