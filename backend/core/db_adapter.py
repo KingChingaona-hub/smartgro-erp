@@ -2172,18 +2172,25 @@ def save_purchases(df, branch_id=None):
             new_pos = df["po_number"].unique().tolist()
             
             # Find POs to delete (exist in DB but not in new DataFrame)
-            pos_to_delete = set(existing_pos) - set(new_pos)
-            
-            # Delete POs that are no longer in the DataFrame
-            for po in pos_to_delete:
-                cur.execute("DELETE FROM purchases WHERE branch_id = %s AND po_number = %s", (branch_id, po))
-                print(f"Deleted PO: {po}")
+            # Only delete if we actually have data in the database
+            if existing_pos:
+                pos_to_delete = set(existing_pos) - set(new_pos)
+                
+                # Delete POs that are no longer in the DataFrame
+                for po in pos_to_delete:
+                    cur.execute("DELETE FROM purchases WHERE branch_id = %s AND po_number = %s", (branch_id, po))
+                    print(f"Deleted PO: {po}")
             
             # Now upsert the remaining records
             validation_errors = []
             saved_count = 0
             
             for idx, row in df.iterrows():
+                # Skip rows with missing required fields
+                if not row.get("po_number") or not row.get("barcode"):
+                    validation_errors.append(f"Row {idx}: missing po_number or barcode")
+                    continue
+                
                 if 'supplier' in row:
                     valid, msg = validate_supplier_name(row["supplier"])
                     if not valid:
@@ -2217,7 +2224,7 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
                 
-                # Check if this specific row exists
+                # Check if this specific row exists (by po_number and barcode)
                 cur.execute("""
                     SELECT COUNT(*) FROM purchases 
                     WHERE branch_id = %s AND po_number = %s AND barcode = %s
@@ -2242,20 +2249,20 @@ def save_purchases(df, branch_id=None):
                             invoice_no = %s
                         WHERE branch_id = %s AND po_number = %s AND barcode = %s
                     """, (
-                        row["date_ordered"],
-                        row["supplier"],
-                        row["product_name"],
-                        row["quantity_ordered"],
+                        row.get("date_ordered"),
+                        row.get("supplier", ""),
+                        row.get("product_name", ""),
+                        row.get("quantity_ordered", 0),
                         row.get("quantity_received", 0),
-                        row["cost_price"],
-                        row["total_cost"],
-                        row["expected_date"],
-                        row["status"],
+                        row.get("cost_price", 0),
+                        row.get("total_cost", 0),
+                        row.get("expected_date"),
+                        row.get("status", "PENDING"),
                         row.get("payment_status", "UNPAID"),
                         row.get("invoice_no", ""),
                         branch_id,
-                        row["po_number"],
-                        row["barcode"]
+                        row.get("po_number", ""),
+                        row.get("barcode", "")
                     ))
                 else:
                     # Insert new record
@@ -2267,17 +2274,17 @@ def save_purchases(df, branch_id=None):
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         branch_id,
-                        row["po_number"],
-                        row["date_ordered"],
-                        row["supplier"],
-                        row["product_name"],
-                        row["barcode"],
-                        row["quantity_ordered"],
+                        row.get("po_number", ""),
+                        row.get("date_ordered"),
+                        row.get("supplier", ""),
+                        row.get("product_name", ""),
+                        row.get("barcode", ""),
+                        row.get("quantity_ordered", 0),
                         row.get("quantity_received", 0),
-                        row["cost_price"],
-                        row["total_cost"],
-                        row["expected_date"],
-                        row["status"],
+                        row.get("cost_price", 0),
+                        row.get("total_cost", 0),
+                        row.get("expected_date"),
+                        row.get("status", "PENDING"),
                         row.get("payment_status", "UNPAID"),
                         row.get("invoice_no", "")
                     ))
@@ -2289,7 +2296,13 @@ def save_purchases(df, branch_id=None):
             
             conn.commit()
             print(f"Saved {saved_count} purchase items successfully")
-            print(f"Deleted {len(pos_to_delete)} purchase orders")
+            
+            # Log what was deleted (for debugging)
+            if existing_pos:
+                deleted_count = len(pos_to_delete) if 'pos_to_delete' in locals() else 0
+                if deleted_count > 0:
+                    print(f"Deleted {deleted_count} purchase orders")
+            
             return True
             
     except Exception as e:

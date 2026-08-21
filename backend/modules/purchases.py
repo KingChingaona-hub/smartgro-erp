@@ -71,8 +71,11 @@ def get_supplier_suggestions():
 # ==============================
 # CREATE PURCHASE ORDER - OPTIMIZED
 # ==============================
+# ==============================
+# CREATE PURCHASE ORDER - FIXED
+# ==============================
 def create_purchase_order(supplier, items, expected_date):
-    """Create a purchase order before receiving stock"""
+    """Create a purchase order before receiving stock - FIXED"""
     
     if not supplier or not supplier.strip():
         return None, None, "Supplier name is required"
@@ -100,7 +103,7 @@ def create_purchase_order(supplier, items, expected_date):
             "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "supplier": supplier.strip(),
             "product_name": str(item.get("name", "Unknown")),
-            "barcode": str(item.get("barcode", "")),
+            "barcode": str(item.get("barcode", f"ITEM-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(po_data)}")),
             "quantity_ordered": quantity,
             "cost_price": cost,
             "total_cost": quantity * cost,
@@ -118,7 +121,6 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_df = pd.DataFrame(po_data)
     return po_number, po_df, None
-
 
 # ==============================
 # DELETE PURCHASE ORDER - DIRECT SQL FIX
