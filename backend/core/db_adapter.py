@@ -1802,19 +1802,17 @@ def load_income(branch_id=None, date_from=None, date_to=None):
                 df = pd.DataFrame(rows)
                 
                 # Rename columns to match expected names
-                # The database uses 'income_date' but the app expects 'date'
                 if 'income_date' in df.columns and 'date' not in df.columns:
                     df = df.rename(columns={'income_date': 'date'})
                 
-                # Also rename other columns if needed
-                if 'income_source' in df.columns and 'income_source' not in df.columns:
-                    pass  # already correct
-                
-                # Ensure 'user' column exists (for compatibility)
                 if 'recorded_by' in df.columns and 'user' not in df.columns:
                     df = df.rename(columns={'recorded_by': 'user'})
                 elif 'user' not in df.columns:
                     df['user'] = 'system'
+                
+                # Ensure amount is numeric
+                if 'amount' in df.columns:
+                    df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
                 
                 # Ensure all required columns exist
                 required_cols = ['date', 'income_source', 'description', 'amount', 'user']
@@ -1832,7 +1830,6 @@ def load_income(branch_id=None, date_from=None, date_to=None):
         import traceback
         traceback.print_exc()
         return pd.DataFrame(columns=['date', 'income_source', 'description', 'amount', 'user'])
-    
 
 def save_income(df, branch_id=None):
     """
@@ -1953,13 +1950,76 @@ def get_monthly_income(month=None):
     if df.empty:
         return 0
     
+    # Make sure date is datetime
+    if 'date' in df.columns:
+        if not pd.api.types.is_datetime64_any_dtype(df['date']):
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    elif 'income_date' in df.columns:
+        if not pd.api.types.is_datetime64_any_dtype(df['income_date']):
+            df['income_date'] = pd.to_datetime(df['income_date'], errors='coerce')
+        # Rename to date for consistency
+        df = df.rename(columns={'income_date': 'date'})
+    else:
+        return 0
+    
+    # Drop rows with invalid dates
+    df = df.dropna(subset=['date'])
+    
+    if df.empty:
+        return 0
+    
+    # Filter by month
     if month:
-        df = df[df["income_date"].dt.strftime("%Y-%m") == month]
+        df = df[df['date'].dt.strftime("%Y-%m") == month]
     else:
         current_month = datetime.now().strftime("%Y-%m")
-        df = df[df["income_date"].dt.strftime("%Y-%m") == current_month]
+        df = df[df['date'].dt.strftime("%Y-%m") == current_month]
     
-    return df["amount"].sum()
+    return float(df['amount'].sum()) if 'amount' in df.columns else 0
+
+def get_income_by_source(month=None):
+    """Get income grouped by source"""
+    try:
+        df = load_income()
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        # Make sure date is datetime
+        if 'date' in df.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df['date']):
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        elif 'income_date' in df.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df['income_date']):
+                df['income_date'] = pd.to_datetime(df['income_date'], errors='coerce')
+            df = df.rename(columns={'income_date': 'date'})
+        else:
+            return pd.DataFrame()
+        
+        df = df.dropna(subset=['date'])
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        if month:
+            df = df[df['date'].dt.strftime("%Y-%m") == month]
+        else:
+            current_month = datetime.now().strftime("%Y-%m")
+            df = df[df['date'].dt.strftime("%Y-%m") == current_month]
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        source_summary = df.groupby('income_source')['amount'].sum().reset_index()
+        source_summary = source_summary.sort_values('amount', ascending=False)
+        source_summary.columns = ['income_source', 'amount']
+        
+        return source_summary
+    except Exception as e:
+        print(f"Error getting income by source: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
 
 def record_income(income_source, description, amount, user="System"):
     """
