@@ -10,7 +10,8 @@ from backend.core.db_adapter import (
     load_products,
     load_purchases,
     save_purchases,
-    save_products
+    save_products,
+    get_db_connection
 )
 
 
@@ -84,7 +85,7 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_data = []
     
-    for item in items:
+    for idx, item in enumerate(items):
         if not item.get("name"):
             continue
         
@@ -95,12 +96,17 @@ def create_purchase_order(supplier, items, expected_date):
         if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
         
+        # Ensure barcode exists
+        barcode = str(item.get("barcode", ""))
+        if not barcode or barcode == "nan" or barcode == "None" or barcode == "":
+            barcode = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}-{idx}"
+        
         po_data.append({
             "po_number": po_number,
             "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "supplier": supplier.strip(),
             "product_name": str(item.get("name", "Unknown")),
-            "barcode": str(item.get("barcode", "")),
+            "barcode": barcode,
             "quantity_ordered": quantity,
             "cost_price": cost,
             "total_cost": quantity * cost,
@@ -121,16 +127,13 @@ def create_purchase_order(supplier, items, expected_date):
 
 
 # ==============================
-# DELETE PURCHASE ORDER - DIRECT SQL FIX
+# DELETE PURCHASE ORDER - DIRECT SQL (WORKS WITHOUT SAVE FUNCTION)
 # ==============================
 def delete_purchase_order(po_number):
-    """Delete a purchase order and all its items - DIRECT SQL FIX"""
+    """Delete a purchase order using direct SQL - WORKS INDEPENDENTLY"""
     try:
-        from backend.core.db_adapter import get_db_connection
-        
         po_number_str = str(po_number).strip()
         
-        # First, check if the PO exists and get count
         with get_db_connection() as conn:
             if conn is None:
                 return False, "Database connection failed"
@@ -139,7 +142,8 @@ def delete_purchase_order(po_number):
             
             # Check if PO exists
             cur.execute("SELECT COUNT(*) FROM purchases WHERE po_number = %s", (po_number_str,))
-            count = cur.fetchone()[0]
+            result = cur.fetchone()
+            count = result[0] if result else 0
             
             if count == 0:
                 return False, f"Purchase Order {po_number_str} not found"
@@ -150,7 +154,8 @@ def delete_purchase_order(po_number):
             
             # Verify deletion
             cur.execute("SELECT COUNT(*) FROM purchases WHERE po_number = %s", (po_number_str,))
-            remaining = cur.fetchone()[0]
+            result = cur.fetchone()
+            remaining = result[0] if result else 0
             
             cur.close()
             
@@ -166,13 +171,11 @@ def delete_purchase_order(po_number):
 
 
 # ==============================
-# DELETE ALL PURCHASE ORDERS - DIRECT SQL FIX
+# DELETE ALL PURCHASE ORDERS - DIRECT SQL
 # ==============================
 def delete_all_purchase_orders():
-    """Delete ALL purchase orders - DIRECT SQL FIX"""
+    """Delete ALL purchase orders using direct SQL"""
     try:
-        from backend.core.db_adapter import get_db_connection
-        
         with get_db_connection() as conn:
             if conn is None:
                 return False, "Database connection failed"
@@ -209,6 +212,7 @@ def delete_all_purchase_orders():
         import traceback
         traceback.print_exc()
         return False, f"Error deleting all POs: {str(e)}"
+
 
 # ==============================
 # RECEIVE PURCHASE ORDER - OPTIMIZED
@@ -801,7 +805,7 @@ def purchases_page():
                                             
                                             cost_val = float(p.get("cost", 0))
                                             category_val = str(p.get("category", "")).strip()
-                                            if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
+                                            if not category_val or category_val == "nan" or category_val == "None" or category_val == "":                                                
                                                 category_val = "New Purchase"
                                             
                                             existing = False
@@ -930,7 +934,7 @@ def purchases_page():
                             if not existing:
                                 cost_val = float(selected_product["cost"]) if selected_product["cost"] > 0 else 0
                                 category_val = str(selected_product.get("category", "")).strip()
-                                if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
+                                if not category_val or category_val == "nan" or category_val == "None" or category_val == "":                                    
                                     category_val = "New Purchase"
                                 
                                 if isinstance(po_qty, float):
