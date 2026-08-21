@@ -2066,6 +2066,12 @@ def record_income(income_source, description, amount, user="System"):
     # Save only the new row - don't load and resave all records
     return save_income(new_row)
 
+
+def get_total_income():
+    """Get total income all time"""
+    df = load_income()
+    return df["amount"].sum() if not df.empty else 0
+
 # ==============================
 # PURCHASE FUNCTIONS
 # ==============================
