@@ -1792,8 +1792,10 @@ def save_income(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
+    # Make a copy to avoid modifying original
     df = df.copy()
     
+    # Ensure required columns exist with defaults
     required_cols = ['date', 'income_source', 'description', 'amount', 'recorded_by']
     
     for col in required_cols:
@@ -1803,14 +1805,17 @@ def save_income(df, branch_id=None):
             else:
                 df[col] = ''
     
+    # Convert date column
     if 'date' in df.columns:
         df['date'] = pd.to_datetime(df['date'], errors='coerce').fillna(datetime.now())
     
+    # Convert numeric columns
     numeric_cols = ['amount']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
+    # Fill empty strings
     string_cols = ['income_source', 'description', 'recorded_by']
     for col in string_cols:
         if col in df.columns:
@@ -1830,10 +1835,26 @@ def save_income(df, branch_id=None):
             
             for idx, row in df.iterrows():
                 try:
+                    # Generate unique ID if not exists
                     income_id = row.get('id')
-                    if not income_id or pd.isna(income_id) or str(income_id) == 'nan':
-                        income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+                    if not income_id or pd.isna(income_id) or str(income_id) == 'nan' or str(income_id) == '':
+                        income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
                     
+                    # Convert date to string if needed
+                    income_date = row.get('date')
+                    if isinstance(income_date, pd.Timestamp):
+                        income_date = income_date.to_pydatetime()
+                    elif isinstance(income_date, datetime):
+                        pass
+                    elif isinstance(income_date, str):
+                        try:
+                            income_date = datetime.fromisoformat(income_date.replace('Z', '+00:00'))
+                        except:
+                            income_date = datetime.now()
+                    else:
+                        income_date = datetime.now()
+                    
+                    # Use INSERT - if duplicate ID, skip
                     cur.execute("""
                         INSERT INTO income (
                             id, branch_id, income_date, income_source, 
@@ -1843,11 +1864,11 @@ def save_income(df, branch_id=None):
                     """, (
                         income_id,
                         branch_id,
-                        row.get('date'),
-                        row.get('income_source', ''),
-                        row.get('description', ''),
+                        income_date,
+                        str(row.get('income_source', '')),
+                        str(row.get('description', '')),
                         float(row.get('amount', 0)),
-                        row.get('recorded_by', 'system')
+                        str(row.get('recorded_by', 'system'))
                     ))
                     
                     inserted_count += 1
@@ -1860,6 +1881,7 @@ def save_income(df, branch_id=None):
             conn.commit()
             print(f"Saved {inserted_count} income records for branch: {branch_id}")
             
+            # Verify save
             try:
                 cur.execute("SELECT COUNT(*) FROM income WHERE branch_id = %s", (branch_id,))
                 count = cur.fetchone()[0]
@@ -1874,6 +1896,7 @@ def save_income(df, branch_id=None):
         import traceback
         traceback.print_exc()
         return False
+    
 
 def get_monthly_income(month=None):
     df = load_income()
@@ -1893,25 +1916,54 @@ def record_income(income_source, description, amount, user="System"):
     """
     Record a single income - APPENDS new record, NEVER deletes existing ones
     """
-    valid, amount_clean, msg = validate_amount(amount)
-    if not valid:
-        print(f"Invalid amount: {msg}")
+    try:
+        valid, amount_clean, msg = validate_amount(amount)
+        if not valid:
+            print(f"Invalid amount: {msg}")
+            return False
+        
+        # Ensure we have a valid amount
+        if amount_clean <= 0:
+            print(f"Amount must be greater than 0: {amount_clean}")
+            return False
+        
+        if not income_source or len(str(income_source).strip()) < 2:
+            print(f"Invalid income source: {income_source}")
+            return False
+        
+        # Create a single-row DataFrame with unique ID
+        import uuid
+        income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        new_row = pd.DataFrame([{
+            "id": income_id,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "income_source": sanitize_string(income_source, 100),
+            "description": sanitize_string(description, 200),
+            "amount": float(amount_clean),
+            "recorded_by": sanitize_string(user, 50)
+        }])
+        
+        print(f"Recording income: {income_source} - ${amount_clean} - ID: {income_id}")
+        
+        # Save only the new row
+        success = save_income(new_row)
+        
+        if success:
+            print(f"Income saved successfully: {income_id}")
+            return True
+        else:
+            print("Failed to save income")
+            return False
+        
+    except Exception as e:
+        print(f"Error in record_income: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-    
-    income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    
-    new_row = pd.DataFrame([{
-        "id": income_id,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "income_source": sanitize_string(income_source, 100),
-        "description": sanitize_string(description, 200),
-        "amount": float(amount_clean),
-        "recorded_by": sanitize_string(user, 50)
-    }])
-    
-    return save_income(new_row)
 
 def get_total_income():
+    """Get total income all time"""
     df = load_income()
     return df["amount"].sum() if not df.empty else 0
 
