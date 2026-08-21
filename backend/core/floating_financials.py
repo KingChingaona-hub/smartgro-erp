@@ -1,5 +1,6 @@
 # backend/core/floating_financials.py
 # COMPLETE VERSION - With Change, Credit, and Gas Sales (Recording Only)
+# ADDED: Description column in all table displays
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -357,7 +358,7 @@ def create_change_record(customer_name, amount, description="", phone="", branch
         phone = phone_clean
     
     if description:
-        valid, desc_clean = validate_description(description, 500)
+        valid, desc_clean = validate_description(description, 500, 0)
         if not valid:
             return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
@@ -558,7 +559,7 @@ def get_change_summary(branch_id=None):
     }
 
 def get_change_records_for_table(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
-    """Get change records formatted for table display"""
+    """Get change records formatted for table display - INCLUDES DESCRIPTION"""
     df = get_change_records(branch_id, status, date_from, date_to, customer_name)
     
     if df.empty:
@@ -586,13 +587,67 @@ def get_change_records_for_table(branch_id=None, status=None, date_from=None, da
         'amount': 'Amount',
         'amount_collected': 'Collected',
         'balance': 'Balance',
-        'change_id': 'ID'
+        'change_id': 'ID',
+        'description': 'Description'
     })
     
-    cols = ['Date', 'Customer', 'Amount', 'Collected', 'Balance', 'Status', 'ID']
+    cols = ['Date', 'Customer', 'Description', 'Amount', 'Collected', 'Balance', 'Status', 'ID']
     display_df = display_df[[c for c in cols if c in display_df.columns]]
     
     return display_df
+
+def get_change_records_with_summary(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
+    """Get change records with today/previous summary"""
+    df = get_change_records(branch_id, status, date_from, date_to, customer_name)
+    
+    if df.empty:
+        return {
+            "records": df,
+            "today_total": 0,
+            "today_collected": 0,
+            "today_balance": 0,
+            "previous_total": 0,
+            "previous_collected": 0,
+            "previous_balance": 0,
+            "overall_total": 0,
+            "overall_collected": 0,
+            "overall_balance": 0
+        }
+    
+    today = datetime.now().date()
+    
+    date_col = None
+    for col in ["created_at", "updated_at", "date"]:
+        if col in df.columns:
+            date_col = col
+            break
+    
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df["is_today"] = df[date_col].dt.date == today
+    else:
+        df["is_today"] = False
+    
+    today_df = df[df["is_today"]]
+    previous_df = df[~df["is_today"]]
+    
+    return {
+        "records": df,
+        "today_df": today_df,
+        "previous_df": previous_df,
+        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
+        "today_collected": float(today_df["amount_collected"].sum()) if not today_df.empty and "amount_collected" in today_df.columns else 0,
+        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
+        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
+        "previous_collected": float(previous_df["amount_collected"].sum()) if not previous_df.empty and "amount_collected" in previous_df.columns else 0,
+        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
+        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
+        "overall_collected": float(df["amount_collected"].sum()) if "amount_collected" in df.columns else 0,
+        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
+        "today_count": len(today_df),
+        "previous_count": len(previous_df),
+        "total_count": len(df)
+    }
 
 # ==============================
 # CREDIT MANAGEMENT
@@ -619,7 +674,7 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
         phone = phone_clean
     
     if description:
-        valid, desc_clean = validate_description(description, 500)
+        valid, desc_clean = validate_description(description, 500, 0)
         if not valid:
             return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
@@ -803,7 +858,7 @@ def get_credit_records(branch_id=None, status=None, credit_type=None, date_from=
         return pd.DataFrame()
 
 def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
-    """Get credit records formatted for table display"""
+    """Get credit records formatted for table display - INCLUDES DESCRIPTION"""
     df = get_credit_records(branch_id, status, credit_type, date_from, date_to, customer_name)
     
     if df.empty:
@@ -843,10 +898,11 @@ def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, 
         'balance': 'Balance',
         'credit_type': 'Type',
         'expected_repayment_date': 'Due Date',
-        'credit_id': 'ID'
+        'credit_id': 'ID',
+        'description': 'Description'
     })
     
-    cols = ['Date', 'Customer', 'Amount', 'Paid', 'Balance', 'Type', 'Due Date', 'Status_Display', 'ID']
+    cols = ['Date', 'Customer', 'Description', 'Amount', 'Paid', 'Balance', 'Type', 'Due Date', 'Status_Display', 'ID']
     display_df = display_df[[c for c in cols if c in display_df.columns]]
     
     return display_df
@@ -951,6 +1007,59 @@ def get_overdue_credits(branch_id=None, days=30):
         logger.error(f"Error getting overdue credits: {e}")
         return pd.DataFrame()
 
+def get_credit_records_with_summary(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
+    """Get credit records with today/previous summary"""
+    df = get_credit_records(branch_id, status, credit_type, date_from, date_to, customer_name)
+    
+    if df.empty:
+        return {
+            "records": df,
+            "today_total": 0,
+            "today_paid": 0,
+            "today_balance": 0,
+            "previous_total": 0,
+            "previous_paid": 0,
+            "previous_balance": 0,
+            "overall_total": 0,
+            "overall_paid": 0,
+            "overall_balance": 0
+        }
+    
+    today = datetime.now().date()
+    
+    date_col = None
+    for col in ["created_at", "updated_at", "date"]:
+        if col in df.columns:
+            date_col = col
+            break
+    
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df["is_today"] = df[date_col].dt.date == today
+    else:
+        df["is_today"] = False
+    
+    today_df = df[df["is_today"]]
+    previous_df = df[~df["is_today"]]
+    
+    return {
+        "records": df,
+        "today_df": today_df,
+        "previous_df": previous_df,
+        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
+        "today_paid": float(today_df["amount_paid"].sum()) if not today_df.empty and "amount_paid" in today_df.columns else 0,
+        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
+        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
+        "previous_paid": float(previous_df["amount_paid"].sum()) if not previous_df.empty and "amount_paid" in previous_df.columns else 0,
+        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
+        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
+        "overall_paid": float(df["amount_paid"].sum()) if "amount_paid" in df.columns else 0,
+        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
+        "today_count": len(today_df),
+        "previous_count": len(previous_df),
+        "total_count": len(df)
+    }
+
 # ==============================
 # GAS SALES - SIMPLE RECORDING ONLY (NO PENDING/TRANSFER)
 # ==============================
@@ -983,7 +1092,7 @@ def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", br
     kgs_calculated = amount_clean / price
     
     if description:
-        valid, desc_clean = validate_description(description, 500)
+        valid, desc_clean = validate_description(description, 500, 0)
         if not valid:
             return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
@@ -1091,116 +1200,6 @@ def get_gas_sales_summary(branch_id=None):
         "total_count": len(df)
     }
 
-# ==============================
-# SUMMARY FUNCTIONS FOR TABLES
-# ==============================
-
-def get_change_records_with_summary(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
-    """Get change records with today/previous summary"""
-    df = get_change_records(branch_id, status, date_from, date_to, customer_name)
-    
-    if df.empty:
-        return {
-            "records": df,
-            "today_total": 0,
-            "today_collected": 0,
-            "today_balance": 0,
-            "previous_total": 0,
-            "previous_collected": 0,
-            "previous_balance": 0,
-            "overall_total": 0,
-            "overall_collected": 0,
-            "overall_balance": 0
-        }
-    
-    today = datetime.now().date()
-    
-    date_col = None
-    for col in ["created_at", "updated_at", "date"]:
-        if col in df.columns:
-            date_col = col
-            break
-    
-    if date_col:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df["is_today"] = df[date_col].dt.date == today
-    else:
-        df["is_today"] = False
-    
-    today_df = df[df["is_today"]]
-    previous_df = df[~df["is_today"]]
-    
-    return {
-        "records": df,
-        "today_df": today_df,
-        "previous_df": previous_df,
-        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
-        "today_collected": float(today_df["amount_collected"].sum()) if not today_df.empty and "amount_collected" in today_df.columns else 0,
-        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
-        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
-        "previous_collected": float(previous_df["amount_collected"].sum()) if not previous_df.empty and "amount_collected" in previous_df.columns else 0,
-        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
-        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
-        "overall_collected": float(df["amount_collected"].sum()) if "amount_collected" in df.columns else 0,
-        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
-        "today_count": len(today_df),
-        "previous_count": len(previous_df),
-        "total_count": len(df)
-    }
-
-
-def get_credit_records_with_summary(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
-    """Get credit records with today/previous summary"""
-    df = get_credit_records(branch_id, status, credit_type, date_from, date_to, customer_name)
-    
-    if df.empty:
-        return {
-            "records": df,
-            "today_total": 0,
-            "today_paid": 0,
-            "today_balance": 0,
-            "previous_total": 0,
-            "previous_paid": 0,
-            "previous_balance": 0,
-            "overall_total": 0,
-            "overall_paid": 0,
-            "overall_balance": 0
-        }
-    
-    today = datetime.now().date()
-    
-    date_col = None
-    for col in ["created_at", "updated_at", "date"]:
-        if col in df.columns:
-            date_col = col
-            break
-    
-    if date_col:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df["is_today"] = df[date_col].dt.date == today
-    else:
-        df["is_today"] = False
-    
-    today_df = df[df["is_today"]]
-    previous_df = df[~df["is_today"]]
-    
-    return {
-        "records": df,
-        "today_df": today_df,
-        "previous_df": previous_df,
-        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
-        "today_paid": float(today_df["amount_paid"].sum()) if not today_df.empty and "amount_paid" in today_df.columns else 0,
-        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
-        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
-        "previous_paid": float(previous_df["amount_paid"].sum()) if not previous_df.empty and "amount_paid" in previous_df.columns else 0,
-        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
-        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
-        "overall_paid": float(df["amount_paid"].sum()) if "amount_paid" in df.columns else 0,
-        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
-        "today_count": len(today_df),
-        "previous_count": len(previous_df),
-        "total_count": len(df)
-    }
 
 # Export all functions
 __all__ = [

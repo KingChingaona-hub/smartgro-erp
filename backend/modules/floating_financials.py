@@ -1,4 +1,5 @@
 # backend/modules/floating_financials.py - Complete with Today/Previous split for gas sales (FIXED)
+# ADDED: Description column in Change and Credit tables
 
 import streamlit as st
 import pandas as pd
@@ -204,7 +205,7 @@ def floating_financials_page():
 
 
 # ==============================
-# CHANGE MANAGEMENT TAB
+# CHANGE MANAGEMENT TAB - WITH DESCRIPTION
 # ==============================
 
 def change_management_tab():
@@ -232,13 +233,15 @@ def change_management_tab():
         
         customer_name, phone = get_customer_name_input("change")
         new_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_change_amount")
-        new_desc = st.text_area("Description (Optional)", key="new_change_desc")
+        new_desc = st.text_area("Description (Required)", key="new_change_desc", placeholder="e.g., Customer overpaid by $X, Gas sale change, etc.")
         
         if st.form_submit_button("Record Change", use_container_width=True):
             if not customer_name:
                 st.error("Customer name is required")
             elif new_amount <= 0:
                 st.error("Amount must be greater than 0")
+            elif not new_desc or not new_desc.strip():
+                st.error("Description is required - please explain why this change is being recorded")
             else:
                 success, message, change_id = create_change_record(
                     customer_name=customer_name,
@@ -313,21 +316,23 @@ def change_management_tab():
         "amount": "Amount",
         "amount_collected": "Collected",
         "balance": "Balance",
-        "change_id": "ID"
+        "change_id": "ID",
+        "description": "Description"  # ADDED: Include description
     }
     
     df_display = df_display.rename(columns=rename_map)
     
-    # Display as a single table
+    # Display as a single table with Description column
     st.markdown("### All Change Records")
     st.dataframe(
-        df_display[["Date", "Customer", "Amount", "Collected", "Balance", "Status", "ID"]],
+        df_display[["Date", "Customer", "Description", "Amount", "Collected", "Balance", "Status", "ID"]],
         use_container_width=True,
         hide_index=True,
         column_config={
             "Amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
             "Collected": st.column_config.NumberColumn("Collected", format="$%.2f"),
             "Balance": st.column_config.NumberColumn("Balance", format="$%.2f"),
+            "Description": st.column_config.TextColumn("Description", width="medium"),
         }
     )
     
@@ -340,14 +345,16 @@ def change_management_tab():
     if uncollected_df.empty:
         st.info("All changes have been collected")
     else:
-        # Create collection options
+        # Create collection options with description
         collection_options = []
         for idx, row in uncollected_df.iterrows():
             customer = row.get("customer_name", "Unknown")
             amount = float(row.get("amount", 0))
             balance = float(row.get("balance", 0))
             change_id = row.get("change_id", "")
-            display_text = f"{customer} - Balance: ${balance:.2f} (Total: ${amount:.2f})"
+            description = row.get("description", "")
+            desc_short = description[:30] + "..." if len(description) > 30 else description
+            display_text = f"{customer} - Balance: ${balance:.2f} ({desc_short})"
             collection_options.append(display_text)
         
         col1, col2, col3 = st.columns(3)
@@ -364,6 +371,10 @@ def change_management_tab():
             selected_row = uncollected_df.iloc[selected_idx]
             change_id = selected_row.get("change_id", "")
             balance = float(selected_row.get("balance", 0))
+            description = selected_row.get("description", "")
+            
+            # Show description of selected change
+            st.info(f"**Description:** {description}")
             
             with col2:
                 collect_amount = st.number_input(
@@ -402,11 +413,11 @@ def change_management_tab():
 
 
 # ==============================
-# CREDIT MANAGEMENT TAB
+# CREDIT MANAGEMENT TAB - WITH DESCRIPTION
 # ==============================
 
 def credit_management_tab():
-    """Credit Management Tab - Table format"""
+    """Credit Management Tab - Table format with description"""
     
     summary = get_credit_summary()
     
@@ -434,7 +445,7 @@ def credit_management_tab():
         customer_name, phone = get_customer_name_input("credit")
         new_credit_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_credit_amount")
         new_credit_type = st.selectbox("Credit Type", CREDIT_TYPES, key="new_credit_type")
-        new_credit_desc = st.text_area("Description", key="new_credit_desc")
+        new_credit_desc = st.text_area("Description (Required)", key="new_credit_desc", placeholder="e.g., Loan for goods, Cash advance, etc.")
         new_credit_repayment = st.date_input("Expected Repayment Date", 
                                             value=datetime.now() + timedelta(days=30),
                                             key="new_credit_repayment")
@@ -444,6 +455,8 @@ def credit_management_tab():
                 st.error("Customer/Person name is required")
             elif new_credit_amount <= 0:
                 st.error("Amount must be greater than 0")
+            elif not new_credit_desc or not new_credit_desc.strip():
+                st.error("Description is required - please explain the purpose of this credit/loan")
             else:
                 success, message, credit_id = create_credit_record(
                     customer_name=customer_name,
@@ -522,7 +535,7 @@ def credit_management_tab():
     
     df_display["Status_Display"] = df_display.apply(get_overdue_status, axis=1)
     
-    # Rename columns
+    # Rename columns - ADDED description
     rename_map = {
         "customer_name": "Customer",
         "amount": "Amount",
@@ -530,15 +543,16 @@ def credit_management_tab():
         "balance": "Balance",
         "credit_type": "Type",
         "expected_repayment_date": "Due Date",
-        "credit_id": "ID"
+        "credit_id": "ID",
+        "description": "Description"  # ADDED: Include description
     }
     
     df_display = df_display.rename(columns=rename_map)
     
-    # Display all records in a single table
+    # Display all records in a single table with Description column
     st.markdown("### All Credit Records")
     
-    display_cols = ["Date", "Customer", "Amount", "Paid", "Balance", "Type", "Due Date", "Status_Display", "ID"]
+    display_cols = ["Date", "Customer", "Description", "Amount", "Paid", "Balance", "Type", "Due Date", "Status_Display", "ID"]
     available_cols = [col for col in display_cols if col in df_display.columns]
     
     st.dataframe(
@@ -549,6 +563,7 @@ def credit_management_tab():
             "Amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
             "Paid": st.column_config.NumberColumn("Paid", format="$%.2f"),
             "Balance": st.column_config.NumberColumn("Balance", format="$%.2f"),
+            "Description": st.column_config.TextColumn("Description", width="medium"),
         }
     )
     
@@ -567,7 +582,9 @@ def credit_management_tab():
             balance = float(row.get("balance", 0))
             amount = float(row.get("amount", 0))
             credit_id = row.get("credit_id", "")
-            display_text = f"{customer} - Balance: ${balance:.2f} (Total: ${amount:.2f})"
+            description = row.get("description", "")
+            desc_short = description[:30] + "..." if len(description) > 30 else description
+            display_text = f"{customer} - Balance: ${balance:.2f} ({desc_short})"
             payment_options.append(display_text)
         
         col1, col2, col3, col4 = st.columns(4)
@@ -584,6 +601,10 @@ def credit_management_tab():
             selected_row = active_credits.iloc[selected_idx]
             credit_id = selected_row.get("credit_id", "")
             balance = float(selected_row.get("balance", 0))
+            description = selected_row.get("description", "")
+            
+            # Show description of selected credit
+            st.info(f"**Description:** {description}")
             
             with col2:
                 payment_amount = st.number_input(
