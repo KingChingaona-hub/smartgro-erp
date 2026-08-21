@@ -2157,6 +2157,9 @@ def save_purchases(df, branch_id=None):
             if cur is None or conn is None:
                 return False
             
+            validation_errors = []
+            saved_count = 0
+            
             # If DataFrame is empty, delete ALL purchases for this branch
             if df.empty:
                 cur.execute("DELETE FROM purchases WHERE branch_id = %s", (branch_id,))
@@ -2173,6 +2176,7 @@ def save_purchases(df, branch_id=None):
             new_pos = df["po_number"].unique().tolist() if "po_number" in df.columns else []
             
             # Find POs to delete (exist in DB but not in new DataFrame)
+            # Only delete if we have existing POs and new POs, and there's a difference
             if existing_pos and new_pos:
                 pos_to_delete = set(existing_pos) - set(new_pos)
                 
@@ -2181,71 +2185,49 @@ def save_purchases(df, branch_id=None):
                     cur.execute("DELETE FROM purchases WHERE branch_id = %s AND po_number = %s", (branch_id, po))
                     print(f"Deleted PO: {po}")
             
-            # Now upsert the remaining records
-            validation_errors = []
-            saved_count = 0
-            
+            # Now insert or update the records
             for idx, row in df.iterrows():
-                # Skip rows with missing required fields
-                if not row.get("po_number") or not row.get("barcode"):
-                    validation_errors.append(f"Row {idx}: missing po_number or barcode")
-                    continue
+                if 'supplier' in row:
+                    valid, msg = validate_supplier_name(row["supplier"])
+                    if not valid:
+                        validation_errors.append(f"Row {idx}: invalid supplier - {msg}")
+                        continue
                 
-                # Skip validation for barcode if it's a manual entry (starts with MAN- or PO-)
-                barcode_val = str(row.get("barcode", ""))
-                is_manual_barcode = barcode_val.startswith("MAN-") or barcode_val.startswith("PO-")
-                
-                if not is_manual_barcode and 'barcode' in row:
+                if 'barcode' in row:
                     valid, msg = validate_barcode(row["barcode"])
                     if not valid:
                         validation_errors.append(f"Row {idx}: invalid barcode - {msg}")
                         continue
                 
                 if 'quantity_ordered' in row:
-                    try:
-                        qty = float(row["quantity_ordered"])
-                        if qty < 0:
-                            validation_errors.append(f"Row {idx}: quantity cannot be negative")
-                            continue
-                        row["quantity_ordered"] = qty
-                    except (ValueError, TypeError):
-                        validation_errors.append(f"Row {idx}: invalid quantity")
+                    valid, qty, msg = validate_quantity(row["quantity_ordered"])
+                    if not valid:
+                        validation_errors.append(f"Row {idx}: invalid quantity - {msg}")
                         continue
+                    row["quantity_ordered"] = qty
                 
                 if 'cost_price' in row:
-                    try:
-                        amount = float(row["cost_price"])
-                        if amount < 0:
-                            validation_errors.append(f"Row {idx}: cost cannot be negative")
-                            continue
-                        row["cost_price"] = amount
-                    except (ValueError, TypeError):
-                        validation_errors.append(f"Row {idx}: invalid cost")
+                    valid, amount, msg = validate_amount(row["cost_price"])
+                    if not valid:
+                        validation_errors.append(f"Row {idx}: invalid cost price - {msg}")
                         continue
+                    row["cost_price"] = amount
                 
                 if 'total_cost' in row:
-                    try:
-                        amount = float(row["total_cost"])
-                        if amount < 0:
-                            validation_errors.append(f"Row {idx}: total cannot be negative")
-                            continue
-                        row["total_cost"] = amount
-                    except (ValueError, TypeError):
-                        validation_errors.append(f"Row {idx}: invalid total")
+                    valid, amount, msg = validate_amount(row["total_cost"])
+                    if not valid:
+                        validation_errors.append(f"Row {idx}: invalid total cost - {msg}")
                         continue
+                    row["total_cost"] = amount
                 
                 # Check if this specific row exists (by po_number and barcode)
-                try:
-                    cur.execute("""
-                        SELECT COUNT(*) FROM purchases 
-                        WHERE branch_id = %s AND po_number = %s AND barcode = %s
-                    """, (branch_id, row["po_number"], row["barcode"]))
-                    
-                    result = cur.fetchone()
-                    exists = result[0] > 0 if result else False
-                except Exception as e:
-                    print(f"Error checking existence for row {idx}: {e}")
-                    exists = False
+                cur.execute("""
+                    SELECT COUNT(*) FROM purchases 
+                    WHERE branch_id = %s AND po_number = %s AND barcode = %s
+                """, (branch_id, row["po_number"], row["barcode"]))
+                
+                result = cur.fetchone()
+                exists = result[0] > 0 if result else False
                 
                 if exists:
                     # Update existing record
@@ -2282,7 +2264,7 @@ def save_purchases(df, branch_id=None):
                         row.get("barcode", "")
                     ))
                 else:
-                    # Insert new record
+                    # Insert new record - keep only the columns that exist in the table
                     cur.execute("""
                         INSERT INTO purchases (
                             branch_id, po_number, date_ordered, supplier,
@@ -2314,7 +2296,6 @@ def save_purchases(df, branch_id=None):
             
             conn.commit()
             print(f"Saved {saved_count} purchase items successfully")
-            
             return True
             
     except Exception as e:
@@ -2322,7 +2303,6 @@ def save_purchases(df, branch_id=None):
         import traceback
         traceback.print_exc()
         return False
-    
     
 # ==============================
 # CASH REGISTER FUNCTIONS

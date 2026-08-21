@@ -72,7 +72,7 @@ def get_supplier_suggestions():
 # CREATE PURCHASE ORDER - FIXED
 # ==============================
 def create_purchase_order(supplier, items, expected_date):
-    """Create a purchase order before receiving stock - FIXED"""
+    """Create a purchase order before receiving stock"""
     
     if not supplier or not supplier.strip():
         return None, None, "Supplier name is required"
