@@ -2157,9 +2157,6 @@ def save_purchases(df, branch_id=None):
             if cur is None or conn is None:
                 return False
             
-            validation_errors = []
-            saved_count = 0
-            
             # If DataFrame is empty, delete ALL purchases for this branch
             if df.empty:
                 cur.execute("DELETE FROM purchases WHERE branch_id = %s", (branch_id,))
@@ -2169,23 +2166,23 @@ def save_purchases(df, branch_id=None):
             
             # First, get all existing PO numbers in the database for this branch
             cur.execute("SELECT DISTINCT po_number FROM purchases WHERE branch_id = %s", (branch_id,))
-            existing_rows = cur.fetchall()
-            existing_pos = [row[0] for row in existing_rows] if existing_rows else []
+            existing_pos = [row[0] for row in cur.fetchall()]
             
             # Get PO numbers in the new DataFrame
-            new_pos = df["po_number"].unique().tolist() if "po_number" in df.columns else []
+            new_pos = df["po_number"].unique().tolist()
             
             # Find POs to delete (exist in DB but not in new DataFrame)
-            # Only delete if we have existing POs and new POs, and there's a difference
-            if existing_pos and new_pos:
-                pos_to_delete = set(existing_pos) - set(new_pos)
-                
-                # Delete POs that are no longer in the DataFrame
-                for po in pos_to_delete:
-                    cur.execute("DELETE FROM purchases WHERE branch_id = %s AND po_number = %s", (branch_id, po))
-                    print(f"Deleted PO: {po}")
+            pos_to_delete = set(existing_pos) - set(new_pos)
             
-            # Now insert or update the records
+            # Delete POs that are no longer in the DataFrame
+            for po in pos_to_delete:
+                cur.execute("DELETE FROM purchases WHERE branch_id = %s AND po_number = %s", (branch_id, po))
+                print(f"Deleted PO: {po}")
+            
+            # Now upsert the remaining records
+            validation_errors = []
+            saved_count = 0
+            
             for idx, row in df.iterrows():
                 if 'supplier' in row:
                     valid, msg = validate_supplier_name(row["supplier"])
@@ -2220,14 +2217,13 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
                 
-                # Check if this specific row exists (by po_number and barcode)
+                # Check if this specific row exists
                 cur.execute("""
                     SELECT COUNT(*) FROM purchases 
                     WHERE branch_id = %s AND po_number = %s AND barcode = %s
                 """, (branch_id, row["po_number"], row["barcode"]))
                 
-                result = cur.fetchone()
-                exists = result[0] > 0 if result else False
+                exists = cur.fetchone()[0] > 0
                 
                 if exists:
                     # Update existing record
@@ -2243,50 +2239,47 @@ def save_purchases(df, branch_id=None):
                             expected_date = %s,
                             status = %s,
                             payment_status = %s,
-                            invoice_no = %s,
-                            category = %s
+                            invoice_no = %s
                         WHERE branch_id = %s AND po_number = %s AND barcode = %s
                     """, (
-                        row.get("date_ordered"),
-                        row.get("supplier", ""),
-                        row.get("product_name", ""),
-                        row.get("quantity_ordered", 0),
+                        row["date_ordered"],
+                        row["supplier"],
+                        row["product_name"],
+                        row["quantity_ordered"],
                         row.get("quantity_received", 0),
-                        row.get("cost_price", 0),
-                        row.get("total_cost", 0),
-                        row.get("expected_date"),
-                        row.get("status", "PENDING"),
+                        row["cost_price"],
+                        row["total_cost"],
+                        row["expected_date"],
+                        row["status"],
                         row.get("payment_status", "UNPAID"),
                         row.get("invoice_no", ""),
-                        row.get("category", ""),
                         branch_id,
-                        row.get("po_number", ""),
-                        row.get("barcode", "")
+                        row["po_number"],
+                        row["barcode"]
                     ))
                 else:
-                    # Insert new record - keep only the columns that exist in the table
+                    # Insert new record
                     cur.execute("""
                         INSERT INTO purchases (
                             branch_id, po_number, date_ordered, supplier,
                             product_name, barcode, quantity_ordered, quantity_received,
-                            cost_price, total_cost, expected_date, status, payment_status, invoice_no, category
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            cost_price, total_cost, expected_date, status, payment_status, invoice_no
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         branch_id,
-                        row.get("po_number", ""),
-                        row.get("date_ordered"),
-                        row.get("supplier", ""),
-                        row.get("product_name", ""),
-                        row.get("barcode", ""),
-                        row.get("quantity_ordered", 0),
+                        row["po_number"],
+                        row["date_ordered"],
+                        row["supplier"],
+                        row["product_name"],
+                        row["barcode"],
+                        row["quantity_ordered"],
                         row.get("quantity_received", 0),
-                        row.get("cost_price", 0),
-                        row.get("total_cost", 0),
-                        row.get("expected_date"),
-                        row.get("status", "PENDING"),
+                        row["cost_price"],
+                        row["total_cost"],
+                        row["expected_date"],
+                        row["status"],
                         row.get("payment_status", "UNPAID"),
-                        row.get("invoice_no", ""),
-                        row.get("category", "")
+                        row.get("invoice_no", "")
                     ))
                 
                 saved_count += 1
@@ -2296,6 +2289,7 @@ def save_purchases(df, branch_id=None):
             
             conn.commit()
             print(f"Saved {saved_count} purchase items successfully")
+            print(f"Deleted {len(pos_to_delete)} purchase orders")
             return True
             
     except Exception as e:
