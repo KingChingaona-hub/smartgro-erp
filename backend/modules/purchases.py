@@ -69,7 +69,7 @@ def get_supplier_suggestions():
 
 
 # ==============================
-# CREATE PURCHASE ORDER - FIXED
+# CREATE PURCHASE ORDER - OPTIMIZED
 # ==============================
 def create_purchase_order(supplier, items, expected_date):
     """Create a purchase order before receiving stock"""
@@ -84,7 +84,7 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_data = []
     
-    for idx, item in enumerate(items):
+    for item in items:
         if not item.get("name"):
             continue
         
@@ -95,17 +95,12 @@ def create_purchase_order(supplier, items, expected_date):
         if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
         
-        # Ensure barcode exists
-        barcode = str(item.get("barcode", ""))
-        if not barcode or barcode == "nan" or barcode == "None" or barcode == "":
-            barcode = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}-{idx}"
-        
         po_data.append({
             "po_number": po_number,
             "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "supplier": supplier.strip(),
             "product_name": str(item.get("name", "Unknown")),
-            "barcode": barcode,
+            "barcode": str(item.get("barcode", "")),
             "quantity_ordered": quantity,
             "cost_price": cost,
             "total_cost": quantity * cost,
@@ -123,6 +118,7 @@ def create_purchase_order(supplier, items, expected_date):
     
     po_df = pd.DataFrame(po_data)
     return po_number, po_df, None
+
 
 # ==============================
 # DELETE PURCHASE ORDER - DIRECT SQL FIX
