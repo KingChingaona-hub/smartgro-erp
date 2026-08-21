@@ -17,9 +17,9 @@ from backend.modules.expenses import (
     add_recurring_expense,
     process_recurring_expenses,
     add_expense_category,
-    load_recurring_expenses,
-    EXPENSES_FILE
+    load_recurring_expenses
 )
+from backend.core.db_adapter import get_current_branch
 
 
 def expenses_dashboard():
@@ -58,7 +58,20 @@ def expenses_dashboard():
         st.session_state.dashboard_category_added = False
         st.session_state.dashboard_category_message = ""
 
-    # Load categories - this calls init_expenses() which should NOT delete data
+    # Show current branch in sidebar
+    with st.sidebar.expander("Expenses Info"):
+        try:
+            current_branch = get_current_branch()
+            st.write(f"**Branch:** {current_branch}")
+        except:
+            pass
+        
+        df = load_expenses()
+        st.write(f"**Records loaded:** {len(df)}")
+        if not df.empty:
+            st.write(f"**Total amount:** ${df['amount'].sum():,.2f}")
+
+    # Load categories
     categories = load_expense_categories()
     
     # ==============================
@@ -119,7 +132,7 @@ def expenses_dashboard():
                     st.error("Please enter description and amount")
         
         # ==============================
-        # ADD NEW CATEGORY - FIXED (No infinite loop)
+        # ADD NEW CATEGORY
         # ==============================
         with st.expander("Add New Category"):
             with st.form(key="dashboard_add_category_form", clear_on_submit=True):
@@ -156,14 +169,12 @@ def expenses_dashboard():
     with tab2:
         st.markdown("## Budget vs Actual Analysis")
         
-        # Year/Month selection
         col1, col2 = st.columns(2)
         with col1:
             budget_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.now().year, key="budget_year")
         with col2:
             budget_month = st.selectbox("Month", range(1, 13), index=datetime.now().month - 1, key="budget_month")
         
-        # Budget input section
         st.markdown("### Set Budget")
         
         with st.form(key="set_budget_form", clear_on_submit=True):
@@ -181,14 +192,11 @@ def expenses_dashboard():
                     st.error("Please enter a budget amount greater than 0")
         
         st.markdown("---")
-        
-        # Budget vs Actual Display
         st.markdown("### Budget Performance")
         
         budget_df = get_budget_vs_actual(budget_year, budget_month)
         
         if not budget_df.empty:
-            # Key metrics
             total_budget = budget_df["budget_amount"].sum()
             total_actual = budget_df["actual_amount"].sum()
             total_variance = total_budget - total_actual
@@ -205,7 +213,6 @@ def expenses_dashboard():
                          delta=f"{variance_percent:+.1f}%", 
                          delta_color=delta_color)
             
-            # Show budget vs actual chart
             chart_df = budget_df[budget_df["budget_amount"] > 0].copy()
             
             if not chart_df.empty:
@@ -235,16 +242,12 @@ def expenses_dashboard():
                 
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Detailed table
-            st.markdown("### Detailed Budget vs Actual")
-            
             display_df = budget_df[["category", "budget_amount", "actual_amount", "variance", "variance_percent", "status"]]
             display_df = display_df[display_df["budget_amount"] > 0]
             display_df = display_df.sort_values("variance_percent", ascending=True)
             
             st.dataframe(display_df, use_container_width=True, hide_index=True)
             
-            # Warnings for over-budget
             over_budget = budget_df[budget_df["variance"] < 0]
             if not over_budget.empty:
                 st.warning(f"{len(over_budget)} categories are over budget!")
@@ -259,7 +262,6 @@ def expenses_dashboard():
     with tab3:
         st.markdown("## Expense Analytics")
         
-        # Date range filter
         col1, col2 = st.columns(2)
         with col1:
             filter_year = st.selectbox("Year", list(range(2020, datetime.now().year + 2)), index=datetime.now().year - 2020, key="analytics_year")
@@ -267,10 +269,8 @@ def expenses_dashboard():
             month_options = ["All"] + list(range(1, 13))
             filter_month = st.selectbox("Month", month_options, key="analytics_month")
         
-        # Handle month filter properly
         month_filter = None if filter_month == "All" else filter_month
         
-        # Category breakdown
         st.markdown("### Expenses by Category")
         
         category_summary = get_expense_summary_by_category(filter_year, month_filter)
@@ -287,7 +287,6 @@ def expenses_dashboard():
             fig_pie.update_layout(height=400)
             st.plotly_chart(fig_pie, use_container_width=True)
             
-            # Top categories bar chart
             fig_bar = px.bar(
                 category_summary.head(10),
                 x="Total Amount",
@@ -304,7 +303,6 @@ def expenses_dashboard():
         else:
             st.info("No expense data for the selected period")
         
-        # Monthly trend
         st.markdown("### Expense Trend")
         
         trend_df = get_expense_trend(12)
@@ -323,7 +321,6 @@ def expenses_dashboard():
         else:
             st.info("No trend data available")
         
-        # Top expenses
         st.markdown("### Largest Expenses")
         
         top_expenses = get_top_expenses(10, filter_year, month_filter)
@@ -344,7 +341,6 @@ def expenses_dashboard():
         st.markdown("## Recurring Expenses")
         st.caption("Set up automatic recurring expenses (rent, subscriptions, salaries)")
         
-        # Create recurring expense
         with st.expander("Add Recurring Expense", expanded=True):
             with st.form(key="add_recurring_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
@@ -378,7 +374,6 @@ def expenses_dashboard():
                     else:
                         st.error("Please enter description and amount")
         
-        # Process recurring expenses button
         st.markdown("---")
         
         if st.button("Process Due Recurring Expenses", key="process_recurring_btn"):
@@ -389,7 +384,6 @@ def expenses_dashboard():
             else:
                 st.info("No recurring expenses due today")
         
-        # Display existing recurring expenses
         recurring_df = load_recurring_expenses()
         
         if not recurring_df.empty:
@@ -408,18 +402,9 @@ def expenses_dashboard():
     with tab5:
         st.markdown("## All Expense Records")
         
-        # Show file info for debugging
-        with st.expander("Debug Info"):
-            if EXPENSES_FILE.exists():
-                st.write(f"File: {EXPENSES_FILE}")
-                st.write(f"File size: {EXPENSES_FILE.stat().st_size} bytes")
-            else:
-                st.warning(f"Expenses file not found at: {EXPENSES_FILE}")
-        
         expenses_df = load_expenses()
         
         if not expenses_df.empty:
-            # Search and filter
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -451,17 +436,14 @@ def expenses_dashboard():
             else:
                 filtered_df = filtered_df.sort_values("date", ascending=False)
             
-            # Summary
             total_expenses = filtered_df["amount"].sum()
             st.metric("Total Expenses (Filtered)", f"${total_expenses:,.2f}")
             
-            # Display table
             display_cols = ["date", "description", "category", "amount", "vendor", "payment_method"]
             available_cols = [col for col in display_cols if col in filtered_df.columns]
             
             st.dataframe(filtered_df[available_cols], use_container_width=True, hide_index=True)
             
-            # Export
             csv = filtered_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="Download Expenses (CSV)",
@@ -471,7 +453,6 @@ def expenses_dashboard():
                 key="download_expenses_dash"
             )
             
-            # Show total count
             st.caption(f"Showing {len(filtered_df)} records")
         else:
             st.info("No expenses recorded yet. Use the 'Record Expense' tab to add your first expense.")

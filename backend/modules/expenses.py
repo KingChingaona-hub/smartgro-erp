@@ -1,29 +1,31 @@
 # backend/modules/expenses.py
-# FIXED: Expenses are NEVER deleted, only appended or modified
-# Added emergency backup and better data protection
+# UPDATED: Now uses PostgreSQL database via db_adapter
+# All functions delegate to db_adapter for data persistence
 
 import pandas as pd
-from pathlib import Path
 from datetime import datetime
 import logging
-import shutil
-import os
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==============================
-# PATH
-# ==============================
-DATA_DIR = Path("data")
-EXPENSES_FILE = DATA_DIR / "expenses.csv"
-EXPENSE_CATEGORIES_FILE = DATA_DIR / "expense_categories.csv"
-EXPENSE_BUDGET_FILE = DATA_DIR / "expense_budget.csv"
-RECURRING_EXPENSES_FILE = DATA_DIR / "recurring_expenses.csv"
-EXPENSES_BACKUP_FILE = DATA_DIR / "expenses_backup.csv"
-EXPENSES_EMERGENCY_BACKUP = DATA_DIR / "expenses_emergency_backup.csv"  # Added emergency backup
-
+# Import db_adapter functions
+from backend.core.db_adapter import (
+    load_expenses as db_load_expenses,
+    save_expenses as db_save_expenses,
+    load_expense_categories as db_load_expense_categories,
+    load_expense_budget as db_load_expense_budget,
+    save_expense_budget as db_save_expense_budget,
+    load_recurring_expenses as db_load_recurring_expenses,
+    save_recurring_expenses as db_save_recurring_expenses,
+    record_expense as db_record_expense,
+    get_monthly_expenses as db_get_monthly_expenses,
+    get_total_expenses as db_get_total_expenses,
+    get_expenses_by_category as db_get_expenses_by_category,
+    get_budget_vs_actual as db_get_budget_vs_actual,
+    get_current_branch
+)
 
 # ==============================
 # DEFAULT EXPENSE CATEGORIES
@@ -54,193 +56,14 @@ DEFAULT_CATEGORIES = [
 
 
 # ==============================
-# INIT FILES - FIXED TO NEVER OVERWRITE
-# ==============================
-def init_expenses():
-    """Initialize expenses files only if they don't exist - NEVER OVERWRITE"""
-    DATA_DIR.mkdir(exist_ok=True)
-
-    # Only create expenses file if it doesn't exist
-    if not EXPENSES_FILE.exists():
-        df = pd.DataFrame(columns=[
-            "date",
-            "expense_type",
-            "category",
-            "description",
-            "amount",
-            "vendor",
-            "payment_method",
-            "recorded_by",
-            "notes"
-        ])
-        df.to_csv(EXPENSES_FILE, index=False)
-        logger.info(f"Created new expenses file: {EXPENSES_FILE}")
-    else:
-        # Log that file exists but DO NOT modify it
-        file_size = EXPENSES_FILE.stat().st_size
-        logger.info(f"Expenses file already exists: {EXPENSES_FILE} ({file_size} bytes)")
-        
-        # If file exists but is empty, it might be corrupted
-        if file_size == 0:
-            logger.warning(f"Expenses file is empty ({file_size} bytes). Checking backup...")
-            # Try to recover from backup
-            if EXPENSES_BACKUP_FILE.exists() and EXPENSES_BACKUP_FILE.stat().st_size > 0:
-                try:
-                    shutil.copy2(EXPENSES_BACKUP_FILE, EXPENSES_FILE)
-                    logger.info(f"Recovered expenses file from backup")
-                except Exception as e:
-                    logger.error(f"Failed to recover from backup: {e}")
-            elif EXPENSES_EMERGENCY_BACKUP.exists() and EXPENSES_EMERGENCY_BACKUP.stat().st_size > 0:
-                try:
-                    shutil.copy2(EXPENSES_EMERGENCY_BACKUP, EXPENSES_FILE)
-                    logger.info(f"Recovered expenses file from emergency backup")
-                except Exception as e:
-                    logger.error(f"Failed to recover from emergency backup: {e}")
-            else:
-                logger.warning("No backup available to recover")
-
-    # Only create categories file if it doesn't exist
-    if not EXPENSE_CATEGORIES_FILE.exists():
-        df = pd.DataFrame({"category": DEFAULT_CATEGORIES})
-        df.to_csv(EXPENSE_CATEGORIES_FILE, index=False)
-        logger.info(f"Created expense categories file: {EXPENSE_CATEGORIES_FILE}")
-
-    # Only create budget file if it doesn't exist
-    if not EXPENSE_BUDGET_FILE.exists():
-        current_year = datetime.now().year
-        budget_data = []
-        for category in DEFAULT_CATEGORIES:
-            for month in range(1, 13):
-                budget_data.append({
-                    "year": current_year,
-                    "month": month,
-                    "category": category,
-                    "budget_amount": 0,
-                    "actual_amount": 0
-                })
-        df = pd.DataFrame(budget_data)
-        df.to_csv(EXPENSE_BUDGET_FILE, index=False)
-        logger.info(f"Created expense budget file: {EXPENSE_BUDGET_FILE}")
-
-    # Only create recurring expenses file if it doesn't exist
-    if not RECURRING_EXPENSES_FILE.exists():
-        df = pd.DataFrame(columns=[
-            "recurring_id",
-            "description",
-            "category",
-            "amount",
-            "frequency",
-            "day_of_month",
-            "vendor",
-            "payment_method",
-            "start_date",
-            "end_date",
-            "active",
-            "notes"
-        ])
-        df.to_csv(RECURRING_EXPENSES_FILE, index=False)
-        logger.info(f"Created recurring expenses file: {RECURRING_EXPENSES_FILE}")
-
-
-# ==============================
-# LOAD FUNCTIONS - FIXED
+# LOAD FUNCTIONS - USING DATABASE
 # ==============================
 def load_expenses():
-    """Load expenses from CSV file - NEVER DELETES DATA"""
-    init_expenses()
-    
+    """Load expenses from database - delegates to db_adapter"""
     try:
-        if not EXPENSES_FILE.exists():
-            logger.warning(f"Expenses file not found: {EXPENSES_FILE}")
-            return pd.DataFrame(columns=[
-                "date", "expense_type", "category", "description",
-                "amount", "vendor", "payment_method", "recorded_by", "notes"
-            ])
-        
-        # Check if file is empty
-        if EXPENSES_FILE.stat().st_size == 0:
-            logger.warning("Expenses file is empty")
-            return pd.DataFrame(columns=[
-                "date", "expense_type", "category", "description",
-                "amount", "vendor", "payment_method", "recorded_by", "notes"
-            ])
-        
-        # Read the file
-        try:
-            df = pd.read_csv(EXPENSES_FILE)
-        except pd.errors.EmptyDataError:
-            logger.warning("Expenses file is empty (EmptyDataError)")
-            return pd.DataFrame(columns=[
-                "date", "expense_type", "category", "description",
-                "amount", "vendor", "payment_method", "recorded_by", "notes"
-            ])
-        except Exception as e:
-            logger.error(f"Error reading CSV: {e}")
-            # Try to read with different encoding
-            try:
-                df = pd.read_csv(EXPENSES_FILE, encoding='utf-8', engine='python')
-            except:
-                try:
-                    df = pd.read_csv(EXPENSES_FILE, encoding='latin-1')
-                except:
-                    logger.error("Cannot read expenses file")
-                    return pd.DataFrame(columns=[
-                        "date", "expense_type", "category", "description",
-                        "amount", "vendor", "payment_method", "recorded_by", "notes"
-                    ])
-        
-        logger.info(f"Loaded {len(df)} expense records from CSV")
-        
-        if df.empty:
-            logger.info("Expenses file is empty")
-            return df
-        
-        # Ensure required columns exist
-        required_cols = ["date", "expense_type", "category", "description", "amount"]
-        for col in required_cols:
-            if col not in df.columns:
-                logger.warning(f"Missing column: {col}, adding with default values")
-                df[col] = "" if col != "amount" else 0
-        
-        # Convert date to datetime - preserve original data
-        if "date" in df.columns:
-            # Convert to datetime, keep NaT for invalid dates
-            try:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            except Exception as e:
-                logger.warning(f"Date conversion error: {e}")
-                # Keep as is if conversion fails
-            
-            # Log how many invalid dates were found
-            invalid_dates = df["date"].isna().sum() if "date" in df.columns else 0
-            if invalid_dates > 0:
-                logger.warning(f"Found {invalid_dates} rows with invalid dates, keeping them as NaT")
-        
-        # Convert amount to float - preserve original data
-        if "amount" in df.columns:
-            # Clean amount strings: remove $ and commas
-            df["amount"] = df["amount"].astype(str).str.replace('$', '', regex=False)
-            df["amount"] = df["amount"].astype(str).str.replace(',', '', regex=False)
-            df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
-        
-        # Ensure other string columns are strings
-        for col in ["expense_type", "category", "description", "vendor", "payment_method", "recorded_by", "notes"]:
-            if col in df.columns:
-                df[col] = df[col].fillna("").astype(str)
-            else:
-                df[col] = ""
-        
-        logger.info(f"Successfully loaded {len(df)} expense records")
-        if not df.empty:
-            if "date" in df.columns:
-                try:
-                    logger.info(f"Date range: {df['date'].min()} to {df['date'].max()}")
-                except:
-                    pass
-            logger.info(f"Total expenses: ${df['amount'].sum():,.2f}")
-        
+        df = db_load_expenses()
+        logger.info(f"Loaded {len(df)} expense records from database")
         return df
-        
     except Exception as e:
         logger.error(f"Error loading expenses: {e}")
         import traceback
@@ -252,58 +75,21 @@ def load_expenses():
 
 
 def save_expenses(df):
-    """Save expenses to CSV file - APPENDS data, NEVER DELETES"""
+    """Save expenses to database - delegates to db_adapter"""
     try:
         if df is None:
             logger.warning("Attempted to save None dataframe")
             return False
         
-        # Don't save empty dataframe - prevent data loss
         if df.empty:
             logger.warning("Attempted to save empty dataframe - skipping to prevent data loss")
             return False
         
-        # Create multiple backups before saving
-        if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
-            try:
-                # Create a timestamped backup
-                backup_filename = f"expenses_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                backup_path = DATA_DIR / backup_filename
-                shutil.copy2(EXPENSES_FILE, backup_path)
-                logger.info(f"Created timestamped backup: {backup_path}")
-                
-                # Keep the latest backup
-                shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
-                logger.info(f"Updated latest backup: {EXPENSES_BACKUP_FILE}")
-                
-                # Create emergency backup
-                shutil.copy2(EXPENSES_FILE, EXPENSES_EMERGENCY_BACKUP)
-                logger.info(f"Updated emergency backup: {EXPENSES_EMERGENCY_BACKUP}")
-                
-            except Exception as e:
-                logger.warning(f"Could not create backups: {e}")
+        success = db_save_expenses(df)
+        if success:
+            logger.info(f"Saved {len(df)} expense records to database")
+        return success
         
-        # Ensure date is in string format for saving
-        if "date" in df.columns and not df.empty:
-            df = df.copy()
-            # Convert datetime to string if needed
-            if pd.api.types.is_datetime64_any_dtype(df["date"]):
-                df["date"] = df["date"].dt.strftime("%Y-%m-%d %H:%M:%S")
-            # For any NaT values, use current timestamp
-            df["date"] = df["date"].fillna(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        
-        # Save to file
-        df.to_csv(EXPENSES_FILE, index=False)
-        logger.info(f"Saved {len(df)} expense records to CSV")
-        
-        # Verify save was successful
-        if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
-            logger.info(f"File size after save: {EXPENSES_FILE.stat().st_size} bytes")
-            return True
-        else:
-            logger.error("File save failed - file is empty or missing")
-            return False
-            
     except Exception as e:
         logger.error(f"Error saving expenses: {e}")
         import traceback
@@ -312,122 +98,90 @@ def save_expenses(df):
 
 
 def load_expense_categories():
-    """Load expense categories"""
-    init_expenses()
+    """Load expense categories from database"""
     try:
-        if EXPENSE_CATEGORIES_FILE.exists():
-            df = pd.read_csv(EXPENSE_CATEGORIES_FILE)
-            if "category" in df.columns:
-                return df["category"].tolist()
-    except:
-        pass
-    return DEFAULT_CATEGORIES
+        categories = db_load_expense_categories()
+        if categories:
+            return categories
+        return DEFAULT_CATEGORIES
+    except Exception as e:
+        logger.error(f"Error loading expense categories: {e}")
+        return DEFAULT_CATEGORIES
 
 
 def add_expense_category(category):
-    """Add new expense category"""
-    categories = load_expense_categories()
-    if category not in categories:
-        df = pd.read_csv(EXPENSE_CATEGORIES_FILE)
-        new_row = pd.DataFrame({"category": [category]})
-        df = pd.concat([df, new_row], ignore_index=True)
-        df.to_csv(EXPENSE_CATEGORIES_FILE, index=False)
-        return True
-    return False
+    """Add new expense category - stores in database"""
+    try:
+        categories = load_expense_categories()
+        if category not in categories:
+            # We need to save categories - use the db_adapter function
+            from backend.core.db_adapter import save_expense_categories
+            categories.append(category)
+            return save_expense_categories(categories)
+        return False
+    except Exception as e:
+        logger.error(f"Error adding expense category: {e}")
+        return False
 
 
 def load_budget(year=None, month=None):
-    """Load budget data"""
-    init_expenses()
+    """Load budget data from database"""
     try:
-        if EXPENSE_BUDGET_FILE.exists():
-            df = pd.read_csv(EXPENSE_BUDGET_FILE)
-            if year:
-                df = df[df["year"] == year]
-            if month:
-                df = df[df["month"] == month]
-            return df
-    except:
-        pass
-    return pd.DataFrame()
+        df = db_load_expense_budget(year=year, month=month)
+        return df if df is not None else pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Error loading budget: {e}")
+        return pd.DataFrame()
 
 
 def save_budget(df):
-    """Save budget data"""
-    df.to_csv(EXPENSE_BUDGET_FILE, index=False)
+    """Save budget data to database"""
+    try:
+        return db_save_expense_budget(df)
+    except Exception as e:
+        logger.error(f"Error saving budget: {e}")
+        return False
 
 
 def load_recurring_expenses():
-    """Load recurring expenses"""
-    init_expenses()
+    """Load recurring expenses from database"""
     try:
-        if RECURRING_EXPENSES_FILE.exists():
-            df = pd.read_csv(RECURRING_EXPENSES_FILE)
-            if "amount" in df.columns:
-                df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
-            return df
-    except:
-        pass
-    return pd.DataFrame(columns=[
-        "recurring_id", "description", "category", "amount",
-        "frequency", "day_of_month", "vendor", "payment_method",
-        "start_date", "end_date", "active", "notes"
-    ])
+        df = db_load_recurring_expenses()
+        return df if df is not None else pd.DataFrame(columns=[
+            "recurring_id", "description", "category", "amount",
+            "frequency", "day_of_month", "vendor", "payment_method",
+            "start_date", "end_date", "active", "notes"
+        ])
+    except Exception as e:
+        logger.error(f"Error loading recurring expenses: {e}")
+        return pd.DataFrame(columns=[
+            "recurring_id", "description", "category", "amount",
+            "frequency", "day_of_month", "vendor", "payment_method",
+            "start_date", "end_date", "active", "notes"
+        ])
 
 
 def save_recurring_expenses(df):
-    """Save recurring expenses"""
-    df.to_csv(RECURRING_EXPENSES_FILE, index=False)
+    """Save recurring expenses to database"""
+    try:
+        return db_save_recurring_expenses(df)
+    except Exception as e:
+        logger.error(f"Error saving recurring expenses: {e}")
+        return False
 
 
 # ==============================
-# RECORD EXPENSE - FIXED
+# RECORD EXPENSE - USING DATABASE
 # ==============================
 def record_expense(expense_type, category, description, amount, vendor="", 
                    payment_method="CASH", user="System", notes=""):
-    """Record a new expense - APPENDS to existing data"""
+    """Record a new expense - delegates to db_adapter"""
     try:
-        # Load existing expenses
-        df = load_expenses()
-        
-        # If df is empty, create new dataframe with columns
-        if df is None or df.empty:
-            df = pd.DataFrame(columns=[
-                "date", "expense_type", "category", "description",
-                "amount", "vendor", "payment_method", "recorded_by", "notes"
-            ])
-
-        try:
-            amount_float = float(amount)
-        except (ValueError, TypeError):
-            amount_float = 0.0
-
-        new_row = {
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "expense_type": expense_type,
-            "category": category,
-            "description": description,
-            "amount": amount_float,
-            "vendor": vendor,
-            "payment_method": payment_method,
-            "recorded_by": user,
-            "notes": notes
-        }
-
-        # Append new row (concat is safe for appending)
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        
-        # Save with backup
-        success = save_expenses(df)
-
+        success = db_record_expense(expense_type, category, description, amount, 
+                                   vendor, payment_method, user, notes)
         if success:
-            try:
-                update_budget_actuals(category, amount_float)
-            except Exception as e:
-                logger.error(f"Error updating budget actuals: {e}")
-
-            logger.info(f"Expense recorded: ${amount_float:.2f} - {description}")
-            return True, f"Expense recorded: ${amount_float:.2f} - {description}"
+            logger.info(f"Expense recorded: ${amount:.2f} - {description}")
+            return True, f"Expense recorded: ${amount:.2f} - {description}"
         else:
             return False, "Failed to save expense"
             
@@ -439,37 +193,62 @@ def record_expense(expense_type, category, description, amount, vendor="",
 
 
 # ==============================
-# DELETE EXPENSE - FIXED with backup
+# DELETE EXPENSE - FIXED with safety
 # ==============================
-def delete_expense_by_id(date_str, category, amount, description="", expense_type="", vendor=""):
-    """Delete an expense record by its unique combination of fields"""
+def delete_expense(index):
+    """Delete an expense record by index - SAFE with validation"""
     try:
         df = load_expenses()
         
         if df.empty:
             return False
         
-        # Create backup before deletion
-        if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
-            try:
-                shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
-                shutil.copy2(EXPENSES_FILE, EXPENSES_EMERGENCY_BACKUP)
-                logger.info(f"Created backups before deletion")
-            except Exception as e:
-                logger.warning(f"Could not create backup: {e}")
+        if index not in df.index:
+            logger.warning(f"Index {index} not found in expenses")
+            return False
         
-        # Convert date string to match format in dataframe
-        df["date_short"] = df["date"].str[:16]
-        search_date = date_str[:16]
+        # Get the record for logging
+        record = df.loc[index]
+        logger.info(f"Deleting expense: {record.get('date', 'Unknown')} - {record.get('category', 'Unknown')} - ${record.get('amount', 0)}")
+        
+        # Delete the record
+        df = df.drop(index)
+        df = df.reset_index(drop=True)
+        
+        # Save the updated dataframe
+        return save_expenses(df)
+        
+    except Exception as e:
+        logger.error(f"Error deleting expense: {e}")
+        return False
+
+
+def delete_expense_by_id(date_str, category, amount, description="", expense_type="", vendor=""):
+    """Delete an expense record by its fields - SAFE with validation"""
+    try:
+        df = load_expenses()
+        
+        if df.empty:
+            return False
         
         # Build matching criteria
         mask = (
-            (df["date_short"] == search_date) & 
             (df["category"] == category) & 
             (abs(df["amount"] - float(amount)) < 0.01)
         )
         
-        # Add optional filters if provided
+        # Try to match by date
+        if date_str:
+            # Convert date string to datetime for matching
+            try:
+                date_obj = pd.to_datetime(date_str)
+                df["date_short"] = df["date"].dt.strftime("%Y-%m-%d") if hasattr(df["date"], 'dt') else pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+                mask = mask & (df["date_short"] == date_obj.strftime("%Y-%m-%d"))
+            except:
+                # If date matching fails, just use category and amount
+                pass
+        
+        # Add optional filters
         if description:
             mask = mask & (df["description"].str.contains(description[:20], case=False, na=False))
         
@@ -482,21 +261,11 @@ def delete_expense_by_id(date_str, category, amount, description="", expense_typ
         matching_indices = df[mask].index.tolist()
         
         if not matching_indices:
-            # Try a more lenient match
-            mask_lenient = (
-                (df["date_short"] == search_date) & 
-                (df["category"] == category) & 
-                (abs(df["amount"] - float(amount)) < 0.01)
-            )
-            matching_indices = df[mask_lenient].index.tolist()
-            
-            if not matching_indices:
-                logger.warning(f"No matching expense found for {search_date} - {category} - ${amount}")
-                return False
+            logger.warning(f"No matching expense found for {date_str} - {category} - ${amount}")
+            return False
         
         # Delete the first matching record
         df = df.drop(matching_indices[0])
-        df = df.drop(columns=["date_short"], errors="ignore")
         df = df.reset_index(drop=True)
         save_expenses(df)
         
@@ -508,53 +277,15 @@ def delete_expense_by_id(date_str, category, amount, description="", expense_typ
         return False
 
 
-def delete_expense(index):
-    """Delete an expense record by index"""
-    try:
-        df = load_expenses()
-        
-        if index in df.index:
-            # Create backup before deletion
-            if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size > 0:
-                try:
-                    shutil.copy2(EXPENSES_FILE, EXPENSES_BACKUP_FILE)
-                except:
-                    pass
-            
-            record = df.loc[index]
-            logger.info(f"Deleting expense: {record['date']} - {record['category']} - ${record['amount']}")
-            
-            df = df.drop(index)
-            df = df.reset_index(drop=True)
-            save_expenses(df)
-            return True
-        else:
-            logger.warning(f"Index {index} not found in expenses dataframe")
-            return False
-    except Exception as e:
-        logger.error(f"Error deleting expense: {e}")
-        return False
-
-
 # ==============================
 # UPDATE BUDGET ACTUALS
 # ==============================
 def update_budget_actuals(category, amount):
     """Update actual expenses in budget table"""
     try:
-        budget_df = load_budget()
-        current_year = datetime.now().year
-        current_month = datetime.now().month
-
-        mask = (budget_df["year"] == current_year) & \
-               (budget_df["month"] == current_month) & \
-               (budget_df["category"] == category)
-
-        idx = budget_df[mask].index
-        if len(idx) > 0:
-            current_actual = budget_df.loc[idx[0], "actual_amount"]
-            budget_df.loc[idx[0], "actual_amount"] = current_actual + amount
-            save_budget(budget_df)
+        # This is handled by db_adapter's record_expense
+        # No need to duplicate here
+        pass
     except Exception as e:
         logger.error(f"Error updating budget actuals: {e}")
 
@@ -564,27 +295,35 @@ def update_budget_actuals(category, amount):
 # ==============================
 def set_budget(year, month, category, amount):
     """Set budget for a specific category and period"""
-    budget_df = load_budget()
-
-    mask = (budget_df["year"] == year) & \
-           (budget_df["month"] == month) & \
-           (budget_df["category"] == category)
-
-    idx = budget_df[mask].index
-    if len(idx) > 0:
-        budget_df.loc[idx[0], "budget_amount"] = float(amount)
-    else:
-        new_row = {
-            "year": year,
-            "month": month,
-            "category": category,
-            "budget_amount": float(amount),
-            "actual_amount": 0
-        }
-        budget_df = pd.concat([budget_df, pd.DataFrame([new_row])], ignore_index=True)
-
-    save_budget(budget_df)
-    return True
+    try:
+        budget_df = load_budget()
+        
+        if budget_df.empty:
+            # Create new budget data
+            budget_df = pd.DataFrame(columns=["year", "month", "category", "budget_amount", "actual_amount"])
+        
+        mask = (budget_df["year"] == year) & \
+               (budget_df["month"] == month) & \
+               (budget_df["category"] == category)
+        
+        idx = budget_df[mask].index
+        if len(idx) > 0:
+            budget_df.loc[idx[0], "budget_amount"] = float(amount)
+        else:
+            new_row = {
+                "year": year,
+                "month": month,
+                "category": category,
+                "budget_amount": float(amount),
+                "actual_amount": 0
+            }
+            budget_df = pd.concat([budget_df, pd.DataFrame([new_row])], ignore_index=True)
+        
+        return save_budget(budget_df)
+        
+    except Exception as e:
+        logger.error(f"Error setting budget: {e}")
+        return False
 
 
 # ==============================
@@ -592,23 +331,11 @@ def set_budget(year, month, category, amount):
 # ==============================
 def get_budget_vs_actual(year=None, month=None):
     """Get budget vs actual comparison"""
-    budget_df = load_budget()
-
-    if year:
-        budget_df = budget_df[budget_df["year"] == year]
-    if month:
-        budget_df = budget_df[budget_df["month"] == month]
-
-    if budget_df.empty:
+    try:
+        return db_get_budget_vs_actual(year=year, month=month)
+    except Exception as e:
+        logger.error(f"Error getting budget vs actual: {e}")
         return pd.DataFrame()
-
-    budget_df["variance"] = budget_df["budget_amount"] - budget_df["actual_amount"]
-    budget_df["variance_percent"] = (budget_df["variance"] / budget_df["budget_amount"] * 100).fillna(0)
-    budget_df["status"] = budget_df["variance"].apply(
-        lambda x: "Under Budget" if x > 0 else ("Over Budget" if x < 0 else "On Budget")
-    )
-
-    return budget_df
 
 
 # ==============================
@@ -618,32 +345,37 @@ def add_recurring_expense(description, category, amount, frequency, day_of_month
                           vendor="", payment_method="CASH", start_date=None,
                           end_date=None, notes=""):
     """Add a recurring expense"""
-    df = load_recurring_expenses()
-
-    recurring_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-    if start_date is None:
-        start_date = datetime.now().strftime("%Y-%m-%d")
-
-    new_row = {
-        "recurring_id": recurring_id,
-        "description": description,
-        "category": category,
-        "amount": float(amount),
-        "frequency": frequency,
-        "day_of_month": day_of_month,
-        "vendor": vendor,
-        "payment_method": payment_method,
-        "start_date": start_date,
-        "end_date": end_date if end_date else "",
-        "active": True,
-        "notes": notes
-    }
-
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_recurring_expenses(df)
-
-    return recurring_id
+    try:
+        df = load_recurring_expenses()
+        
+        recurring_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        if start_date is None:
+            start_date = datetime.now().strftime("%Y-%m-%d")
+        
+        new_row = {
+            "recurring_id": recurring_id,
+            "description": description,
+            "category": category,
+            "amount": float(amount),
+            "frequency": frequency,
+            "day_of_month": day_of_month,
+            "vendor": vendor,
+            "payment_method": payment_method,
+            "start_date": start_date,
+            "end_date": end_date if end_date else "",
+            "active": True,
+            "notes": notes
+        }
+        
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        save_recurring_expenses(df)
+        
+        return recurring_id
+        
+    except Exception as e:
+        logger.error(f"Error adding recurring expense: {e}")
+        return None
 
 
 # ==============================
@@ -651,96 +383,75 @@ def add_recurring_expense(description, category, amount, frequency, day_of_month
 # ==============================
 def process_recurring_expenses():
     """Process and auto-record recurring expenses that are due"""
-    recurring_df = load_recurring_expenses()
-
-    if recurring_df.empty:
+    try:
+        recurring_df = load_recurring_expenses()
+        
+        if recurring_df.empty:
+            return []
+        
+        today = datetime.now()
+        current_day = today.day
+        
+        processed = []
+        
+        for _, expense in recurring_df.iterrows():
+            if not expense.get("active", True):
+                continue
+            
+            if expense.get("frequency") == "Monthly":
+                if current_day == expense.get("day_of_month", 1):
+                    record_expense(
+                        expense_type="Recurring",
+                        category=expense.get("category", "Other"),
+                        description=expense.get("description", ""),
+                        amount=expense.get("amount", 0),
+                        vendor=expense.get("vendor", ""),
+                        payment_method=expense.get("payment_method", "CASH"),
+                        notes=f"Auto-recorded recurring expense: {expense.get('description', '')}"
+                    )
+                    processed.append(expense.get("description", ""))
+        
+        return processed
+        
+    except Exception as e:
+        logger.error(f"Error processing recurring expenses: {e}")
         return []
-
-    today = datetime.now()
-    current_day = today.day
-
-    processed = []
-
-    for _, expense in recurring_df.iterrows():
-        if not expense["active"]:
-            continue
-
-        if expense["frequency"] == "Monthly":
-            if current_day == expense["day_of_month"]:
-                record_expense(
-                    expense_type="Recurring",
-                    category=expense["category"],
-                    description=expense["description"],
-                    amount=expense["amount"],
-                    vendor=expense["vendor"],
-                    payment_method=expense["payment_method"],
-                    notes=f"Auto-recorded recurring expense: {expense['description']}"
-                )
-                processed.append(expense["description"])
-
-    return processed
 
 
 # ==============================
-# MONTHLY EXPENSES - FIXED
+# MONTHLY EXPENSES
 # ==============================
 def get_monthly_expenses(month=None, year=None):
     """Get total expenses for a specific month and year"""
-    df = load_expenses()
-
-    if df.empty:
+    try:
+        return db_get_monthly_expenses(month=month, year=year)
+    except Exception as e:
+        logger.error(f"Error getting monthly expenses: {e}")
         return 0
-
-    if month is None:
-        month = datetime.now().month
-    if year is None:
-        year = datetime.now().year
-
-    # Ensure date is datetime
-    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"])
-
-    df = df[(df["date"].dt.month == month) & (df["date"].dt.year == year)]
-
-    return df["amount"].sum()
 
 
 # ==============================
 # GET TOTAL EXPENSES
 # ==============================
 def get_total_expenses():
-    df = load_expenses()
-    return df["amount"].sum() if not df.empty else 0
+    """Get total expenses"""
+    try:
+        return db_get_total_expenses()
+    except Exception as e:
+        logger.error(f"Error getting total expenses: {e}")
+        return 0
 
 
 # ==============================
-# GET EXPENSES BY CATEGORY - FIXED
+# GET EXPENSES BY CATEGORY
 # ==============================
 def get_expenses_by_category(month=None, year=None):
     """Get expenses grouped by category for a period"""
-    df = load_expenses()
-
-    if df.empty:
+    try:
+        return db_get_expenses_by_category(month=month, year=year)
+    except Exception as e:
+        logger.error(f"Error getting expenses by category: {e}")
         return pd.DataFrame()
-
-    # Ensure date is datetime
-    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"])
-
-    if month:
-        df = df[df["date"].dt.month == month]
-    if year:
-        df = df[df["date"].dt.year == year]
-
-    if df.empty:
-        return pd.DataFrame()
-
-    category_summary = df.groupby("category")["amount"].sum().reset_index()
-    category_summary = category_summary.sort_values("amount", ascending=False)
-
-    return category_summary
 
 
 # ==============================
@@ -748,27 +459,30 @@ def get_expenses_by_category(month=None, year=None):
 # ==============================
 def get_expenses_by_vendor(month=None, year=None):
     """Get expenses grouped by vendor"""
-    df = load_expenses()
-
-    if df.empty:
+    try:
+        df = load_expenses()
+        if df.empty:
+            return pd.DataFrame()
+        
+        if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"])
+        
+        if month:
+            df = df[df["date"].dt.month == month]
+        if year:
+            df = df[df["date"].dt.year == year]
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        vendor_summary = df.groupby("vendor")["amount"].sum().reset_index()
+        vendor_summary = vendor_summary.sort_values("amount", ascending=False)
+        
+        return vendor_summary
+    except Exception as e:
+        logger.error(f"Error getting expenses by vendor: {e}")
         return pd.DataFrame()
-
-    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"])
-
-    if month:
-        df = df[df["date"].dt.month == month]
-    if year:
-        df = df[df["date"].dt.year == year]
-
-    if df.empty:
-        return pd.DataFrame()
-
-    vendor_summary = df.groupby("vendor")["amount"].sum().reset_index()
-    vendor_summary = vendor_summary.sort_values("amount", ascending=False)
-
-    return vendor_summary
 
 
 # ==============================
@@ -776,26 +490,29 @@ def get_expenses_by_vendor(month=None, year=None):
 # ==============================
 def get_monthly_trend(months=12):
     """Get monthly expense trend for last N months"""
-    df = load_expenses()
-
-    if df.empty:
+    try:
+        df = load_expenses()
+        if df.empty:
+            return pd.DataFrame()
+        
+        if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"])
+        
+        cutoff = datetime.now() - pd.DateOffset(months=months)
+        df = df[df["date"] >= cutoff]
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        df["year_month"] = df["date"].dt.strftime("%Y-%m")
+        monthly_trend = df.groupby("year_month")["amount"].sum().reset_index()
+        monthly_trend.columns = ["Month", "Total Expenses"]
+        
+        return monthly_trend
+    except Exception as e:
+        logger.error(f"Error getting monthly trend: {e}")
         return pd.DataFrame()
-
-    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"])
-
-    cutoff = datetime.now() - pd.DateOffset(months=months)
-    df = df[df["date"] >= cutoff]
-
-    if df.empty:
-        return pd.DataFrame()
-
-    df["year_month"] = df["date"].dt.strftime("%Y-%m")
-    monthly_trend = df.groupby("year_month")["amount"].sum().reset_index()
-    monthly_trend.columns = ["Month", "Total Expenses"]
-
-    return monthly_trend
 
 
 # ==============================
@@ -803,24 +520,27 @@ def get_monthly_trend(months=12):
 # ==============================
 def get_largest_expenses(n=10, month=None, year=None):
     """Get the largest expense transactions"""
-    df = load_expenses()
-
-    if df.empty:
+    try:
+        df = load_expenses()
+        if df.empty:
+            return pd.DataFrame()
+        
+        if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"])
+        
+        if month:
+            df = df[df["date"].dt.month == month]
+        if year:
+            df = df[df["date"].dt.year == year]
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        return df.nlargest(n, "amount")[["date", "description", "category", "amount", "vendor"]]
+    except Exception as e:
+        logger.error(f"Error getting largest expenses: {e}")
         return pd.DataFrame()
-
-    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"])
-
-    if month:
-        df = df[df["date"].dt.month == month]
-    if year:
-        df = df[df["date"].dt.year == year]
-
-    if df.empty:
-        return pd.DataFrame()
-
-    return df.nlargest(n, "amount")[["date", "description", "category", "amount", "vendor"]]
 
 
 # ==============================
@@ -828,26 +548,29 @@ def get_largest_expenses(n=10, month=None, year=None):
 # ==============================
 def get_expense_summary_by_month(year=None):
     """Get monthly expense summary for a year"""
-    df = load_expenses()
-
-    if df.empty:
+    try:
+        df = load_expenses()
+        if df.empty:
+            return pd.DataFrame()
+        
+        if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"])
+        
+        if year:
+            df = df[df["date"].dt.year == year]
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        df["month"] = df["date"].dt.month
+        monthly_summary = df.groupby("month")["amount"].sum().reset_index()
+        monthly_summary.columns = ["Month", "Total Expenses"]
+        
+        return monthly_summary
+    except Exception as e:
+        logger.error(f"Error getting expense summary by month: {e}")
         return pd.DataFrame()
-
-    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"])
-
-    if year:
-        df = df[df["date"].dt.year == year]
-
-    if df.empty:
-        return pd.DataFrame()
-
-    df["month"] = df["date"].dt.month
-    monthly_summary = df.groupby("month")["amount"].sum().reset_index()
-    monthly_summary.columns = ["Month", "Total Expenses"]
-
-    return monthly_summary
 
 
 # ==============================
@@ -855,32 +578,35 @@ def get_expense_summary_by_month(year=None):
 # ==============================
 def get_expense_summary_by_category(year=None, month=None):
     """Get expense summary grouped by category (dashboard version)"""
-    df = load_expenses()
-
-    if df.empty:
+    try:
+        df = load_expenses()
+        if df.empty:
+            return pd.DataFrame()
+        
+        if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"])
+        
+        if year:
+            df = df[df["date"].dt.year == year]
+        if month:
+            df = df[df["date"].dt.month == month]
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        summary = df.groupby("category").agg({
+            "amount": "sum",
+            "description": "count"
+        }).reset_index()
+        
+        summary.columns = ["Category", "Total Amount", "Number of Transactions"]
+        summary = summary.sort_values("Total Amount", ascending=False)
+        
+        return summary
+    except Exception as e:
+        logger.error(f"Error getting expense summary by category: {e}")
         return pd.DataFrame()
-
-    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"])
-
-    if year:
-        df = df[df["date"].dt.year == year]
-    if month:
-        df = df[df["date"].dt.month == month]
-
-    if df.empty:
-        return pd.DataFrame()
-
-    summary = df.groupby("category").agg({
-        "amount": "sum",
-        "description": "count"
-    }).reset_index()
-
-    summary.columns = ["Category", "Total Amount", "Number of Transactions"]
-    summary = summary.sort_values("Total Amount", ascending=False)
-
-    return summary
 
 
 # ==============================
@@ -900,80 +626,19 @@ def get_top_expenses(n=10, year=None, month=None):
 
 
 # ==============================
-# RECOVER EXPENSES FROM BACKUP
+# DEBUG FUNCTION
 # ==============================
-def recover_from_backup():
-    """Recover expenses from backup file"""
-    # Try emergency backup first
-    if EXPENSES_EMERGENCY_BACKUP.exists() and EXPENSES_EMERGENCY_BACKUP.stat().st_size > 0:
-        try:
-            df = pd.read_csv(EXPENSES_EMERGENCY_BACKUP)
-            if not df.empty:
-                save_expenses(df)
-                logger.info(f"Recovered {len(df)} expenses from emergency backup")
-                return True, f"Recovered {len(df)} expenses from emergency backup"
-        except Exception as e:
-            logger.error(f"Emergency backup recovery failed: {e}")
-    
-    # Try regular backup
-    if EXPENSES_BACKUP_FILE.exists() and EXPENSES_BACKUP_FILE.stat().st_size > 0:
-        try:
-            df = pd.read_csv(EXPENSES_BACKUP_FILE)
-            if not df.empty:
-                save_expenses(df)
-                logger.info(f"Recovered {len(df)} expenses from backup")
-                return True, f"Recovered {len(df)} expenses from backup"
-        except Exception as e:
-            logger.error(f"Backup recovery failed: {e}")
-    
-    return False, "No backup available"
-
-
-# ==============================
-# DEBUG FUNCTION - Check file contents
-# ==============================
-def debug_expenses_file():
-    """Debug function to check expenses file contents"""
+def debug_expenses():
+    """Debug function to check expenses data"""
     try:
-        if EXPENSES_FILE.exists():
-            file_size = EXPENSES_FILE.stat().st_size
-            print(f"File exists: {EXPENSES_FILE}")
-            print(f"File size: {file_size} bytes")
-            
-            if file_size == 0:
-                print("File is empty!")
-                # Check if backup exists
-                if EXPENSES_BACKUP_FILE.exists() and EXPENSES_BACKUP_FILE.stat().st_size > 0:
-                    print(f"Backup exists with size: {EXPENSES_BACKUP_FILE.stat().st_size} bytes")
-                if EXPENSES_EMERGENCY_BACKUP.exists() and EXPENSES_EMERGENCY_BACKUP.stat().st_size > 0:
-                    print(f"Emergency backup exists with size: {EXPENSES_EMERGENCY_BACKUP.stat().st_size} bytes")
-                return
-            
-            with open(EXPENSES_FILE, 'r') as f:
-                lines = f.readlines()
-                print(f"Number of lines: {len(lines)}")
-                if len(lines) > 1:
-                    print("Header:", lines[0].strip())
-                    print("First data row:", lines[1].strip())
-                    print(f"Total data rows: {len(lines) - 1}")
-                    if len(lines) > 2:
-                        print("Last data row:", lines[-1].strip())
-                else:
-                    print("File has only header or is empty")
+        df = load_expenses()
+        print(f"Total expenses: {len(df)}")
+        if not df.empty:
+            print(f"Columns: {df.columns.tolist()}")
+            print(f"First 5 rows:\n{df.head(5)}")
+            print(f"Total amount: ${df['amount'].sum():,.2f}")
         else:
-            print(f"File does not exist: {EXPENSES_FILE}")
-            
-        # Check backups
-        if EXPENSES_BACKUP_FILE.exists():
-            backup_size = EXPENSES_BACKUP_FILE.stat().st_size
-            print(f"\nBackup file exists: {EXPENSES_BACKUP_FILE}")
-            print(f"Backup size: {backup_size} bytes")
-        
-        if EXPENSES_EMERGENCY_BACKUP.exists():
-            emergency_size = EXPENSES_EMERGENCY_BACKUP.stat().st_size
-            print(f"\nEmergency backup exists: {EXPENSES_EMERGENCY_BACKUP}")
-            print(f"Emergency backup size: {emergency_size} bytes")
-            
+            print("No expenses found")
     except Exception as e:
         print(f"Debug error: {e}")
 
@@ -982,14 +647,4 @@ def debug_expenses_file():
 # MAIN
 # ==============================
 if __name__ == "__main__":
-    # Run debug
-    debug_expenses_file()
-    
-    # Test load
-    df = load_expenses()
-    print(f"\nLoaded {len(df)} expense records")
-    if not df.empty:
-        print("Sample records:")
-        print(df.head(5))
-        print(f"\nTotal expenses: ${df['amount'].sum():,.2f}")
-        print(f"Date range: {df['date'].min()} to {df['date'].max()}")
+    debug_expenses()

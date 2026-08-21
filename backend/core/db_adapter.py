@@ -1518,40 +1518,121 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
         return pd.DataFrame()
 
 def save_expenses(df, branch_id=None):
+    """
+    Save expenses to database - APPENDS new records, NEVER deletes existing ones
+    """
     if branch_id is None:
         branch_id = get_current_branch()
+    
+    # Make a copy to avoid modifying original
+    df = df.copy()
+    
+    # Ensure required columns exist with defaults
+    required_cols = ['date', 'expense_type', 'category', 'description', 'amount', 
+                     'vendor', 'payment_method', 'recorded_by', 'notes']
+    
+    for col in required_cols:
+        if col not in df.columns:
+            if col in ['amount']:
+                df[col] = 0.0
+            else:
+                df[col] = ''
+    
+    # Convert date column
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').fillna(datetime.now())
+    
+    # Convert numeric columns
+    numeric_cols = ['amount']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    
+    # Fill empty strings
+    string_cols = ['expense_type', 'category', 'description', 'vendor', 'payment_method', 'recorded_by', 'notes']
+    for col in string_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna('').astype(str)
     
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
+                print("ERROR: Database connection failed")
                 return False
             
-            validation_errors = []
-            for idx, row in df.iterrows():
-                data = row.to_dict()
-                is_valid, errors, clean_data = validate_expense_data(data)
-                
-                if not is_valid:
-                    validation_errors.append(f"Row {idx}: {errors}")
-                    continue
-                
-                cur.execute("""
-                    INSERT INTO expenses (branch_id, expense_date, expense_type, category, 
-                        description, amount, vendor, payment_method, recorded_by, notes)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (branch_id, clean_data.get("date"), clean_data.get("expense_type", ""), 
-                      clean_data.get("category", ""), clean_data.get("description", ""),
-                      clean_data.get("amount", 0), clean_data.get("vendor", ""), 
-                      clean_data.get("payment_method", "CASH"), clean_data.get("recorded_by", "system"), 
-                      clean_data.get("notes", "")))
+            if df.empty:
+                print("DataFrame is empty, nothing to save")
+                return True
             
-            if validation_errors:
-                print(f"Validation errors: {validation_errors}")
+            # FIXED: Use INSERT with ON CONFLICT to handle updates
+            inserted_count = 0
+            updated_count = 0
+            
+            for idx, row in df.iterrows():
+                try:
+                    # Generate unique ID if not exists
+                    expense_id = row.get('id')
+                    if not expense_id or pd.isna(expense_id):
+                        expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{idx}"
+                    
+                    # Use INSERT with ON CONFLICT DO UPDATE
+                    cur.execute("""
+                        INSERT INTO expenses (
+                            id, branch_id, expense_date, expense_type, category, 
+                            description, amount, vendor, payment_method, recorded_by, notes
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            expense_date = EXCLUDED.expense_date,
+                            expense_type = EXCLUDED.expense_type,
+                            category = EXCLUDED.category,
+                            description = EXCLUDED.description,
+                            amount = EXCLUDED.amount,
+                            vendor = EXCLUDED.vendor,
+                            payment_method = EXCLUDED.payment_method,
+                            recorded_by = EXCLUDED.recorded_by,
+                            notes = EXCLUDED.notes
+                    """, (
+                        expense_id,
+                        branch_id,
+                        row.get('date'),
+                        row.get('expense_type', ''),
+                        row.get('category', ''),
+                        row.get('description', ''),
+                        float(row.get('amount', 0)),
+                        row.get('vendor', ''),
+                        row.get('payment_method', 'CASH'),
+                        row.get('recorded_by', 'system'),
+                        row.get('notes', '')
+                    ))
+                    
+                    # Check if it was an insert or update
+                    if cur.rowcount == 1:
+                        inserted_count += 1
+                    else:
+                        updated_count += 1
+                    
+                except Exception as e:
+                    print(f"Error saving expense row {idx}: {e}")
+                    print(f"Row data: {row.to_dict()}")
+                    continue
             
             conn.commit()
+            print(f"Saved {inserted_count} new and {updated_count} updated expenses for branch: {branch_id}")
+            
+            # Verify save
+            try:
+                cur.execute("SELECT COUNT(*) FROM expenses WHERE branch_id = %s", (branch_id,))
+                count = cur.fetchone()[0]
+                print(f"Verification: {count} expenses in database for branch: {branch_id}")
+            except Exception as e:
+                print(f"Verification error: {e}")
+            
             return True
+            
     except Exception as e:
         print(f"Error saving expenses: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def get_total_expenses():
@@ -1746,6 +1827,9 @@ def get_monthly_expenses(month=None, year=None):
     return df["amount"].sum()
 
 def record_expense(expense_type, category, description, amount, vendor="", payment_method="CASH", user="System", notes=""):
+    """
+    Record a single expense - APPENDS new record, NEVER deletes existing ones
+    """
     valid, msg = validate_category(category)
     if not valid:
         print(f"Invalid category: {msg}")
@@ -1762,9 +1846,9 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
             print(f"Invalid vendor: {msg}")
             return False
     
-    df = load_expenses()
-    
-    new_row = {
+    # Create a single-row DataFrame
+    new_row = pd.DataFrame([{
+        "id": f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}",  # Add unique ID
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "expense_type": sanitize_string(expense_type, 50),
         "category": sanitize_string(category, 100),
@@ -1774,17 +1858,19 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
         "payment_method": sanitize_string(payment_method, 20),
         "recorded_by": sanitize_string(user, 50),
         "notes": sanitize_string(notes, 500)
-    }
+    }])
     
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_expenses(df)
+    # Save only the new row - don't load and resave all records
+    success = save_expenses(new_row)
     
-    try:
-        update_budget_actuals(category, float(amount_clean))
-    except:
-        pass
+    if success:
+        try:
+            update_budget_actuals(category, float(amount_clean))
+        except:
+            pass
+        return True
     
-    return True
+    return False
 
 def update_budget_actuals(category, amount):
     current_year = datetime.now().year
@@ -1836,37 +1922,114 @@ def load_income(branch_id=None, date_from=None, date_to=None):
         return pd.DataFrame()
 
 def save_income(df, branch_id=None):
+    """
+    Save income to database - APPENDS new records, NEVER deletes existing ones
+    """
     if branch_id is None:
         branch_id = get_current_branch()
+    
+    # Make a copy to avoid modifying original
+    df = df.copy()
+    
+    # Ensure required columns exist with defaults
+    required_cols = ['date', 'income_source', 'description', 'amount', 'recorded_by']
+    
+    for col in required_cols:
+        if col not in df.columns:
+            if col in ['amount']:
+                df[col] = 0.0
+            else:
+                df[col] = ''
+    
+    # Convert date column
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').fillna(datetime.now())
+    
+    # Convert numeric columns
+    numeric_cols = ['amount']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    
+    # Fill empty strings
+    string_cols = ['income_source', 'description', 'recorded_by']
+    for col in string_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna('').astype(str)
     
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
+                print("ERROR: Database connection failed")
                 return False
             
-            validation_errors = []
-            for idx, row in df.iterrows():
-                if 'amount' in row:
-                    valid, amount, msg = validate_amount(row["amount"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid amount - {msg}")
-                        continue
-                    row["amount"] = amount
-                
-                cur.execute("""
-                    INSERT INTO income (branch_id, income_date, income_source, description, amount, recorded_by)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (branch_id, row["date"], row["income_source"], row["description"], row["amount"], row.get("user", "system")))
+            if df.empty:
+                print("DataFrame is empty, nothing to save")
+                return True
             
-            if validation_errors:
-                print(f"Validation errors: {validation_errors}")
+            # FIXED: Use INSERT with ON CONFLICT to handle updates
+            inserted_count = 0
+            updated_count = 0
+            
+            for idx, row in df.iterrows():
+                try:
+                    # Generate unique ID if not exists
+                    income_id = row.get('id')
+                    if not income_id or pd.isna(income_id):
+                        income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{idx}"
+                    
+                    # Use INSERT with ON CONFLICT DO UPDATE
+                    cur.execute("""
+                        INSERT INTO income (
+                            id, branch_id, income_date, income_source, 
+                            description, amount, recorded_by
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            income_date = EXCLUDED.income_date,
+                            income_source = EXCLUDED.income_source,
+                            description = EXCLUDED.description,
+                            amount = EXCLUDED.amount,
+                            recorded_by = EXCLUDED.recorded_by
+                    """, (
+                        income_id,
+                        branch_id,
+                        row.get('date'),
+                        row.get('income_source', ''),
+                        row.get('description', ''),
+                        float(row.get('amount', 0)),
+                        row.get('recorded_by', 'system')
+                    ))
+                    
+                    # Check if it was an insert or update
+                    if cur.rowcount == 1:
+                        inserted_count += 1
+                    else:
+                        updated_count += 1
+                    
+                except Exception as e:
+                    print(f"Error saving income row {idx}: {e}")
+                    print(f"Row data: {row.to_dict()}")
+                    continue
             
             conn.commit()
+            print(f"Saved {inserted_count} new and {updated_count} updated income records for branch: {branch_id}")
+            
+            # Verify save
+            try:
+                cur.execute("SELECT COUNT(*) FROM income WHERE branch_id = %s", (branch_id,))
+                count = cur.fetchone()[0]
+                print(f"Verification: {count} income records in database for branch: {branch_id}")
+            except Exception as e:
+                print(f"Verification error: {e}")
+            
             return True
+            
     except Exception as e:
         print(f"Error saving income: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-
+    
 def get_monthly_income(month=None):
     df = load_income()
     
@@ -1882,25 +2045,26 @@ def get_monthly_income(month=None):
     return df["amount"].sum()
 
 def record_income(income_source, description, amount, user="System"):
+    """
+    Record a single income - APPENDS new record, NEVER deletes existing ones
+    """
     valid, amount_clean, msg = validate_amount(amount)
     if not valid:
         print(f"Invalid amount: {msg}")
         return False
     
-    df = load_income()
-    
-    new_row = {
+    # Create a single-row DataFrame
+    new_row = pd.DataFrame([{
+        "id": f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}",  # Add unique ID
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "income_source": sanitize_string(income_source, 100),
         "description": sanitize_string(description, 200),
         "amount": float(amount_clean),
-        "user": sanitize_string(user, 50)
-    }
+        "recorded_by": sanitize_string(user, 50)
+    }])
     
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_income(df)
-    
-    return True
+    # Save only the new row - don't load and resave all records
+    return save_income(new_row)
 
 # ==============================
 # PURCHASE FUNCTIONS

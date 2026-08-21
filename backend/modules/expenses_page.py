@@ -10,17 +10,15 @@ from backend.modules.expenses import (
     delete_expense_by_id,
     delete_expense,
     add_expense_category,
-    debug_expenses_file,
-    recover_from_backup,
-    EXPENSES_FILE,
     get_expenses_by_category,
     get_monthly_trend,
     get_largest_expenses
 )
+from backend.core.db_adapter import get_current_branch
 
 
 def expenses_page():
-    """Expenses Management Page - Fixed: Better data handling and debugging"""
+    """Expenses Management Page - Using PostgreSQL Database"""
     
     st.title("Business Expenses")
     st.caption("Record and track all business expenses")
@@ -63,39 +61,22 @@ def expenses_page():
         st.session_state.delete_message = ""
 
     # ==============================
-    # LOAD EXPENSES WITH DEBUG
+    # LOAD EXPENSES
     # ==============================
     df = load_expenses()
     
-    # Debug info in sidebar
-    with st.sidebar.expander("Expenses Debug Info"):
-        st.write(f"**File path:** `{EXPENSES_FILE}`")
-        st.write(f"**File exists:** {EXPENSES_FILE.exists()}")
-        if EXPENSES_FILE.exists():
-            st.write(f"**File size:** {EXPENSES_FILE.stat().st_size} bytes")
+    # Show current branch in sidebar
+    with st.sidebar.expander("Expenses Info"):
+        try:
+            current_branch = get_current_branch()
+            st.write(f"**Branch:** {current_branch}")
+        except:
+            pass
         st.write(f"**Records loaded:** {len(df)}")
         
         if not df.empty:
             st.write(f"**Date range:** {df['date'].min()} to {df['date'].max()}")
             st.write(f"**Total amount:** ${df['amount'].sum():,.2f}")
-        
-        # Show raw file content if small
-        if EXPENSES_FILE.exists() and EXPENSES_FILE.stat().st_size < 5000:
-            try:
-                with open(EXPENSES_FILE, 'r') as f:
-                    content = f.read()
-                    st.text_area("Raw file content:", content, height=150)
-            except:
-                pass
-        
-        # Recovery option
-        if st.button("Recover from Backup", use_container_width=True):
-            success, message = recover_from_backup()
-            if success:
-                st.success(message)
-                st.rerun()
-            else:
-                st.warning(message)
 
     # ==============================
     # LOAD CATEGORIES
@@ -175,7 +156,6 @@ def expenses_page():
                     st.session_state.expense_message = message
                     st.success(f"{message}")
                     st.balloons()
-                    # Refresh the page to show new expense
                     st.rerun()
                 else:
                     st.error(f"Failed to record expense: {message}")
@@ -233,7 +213,6 @@ def expenses_page():
         with col2:
             st.metric("Total All Time", f"${total_all:,.2f}")
         
-        # Average expense
         avg_expense = df["amount"].mean()
         with col3:
             st.metric("Average Expense", f"${avg_expense:.2f}")
@@ -282,12 +261,10 @@ def expenses_page():
             col1, col2 = st.columns(2)
             
             with col1:
-                # Filter by category
                 all_categories = ["All"] + sorted(df["category"].unique().tolist())
                 filter_category = st.selectbox("Filter by Category", all_categories, key="filter_category")
             
             with col2:
-                # Filter by date range
                 min_date = pd.to_datetime(df["date"]).min().date()
                 max_date = pd.to_datetime(df["date"]).max().date()
                 date_range = st.date_input(
@@ -315,7 +292,6 @@ def expenses_page():
             if not filtered_df.empty:
                 st.write(f"**Filtered Results:** {len(filtered_df)} records, Total: ${filtered_df['amount'].sum():,.2f}")
                 
-                # Show filtered data
                 filtered_display = filtered_df.copy()
                 filtered_display["date_display"] = pd.to_datetime(filtered_display["date"]).dt.strftime("%Y-%m-%d %H:%M")
                 st.dataframe(
@@ -328,7 +304,6 @@ def expenses_page():
                     }
                 )
                 
-                # Download filtered data
                 csv_filtered = filtered_df.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     label="Download Filtered Data (CSV)",
@@ -342,13 +317,11 @@ def expenses_page():
         # DELETE RECORD
         # ==============================
         with st.expander("Delete Expense Record"):
-            st.warning("This action cannot be undone")
+            st.warning("⚠️ This action cannot be undone")
             
             if not df.empty:
-                # Create a clean list of records for deletion
                 df_for_delete = df.sort_values("date", ascending=False).reset_index(drop=True)
                 
-                # Create display options with unique IDs
                 record_options = []
                 record_indices = []
                 
@@ -371,7 +344,6 @@ def expenses_page():
                     selected_idx = record_options.index(selected_display)
                     actual_row = df_for_delete.iloc[selected_idx]
                     
-                    # Show record details
                     st.info(f"""
                     **Record to delete:**
                     - **Date:** {pd.to_datetime(actual_row['date']).strftime('%Y-%m-%d %H:%M')}
@@ -385,19 +357,7 @@ def expenses_page():
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("Confirm Delete", type="secondary", use_container_width=True, key="confirm_delete_expense"):
-                            # Try both methods to ensure deletion
-                            success = delete_expense_by_id(
-                                date_str=actual_row["date"],
-                                category=actual_row["category"],
-                                amount=actual_row["amount"],
-                                description=actual_row.get("description", ""),
-                                expense_type=actual_row.get("expense_type", ""),
-                                vendor=actual_row.get("vendor", "")
-                            )
-                            
-                            # If first method fails, try by index
-                            if not success:
-                                success = delete_expense(actual_row.name)
+                            success = delete_expense(actual_row.name)
                             
                             if success:
                                 st.session_state.delete_success = True
@@ -418,7 +378,6 @@ def expenses_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Export all data
             csv = df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="Download All Expenses (CSV)",
@@ -430,7 +389,6 @@ def expenses_page():
             )
         
         with col2:
-            # Export summary by category
             if not df.empty:
                 summary = df.groupby("category")["amount"].agg(["sum", "count", "mean"]).reset_index()
                 summary.columns = ["Category", "Total", "Count", "Average"]
@@ -449,7 +407,6 @@ def expenses_page():
     else:
         st.info("No expenses recorded yet. Use the form above to add your first expense.")
         
-        # Show help
         with st.expander("How to record your first expense"):
             st.write("""
             1. Fill in the expense details in the form above
@@ -473,21 +430,17 @@ def expenses_page():
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            # Total number of expenses
             st.metric("Total Records", len(df))
         
         with col2:
-            # Most common category
             top_category = df["category"].value_counts().index[0] if not df.empty else "N/A"
             st.metric("Top Category", top_category)
         
         with col3:
-            # Largest expense
             largest = df["amount"].max() if not df.empty else 0
             st.metric("Largest Expense", f"${largest:.2f}")
         
         with col4:
-            # Total spent
             total = df["amount"].sum() if not df.empty else 0
             st.metric("Total Spent", f"${total:,.2f}")
 

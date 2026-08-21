@@ -10,35 +10,31 @@ from backend.modules.income import (
     get_monthly_income, 
     get_income_by_source, 
     get_income_trend,
-    get_total_income,
-    INCOME_FILE,
-    recover_from_backup
+    get_total_income
 )
+from backend.core.db_adapter import get_current_branch
 
 
 def income_dashboard():
-    """Income Analytics Dashboard - FIXED with proper data handling"""
+    """Income Analytics Dashboard - Using PostgreSQL Database"""
     
     st.title("Income Dashboard")
     st.caption("Analytics and insights for business income")
     
     # ==============================
-    # DEBUG INFO IN SIDEBAR
+    # BRANCH INFO IN SIDEBAR
     # ==============================
-    with st.sidebar.expander("Income Debug Info"):
-        st.write(f"**File path:** `{INCOME_FILE}`")
-        st.write(f"**File exists:** {INCOME_FILE.exists()}")
-        if INCOME_FILE.exists():
-            st.write(f"**File size:** {INCOME_FILE.stat().st_size} bytes")
+    with st.sidebar.expander("Income Info"):
+        try:
+            current_branch = get_current_branch()
+            st.write(f"**Branch:** {current_branch}")
+        except:
+            pass
         
-        # Recovery option
-        if st.button("Recover from Backup", use_container_width=True, key="recover_income_dash"):
-            success, message = recover_from_backup()
-            if success:
-                st.success(message)
-                st.rerun()
-            else:
-                st.warning(message)
+        df = load_income()
+        st.write(f"**Records loaded:** {len(df)}")
+        if not df.empty:
+            st.write(f"**Total amount:** ${df['amount'].sum():,.2f}")
     
     # Load data
     df = load_income()
@@ -190,7 +186,6 @@ def income_dashboard():
             with col3:
                 st.metric("Last Month", f"${last_month:,.2f}")
             
-            # Show trend direction
             if growth > 5:
                 st.success("Income is increasing - Great performance!")
             elif growth < -5:
@@ -207,14 +202,12 @@ def income_dashboard():
     # ==============================
     st.subheader("Monthly Comparison")
     
-    # Group by month and get summary
     monthly_summary = df.groupby("month").agg({
         "amount": ["sum", "count", "mean"]
     }).reset_index()
     monthly_summary.columns = ["Month", "Total Income", "Records", "Average"]
     monthly_summary = monthly_summary.sort_values("Month", ascending=False)
     
-    # Format numbers
     monthly_summary["Total Income"] = monthly_summary["Total Income"].apply(lambda x: f"${x:,.2f}")
     monthly_summary["Average"] = monthly_summary["Average"].apply(lambda x: f"${x:,.2f}")
     
@@ -250,14 +243,12 @@ def income_dashboard():
     st.markdown("---")
     st.subheader("Yearly Summary")
     
-    # Group by year
     yearly_summary = df.groupby("year").agg({
         "amount": ["sum", "count", "mean"]
     }).reset_index()
     yearly_summary.columns = ["Year", "Total Income", "Records", "Average"]
     yearly_summary = yearly_summary.sort_values("Year", ascending=False)
     
-    # Format numbers
     yearly_summary["Total Income"] = yearly_summary["Total Income"].apply(lambda x: f"${x:,.2f}")
     yearly_summary["Average"] = yearly_summary["Average"].apply(lambda x: f"${x:,.2f}")
     
@@ -295,7 +286,6 @@ def income_dashboard():
             )
     
     with col3:
-        # Monthly summary export
         if not monthly_summary.empty:
             csv_monthly = monthly_summary.to_csv(index=False).encode("utf-8")
             st.download_button(

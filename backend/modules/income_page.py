@@ -8,11 +8,9 @@ from backend.modules.income import (
     get_income_trend,
     get_total_income,
     delete_income,
-    delete_income_by_id,
-    recover_from_backup,
-    INCOME_FILE,
-    debug_income_file
+    delete_income_by_id
 )
+from backend.core.db_adapter import get_current_branch
 import pandas as pd
 from datetime import datetime
 import plotly.express as px
@@ -20,7 +18,7 @@ import plotly.graph_objects as go
 
 
 def income_page():
-    """Income Management Page - FIXED: Proper delete using unique identifiers"""
+    """Income Management Page - Using PostgreSQL Database"""
     
     st.title("Business Income")
     st.caption("Record and track all business income")
@@ -54,39 +52,22 @@ def income_page():
         st.session_state.delete_message = ""
 
     # ==============================
-    # LOAD INCOME WITH DEBUG
+    # LOAD INCOME
     # ==============================
     df = load_income()
     
-    # Debug info in sidebar
-    with st.sidebar.expander("Income Debug Info"):
-        st.write(f"**File path:** `{INCOME_FILE}`")
-        st.write(f"**File exists:** {INCOME_FILE.exists()}")
-        if INCOME_FILE.exists():
-            st.write(f"**File size:** {INCOME_FILE.stat().st_size} bytes")
+    # Show current branch in sidebar
+    with st.sidebar.expander("Income Info"):
+        try:
+            current_branch = get_current_branch()
+            st.write(f"**Branch:** {current_branch}")
+        except:
+            pass
         st.write(f"**Records loaded:** {len(df)}")
         
         if not df.empty:
             st.write(f"**Date range:** {df['date'].min()} to {df['date'].max()}")
             st.write(f"**Total amount:** ${df['amount'].sum():,.2f}")
-        
-        # Show raw file content if small
-        if INCOME_FILE.exists() and INCOME_FILE.stat().st_size < 5000:
-            try:
-                with open(INCOME_FILE, 'r') as f:
-                    content = f.read()
-                    st.text_area("Raw file content:", content, height=150)
-            except:
-                pass
-        
-        # Recovery option
-        if st.button("Recover from Backup", use_container_width=True):
-            success, message = recover_from_backup()
-            if success:
-                st.success(message)
-                st.rerun()
-            else:
-                st.warning(message)
 
     # ==============================
     # INPUT FORM
@@ -246,7 +227,7 @@ def income_page():
         st.info("No income trend data available")
 
     # ==============================
-    # TABLE & DELETE - FIXED
+    # TABLE & DELETE
     # ==============================
     st.markdown("---")
     st.subheader("Income Records")
@@ -267,19 +248,17 @@ def income_page():
             }
         )
         
-        # Show record count
         st.caption(f"Showing {len(df_sorted)} income records")
         
         # ==============================
-        # DELETE RECORD - FIXED: Use delete_income_by_id
+        # DELETE RECORD
         # ==============================
         with st.expander("Delete Income Record"):
-            st.warning("This action cannot be undone")
+            st.warning("⚠️ This action cannot be undone")
             
             if not df.empty:
-                # Create a list of records to select from with unique identifiers
                 record_options = []
-                record_data = []  # Store the actual data for deletion
+                record_data = []
                 
                 df_sorted_for_select = df.sort_values("date", ascending=False)
                 
@@ -289,7 +268,6 @@ def income_page():
                     display_text = f"{date_str} | {row['income_source']} | {desc} | ${row['amount']:.2f}"
                     record_options.append(display_text)
                     
-                    # Store the unique identifier data
                     record_data.append({
                         "date": row["date"],
                         "income_source": row["income_source"],
@@ -307,7 +285,6 @@ def income_page():
                     selected_idx = record_options.index(selected_record)
                     record_to_delete = record_data[selected_idx]
                     
-                    # Show what will be deleted
                     st.info(f"""
                     **Record to delete:**
                     - **Date:** {pd.to_datetime(record_to_delete['date']).strftime('%Y-%m-%d %H:%M')}
@@ -319,7 +296,6 @@ def income_page():
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("Confirm Delete", type="secondary", use_container_width=True, key="confirm_delete_income"):
-                            # Use the safer delete_by_id method
                             success = delete_income_by_id(
                                 date_str=record_to_delete["date"],
                                 income_source=record_to_delete["income_source"],
@@ -341,7 +317,6 @@ def income_page():
     else:
         st.info("No income recorded yet. Use the form above to add your first income record.")
         
-        # Show help
         with st.expander("How to record your first income"):
             st.write("""
             1. Fill in the income details in the form above
@@ -376,7 +351,6 @@ def income_page():
             )
         
         with col2:
-            # Export summary by source
             if not source_df.empty:
                 csv_summary = source_df.to_csv(index=False).encode("utf-8")
                 st.download_button(
