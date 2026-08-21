@@ -121,40 +121,43 @@ def create_purchase_order(supplier, items, expected_date):
 
 
 # ==============================
-# DELETE PURCHASE ORDER - COMPLETE FIX
+# DELETE PURCHASE ORDER - DIRECT SQL FIX
 # ==============================
 def delete_purchase_order(po_number):
-    """Delete a purchase order and all its items - COMPLETE FIX"""
+    """Delete a purchase order and all its items - DIRECT SQL FIX"""
     try:
-        purchases_df = load_purchases()
+        from backend.core.db_adapter import get_db_connection
         
-        if purchases_df.empty:
-            return False, "No purchase orders found"
-        
-        # Convert po_number to string for safe comparison
         po_number_str = str(po_number).strip()
         
-        # Check if PO exists (convert both sides to string)
-        po_exists = purchases_df["po_number"].astype(str).str.strip() == po_number_str
-        if not po_exists.any():
-            return False, f"Purchase Order {po_number_str} not found"
-        
-        # Count items before deletion
-        item_count = len(purchases_df[po_exists])
-        
-        # Get supplier name for logging
-        supplier = purchases_df.loc[po_exists.index[0], "supplier"] if "supplier" in purchases_df.columns else "Unknown"
-        
-        # Delete all items with this PO number
-        purchases_df = purchases_df[~po_exists]
-        
-        # Save changes using the db_adapter save function
-        save_success = save_purchases(purchases_df)
-        
-        if save_success:
-            return True, f"Purchase Order {po_number_str} deleted successfully. Removed {item_count} item(s) from {supplier}."
-        else:
-            return False, "Failed to save changes to database"
+        # First, check if the PO exists and get count
+        with get_db_connection() as conn:
+            if conn is None:
+                return False, "Database connection failed"
+            
+            cur = conn.cursor()
+            
+            # Check if PO exists
+            cur.execute("SELECT COUNT(*) FROM purchases WHERE po_number = %s", (po_number_str,))
+            count = cur.fetchone()[0]
+            
+            if count == 0:
+                return False, f"Purchase Order {po_number_str} not found"
+            
+            # Delete the PO
+            cur.execute("DELETE FROM purchases WHERE po_number = %s", (po_number_str,))
+            conn.commit()
+            
+            # Verify deletion
+            cur.execute("SELECT COUNT(*) FROM purchases WHERE po_number = %s", (po_number_str,))
+            remaining = cur.fetchone()[0]
+            
+            cur.close()
+            
+            if remaining == 0:
+                return True, f"Purchase Order {po_number_str} deleted successfully. Removed {count} item(s)."
+            else:
+                return False, f"Failed to delete PO {po_number_str}. {remaining} items remain."
             
     except Exception as e:
         import traceback
@@ -163,36 +166,49 @@ def delete_purchase_order(po_number):
 
 
 # ==============================
-# DELETE ALL PURCHASE ORDERS - COMPLETE FIX
+# DELETE ALL PURCHASE ORDERS - DIRECT SQL FIX
 # ==============================
 def delete_all_purchase_orders():
-    """Delete ALL purchase orders - COMPLETE FIX"""
+    """Delete ALL purchase orders - DIRECT SQL FIX"""
     try:
-        purchases_df = load_purchases()
+        from backend.core.db_adapter import get_db_connection
         
-        if purchases_df.empty:
-            return False, "No purchase orders found to delete"
-        
-        # Count total items
-        total_items = len(purchases_df)
-        unique_pos = purchases_df["po_number"].nunique() if "po_number" in purchases_df.columns else 1
-        
-        # Create empty DataFrame with same columns
-        empty_df = pd.DataFrame(columns=purchases_df.columns)
-        
-        # Save empty DataFrame
-        save_success = save_purchases(empty_df)
-        
-        if save_success:
-            return True, f"All {unique_pos} purchase orders ({total_items} items) deleted successfully."
-        else:
-            return False, "Failed to save changes to database"
+        with get_db_connection() as conn:
+            if conn is None:
+                return False, "Database connection failed"
+            
+            cur = conn.cursor()
+            
+            # Get count before deletion
+            cur.execute("SELECT COUNT(*) FROM purchases")
+            total_items = cur.fetchone()[0]
+            
+            if total_items == 0:
+                return False, "No purchase orders found to delete"
+            
+            # Get unique PO count
+            cur.execute("SELECT COUNT(DISTINCT po_number) FROM purchases")
+            unique_pos = cur.fetchone()[0]
+            
+            # Delete all
+            cur.execute("DELETE FROM purchases")
+            conn.commit()
+            
+            # Verify
+            cur.execute("SELECT COUNT(*) FROM purchases")
+            remaining = cur.fetchone()[0]
+            
+            cur.close()
+            
+            if remaining == 0:
+                return True, f"All {unique_pos} purchase orders ({total_items} items) deleted successfully."
+            else:
+                return False, f"Failed to delete all POs. {remaining} items remain."
             
     except Exception as e:
         import traceback
         traceback.print_exc()
         return False, f"Error deleting all POs: {str(e)}"
-
 
 # ==============================
 # RECEIVE PURCHASE ORDER - OPTIMIZED
