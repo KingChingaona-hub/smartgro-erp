@@ -1398,12 +1398,32 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
             cur.execute(query, params)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
-            return pd.DataFrame()
+                df = pd.DataFrame(rows)
+                
+                # Rename columns to match expected names
+                if 'expense_date' in df.columns and 'date' not in df.columns:
+                    df = df.rename(columns={'expense_date': 'date'})
+                
+                # Ensure all required columns exist
+                required_cols = ['date', 'expense_type', 'category', 'description', 'amount', 
+                               'vendor', 'payment_method', 'recorded_by', 'notes']
+                for col in required_cols:
+                    if col not in df.columns:
+                        if col == 'amount':
+                            df[col] = 0
+                        else:
+                            df[col] = ''
+                
+                return df
+            return pd.DataFrame(columns=['date', 'expense_type', 'category', 'description', 
+                                        'amount', 'vendor', 'payment_method', 'recorded_by', 'notes'])
     except Exception as e:
         print(f"Error loading expenses: {e}")
-        return pd.DataFrame()
-
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame(columns=['date', 'expense_type', 'category', 'description', 
+                                    'amount', 'vendor', 'payment_method', 'recorded_by', 'notes'])
+        
 def save_expenses(df, branch_id=None):
     """
     Save expenses to database - APPENDS new records, NEVER deletes existing ones
@@ -1779,11 +1799,40 @@ def load_income(branch_id=None, date_from=None, date_to=None):
             cur.execute(query, params)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
-            return pd.DataFrame()
+                df = pd.DataFrame(rows)
+                
+                # Rename columns to match expected names
+                # The database uses 'income_date' but the app expects 'date'
+                if 'income_date' in df.columns and 'date' not in df.columns:
+                    df = df.rename(columns={'income_date': 'date'})
+                
+                # Also rename other columns if needed
+                if 'income_source' in df.columns and 'income_source' not in df.columns:
+                    pass  # already correct
+                
+                # Ensure 'user' column exists (for compatibility)
+                if 'recorded_by' in df.columns and 'user' not in df.columns:
+                    df = df.rename(columns={'recorded_by': 'user'})
+                elif 'user' not in df.columns:
+                    df['user'] = 'system'
+                
+                # Ensure all required columns exist
+                required_cols = ['date', 'income_source', 'description', 'amount', 'user']
+                for col in required_cols:
+                    if col not in df.columns:
+                        if col == 'amount':
+                            df[col] = 0
+                        else:
+                            df[col] = ''
+                
+                return df
+            return pd.DataFrame(columns=['date', 'income_source', 'description', 'amount', 'user'])
     except Exception as e:
         print(f"Error loading income: {e}")
-        return pd.DataFrame()
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame(columns=['date', 'income_source', 'description', 'amount', 'user'])
+    
 
 def save_income(df, branch_id=None):
     """
