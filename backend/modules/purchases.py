@@ -121,13 +121,10 @@ def create_purchase_order(supplier, items, expected_date):
 
 
 # ==============================
-# DELETE PURCHASE ORDER - FIXED
-# ==============================
-# ==============================
-# DELETE PURCHASE ORDER - FIXED
+# DELETE PURCHASE ORDER - COMPLETE FIX
 # ==============================
 def delete_purchase_order(po_number):
-    """Delete a purchase order and all its items - FIXED"""
+    """Delete a purchase order and all its items - COMPLETE FIX"""
     try:
         purchases_df = load_purchases()
         
@@ -145,6 +142,9 @@ def delete_purchase_order(po_number):
         # Count items before deletion
         item_count = len(purchases_df[po_exists])
         
+        # Get supplier name for logging
+        supplier = purchases_df.loc[po_exists.index[0], "supplier"] if "supplier" in purchases_df.columns else "Unknown"
+        
         # Delete all items with this PO number
         purchases_df = purchases_df[~po_exists]
         
@@ -152,21 +152,21 @@ def delete_purchase_order(po_number):
         save_success = save_purchases(purchases_df)
         
         if save_success:
-            return True, f"Purchase Order {po_number_str} deleted successfully. Removed {item_count} item(s)."
+            return True, f"Purchase Order {po_number_str} deleted successfully. Removed {item_count} item(s) from {supplier}."
         else:
             return False, "Failed to save changes to database"
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return False, f"Error deleting PO: {str(e)}"
-    
+
+
 # ==============================
-# DELETE ALL PURCHASE ORDERS - FIXED
-# ==============================
-# ==============================
-# DELETE ALL PURCHASE ORDERS - FIXED
+# DELETE ALL PURCHASE ORDERS - COMPLETE FIX
 # ==============================
 def delete_all_purchase_orders():
-    """Delete ALL purchase orders - FIXED"""
+    """Delete ALL purchase orders - COMPLETE FIX"""
     try:
         purchases_df = load_purchases()
         
@@ -175,7 +175,7 @@ def delete_all_purchase_orders():
         
         # Count total items
         total_items = len(purchases_df)
-        unique_pos = purchases_df["po_number"].nunique()
+        unique_pos = purchases_df["po_number"].nunique() if "po_number" in purchases_df.columns else 1
         
         # Create empty DataFrame with same columns
         empty_df = pd.DataFrame(columns=purchases_df.columns)
@@ -189,8 +189,10 @@ def delete_all_purchase_orders():
             return False, "Failed to save changes to database"
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return False, f"Error deleting all POs: {str(e)}"
-    
+
 
 # ==============================
 # RECEIVE PURCHASE ORDER - OPTIMIZED
@@ -518,10 +520,10 @@ def supplier_autocomplete(key_suffix=""):
 
 
 # ==============================
-# PURCHASES PAGE - OPTIMIZED WITH BATCH ADDITION
+# PURCHASES PAGE - COMPLETE FIXED VERSION
 # ==============================
 def purchases_page():
-    """Enhanced Purchases Management Page with Batch Addition to Cart - OPTIMIZED"""
+    """Enhanced Purchases Management Page with Batch Addition to Cart - COMPLETE FIX"""
     
     st.title("Purchases and Suppliers Management")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
@@ -596,7 +598,7 @@ def purchases_page():
     ])
     
     # ==============================
-    # TAB 1: CREATE PURCHASE ORDER - OPTIMIZED
+    # TAB 1: CREATE PURCHASE ORDER
     # ==============================
     with tab1:
         st.markdown("## Create Purchase Order")
@@ -608,7 +610,6 @@ def purchases_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Replace text input with autocomplete
             supplier_name = supplier_autocomplete("main")
         
         with col2:
@@ -621,13 +622,12 @@ def purchases_page():
         st.markdown("### Add Products to Order")
         
         # ==============================
-        # BATCH ADDITION SECTION - OPTIMIZED
+        # BATCH ADDITION SECTION
         # ==============================
         if not products_df.empty:
             st.markdown("#### Batch Add Products from Supplier")
             st.caption("Select multiple products to add to your order at once")
             
-            # Batch selection
             col1, col2, col3 = st.columns([2, 1, 1])
             
             with col1:
@@ -635,19 +635,16 @@ def purchases_page():
                                             placeholder="Type product name or barcode to filter...")
             
             with col2:
-                # Select all checkbox
                 select_all_batch = st.checkbox("Select All Products", key="select_all_batch")
             
             with col3:
                 if st.button("Show Batch Add", key="show_batch_add_btn", use_container_width=True):
                     st.session_state.show_batch_add = not st.session_state.show_batch_add
                     if st.session_state.show_batch_add:
-                        # Reset selections when showing
                         st.session_state.batch_selected_products = []
                         st.session_state.batch_quantities = {}
             
             if st.session_state.show_batch_add:
-                # Filter products based on search
                 filtered_for_batch = products_df.copy()
                 if search_batch:
                     filtered_for_batch = products_df[
@@ -658,24 +655,20 @@ def purchases_page():
                 if not filtered_for_batch.empty:
                     st.markdown("##### Select Products and Enter Quantities")
                     
-                    # Display products in a grid with checkboxes and quantity inputs
                     cols_per_row = 3
                     product_list = filtered_for_batch.to_dict('records')
                     
-                    # Initialize session state for batch quantities if needed
                     for i, product in enumerate(product_list):
                         barcode = str(product.get("barcode", ""))
                         if barcode not in st.session_state.batch_quantities:
                             st.session_state.batch_quantities[barcode] = 1.0
                     
-                    # Select all logic
                     if select_all_batch:
                         for product in product_list:
                             barcode = str(product.get("barcode", ""))
                             if barcode not in st.session_state.batch_selected_products:
                                 st.session_state.batch_selected_products.append(barcode)
                     
-                    # Display products with checkboxes and quantity inputs
                     for i, product in enumerate(product_list):
                         col_idx = i % cols_per_row
                         if col_idx == 0:
@@ -692,7 +685,6 @@ def purchases_page():
                         
                         with cols[col_idx]:
                             with st.container(border=True):
-                                # Checkbox for selection
                                 is_selected = barcode in st.session_state.batch_selected_products
                                 selected = st.checkbox(
                                     f"**{name}**", 
@@ -708,7 +700,6 @@ def purchases_page():
                                 st.caption(f"Category: {category if category else 'Uncategorized'}")
                                 st.caption(f"Stock: {stock:.2f} | Cost: ${cost:.2f}")
                                 
-                                # Quantity input
                                 if is_decimal:
                                     qty = st.number_input(
                                         "Qty",
@@ -732,7 +723,6 @@ def purchases_page():
                                 
                                 st.session_state.batch_quantities[barcode] = qty
                     
-                    # Action buttons for batch
                     if st.session_state.batch_selected_products:
                         st.markdown("---")
                         st.markdown(f"**{len(st.session_state.batch_selected_products)} products selected**")
@@ -746,7 +736,6 @@ def purchases_page():
                                 st.rerun()
                         
                         with col2:
-                            # Preview selected products
                             preview_btn = st.button("Preview Selected", key="preview_batch", use_container_width=True)
                             if preview_btn:
                                 selected_products = []
@@ -778,8 +767,8 @@ def purchases_page():
                                         }
                                     )
                                     st.info(f"Total: ${preview_df['total'].sum():,.2f}")
+                        
                         with col3:
-                            # Add to cart button
                             if st.button("Add Selected to Cart", type="primary", key="add_batch_to_cart", use_container_width=True):
                                 if not supplier_name or not supplier_name.strip():
                                     st.error("Please enter a supplier name first")
@@ -799,7 +788,6 @@ def purchases_page():
                                             if not category_val or category_val == "nan" or category_val == "None" or category_val == "":
                                                 category_val = "New Purchase"
                                             
-                                            # Check if already in cart
                                             existing = False
                                             for item in st.session_state.po_cart:
                                                 if str(item["barcode"]) == barcode:
@@ -824,7 +812,6 @@ def purchases_page():
                                     
                                     if added_count > 0:
                                         st.success(f"Added {added_count} products to cart for {supplier_name}")
-                                        # Clear batch selection after adding
                                         st.session_state.batch_selected_products = []
                                         st.session_state.batch_quantities = {}
                                         st.rerun()
@@ -834,10 +821,11 @@ def purchases_page():
                         st.info("Select products above to add them to your cart")
                 else:
                     st.info("No products found matching your search")
+        
         st.markdown("---")
         
         # ==============================
-        # SINGLE PRODUCT ADD - OPTIMIZED
+        # SINGLE PRODUCT ADD
         # ==============================
         if not products_df.empty:
             st.markdown("#### Add Single Product")
@@ -957,7 +945,7 @@ def purchases_page():
         st.markdown("---")
         
         # ==============================
-        # MANUAL ITEM ENTRY - UPDATED WITH PRICE FIELD
+        # MANUAL ITEM ENTRY
         # ==============================
         st.markdown("### Manual Item Entry")
         st.caption("Add items not in inventory (new products, services, fees)")
@@ -1008,7 +996,6 @@ def purchases_page():
                 if not supplier_name or not supplier_name.strip():
                     st.error("Please enter a supplier name first")
                 elif manual_item_name and manual_item_name.strip():
-                    # Validate that either cost or price is provided
                     if manual_item_cost <= 0 and manual_item_price <= 0:
                         st.error("Please enter at least a cost price or selling price")
                     else:
@@ -1019,11 +1006,9 @@ def purchases_page():
                         else:
                             category = "New Purchase"
                         
-                        # Use cost if provided, otherwise use price
                         cost_val = float(manual_item_cost) if manual_item_cost > 0 else float(manual_item_price) * 0.7
                         price_val = float(manual_item_price) if manual_item_price > 0 else float(manual_item_cost) * 1.3
                         
-                        # Ensure price is at least cost
                         if price_val < cost_val:
                             price_val = cost_val * 1.3
                         
@@ -1037,7 +1022,6 @@ def purchases_page():
                                 item["total"] = item["quantity"] * item["cost"]
                                 if category != "New Purchase":
                                     item["category"] = category
-                                # Update price if provided
                                 if manual_item_price > 0:
                                     item["price"] = price_val
                                 existing = True
@@ -1070,7 +1054,7 @@ def purchases_page():
                     st.error("Please enter an item name")
         
         # ==============================
-        # CART DISPLAY - OPTIMIZED
+        # CART DISPLAY
         # ==============================
         st.markdown("---")
         st.markdown("### Purchase Order Cart")
@@ -1078,12 +1062,10 @@ def purchases_page():
         if st.session_state.po_cart:
             po_cart_df = pd.DataFrame(st.session_state.po_cart)
             
-            # Add price column if available
             display_cols = ["name", "quantity", "cost", "price", "total"]
             if "category" in po_cart_df.columns:
                 display_cols.insert(1, "category")
             
-            # Check if price column exists, if not add it with default
             if "price" not in po_cart_df.columns:
                 po_cart_df["price"] = po_cart_df["cost"] * 1.3
             
@@ -1102,7 +1084,6 @@ def purchases_page():
             po_total = po_cart_df["total"].sum()
             st.info(f"**Total Order Value: ${po_total:,.2f}**")
             
-            # Remove item from cart
             st.markdown("#### Remove Item from Cart")
             item_to_remove = st.selectbox(
                 "Select item to remove",
@@ -1308,13 +1289,12 @@ Contact: +263 78 290 5853
             st.info("Review the preview above and click 'Confirm and Create PO' to save.")
     
     # ==============================
-    # TAB 2: RECEIVE STOCK (Existing - No changes)
+    # TAB 2: RECEIVE STOCK - COMPLETE FIX WITH DELETE OPTIONS
     # ==============================
     with tab2:
         st.markdown("## Receive Stock - Auto Update Inventory")
         st.caption("Confirm receipt of stock. Inventory will be automatically updated.")
         
-        # Load purchases with caching
         @st.cache_data(ttl=60)
         def load_purchases_cached():
             return load_purchases()
@@ -1377,18 +1357,18 @@ Contact: +263 78 290 5853
                         st.info(f"PO Total: ${po_total:,.2f}")
                         
                         # ============================================================
-                        # DELETE PURCHASE ORDER
+                        # DELETE PURCHASE ORDER - FIXED: Shows for BOTH PENDING AND PARTIALLY_RECEIVED
                         # ============================================================
-                        if po_details['status'] == "PENDING":
+                        if po_details['status'] in ["PENDING", "PARTIALLY_RECEIVED"]:
                             st.markdown("---")
                             st.markdown("### Delete Purchase Order")
-                            st.warning("This will permanently delete this purchase order and all its items.")
+                            st.warning(f"This will permanently delete this purchase order ({selected_po}) and all its items.")
                             
                             col1, col2, col3 = st.columns([2, 1, 1])
                             with col1:
                                 confirm_delete = st.checkbox(f"Confirm delete PO {selected_po}", key=f"confirm_delete_{selected_po}")
                             with col2:
-                                delete_button = st.button("Delete PO", type="secondary", use_container_width=True, key=f"delete_po_{selected_po}")
+                                delete_button = st.button("Delete This PO", type="secondary", use_container_width=True, key=f"delete_po_{selected_po}")
                                 if delete_button and confirm_delete:
                                     success, message = delete_purchase_order(selected_po)
                                     if success:
@@ -1409,10 +1389,10 @@ Contact: +263 78 290 5853
                             
                             # Confirmation for delete all
                             if st.session_state.get("confirm_delete_all", False):
-                                st.warning("ARE YOU SURE? This will delete ALL purchase orders!")
+                                st.warning("⚠️ ARE YOU SURE? This will delete ALL purchase orders!")
                                 col_a, col_b = st.columns(2)
                                 with col_a:
-                                    confirm_all = st.button("YES, DELETE ALL", type="primary", use_container_width=True, key="confirm_delete_all_yes")
+                                    confirm_all = st.button("✅ YES, DELETE ALL", type="primary", use_container_width=True, key="confirm_delete_all_yes")
                                     if confirm_all:
                                         success, message = delete_all_purchase_orders()
                                         if success:
@@ -1425,7 +1405,7 @@ Contact: +263 78 290 5853
                                         else:
                                             st.error(message)
                                 with col_b:
-                                    if st.button("Cancel", use_container_width=True, key="confirm_delete_all_no"):
+                                    if st.button("❌ Cancel", use_container_width=True, key="confirm_delete_all_no"):
                                         st.session_state.confirm_delete_all = False
                                         st.rerun()
                         
@@ -1518,7 +1498,7 @@ Contact: +263 78 290 5853
                                 st.rerun()
     
     # ==============================
-    # TAB 3: SUPPLIER PERFORMANCE (Existing - No changes)
+    # TAB 3: SUPPLIER PERFORMANCE
     # ==============================
     with tab3:
         st.markdown("## Supplier Performance Dashboard")
@@ -1559,12 +1539,11 @@ Contact: +263 78 290 5853
                 st.dataframe(low_fulfillment[["Supplier", "Fulfillment Rate"]], use_container_width=True, hide_index=True)
     
     # ==============================
-    # TAB 4: PURCHASE HISTORY (Existing - No changes)
+    # TAB 4: PURCHASE HISTORY
     # ==============================
     with tab4:
         st.markdown("## Purchase History")
         
-        # Load purchases with caching
         @st.cache_data(ttl=60)
         def load_purchases_history():
             return load_purchases()
