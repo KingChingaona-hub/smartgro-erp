@@ -1400,9 +1400,17 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
             if rows:
                 df = pd.DataFrame(rows)
                 
-                # Rename columns to match expected names
+                # Rename expense_date to date
                 if 'expense_date' in df.columns and 'date' not in df.columns:
                     df = df.rename(columns={'expense_date': 'date'})
+                
+                # Ensure date is datetime
+                if 'date' in df.columns:
+                    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                
+                # Ensure amount is numeric
+                if 'amount' in df.columns:
+                    df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
                 
                 # Ensure all required columns exist
                 required_cols = ['date', 'expense_type', 'category', 'description', 'amount', 
@@ -1423,6 +1431,7 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
         traceback.print_exc()
         return pd.DataFrame(columns=['date', 'expense_type', 'category', 'description', 
                                     'amount', 'vendor', 'payment_method', 'recorded_by', 'notes'])
+        
         
 def save_expenses(df, branch_id=None):
     """
@@ -1685,30 +1694,73 @@ def get_expenses_by_category(month=None, year=None):
     if df.empty:
         return pd.DataFrame()
     
-    if month:
-        df = df[df["expense_date"].dt.month == month]
-    if year:
-        df = df[df["expense_date"].dt.year == year]
+    # Make sure date column exists and is datetime
+    if 'date' in df.columns:
+        if not pd.api.types.is_datetime64_any_dtype(df['date']):
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    elif 'expense_date' in df.columns:
+        if not pd.api.types.is_datetime64_any_dtype(df['expense_date']):
+            df['expense_date'] = pd.to_datetime(df['expense_date'], errors='coerce')
+        df = df.rename(columns={'expense_date': 'date'})
+    else:
+        return pd.DataFrame()
     
-    category_summary = df.groupby("category")["amount"].sum().reset_index()
-    category_summary = category_summary.sort_values("amount", ascending=False)
+    df = df.dropna(subset=['date'])
+    
+    if df.empty:
+        return pd.DataFrame()
+    
+    if month:
+        df = df[df['date'].dt.month == month]
+    if year:
+        df = df[df['date'].dt.year == year]
+    
+    if df.empty:
+        return pd.DataFrame()
+    
+    category_summary = df.groupby('category')['amount'].sum().reset_index()
+    category_summary = category_summary.sort_values('amount', ascending=False)
+    category_summary.columns = ['category', 'amount']
     
     return category_summary
 
 def get_monthly_expenses(month=None, year=None):
+    """
+    Get total expenses for a specific month and year
+    """
+    # Load expenses using the load function which handles column renaming
     df = load_expenses()
     
     if df.empty:
         return 0
     
+    # Ensure 'date' column exists and is datetime
+    if 'date' not in df.columns:
+        print("No 'date' column found in expenses")
+        return 0
+    
+    # Convert to datetime if needed
+    if not pd.api.types.is_datetime64_any_dtype(df['date']):
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    
+    # Drop rows with invalid dates
+    df = df.dropna(subset=['date'])
+    
+    if df.empty:
+        return 0
+    
+    # Use current month/year if not provided
     if month is None:
         month = datetime.now().month
     if year is None:
         year = datetime.now().year
     
-    df = df[(df["expense_date"].dt.month == month) & (df["expense_date"].dt.year == year)]
+    # Filter by month and year
+    df_filtered = df[(df['date'].dt.month == month) & (df['date'].dt.year == year)]
     
-    return df["amount"].sum()
+    # Return sum of amount column
+    return float(df_filtered['amount'].sum()) if 'amount' in df_filtered.columns else 0
+
 
 def record_expense(expense_type, category, description, amount, vendor="", payment_method="CASH", user="System", notes=""):
     """
