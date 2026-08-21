@@ -123,44 +123,50 @@ def create_purchase_order(supplier, items, expected_date):
 # ==============================
 # DELETE PURCHASE ORDER - FIXED
 # ==============================
+# ==============================
+# DELETE PURCHASE ORDER - FIXED
+# ==============================
 def delete_purchase_order(po_number):
-    """Delete a purchase order and all its items"""
+    """Delete a purchase order and all its items - FIXED"""
     try:
         purchases_df = load_purchases()
         
         if purchases_df.empty:
             return False, "No purchase orders found"
         
-        # Convert po_number to string for comparison
-        po_number = str(po_number)
+        # Convert po_number to string for safe comparison
+        po_number_str = str(po_number).strip()
         
-        # Check if PO exists
-        if purchases_df[purchases_df["po_number"].astype(str) == po_number].empty:
-            return False, f"Purchase Order {po_number} not found"
+        # Check if PO exists (convert both sides to string)
+        po_exists = purchases_df["po_number"].astype(str).str.strip() == po_number_str
+        if not po_exists.any():
+            return False, f"Purchase Order {po_number_str} not found"
         
         # Count items before deletion
-        item_count = len(purchases_df[purchases_df["po_number"].astype(str) == po_number])
+        item_count = len(purchases_df[po_exists])
         
         # Delete all items with this PO number
-        purchases_df = purchases_df[purchases_df["po_number"].astype(str) != po_number]
+        purchases_df = purchases_df[~po_exists]
         
-        # Save changes
+        # Save changes using the db_adapter save function
         save_success = save_purchases(purchases_df)
         
         if save_success:
-            return True, f"Purchase Order {po_number} deleted successfully. Removed {item_count} item(s)."
+            return True, f"Purchase Order {po_number_str} deleted successfully. Removed {item_count} item(s)."
         else:
             return False, "Failed to save changes to database"
             
     except Exception as e:
         return False, f"Error deleting PO: {str(e)}"
-
-
+    
+# ==============================
+# DELETE ALL PURCHASE ORDERS - FIXED
+# ==============================
 # ==============================
 # DELETE ALL PURCHASE ORDERS - FIXED
 # ==============================
 def delete_all_purchase_orders():
-    """Delete ALL purchase orders"""
+    """Delete ALL purchase orders - FIXED"""
     try:
         purchases_df = load_purchases()
         
@@ -184,7 +190,7 @@ def delete_all_purchase_orders():
             
     except Exception as e:
         return False, f"Error deleting all POs: {str(e)}"
-
+    
 
 # ==============================
 # RECEIVE PURCHASE ORDER - OPTIMIZED
