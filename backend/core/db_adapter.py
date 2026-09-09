@@ -295,6 +295,18 @@ def init_database():
     except Exception as e:
         print(f"Database initialization error: {e}")
         return False
+# ==============================
+# DEFAULT EXPENSE CATEGORIES
+# ==============================
+DEFAULT_CATEGORIES = [
+    "Rent/Lease", "Salaries & Wages", "Utilities (Electricity, Water)",
+    "Stock/Inventory", "Transport/Fuel", "Marketing & Advertising",
+    "Maintenance & Repairs", "Licenses & Permits", "Insurance",
+    "Bank Charges", "Stationery & Office Supplies", "Telecommunications",
+    "Cleaning & Sanitation", "Security Services", "Professional Fees (Legal, Audit)",
+    "Training & Development", "Travel & Accommodation", "Equipment Purchase",
+    "Software & Subscriptions", "Taxes", "Home use", "Other"
+]
 
 # ==============================
 # HELPER FUNCTION
@@ -1533,18 +1545,44 @@ def get_total_expenses():
     return df["amount"].sum() if not df.empty else 0
 
 def load_expense_categories():
+    """Load expense categories from database or return defaults"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
-                return []
+                return DEFAULT_CATEGORIES
+            
+            # First check if expense_categories table exists
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'expense_categories'
+                )
+            """)
+            table_exists = cur.fetchone()['exists']
+            
+            if table_exists:
+                cur.execute("SELECT category FROM expense_categories ORDER BY category")
+                rows = cur.fetchall()
+                if rows:
+                    categories = [row["category"] for row in rows if row["category"]]
+                    if categories:
+                        return categories
+            
+            # If no table or no categories, get from expenses
             cur.execute("SELECT DISTINCT category FROM expenses ORDER BY category")
             rows = cur.fetchall()
-            categories = [row["category"] for row in rows] if rows else []
-            return categories
+            if rows:
+                categories = [row["category"] for row in rows if row["category"]]
+                if categories:
+                    return categories
+            
+            # Return defaults if nothing found
+            return DEFAULT_CATEGORIES
+            
     except Exception as e:
         print(f"Error loading expense categories: {e}")
-        return []
-
+        return DEFAULT_CATEGORIES
+    
 def load_expense_budget(branch_id=None, year=None, month=None):
     if branch_id is None:
         branch_id = get_current_branch()
