@@ -127,10 +127,8 @@ def load_expense_categories():
     try:
         db = _get_db_functions()
         categories = db['load_expense_categories']()
-        if categories and len(categories) > 0:
+        if categories:
             return categories
-        
-        # Return default categories if none found in database
         return DEFAULT_CATEGORIES
     except Exception as e:
         logger.error(f"Error loading expense categories: {e}")
