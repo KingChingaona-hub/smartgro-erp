@@ -1467,10 +1467,8 @@ def save_expenses(df, branch_id=None):
     if 'date' in df.columns:
         df['date'] = pd.to_datetime(df['date'], errors='coerce').fillna(datetime.now())
     
-    numeric_cols = ['amount']
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    if 'amount' in df.columns:
+        df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
     
     string_cols = ['expense_type', 'category', 'description', 'vendor', 'payment_method', 'recorded_by', 'notes']
     for col in string_cols:
@@ -1491,16 +1489,17 @@ def save_expenses(df, branch_id=None):
             
             for idx, row in df.iterrows():
                 try:
+                    # Generate unique ID
                     expense_id = row.get('id')
-                    if not expense_id or pd.isna(expense_id) or str(expense_id) == 'nan':
+                    if not expense_id or pd.isna(expense_id) or str(expense_id) == 'nan' or str(expense_id) == '':
                         expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
                     
+                    # Plain INSERT - no ON CONFLICT
                     cur.execute("""
                         INSERT INTO expenses (
                             id, branch_id, expense_date, expense_type, category, 
                             description, amount, vendor, payment_method, recorded_by, notes
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (id) DO NOTHING
                     """, (
                         expense_id,
                         branch_id,
@@ -1525,9 +1524,11 @@ def save_expenses(df, branch_id=None):
             conn.commit()
             print(f"Saved {inserted_count} expenses for branch: {branch_id}")
             
+            # Verify
             try:
                 cur.execute("SELECT COUNT(*) FROM expenses WHERE branch_id = %s", (branch_id,))
-                count = cur.fetchone()[0]
+                result = cur.fetchone()
+                count = result['count'] if isinstance(result, dict) else result[0]
                 print(f"Verification: {count} expenses in database for branch: {branch_id}")
             except Exception as e:
                 print(f"Verification error: {e}")
@@ -1804,47 +1805,52 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
     """
     Record a single expense - APPENDS new record, NEVER deletes existing ones
     """
-    valid, msg = validate_category(category)
-    if not valid:
-        print(f"Invalid category: {msg}")
-        return False
-    
-    valid, amount_clean, msg = validate_amount(amount)
-    if not valid:
-        print(f"Invalid amount: {msg}")
-        return False
-    
-    if vendor:
-        valid, msg = validate_supplier_name(vendor)
+    try:
+        valid, amount_clean, msg = validate_amount(amount)
         if not valid:
-            print(f"Invalid vendor: {msg}")
+            print(f"Invalid amount: {msg}")
             return False
-    
-    expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    
-    new_row = pd.DataFrame([{
-        "id": expense_id,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "expense_type": sanitize_string(expense_type, 50),
-        "category": sanitize_string(category, 100),
-        "description": sanitize_string(description, 200),
-        "amount": float(amount_clean),
-        "vendor": sanitize_string(vendor, 100),
-        "payment_method": sanitize_string(payment_method, 20),
-        "recorded_by": sanitize_string(user, 50),
-        "notes": sanitize_string(notes, 500)
-    }])
-    
-    success = save_expenses(new_row)
-    
-    if success:
-        try:
-            update_budget_actuals(category, float(amount_clean))
-        except:
-            pass
-        return True
-    
-    return False
+        
+        if amount_clean <= 0:
+            print(f"Amount must be greater than 0")
+            return False
+        
+        if not description or len(str(description).strip()) < 3:
+            print(f"Invalid description")
+            return False
+        
+        # Create unique ID
+        expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        
+        new_row = pd.DataFrame([{
+            "id": expense_id,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "expense_type": sanitize_string(expense_type, 50),
+            "category": sanitize_string(category, 100),
+            "description": sanitize_string(description, 200),
+            "amount": float(amount_clean),
+            "vendor": sanitize_string(vendor, 100),
+            "payment_method": sanitize_string(payment_method, 20),
+            "recorded_by": sanitize_string(user, 50),
+            "notes": sanitize_string(notes, 500)
+        }])
+        
+        print(f"Recording expense: {description} - ${amount_clean} - ID: {expense_id}")
+        
+        success = save_expenses(new_row)
+        
+        if success:
+            print(f"Expense saved successfully: {expense_id}")
+            return True
+        else:
+            print("Failed to save expense")
+            return False
+        
+    except Exception as e:
+        print(f"Error in record_expense: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def update_budget_actuals(category, amount):
     current_year = datetime.now().year
