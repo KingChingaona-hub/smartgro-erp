@@ -1,7 +1,9 @@
 # backend/core/floating_financials.py
 # COMPLETE VERSION - With Change, Credit, and Gas Sales (Recording Only)
 # ADDED: Description column in all table displays
-# ADDED: Auto-merge credits and changes by customer name
+# ADDED: Robust auto-merge credits and changes by customer name
+# ADDED: Write-Off for Changes, Bad Debt for Credits
+# ADDED: Auto-flag records overdue by 60+ days
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -44,8 +46,16 @@ def get_current_branch():
     except:
         return "HO"
 
+def _clear_floating_cache():
+    """Clear streamlit cache for floating financials after a mutation"""
+    try:
+        import streamlit as st
+        st.cache_data.clear()
+    except Exception:
+        pass
+
 # ==============================
-# TABLE INITIALIZATION - WITH EXISTENCE CHECK
+# TABLE INITIALIZATION
 # ==============================
 
 def init_floating_tables():
@@ -58,7 +68,7 @@ def init_floating_tables():
         
         cur = conn.cursor()
         
-        # Check if tables exist before creating
+        # floating_changes
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -83,7 +93,6 @@ def init_floating_tables():
         """)
         gas_sales_exists = cur.fetchone()[0]
         
-        # Create tables only if they don't exist
         if not changes_exists:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS floating_changes (
@@ -97,12 +106,34 @@ def init_floating_tables():
                     balance DECIMAL(15,2) DEFAULT 0,
                     status VARCHAR(50) DEFAULT 'UNCOLLECTED',
                     description TEXT,
+                    expected_collection_date DATE,
+                    written_off_at TIMESTAMP,
+                    written_off_reason TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             logger.info("Created floating_changes table")
         else:
+            # Add new columns if they don't exist (safe migration)
+            for col_def in [
+                ("expected_collection_date", "DATE"),
+                ("written_off_at", "TIMESTAMP"),
+                ("written_off_reason", "TEXT"),
+            ]:
+                col_name, col_type = col_def
+                try:
+                    cur.execute(f"""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.columns
+                            WHERE table_name = 'floating_changes' AND column_name = %s
+                        )
+                    """, (col_name,))
+                    if not cur.fetchone()[0]:
+                        cur.execute(f"ALTER TABLE floating_changes ADD COLUMN {col_name} {col_type}")
+                        logger.info(f"Added column {col_name} to floating_changes")
+                except Exception as e:
+                    logger.warning(f"Could not add column {col_name}: {e}")
             logger.info("floating_changes table already exists, data preserved")
         
         if not credits_exists:
@@ -120,12 +151,31 @@ def init_floating_tables():
                     credit_type VARCHAR(50) DEFAULT 'OTHER',
                     description TEXT,
                     expected_repayment_date DATE,
+                    written_off_at TIMESTAMP,
+                    written_off_reason TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             logger.info("Created floating_credits table")
         else:
+            for col_def in [
+                ("written_off_at", "TIMESTAMP"),
+                ("written_off_reason", "TEXT"),
+            ]:
+                col_name, col_type = col_def
+                try:
+                    cur.execute(f"""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.columns
+                            WHERE table_name = 'floating_credits' AND column_name = %s
+                        )
+                    """, (col_name,))
+                    if not cur.fetchone()[0]:
+                        cur.execute(f"ALTER TABLE floating_credits ADD COLUMN {col_name} {col_type}")
+                        logger.info(f"Added column {col_name} to floating_credits")
+                except Exception as e:
+                    logger.warning(f"Could not add column {col_name}: {e}")
             logger.info("floating_credits table already exists, data preserved")
         
         if not gas_sales_exists:
@@ -147,7 +197,7 @@ def init_floating_tables():
         else:
             logger.info("floating_gas_sales table already exists, data preserved")
         
-        # Create collection tables if they don't exist
+        # collections
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -171,6 +221,7 @@ def init_floating_tables():
             """)
             logger.info("Created floating_change_collections table")
         
+        # payments
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -209,7 +260,7 @@ def init_floating_tables():
                 pass
         return False
 
-# Call init on module load - but only if not already initialized
+# Call init on module load
 try:
     conn = get_db_connection()
     if conn:
@@ -222,73 +273,22 @@ try:
         if count == 0:
             init_floating_tables()
         else:
-            logger.info("Floating tables already exist, skipping initialization")
+            # still run init to add new columns
+            init_floating_tables()
+            logger.info("Floating tables already exist, ensuring new columns exist")
 except:
     init_floating_tables()
 
 # ==============================
-# CUSTOMER HELPERS
+# CONSTANTS
 # ==============================
 
-def get_customer_suggestions():
-    """Get unique customer names from sales data for autocomplete"""
-    try:
-        from backend.core.db_adapter import load_sales
-        sales_df = load_sales()
-        if sales_df.empty:
-            return []
-        
-        customer_col = None
-        for col in ["customer_name", "customer", "Customer"]:
-            if col in sales_df.columns:
-                customer_col = col
-                break
-        
-        if not customer_col:
-            return []
-        
-        customers = sales_df[customer_col].dropna().unique().tolist()
-        customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
-        return sorted(set(customers))
-    except Exception as e:
-        print(f"Error getting customer suggestions: {e}")
-        return []
+CHANGE_STATUSES = ["UNCOLLECTED", "PARTIAL_COLLECTED", "COLLECTED", "WRITTEN_OFF"]
+CREDIT_STATUSES = ["ACTIVE", "PARTIAL_PAID", "PAID", "WRITTEN_OFF", "BAD_DEBT"]
+CREDIT_TYPES = ["WORKMATE_LOAN", "CUSTOMER_CREDIT", "SUPPLIER_CREDIT", "OTHER"]
 
-
-def get_customer_phone_mapping():
-    """Get customer name to phone mapping from sales data"""
-    try:
-        from backend.core.db_adapter import load_sales
-        sales_df = load_sales()
-        if sales_df.empty:
-            return {}
-        
-        name_col = None
-        phone_col = None
-        
-        for col in ["customer_name", "customer", "Customer"]:
-            if col in sales_df.columns:
-                name_col = col
-                break
-        
-        for col in ["customer_phone", "phone", "Phone"]:
-            if col in sales_df.columns:
-                phone_col = col
-                break
-        
-        if name_col and phone_col:
-            mapping = {}
-            for _, row in sales_df.iterrows():
-                name = str(row.get(name_col, "")).strip()
-                phone = str(row.get(phone_col, "")).strip()
-                if name and name.lower() != "walk-in" and phone:
-                    mapping[name] = phone
-            return mapping
-        
-        return {}
-    except Exception as e:
-        print(f"Error getting customer phone mapping: {e}")
-        return {}
+# Auto write-off / bad debt threshold
+BAD_DEBT_DAYS_THRESHOLD = 60  # 2 months
 
 # ==============================
 # VALIDATION HELPERS
@@ -327,20 +327,74 @@ def validate_description(text, max_length=500, min_length=0):
     return True, text
 
 # ==============================
-# CONSTANTS
+# CUSTOMER HELPERS
 # ==============================
 
-CHANGE_STATUSES = ["UNCOLLECTED", "PARTIAL_COLLECTED", "COLLECTED"]
-CREDIT_STATUSES = ["ACTIVE", "PARTIAL_PAID", "PAID", "OVERDUE", "WRITTEN_OFF"]
-CREDIT_TYPES = ["WORKMATE_LOAN", "CUSTOMER_CREDIT", "SUPPLIER_CREDIT", "OTHER"]
+def get_customer_suggestions():
+    try:
+        from backend.core.db_adapter import load_sales
+        sales_df = load_sales()
+        if sales_df.empty:
+            return []
+        
+        customer_col = None
+        for col in ["customer_name", "customer", "Customer"]:
+            if col in sales_df.columns:
+                customer_col = col
+                break
+        
+        if not customer_col:
+            return []
+        
+        customers = sales_df[customer_col].dropna().unique().tolist()
+        customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+        return sorted(set(customers))
+    except Exception as e:
+        print(f"Error getting customer suggestions: {e}")
+        return []
+
+
+def get_customer_phone_mapping():
+    try:
+        from backend.core.db_adapter import load_sales
+        sales_df = load_sales()
+        if sales_df.empty:
+            return {}
+        
+        name_col = None
+        phone_col = None
+        
+        for col in ["customer_name", "customer", "Customer"]:
+            if col in sales_df.columns:
+                name_col = col
+                break
+        
+        for col in ["customer_phone", "phone", "Phone"]:
+            if col in sales_df.columns:
+                phone_col = col
+                break
+        
+        if name_col and phone_col:
+            mapping = {}
+            for _, row in sales_df.iterrows():
+                name = str(row.get(name_col, "")).strip()
+                phone = str(row.get(phone_col, "")).strip()
+                if name and name.lower() != "walk-in" and phone:
+                    mapping[name] = phone
+            return mapping
+        
+        return {}
+    except Exception as e:
+        print(f"Error getting customer phone mapping: {e}")
+        return {}
 
 # ==============================
 # CHANGE MANAGEMENT
 # ==============================
 
-def create_change_record(customer_name, amount, description="", phone="", branch_id=None):
+def create_change_record(customer_name, amount, description="", phone="", branch_id=None, expected_collection_date=None):
     """
-    Create a change record. If an existing UNCOLLECTED or PARTIAL_COLLECTED 
+    Create a change record. If an existing UNCOLLECTED or PARTIAL_COLLECTED
     change exists for the same customer, auto-merge by adding the amount,
     recalculating balance, and appending the description.
     """
@@ -369,6 +423,9 @@ def create_change_record(customer_name, amount, description="", phone="", branch
             return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
     
+    # Normalise customer name for merging
+    customer_key = str(customer_name).strip()
+    
     try:
         conn = get_db_connection()
         if conn is None:
@@ -377,38 +434,57 @@ def create_change_record(customer_name, amount, description="", phone="", branch
         cur = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # ==============================
+        # ==============================================================
         # LOOK FOR EXISTING UNCOLLECTED / PARTIAL CHANGE FOR THIS CUSTOMER
-        # ==============================
+        # Uses case-insensitive + trimmed comparison. Also searches only
+        # within the same branch. The existing record must still have a
+        # positive balance (so already-collected records don't merge).
+        # ==============================================================
         cur.execute("""
-            SELECT change_id, amount, amount_collected, balance, description, phone
+            SELECT change_id, amount, amount_collected, balance, description, phone,
+                   expected_collection_date
             FROM floating_changes
             WHERE branch_id = %s
               AND LOWER(TRIM(customer_name)) = LOWER(TRIM(%s))
               AND status IN ('UNCOLLECTED', 'PARTIAL_COLLECTED')
+              AND COALESCE(balance, 0) > 0
             ORDER BY created_at DESC
             LIMIT 1
-        """, (branch_id, customer_name))
+        """, (branch_id, customer_key))
         
         existing = cur.fetchone()
         
         if existing:
-            existing_change_id, old_amount, old_collected, old_balance, old_desc, old_phone = existing
+            (existing_change_id, old_amount, old_collected, old_balance, old_desc,
+             old_phone, old_expected) = existing
             old_amount = float(old_amount)
             old_collected = float(old_collected)
             old_balance = float(old_balance)
             
             # Merge description
-            combined_desc = description
             if old_desc and description:
                 combined_desc = f"{old_desc} | {description}"
             elif old_desc:
                 combined_desc = old_desc
+            else:
+                combined_desc = description
             
             # Merge phone (keep existing if new one empty)
             merged_phone = phone if phone else (old_phone or "")
             
-            # New totals
+            # Merge expected collection date (keep earliest if both present)
+            merged_expected = old_expected
+            if expected_collection_date:
+                if old_expected:
+                    try:
+                        d_old = pd.to_datetime(old_expected).date()
+                        d_new = pd.to_datetime(expected_collection_date).date()
+                        merged_expected = min(d_old, d_new)
+                    except Exception:
+                        merged_expected = expected_collection_date
+                else:
+                    merged_expected = expected_collection_date
+            
             new_amount = old_amount + amount_clean
             new_balance = old_balance + amount_clean
             
@@ -418,6 +494,7 @@ def create_change_record(customer_name, amount, description="", phone="", branch
                     balance = %s,
                     description = %s,
                     phone = %s,
+                    expected_collection_date = %s,
                     updated_at = %s
                 WHERE change_id = %s
             """, (
@@ -425,6 +502,7 @@ def create_change_record(customer_name, amount, description="", phone="", branch
                 new_balance,
                 combined_desc,
                 merged_phone,
+                merged_expected,
                 now,
                 existing_change_id
             ))
@@ -432,33 +510,35 @@ def create_change_record(customer_name, amount, description="", phone="", branch
             conn.commit()
             cur.close()
             conn.close()
+            _clear_floating_cache()
             return (
                 True,
-                f"Change updated for {customer_name}. New total: ${new_amount:.2f}, "
+                f"Change MERGED for {customer_key}. New total: ${new_amount:.2f}, "
                 f"Collected: ${old_collected:.2f}, Balance: ${new_balance:.2f}",
                 existing_change_id
             )
         
-        # ==============================
+        # ==============================================================
         # NO EXISTING RECORD → CREATE NEW
-        # ==============================
+        # ==============================================================
         change_id = f"CHG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         
         cur.execute("""
             INSERT INTO floating_changes (
                 change_id, branch_id, customer_name, phone, amount,
                 amount_collected, balance, status, description,
-                created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                expected_collection_date, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            change_id, branch_id, customer_name, phone,
+            change_id, branch_id, customer_key, phone,
             amount_clean, 0.0, amount_clean, "UNCOLLECTED",
-            description, now, now
+            description, expected_collection_date, now, now
         ))
         
         conn.commit()
         cur.close()
         conn.close()
+        _clear_floating_cache()
         return True, f"Change recorded successfully. ID: {change_id}", change_id
         
     except Exception as e:
@@ -496,6 +576,11 @@ def collect_change(change_id, amount, collection_note=""):
             cur.close()
             conn.close()
             return False, "This change has already been fully collected"
+        
+        if status == "WRITTEN_OFF":
+            cur.close()
+            conn.close()
+            return False, "This change has been written off"
         
         current_balance = float(current_balance)
         current_collected = float(current_collected)
@@ -535,11 +620,195 @@ def collect_change(change_id, amount, collection_note=""):
         conn.commit()
         cur.close()
         conn.close()
+        _clear_floating_cache()
         return True, f"Collected {amount_clean:.2f}. Remaining: {new_balance:.2f}"
         
     except Exception as e:
         logger.error(f"Error collecting change: {e}")
         return False, f"Error: {str(e)}"
+
+
+def write_off_change(change_id, reason="Written off - overdue > 2 months"):
+    """
+    Write off a change: zero its balance, mark as WRITTEN_OFF and record reason.
+    """
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return False, "Database connection failed"
+        
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT status, balance FROM floating_changes WHERE change_id = %s
+        """, (change_id,))
+        record = cur.fetchone()
+        
+        if not record:
+            cur.close()
+            conn.close()
+            return False, "Change record not found"
+        
+        status, balance = record
+        
+        if status == "WRITTEN_OFF":
+            cur.close()
+            conn.close()
+            return False, "This change is already written off"
+        
+        if float(balance) <= 0:
+            cur.close()
+            conn.close()
+            return False, "This change has no balance to write off"
+        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("""
+            UPDATE floating_changes
+            SET balance = 0,
+                status = 'WRITTEN_OFF',
+                written_off_at = %s,
+                written_off_reason = %s,
+                updated_at = %s
+            WHERE change_id = %s
+        """, (now, reason, now, change_id))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        _clear_floating_cache()
+        return True, f"Change {change_id} written off. Reason: {reason}"
+        
+    except Exception as e:
+        logger.error(f"Error writing off change: {e}")
+        return False, f"Error: {str(e)}"
+
+
+def write_off_credit(credit_id, reason="Bad debt - overdue > 2 months"):
+    """
+    Write off a credit as a bad debt: zero its balance, mark as BAD_DEBT.
+    """
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return False, "Database connection failed"
+        
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT status, balance FROM floating_credits WHERE credit_id = %s
+        """, (credit_id,))
+        record = cur.fetchone()
+        
+        if not record:
+            cur.close()
+            conn.close()
+            return False, "Credit record not found"
+        
+        status, balance = record
+        
+        if status in ("WRITTEN_OFF", "BAD_DEBT"):
+            cur.close()
+            conn.close()
+            return False, "This credit is already written off / bad debt"
+        
+        if float(balance) <= 0:
+            cur.close()
+            conn.close()
+            return False, "This credit has no balance to write off"
+        
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("""
+            UPDATE floating_credits
+            SET balance = 0,
+                status = 'BAD_DEBT',
+                written_off_at = %s,
+                written_off_reason = %s,
+                updated_at = %s
+            WHERE credit_id = %s
+        """, (now, reason, now, credit_id))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        _clear_floating_cache()
+        return True, f"Credit {credit_id} marked as BAD DEBT. Reason: {reason}"
+        
+    except Exception as e:
+        logger.error(f"Error writing off credit: {e}")
+        return False, f"Error: {str(e)}"
+
+
+def auto_flag_overdue_records(branch_id=None):
+    """
+    Automatically flag any change or credit that has been overdue for
+    BAD_DEBT_DAYS_THRESHOLD days (60 days = ~2 months) as WRITTEN_OFF / BAD_DEBT.
+    
+    Returns a dict with counts of newly flagged records.
+    """
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    result = {"changes_flagged": 0, "credits_flagged": 0}
+    
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return result
+        
+        cur = conn.cursor()
+        cutoff_date = (datetime.now() - timedelta(days=BAD_DEBT_DAYS_THRESHOLD)).strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # ----- Auto write off changes -----
+        try:
+            cur.execute("""
+                UPDATE floating_changes
+                SET status = 'WRITTEN_OFF',
+                    balance = 0,
+                    written_off_at = %s,
+                    written_off_reason = 'Auto write-off: overdue > 2 months',
+                    updated_at = %s
+                WHERE branch_id = %s
+                  AND status IN ('UNCOLLECTED', 'PARTIAL_COLLECTED')
+                  AND COALESCE(balance, 0) > 0
+                  AND expected_collection_date IS NOT NULL
+                  AND expected_collection_date::date <= %s
+            """, (now, now, branch_id, cutoff_date))
+            result["changes_flagged"] = cur.rowcount or 0
+        except Exception as e:
+            logger.warning(f"Auto write-off changes skipped: {e}")
+            conn.rollback()
+        
+        # ----- Auto bad debt credits -----
+        try:
+            cur.execute("""
+                UPDATE floating_credits
+                SET status = 'BAD_DEBT',
+                    balance = 0,
+                    written_off_at = %s,
+                    written_off_reason = 'Auto bad debt: overdue > 2 months',
+                    updated_at = %s
+                WHERE branch_id = %s
+                  AND status IN ('ACTIVE', 'PARTIAL_PAID')
+                  AND COALESCE(balance, 0) > 0
+                  AND expected_repayment_date IS NOT NULL
+                  AND expected_repayment_date::date <= %s
+            """, (now, now, branch_id, cutoff_date))
+            result["credits_flagged"] = cur.rowcount or 0
+        except Exception as e:
+            logger.warning(f"Auto bad debt credits skipped: {e}")
+            conn.rollback()
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        if result["changes_flagged"] or result["credits_flagged"]:
+            _clear_floating_cache()
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error auto-flagging overdue records: {e}")
+        return result
 
 
 def get_change_records(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
@@ -612,15 +881,17 @@ def get_change_summary(branch_id=None):
     if df.empty:
         return {
             "total_change": 0, "total_collected": 0, "total_balance": 0,
-            "uncollected_count": 0, "partial_count": 0, "collected_count": 0, "total_count": 0
+            "uncollected_count": 0, "partial_count": 0, "collected_count": 0,
+            "written_off_count": 0, "total_count": 0
         }
     
     if 'status' in df.columns:
         uncollected_count = len(df[df["status"] == "UNCOLLECTED"])
         partial_count = len(df[df["status"] == "PARTIAL_COLLECTED"])
         collected_count = len(df[df["status"] == "COLLECTED"])
+        written_off_count = len(df[df["status"] == "WRITTEN_OFF"])
     else:
-        uncollected_count = partial_count = collected_count = 0
+        uncollected_count = partial_count = collected_count = written_off_count = 0
     
     return {
         "total_change": float(df["amount"].sum()) if "amount" in df.columns else 0,
@@ -629,12 +900,12 @@ def get_change_summary(branch_id=None):
         "uncollected_count": uncollected_count,
         "partial_count": partial_count,
         "collected_count": collected_count,
+        "written_off_count": written_off_count,
         "total_count": len(df)
     }
 
 
 def get_change_records_for_table(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
-    """Get change records formatted for table display - INCLUDES DESCRIPTION"""
     df = get_change_records(branch_id, status, date_from, date_to, customer_name)
     
     if df.empty:
@@ -652,6 +923,8 @@ def get_change_records_for_table(branch_id=None, status=None, date_from=None, da
             return 'Collected'
         elif status == 'PARTIAL_COLLECTED':
             return 'Partial'
+        elif status == 'WRITTEN_OFF':
+            return 'Written Off'
         else:
             return 'Uncollected'
     
@@ -672,66 +945,13 @@ def get_change_records_for_table(branch_id=None, status=None, date_from=None, da
     return display_df
 
 
-def get_change_records_with_summary(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
-    """Get change records with today/previous summary"""
-    df = get_change_records(branch_id, status, date_from, date_to, customer_name)
-    
-    if df.empty:
-        return {
-            "records": df,
-            "today_total": 0,
-            "today_collected": 0,
-            "today_balance": 0,
-            "previous_total": 0,
-            "previous_collected": 0,
-            "previous_balance": 0,
-            "overall_total": 0,
-            "overall_collected": 0,
-            "overall_balance": 0
-        }
-    
-    today = datetime.now().date()
-    
-    date_col = None
-    for col in ["created_at", "updated_at", "date"]:
-        if col in df.columns:
-            date_col = col
-            break
-    
-    if date_col:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df["is_today"] = df[date_col].dt.date == today
-    else:
-        df["is_today"] = False
-    
-    today_df = df[df["is_today"]]
-    previous_df = df[~df["is_today"]]
-    
-    return {
-        "records": df,
-        "today_df": today_df,
-        "previous_df": previous_df,
-        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
-        "today_collected": float(today_df["amount_collected"].sum()) if not today_df.empty and "amount_collected" in today_df.columns else 0,
-        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
-        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
-        "previous_collected": float(previous_df["amount_collected"].sum()) if not previous_df.empty and "amount_collected" in previous_df.columns else 0,
-        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
-        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
-        "overall_collected": float(df["amount_collected"].sum()) if "amount_collected" in df.columns else 0,
-        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
-        "today_count": len(today_df),
-        "previous_count": len(previous_df),
-        "total_count": len(df)
-    }
-
 # ==============================
 # CREDIT MANAGEMENT
 # ==============================
 
 def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", description="", phone="", expected_repayment=None, branch_id=None):
     """
-    Create a credit record. If an existing ACTIVE or PARTIAL_PAID credit 
+    Create a credit record. If an existing ACTIVE or PARTIAL_PAID credit
     exists for the same customer, auto-merge by adding the amount,
     recalculating balance, and appending the description.
     """
@@ -763,6 +983,8 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
     if credit_type not in CREDIT_TYPES:
         credit_type = "OTHER"
     
+    customer_key = str(customer_name).strip()
+    
     try:
         conn = get_db_connection()
         if conn is None:
@@ -771,9 +993,10 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
         cur = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # ==============================
+        # ==============================================================
         # LOOK FOR EXISTING ACTIVE / PARTIAL CREDIT FOR THIS CUSTOMER
-        # ==============================
+        # Case-insensitive + trimmed; positive balance required.
+        # ==============================================================
         cur.execute("""
             SELECT credit_id, amount, amount_paid, balance, description, phone,
                    credit_type, expected_repayment_date
@@ -781,9 +1004,10 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
             WHERE branch_id = %s
               AND LOWER(TRIM(customer_name)) = LOWER(TRIM(%s))
               AND status IN ('ACTIVE', 'PARTIAL_PAID')
+              AND COALESCE(balance, 0) > 0
             ORDER BY created_at DESC
             LIMIT 1
-        """, (branch_id, customer_name))
+        """, (branch_id, customer_key))
         
         existing = cur.fetchone()
         
@@ -796,22 +1020,32 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
             old_balance = float(old_balance)
             
             # Merge description
-            combined_desc = description
             if old_desc and description:
                 combined_desc = f"{old_desc} | {description}"
             elif old_desc:
                 combined_desc = old_desc
+            else:
+                combined_desc = description
             
             # Merge phone
             merged_phone = phone if phone else (old_phone or "")
             
-            # Merge credit_type (use new if provided, else old)
+            # Merge credit_type (new wins if not OTHER)
             merged_type = credit_type if credit_type and credit_type != "OTHER" else (old_credit_type or "OTHER")
             
-            # Merge expected repayment date (use new if provided, else old)
-            merged_expected = expected_repayment if expected_repayment else old_expected
+            # Merge expected repayment date (earliest wins if both present)
+            merged_expected = old_expected
+            if expected_repayment:
+                if old_expected:
+                    try:
+                        d_old = pd.to_datetime(old_expected).date()
+                        d_new = pd.to_datetime(expected_repayment).date()
+                        merged_expected = min(d_old, d_new)
+                    except Exception:
+                        merged_expected = expected_repayment
+                else:
+                    merged_expected = expected_repayment
             
-            # New totals
             new_amount = old_amount + amount_clean
             new_balance = old_balance + amount_clean
             
@@ -839,16 +1073,17 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
             conn.commit()
             cur.close()
             conn.close()
+            _clear_floating_cache()
             return (
                 True,
-                f"Credit updated for {customer_name}. New total: ${new_amount:.2f}, "
+                f"Credit MERGED for {customer_key}. New total: ${new_amount:.2f}, "
                 f"Paid: ${old_paid:.2f}, Balance: ${new_balance:.2f}",
                 existing_credit_id
             )
         
-        # ==============================
+        # ==============================================================
         # NO EXISTING RECORD → CREATE NEW
-        # ==============================
+        # ==============================================================
         credit_id = f"CRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         
         cur.execute("""
@@ -858,7 +1093,7 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
                 expected_repayment_date, created_at, updated_at
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            credit_id, branch_id, customer_name, phone,
+            credit_id, branch_id, customer_key, phone,
             amount_clean, 0.0, amount_clean, "ACTIVE",
             credit_type, description, expected_repayment, now, now
         ))
@@ -866,6 +1101,7 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
         conn.commit()
         cur.close()
         conn.close()
+        _clear_floating_cache()
         return True, f"Credit recorded successfully. ID: {credit_id}", credit_id
         
     except Exception as e:
@@ -904,10 +1140,10 @@ def record_credit_payment(credit_id, amount, payment_note="", payment_method="CA
             conn.close()
             return False, "This credit has already been fully paid"
         
-        if status == "WRITTEN_OFF":
+        if status in ("WRITTEN_OFF", "BAD_DEBT"):
             cur.close()
             conn.close()
-            return False, "This credit has been written off"
+            return False, "This credit has been written off / bad debt"
         
         current_balance = float(current_balance)
         current_paid = float(current_paid)
@@ -947,6 +1183,7 @@ def record_credit_payment(credit_id, amount, payment_note="", payment_method="CA
         conn.commit()
         cur.close()
         conn.close()
+        _clear_floating_cache()
         return True, f"Payment of {amount_clean:.2f} recorded. Remaining: {new_balance:.2f}"
         
     except Exception as e:
@@ -1020,7 +1257,6 @@ def get_credit_records(branch_id=None, status=None, credit_type=None, date_from=
 
 
 def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
-    """Get credit records formatted for table display - INCLUDES DESCRIPTION"""
     df = get_credit_records(branch_id, status, credit_type, date_from, date_to, customer_name)
     
     if df.empty:
@@ -1039,7 +1275,7 @@ def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, 
         status = row.get('status', 'ACTIVE')
         expected = row.get('expected_repayment_date')
         
-        if status in ['PAID', 'WRITTEN_OFF']:
+        if status in ['PAID', 'WRITTEN_OFF', 'BAD_DEBT']:
             return status
         elif expected and pd.notna(expected):
             try:
@@ -1071,7 +1307,6 @@ def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, 
 
 
 def get_credit_summary(branch_id=None):
-    """Get summary statistics for credit records"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1081,7 +1316,7 @@ def get_credit_summary(branch_id=None):
         return {
             "total_credit": 0, "total_paid": 0, "total_balance": 0,
             "active_count": 0, "partial_count": 0, "paid_count": 0,
-            "overdue_count": 0, "written_off_count": 0, "total_count": 0
+            "overdue_count": 0, "written_off_count": 0, "bad_debt_count": 0, "total_count": 0
         }
     
     today = datetime.now().date()
@@ -1091,8 +1326,9 @@ def get_credit_summary(branch_id=None):
         partial_count = len(df[df["status"] == "PARTIAL_PAID"])
         paid_count = len(df[df["status"] == "PAID"])
         written_off_count = len(df[df["status"] == "WRITTEN_OFF"])
+        bad_debt_count = len(df[df["status"] == "BAD_DEBT"])
     else:
-        active_count = partial_count = paid_count = written_off_count = 0
+        active_count = partial_count = paid_count = written_off_count = bad_debt_count = 0
     
     overdue_count = 0
     if 'expected_repayment_date' in df.columns and 'status' in df.columns:
@@ -1100,7 +1336,7 @@ def get_credit_summary(branch_id=None):
             status = row.get('status', '')
             expected_date = row.get('expected_repayment_date')
             
-            if status in ['PAID', 'WRITTEN_OFF']:
+            if status in ['PAID', 'WRITTEN_OFF', 'BAD_DEBT']:
                 continue
             
             if expected_date and pd.notna(expected_date):
@@ -1120,12 +1356,12 @@ def get_credit_summary(branch_id=None):
         "paid_count": paid_count,
         "overdue_count": overdue_count,
         "written_off_count": written_off_count,
+        "bad_debt_count": bad_debt_count,
         "total_count": len(df)
     }
 
 
 def get_overdue_credits(branch_id=None, days=30):
-    """Get overdue credit records"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1172,68 +1408,55 @@ def get_overdue_credits(branch_id=None, days=30):
         return pd.DataFrame()
 
 
-def get_credit_records_with_summary(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
-    """Get credit records with today/previous summary"""
-    df = get_credit_records(branch_id, status, credit_type, date_from, date_to, customer_name)
+def get_overdue_changes(branch_id=None):
+    """Return changes whose expected_collection_date is in the past and balance > 0."""
+    if branch_id is None:
+        branch_id = get_current_branch()
     
-    if df.empty:
-        return {
-            "records": df,
-            "today_total": 0,
-            "today_paid": 0,
-            "today_balance": 0,
-            "previous_total": 0,
-            "previous_paid": 0,
-            "previous_balance": 0,
-            "overall_total": 0,
-            "overall_paid": 0,
-            "overall_balance": 0
-        }
+    today = datetime.now().strftime("%Y-%m-%d")
     
-    today = datetime.now().date()
-    
-    date_col = None
-    for col in ["created_at", "updated_at", "date"]:
-        if col in df.columns:
-            date_col = col
-            break
-    
-    if date_col:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df["is_today"] = df[date_col].dt.date == today
-    else:
-        df["is_today"] = False
-    
-    today_df = df[df["is_today"]]
-    previous_df = df[~df["is_today"]]
-    
-    return {
-        "records": df,
-        "today_df": today_df,
-        "previous_df": previous_df,
-        "today_total": float(today_df["amount"].sum()) if not today_df.empty and "amount" in today_df.columns else 0,
-        "today_paid": float(today_df["amount_paid"].sum()) if not today_df.empty and "amount_paid" in today_df.columns else 0,
-        "today_balance": float(today_df["balance"].sum()) if not today_df.empty and "balance" in today_df.columns else 0,
-        "previous_total": float(previous_df["amount"].sum()) if not previous_df.empty and "amount" in previous_df.columns else 0,
-        "previous_paid": float(previous_df["amount_paid"].sum()) if not previous_df.empty and "amount_paid" in previous_df.columns else 0,
-        "previous_balance": float(previous_df["balance"].sum()) if not previous_df.empty and "balance" in previous_df.columns else 0,
-        "overall_total": float(df["amount"].sum()) if "amount" in df.columns else 0,
-        "overall_paid": float(df["amount_paid"].sum()) if "amount_paid" in df.columns else 0,
-        "overall_balance": float(df["balance"].sum()) if "balance" in df.columns else 0,
-        "today_count": len(today_df),
-        "previous_count": len(previous_df),
-        "total_count": len(df)
-    }
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return pd.DataFrame()
+        
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM floating_changes
+            WHERE branch_id = %s
+              AND status IN ('UNCOLLECTED', 'PARTIAL_COLLECTED')
+              AND COALESCE(balance, 0) > 0
+              AND expected_collection_date IS NOT NULL
+              AND expected_collection_date::date < %s
+            ORDER BY expected_collection_date ASC
+        """, (branch_id, today))
+        rows = cur.fetchall()
+        
+        if rows:
+            col_names = [desc[0] for desc in cur.description]
+            df = pd.DataFrame(rows, columns=col_names)
+            for col in ["amount", "amount_collected", "balance"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            df['days_overdue'] = (datetime.now() - pd.to_datetime(df['expected_collection_date'])).dt.days
+            cur.close()
+            conn.close()
+            return df
+        
+        cur.close()
+        conn.close()
+        return pd.DataFrame()
+        
+    except Exception as e:
+        logger.error(f"Error getting overdue changes: {e}")
+        return pd.DataFrame()
+
 
 # ==============================
-# GAS SALES - SIMPLE RECORDING ONLY (NO PENDING/TRANSFER)
+# GAS SALES
 # ==============================
 
 def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", branch_id=None):
-    """
-    Create a gas sale where user enters amount paid and price per KG
-    System calculates KGs = amount_paid / price_per_kg
-    """
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1253,7 +1476,6 @@ def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", br
     if price <= 0:
         return False, "Price must be greater than 0", None
     
-    # Calculate KGs from amount paid
     kgs_calculated = amount_clean / price
     
     if description:
@@ -1287,6 +1509,7 @@ def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", br
         conn.commit()
         cur.close()
         conn.close()
+        _clear_floating_cache()
         return True, f"Gas sale recorded. KGs: {kgs_calculated:.2f} at ${price:.2f}/KG", gas_sale_id
         
     except Exception as e:
@@ -1295,7 +1518,6 @@ def create_gas_sale(customer_name, amount_paid, price_per_kg, description="", br
 
 
 def get_gas_sales(branch_id=None, date_from=None, date_to=None, customer_name=None):
-    """Get gas sales records"""
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -1346,18 +1568,13 @@ def get_gas_sales(branch_id=None, date_from=None, date_to=None, customer_name=No
 
 
 def get_gas_sales_summary(branch_id=None):
-    """Get summary statistics for gas sales"""
     if branch_id is None:
         branch_id = get_current_branch()
     
     df = get_gas_sales(branch_id=branch_id)
     
     if df.empty:
-        return {
-            "total_kgs": 0, 
-            "total_amount": 0, 
-            "total_count": 0
-        }
+        return {"total_kgs": 0, "total_amount": 0, "total_count": 0}
     
     return {
         "total_kgs": float(df["kgs"].sum()) if "kgs" in df.columns else 0,
@@ -1368,11 +1585,14 @@ def get_gas_sales_summary(branch_id=None):
 
 # Export all functions
 __all__ = [
-    'create_change_record', 'collect_change', 'get_change_records', 'get_change_summary', 'CHANGE_STATUSES',
-    'get_change_records_for_table', 'get_change_records_with_summary',
-    'create_credit_record', 'record_credit_payment', 'get_credit_records', 'get_credit_summary', 'get_overdue_credits',
-    'get_credit_records_for_table', 'get_credit_records_with_summary',
+    'create_change_record', 'collect_change', 'write_off_change',
+    'get_change_records', 'get_change_summary', 'get_overdue_changes', 'CHANGE_STATUSES',
+    'get_change_records_for_table',
+    'create_credit_record', 'record_credit_payment', 'write_off_credit',
+    'get_credit_records', 'get_credit_summary', 'get_overdue_credits',
+    'get_credit_records_for_table',
     'CREDIT_TYPES', 'CREDIT_STATUSES',
+    'auto_flag_overdue_records', 'BAD_DEBT_DAYS_THRESHOLD',
     'create_gas_sale', 'get_gas_sales', 'get_gas_sales_summary',
     'get_customer_suggestions',
     'get_customer_phone_mapping'

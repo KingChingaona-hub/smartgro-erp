@@ -1,6 +1,8 @@
-# backend/modules/floating_financials.py - Complete with Today/Previous split for gas sales (FIXED)
-# ADDED: Description column in Change and Credit tables
-# ADDED: Auto-merge credits and changes by customer name
+# backend/modules/floating_financials.py
+# Complete with Today/Previous split for gas sales
+# FIXED: auto-merge visible immediately (cache cleared in core)
+# ADDED: Write-Off for Changes and Bad Debts for Credits
+# ADDED: Auto-flag overdue records at page load
 
 import streamlit as st
 import pandas as pd
@@ -9,18 +11,25 @@ from backend.core.floating_financials import (
     # Change Management
     create_change_record,
     collect_change,
+    write_off_change,
     get_change_records,
     get_change_summary,
+    get_overdue_changes,
     CHANGE_STATUSES,
     
     # Credit Management
     create_credit_record,
     record_credit_payment,
+    write_off_credit,
     get_credit_records,
     get_credit_summary,
     get_overdue_credits,
     CREDIT_TYPES,
     CREDIT_STATUSES,
+    
+    # Auto write-off / bad debt
+    auto_flag_overdue_records,
+    BAD_DEBT_DAYS_THRESHOLD,
     
     # Gas Sales - Recording only
     create_gas_sale,
@@ -38,7 +47,6 @@ from backend.core.db_adapter import load_sales
 
 @st.cache_data(ttl=300)
 def get_customer_suggestions():
-    """Get unique customer names from sales data for autocomplete"""
     try:
         sales_df = load_sales()
         if sales_df.empty:
@@ -55,9 +63,7 @@ def get_customer_suggestions():
         
         customers = sales_df[customer_col].dropna().unique().tolist()
         customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
-        customers = sorted(set(customers))
-        
-        return customers
+        return sorted(set(customers))
     except Exception as e:
         print(f"Error getting customer suggestions: {e}")
         return []
@@ -65,7 +71,6 @@ def get_customer_suggestions():
 
 @st.cache_data(ttl=300)
 def get_customer_phone_mapping():
-    """Get customer name to phone mapping from sales data"""
     try:
         sales_df = load_sales()
         if sales_df.empty:
@@ -100,7 +105,6 @@ def get_customer_phone_mapping():
 
 
 def get_customer_name_input(key_suffix=""):
-    """Get customer name input with autocomplete - simplified for mobile"""
     customer_suggestions = get_customer_suggestions()
     customer_phones = get_customer_phone_mapping()
     
@@ -152,8 +156,6 @@ def get_customer_name_input(key_suffix=""):
 # ==============================
 
 def floating_financials_page():
-    """Main Floating Financials Dashboard - with table layouts"""
-    
     apply_page_theme("floating_financials")
     
     st.title("Floating Financials")
@@ -163,6 +165,19 @@ def floating_financials_page():
     if not can_access_feature(role, "floating_financials"):
         st.error("You don't have permission to access this page")
         return
+    
+    # Auto-flag overdue records once per session
+    if "auto_flag_done" not in st.session_state:
+        with st.spinner("Checking for overdue records..."):
+            flagged = auto_flag_overdue_records()
+        st.session_state.auto_flag_done = True
+        if flagged.get("changes_flagged", 0) or flagged.get("credits_flagged", 0):
+            st.warning(
+                f"Auto write-off complete: "
+                f"{flagged.get('changes_flagged', 0)} change(s) and "
+                f"{flagged.get('credits_flagged', 0)} credit(s) were overdue by more than "
+                f"{BAD_DEBT_DAYS_THRESHOLD} days and have been flagged as Written Off / Bad Debt."
+            )
     
     tab_names = ["Change Management", "Credit Management", "Gas Sales"]
     
@@ -206,12 +221,10 @@ def floating_financials_page():
 
 
 # ==============================
-# CHANGE MANAGEMENT TAB - WITH DESCRIPTION
+# CHANGE MANAGEMENT TAB
 # ==============================
 
 def change_management_tab():
-    """Change Management Tab - Table format with partial collection"""
-    
     summary = get_change_summary()
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -224,18 +237,66 @@ def change_management_tab():
     with col4:
         st.metric("Uncollected", f"{summary['uncollected_count']}")
     with col5:
-        st.metric("Total", f"{summary['total_count']}")
+        st.metric("Written Off", f"{summary.get('written_off_count', 0)}")
+    
+    st.divider()
+    
+    # ---------------- Write Off / Overdue Section ----------------
+    overdue_changes = get_overdue_changes()
+    if not overdue_changes.empty:
+        with st.expander(f"Overdue Changes ({len(overdue_changes)}) - action required", expanded=False):
+            st.caption(f"These changes have a due date in the past. Those overdue by more than "
+                       f"{BAD_DEBT_DAYS_THRESHOLD} days are automatically written off.")
+            od_display = overdue_changes.copy()
+            for col in ["amount", "amount_collected", "balance"]:
+                if col in od_display.columns:
+                    od_display[col] = pd.to_numeric(od_display[col], errors="coerce").fillna(0)
+            od_display["Days Overdue"] = od_display["days_overdue"]
+            od_display = od_display.rename(columns={
+                "customer_name": "Customer",
+                "description": "Description",
+                "balance": "Balance",
+                "expected_collection_date": "Due Date",
+                "change_id": "ID",
+            })
+            cols = [c for c in ["Customer", "Description", "Balance", "Due Date", "Days Overdue", "ID"] if c in od_display.columns]
+            st.dataframe(od_display[cols], use_container_width=True, hide_index=True)
+            
+            # Manual write-off buttons
+            st.markdown("**Manually Write Off a Change**")
+            wo_options = []
+            for _, r in overdue_changes.iterrows():
+                wo_options.append(f"{r.get('customer_name','?')} - ${float(r.get('balance',0)):.2f} - {r.get('change_id','')}")
+            selected_wo = st.selectbox("Select change to write off", wo_options, key="wo_change_select")
+            wo_reason = st.text_input("Write-off reason", value="Overdue > 2 months", key="wo_change_reason")
+            if st.button("Write Off Selected Change", key="wo_change_btn"):
+                if selected_wo:
+                    idx = wo_options.index(selected_wo)
+                    row = overdue_changes.iloc[idx]
+                    ok, msg = write_off_change(row.get("change_id"), wo_reason or "Written off")
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
     
     st.divider()
     
     # Record New Change
     with st.form("record_change_form"):
         st.markdown("### Record New Uncollected Change")
-        st.caption("If customer already has an unpaid change, the new amount will be automatically added to it.")
+        st.caption("If this customer already has an unpaid change, the amount will be MERGED into that existing row "
+                   "(single row per customer, description combined).")
         
         customer_name, phone = get_customer_name_input("change")
         new_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_change_amount")
-        new_desc = st.text_area("Description (Required)", key="new_change_desc", placeholder="e.g., Customer overpaid by $X, Gas sale change, etc.")
+        new_desc = st.text_area("Description (Required)", key="new_change_desc",
+                                placeholder="e.g., Customer overpaid by $X, Gas sale change, etc.")
+        new_expected = st.date_input(
+            "Expected Collection Date (Optional)",
+            value=None,
+            key="new_change_expected"
+        )
         
         if st.form_submit_button("Record Change", use_container_width=True):
             if not customer_name:
@@ -243,13 +304,14 @@ def change_management_tab():
             elif new_amount <= 0:
                 st.error("Amount must be greater than 0")
             elif not new_desc or not new_desc.strip():
-                st.error("Description is required - please explain why this change is being recorded")
+                st.error("Description is required")
             else:
                 success, message, change_id = create_change_record(
                     customer_name=customer_name,
                     amount=new_amount,
                     description=new_desc,
-                    phone=phone
+                    phone=phone,
+                    expected_collection_date=new_expected.strftime("%Y-%m-%d") if new_expected else None
                 )
                 if success:
                     st.success(message)
@@ -270,25 +332,20 @@ def change_management_tab():
     with col4:
         filter_date_to = st.date_input("To", value=None, key="change_date_to")
     
-    @st.cache_data(ttl=60)
-    def load_change_records(status, customer, date_from, date_to):
-        return get_change_records(
-            status=None if status == "ALL" else status,
-            customer_name=customer if customer else None,
-            date_from=date_from.strftime("%Y-%m-%d") if date_from else None,
-            date_to=date_to.strftime("%Y-%m-%d") if date_to else None
-        )
-    
-    df = load_change_records(filter_status, filter_customer, filter_date_from, filter_date_to)
+    # NO CACHE on these so merges are visible instantly
+    df = get_change_records(
+        status=None if filter_status == "ALL" else filter_status,
+        customer_name=filter_customer if filter_customer else None,
+        date_from=filter_date_from.strftime("%Y-%m-%d") if filter_date_from else None,
+        date_to=filter_date_to.strftime("%Y-%m-%d") if filter_date_to else None
+    )
     
     if df.empty:
         st.info("No change records found")
         return
     
-    # Prepare data for table display
     df_display = df.copy()
     
-    # Format dates
     date_col = None
     for col in ["created_at", "updated_at", "date"]:
         if col in df_display.columns:
@@ -301,30 +358,28 @@ def change_management_tab():
     else:
         df_display["Date"] = "N/A"
     
-    # Add status label
     def get_status_label(status):
         if status == "COLLECTED":
             return "COLLECTED"
         elif status == "PARTIAL_COLLECTED":
             return "PARTIAL"
+        elif status == "WRITTEN_OFF":
+            return "WRITTEN OFF"
         else:
             return "UNCOLLECTED"
     
     df_display["Status"] = df_display["status"].apply(get_status_label)
     
-    # Rename columns for display
     rename_map = {
         "customer_name": "Customer",
         "amount": "Amount",
         "amount_collected": "Collected",
         "balance": "Balance",
         "change_id": "ID",
-        "description": "Description"  # ADDED: Include description
+        "description": "Description"
     }
-    
     df_display = df_display.rename(columns=rename_map)
     
-    # Display as a single table with Description column
     st.markdown("### All Change Records")
     st.dataframe(
         df_display[["Date", "Customer", "Description", "Amount", "Collected", "Balance", "Status", "ID"]],
@@ -338,35 +393,26 @@ def change_management_tab():
         }
     )
     
-    # Collection section below the table
+    # Collection section
     st.markdown("### Collect Change")
     
-    # Get uncollected or partially collected records
-    uncollected_df = df[df["balance"] > 0]
+    uncollected_df = df[(df["balance"] > 0) & (df["status"].isin(["UNCOLLECTED", "PARTIAL_COLLECTED"]))]
     
     if uncollected_df.empty:
         st.info("All changes have been collected")
     else:
-        # Create collection options with description
         collection_options = []
         for idx, row in uncollected_df.iterrows():
             customer = row.get("customer_name", "Unknown")
-            amount = float(row.get("amount", 0))
             balance = float(row.get("balance", 0))
-            change_id = row.get("change_id", "")
             description = row.get("description", "")
             desc_short = description[:30] + "..." if len(description) > 30 else description
-            display_text = f"{customer} - Balance: ${balance:.2f} ({desc_short})"
-            collection_options.append(display_text)
+            collection_options.append(f"{customer} - Balance: ${balance:.2f} ({desc_short})")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            selected_option = st.selectbox(
-                "Select Change to Collect",
-                collection_options,
-                key="collect_change_select"
-            )
+            selected_option = st.selectbox("Select Change to Collect", collection_options, key="collect_change_select")
         
         if selected_option:
             selected_idx = collection_options.index(selected_option)
@@ -375,7 +421,6 @@ def change_management_tab():
             balance = float(selected_row.get("balance", 0))
             description = selected_row.get("description", "")
             
-            # Show description of selected change
             st.info(f"**Description:** {description}")
             
             with col2:
@@ -391,10 +436,7 @@ def change_management_tab():
             with col3:
                 if st.button("Collect Payment", use_container_width=True, key="collect_change_btn"):
                     if collect_amount > 0:
-                        success, message = collect_change(
-                            change_id=change_id,
-                            amount=collect_amount
-                        )
+                        success, message = collect_change(change_id=change_id, amount=collect_amount)
                         if success:
                             st.success(message)
                             st.rerun()
@@ -403,7 +445,6 @@ def change_management_tab():
                     else:
                         st.error("Please enter an amount to collect")
     
-    # Footer totals
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -415,17 +456,14 @@ def change_management_tab():
 
 
 # ==============================
-# CREDIT MANAGEMENT TAB - WITH DESCRIPTION
+# CREDIT MANAGEMENT TAB
 # ==============================
 
 def credit_management_tab():
-    """Credit Management Tab - Table format with description"""
-    
     summary = get_credit_summary()
-    
     overdue_df = get_overdue_credits(days=30)
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Credit", f"${summary['total_credit']:,.2f}")
     with col2:
@@ -434,24 +472,68 @@ def credit_management_tab():
         st.metric("Balance", f"${summary['total_balance']:,.2f}")
     with col4:
         st.metric("Active Loans", f"{summary['active_count']}")
+    with col5:
+        st.metric("Bad Debts", f"{summary.get('bad_debt_count', 0)}")
     
     if not overdue_df.empty:
         st.error(f"WARNING: {len(overdue_df)} credit(s) are overdue!")
     
     st.divider()
     
+    # ---------------- Bad Debts / Overdue Section ----------------
+    if not overdue_df.empty:
+        with st.expander(f"Overdue Credits ({len(overdue_df)}) - action required", expanded=False):
+            st.caption(f"Credits overdue by more than {BAD_DEBT_DAYS_THRESHOLD} days are automatically flagged as Bad Debt.")
+            od_display = overdue_df.copy()
+            for col in ["amount", "amount_paid", "balance"]:
+                if col in od_display.columns:
+                    od_display[col] = pd.to_numeric(od_display[col], errors="coerce").fillna(0)
+            od_display["Days Overdue"] = od_display["days_overdue"]
+            od_display = od_display.rename(columns={
+                "customer_name": "Customer",
+                "description": "Description",
+                "balance": "Balance",
+                "expected_repayment_date": "Due Date",
+                "credit_id": "ID",
+            })
+            cols = [c for c in ["Customer", "Description", "Balance", "Due Date", "Days Overdue", "ID"] if c in od_display.columns]
+            st.dataframe(od_display[cols], use_container_width=True, hide_index=True)
+            
+            st.markdown("**Manually Write Off as Bad Debt**")
+            wo_options = []
+            for _, r in overdue_df.iterrows():
+                wo_options.append(f"{r.get('customer_name','?')} - ${float(r.get('balance',0)):.2f} - {r.get('credit_id','')}")
+            selected_wo = st.selectbox("Select credit to write off", wo_options, key="wo_credit_select")
+            wo_reason = st.text_input("Bad debt reason", value="Bad debt - overdue > 2 months", key="wo_credit_reason")
+            if st.button("Write Off Selected Credit", key="wo_credit_btn"):
+                if selected_wo:
+                    idx = wo_options.index(selected_wo)
+                    row = overdue_df.iloc[idx]
+                    ok, msg = write_off_credit(row.get("credit_id"), wo_reason or "Bad debt")
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+    
+    st.divider()
+    
     # Record New Credit
     with st.form("record_credit_form"):
         st.markdown("### Record New Credit/Loan")
-        st.caption("If customer already has an active credit, the new amount will be automatically added to it.")
+        st.caption("If this customer already has an active credit, the amount will be MERGED into that existing row "
+                   "(single row per customer, description combined).")
         
         customer_name, phone = get_customer_name_input("credit")
         new_credit_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_credit_amount")
         new_credit_type = st.selectbox("Credit Type", CREDIT_TYPES, key="new_credit_type")
-        new_credit_desc = st.text_area("Description (Required)", key="new_credit_desc", placeholder="e.g., Loan for goods, Cash advance, etc.")
-        new_credit_repayment = st.date_input("Expected Repayment Date", 
-                                            value=datetime.now() + timedelta(days=30),
-                                            key="new_credit_repayment")
+        new_credit_desc = st.text_area("Description (Required)", key="new_credit_desc",
+                                       placeholder="e.g., Loan for goods, Cash advance, etc.")
+        new_credit_repayment = st.date_input(
+            "Expected Repayment Date",
+            value=datetime.now() + timedelta(days=30),
+            key="new_credit_repayment"
+        )
         
         if st.form_submit_button("Record Credit", use_container_width=True):
             if not customer_name:
@@ -459,7 +541,7 @@ def credit_management_tab():
             elif new_credit_amount <= 0:
                 st.error("Amount must be greater than 0")
             elif not new_credit_desc or not new_credit_desc.strip():
-                st.error("Description is required - please explain the purpose of this credit/loan")
+                st.error("Description is required")
             else:
                 success, message, credit_id = create_credit_record(
                     customer_name=customer_name,
@@ -490,26 +572,21 @@ def credit_management_tab():
     with col5:
         filter_credit_date_to = st.date_input("To", value=None, key="credit_date_to")
     
-    @st.cache_data(ttl=60)
-    def load_credit_records(status, credit_type, customer, date_from, date_to):
-        return get_credit_records(
-            status=None if status == "ALL" else status,
-            credit_type=None if credit_type == "ALL" else credit_type,
-            customer_name=customer if customer else None,
-            date_from=date_from.strftime("%Y-%m-%d") if date_from else None,
-            date_to=date_to.strftime("%Y-%m-%d") if date_to else None
-        )
-    
-    df = load_credit_records(filter_credit_status, filter_credit_type, filter_credit_customer, filter_credit_date_from, filter_credit_date_to)
+    # NO CACHE — visible instantly after merge
+    df = get_credit_records(
+        status=None if filter_credit_status == "ALL" else filter_credit_status,
+        credit_type=None if filter_credit_type == "ALL" else filter_credit_type,
+        customer_name=filter_credit_customer if filter_credit_customer else None,
+        date_from=filter_credit_date_from.strftime("%Y-%m-%d") if filter_credit_date_from else None,
+        date_to=filter_credit_date_to.strftime("%Y-%m-%d") if filter_credit_date_to else None
+    )
     
     if df.empty:
         st.info("No credit records found")
         return
     
-    # Prepare data for table display
     df_display = df.copy()
     
-    # Format dates
     date_col = None
     for col in ["created_at", "updated_at", "date"]:
         if col in df_display.columns:
@@ -522,7 +599,6 @@ def credit_management_tab():
     else:
         df_display["Date"] = "N/A"
     
-    # Calculate overdue status
     def get_overdue_status(row):
         status = row.get("status", "ACTIVE")
         expected = row.get("expected_repayment_date", "")
@@ -538,7 +614,6 @@ def credit_management_tab():
     
     df_display["Status_Display"] = df_display.apply(get_overdue_status, axis=1)
     
-    # Rename columns - ADDED description
     rename_map = {
         "customer_name": "Customer",
         "amount": "Amount",
@@ -547,12 +622,10 @@ def credit_management_tab():
         "credit_type": "Type",
         "expected_repayment_date": "Due Date",
         "credit_id": "ID",
-        "description": "Description"  # ADDED: Include description
+        "description": "Description"
     }
-    
     df_display = df_display.rename(columns=rename_map)
     
-    # Display all records in a single table with Description column
     st.markdown("### All Credit Records")
     
     display_cols = ["Date", "Customer", "Description", "Amount", "Paid", "Balance", "Type", "Due Date", "Status_Display", "ID"]
@@ -570,11 +643,10 @@ def credit_management_tab():
         }
     )
     
-    # Payment section below the table
+    # Payment section
     st.markdown("### Record Payment")
     
-    # Get credits with balance > 0
-    active_credits = df[df["balance"] > 0]
+    active_credits = df[(df["balance"] > 0) & (df["status"].isin(["ACTIVE", "PARTIAL_PAID"]))]
     
     if active_credits.empty:
         st.info("All credits are fully paid")
@@ -583,21 +655,14 @@ def credit_management_tab():
         for idx, row in active_credits.iterrows():
             customer = row.get("customer_name", "Unknown")
             balance = float(row.get("balance", 0))
-            amount = float(row.get("amount", 0))
-            credit_id = row.get("credit_id", "")
             description = row.get("description", "")
             desc_short = description[:30] + "..." if len(description) > 30 else description
-            display_text = f"{customer} - Balance: ${balance:.2f} ({desc_short})"
-            payment_options.append(display_text)
+            payment_options.append(f"{customer} - Balance: ${balance:.2f} ({desc_short})")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            selected_payment = st.selectbox(
-                "Select Credit to Pay",
-                payment_options,
-                key="credit_payment_select"
-            )
+            selected_payment = st.selectbox("Select Credit to Pay", payment_options, key="credit_payment_select")
         
         if selected_payment:
             selected_idx = payment_options.index(selected_payment)
@@ -606,7 +671,6 @@ def credit_management_tab():
             balance = float(selected_row.get("balance", 0))
             description = selected_row.get("description", "")
             
-            # Show description of selected credit
             st.info(f"**Description:** {description}")
             
             with col2:
@@ -643,7 +707,6 @@ def credit_management_tab():
                     else:
                         st.error("Please enter a payment amount")
     
-    # Footer totals
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -655,19 +718,13 @@ def credit_management_tab():
 
 
 # ==============================
-# GAS SALES TAB - WITH TODAY/PREVIOUS SPLIT (FIXED)
+# GAS SALES TAB
 # ==============================
 
 def gas_sales_tab():
-    """Gas Sales Tab - Recording only, with Today/Previous split"""
-    
-    # Get all records for splitting
     all_records = get_gas_sales()
-    
-    # Calculate today's date
     today = datetime.now().date()
     
-    # Initialize variables
     today_df = pd.DataFrame()
     previous_df = pd.DataFrame()
     today_total_kgs = 0
@@ -680,9 +737,7 @@ def gas_sales_tab():
     overall_total_amount = 0
     overall_count = 0
     
-    # Split records into today and previous if data exists
     if not all_records.empty:
-        # Ensure sale_date is datetime
         date_col = None
         for col in ["sale_date", "created_at", "date"]:
             if col in all_records.columns:
@@ -690,26 +745,20 @@ def gas_sales_tab():
                 break
         
         if date_col:
-            # Convert to datetime and handle errors
             all_records[date_col] = pd.to_datetime(all_records[date_col], errors="coerce")
-            # Drop rows with invalid dates
             all_records = all_records.dropna(subset=[date_col])
             
             if not all_records.empty:
-                # Convert kgs and total_amount to float
                 if "kgs" in all_records.columns:
                     all_records["kgs"] = pd.to_numeric(all_records["kgs"], errors="coerce").fillna(0)
                 if "total_amount" in all_records.columns:
                     all_records["total_amount"] = pd.to_numeric(all_records["total_amount"], errors="coerce").fillna(0)
                 
-                # Create today flag
                 all_records["is_today"] = all_records[date_col].dt.date == today
                 
-                # Split into today and previous
                 today_df = all_records[all_records["is_today"]].copy()
                 previous_df = all_records[~all_records["is_today"]].copy()
                 
-                # Calculate summaries
                 if not today_df.empty:
                     today_total_kgs = float(today_df["kgs"].sum()) if "kgs" in today_df.columns else 0
                     today_total_amount = float(today_df["total_amount"].sum()) if "total_amount" in today_df.columns else 0
@@ -720,12 +769,10 @@ def gas_sales_tab():
                     previous_total_amount = float(previous_df["total_amount"].sum()) if "total_amount" in previous_df.columns else 0
                     previous_count = len(previous_df)
                 
-                # Overall totals
                 overall_total_kgs = float(all_records["kgs"].sum()) if "kgs" in all_records.columns else 0
                 overall_total_amount = float(all_records["total_amount"].sum()) if "total_amount" in all_records.columns else 0
                 overall_count = len(all_records)
     
-    # Display overall summary metrics
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total KGs Sold", f"{overall_total_kgs:,.2f}")
@@ -736,7 +783,6 @@ def gas_sales_tab():
     
     st.divider()
     
-    # Record New Gas Sale
     with st.form("record_gas_form"):
         st.markdown("### Record Gas Sale")
         st.caption("Enter the amount paid and price per KG to calculate KGs sold")
@@ -772,7 +818,6 @@ def gas_sales_tab():
     
     st.divider()
     
-    # Filters for viewing records
     col1, col2, col3 = st.columns(3)
     with col1:
         filter_gas_customer = st.text_input("Filter by Customer", key="gas_customer_filter")
@@ -781,24 +826,18 @@ def gas_sales_tab():
     with col3:
         filter_gas_date_to = st.date_input("To", value=None, key="gas_date_to")
     
-    @st.cache_data(ttl=60)
-    def load_gas_records(customer, date_from, date_to):
-        return get_gas_sales(
-            customer_name=customer if customer else None,
-            date_from=date_from.strftime("%Y-%m-%d") if date_from else None,
-            date_to=date_to.strftime("%Y-%m-%d") if date_to else None
-        )
-    
-    df = load_gas_records(filter_gas_customer, filter_gas_date_from, filter_gas_date_to)
+    df = get_gas_sales(
+        customer_name=filter_gas_customer if filter_gas_customer else None,
+        date_from=filter_gas_date_from.strftime("%Y-%m-%d") if filter_gas_date_from else None,
+        date_to=filter_gas_date_to.strftime("%Y-%m-%d") if filter_gas_date_to else None
+    )
     
     if df.empty:
         st.info("No gas sales records found")
         return
     
-    # Prepare data for table display
     df_display = df.copy()
     
-    # Format dates and convert to numeric
     date_col = None
     for col in ["sale_date", "created_at", "date"]:
         if col in df_display.columns:
@@ -814,17 +853,14 @@ def gas_sales_tab():
         df_display["Date"] = "N/A"
         df_display["is_today"] = False
     
-    # Convert numeric columns
     if "kgs" in df_display.columns:
         df_display["kgs"] = pd.to_numeric(df_display["kgs"], errors="coerce").fillna(0)
     if "total_amount" in df_display.columns:
         df_display["total_amount"] = pd.to_numeric(df_display["total_amount"], errors="coerce").fillna(0)
     
-    # Split into Today and Previous for filtered view
     today_df_filtered = df_display[df_display["is_today"]].copy()
     previous_df_filtered = df_display[~df_display["is_today"]].copy()
     
-    # Rename columns for display
     rename_map = {
         "customer_name": "Customer",
         "kgs": "KGs",
@@ -835,18 +871,13 @@ def gas_sales_tab():
     
     display_cols = ["Date", "Customer", "KGs", "Price/KG", "Total", "ID"]
     
-    # ==============================
-    # TODAY'S RECORDS
-    # ==============================
     st.markdown("### Today's Records")
     
     if not today_df_filtered.empty:
-        # Calculate today's summary
         today_total_kgs_display = float(today_df_filtered["kgs"].sum()) if "kgs" in today_df_filtered.columns else 0
         today_total_amount_display = float(today_df_filtered["total_amount"].sum()) if "total_amount" in today_df_filtered.columns else 0
         today_count_display = len(today_df_filtered)
         
-        # Display today's summary cards
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Today's KGs", f"{today_total_kgs_display:,.2f}")
@@ -855,7 +886,6 @@ def gas_sales_tab():
         with col3:
             st.metric("Today's Sales", f"{today_count_display}")
         
-        # Display table
         today_display = today_df_filtered.rename(columns=rename_map)
         st.dataframe(
             today_display[display_cols],
@@ -871,19 +901,13 @@ def gas_sales_tab():
         st.info("No gas sales recorded for today")
     
     st.markdown("---")
-    
-    # ==============================
-    # PREVIOUS RECORDS
-    # ==============================
     st.markdown("### Previous Records")
     
     if not previous_df_filtered.empty:
-        # Calculate previous summary
         prev_total_kgs_display = float(previous_df_filtered["kgs"].sum()) if "kgs" in previous_df_filtered.columns else 0
         prev_total_amount_display = float(previous_df_filtered["total_amount"].sum()) if "total_amount" in previous_df_filtered.columns else 0
         prev_count_display = len(previous_df_filtered)
         
-        # Display previous summary cards
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Previous KGs", f"{prev_total_kgs_display:,.2f}")
@@ -892,7 +916,6 @@ def gas_sales_tab():
         with col3:
             st.metric("Previous Sales", f"{prev_count_display}")
         
-        # Display table
         previous_display = previous_df_filtered.rename(columns=rename_map)
         st.dataframe(
             previous_display[display_cols],
@@ -907,9 +930,6 @@ def gas_sales_tab():
     else:
         st.info("No previous gas sales records")
     
-    # ==============================
-    # OVERALL FOOTER TOTALS
-    # ==============================
     st.markdown("---")
     st.markdown("### Overall Summary")
     
