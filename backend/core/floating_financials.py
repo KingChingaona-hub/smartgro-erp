@@ -1,6 +1,7 @@
 # backend/core/floating_financials.py
 # COMPLETE VERSION - With Change, Credit, and Gas Sales (Recording Only)
 # ADDED: Description column in all table displays
+# ADDED: Auto-merge credits and changes by customer name
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -338,6 +339,11 @@ CREDIT_TYPES = ["WORKMATE_LOAN", "CUSTOMER_CREDIT", "SUPPLIER_CREDIT", "OTHER"]
 # ==============================
 
 def create_change_record(customer_name, amount, description="", phone="", branch_id=None):
+    """
+    Create a change record. If an existing UNCOLLECTED or PARTIAL_COLLECTED 
+    change exists for the same customer, auto-merge by adding the amount,
+    recalculating balance, and appending the description.
+    """
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -369,9 +375,74 @@ def create_change_record(customer_name, amount, description="", phone="", branch
             return False, "Database connection failed", None
         
         cur = conn.cursor()
-        
-        change_id = f"CHG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # ==============================
+        # LOOK FOR EXISTING UNCOLLECTED / PARTIAL CHANGE FOR THIS CUSTOMER
+        # ==============================
+        cur.execute("""
+            SELECT change_id, amount, amount_collected, balance, description, phone
+            FROM floating_changes
+            WHERE branch_id = %s
+              AND LOWER(TRIM(customer_name)) = LOWER(TRIM(%s))
+              AND status IN ('UNCOLLECTED', 'PARTIAL_COLLECTED')
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (branch_id, customer_name))
+        
+        existing = cur.fetchone()
+        
+        if existing:
+            existing_change_id, old_amount, old_collected, old_balance, old_desc, old_phone = existing
+            old_amount = float(old_amount)
+            old_collected = float(old_collected)
+            old_balance = float(old_balance)
+            
+            # Merge description
+            combined_desc = description
+            if old_desc and description:
+                combined_desc = f"{old_desc} | {description}"
+            elif old_desc:
+                combined_desc = old_desc
+            
+            # Merge phone (keep existing if new one empty)
+            merged_phone = phone if phone else (old_phone or "")
+            
+            # New totals
+            new_amount = old_amount + amount_clean
+            new_balance = old_balance + amount_clean
+            
+            cur.execute("""
+                UPDATE floating_changes
+                SET amount = %s,
+                    balance = %s,
+                    description = %s,
+                    phone = %s,
+                    updated_at = %s
+                WHERE change_id = %s
+            """, (
+                new_amount,
+                new_balance,
+                combined_desc,
+                merged_phone,
+                now,
+                existing_change_id
+            ))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            return (
+                True,
+                f"Change updated for {customer_name}. New total: ${new_amount:.2f}, "
+                f"Collected: ${old_collected:.2f}, Balance: ${new_balance:.2f}",
+                existing_change_id
+            )
+        
+        # ==============================
+        # NO EXISTING RECORD → CREATE NEW
+        # ==============================
+        change_id = f"CHG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         
         cur.execute("""
             INSERT INTO floating_changes (
@@ -393,6 +464,7 @@ def create_change_record(customer_name, amount, description="", phone="", branch
     except Exception as e:
         logger.error(f"Error creating change record: {e}")
         return False, f"Error: {str(e)}", None
+
 
 def collect_change(change_id, amount, collection_note=""):
     valid, amount_clean, msg = validate_amount(amount)
@@ -469,6 +541,7 @@ def collect_change(change_id, amount, collection_note=""):
         logger.error(f"Error collecting change: {e}")
         return False, f"Error: {str(e)}"
 
+
 def get_change_records(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
     if branch_id is None:
         branch_id = get_current_branch()
@@ -529,6 +602,7 @@ def get_change_records(branch_id=None, status=None, date_from=None, date_to=None
         logger.error(f"Error getting change records: {e}")
         return pd.DataFrame()
 
+
 def get_change_summary(branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
@@ -557,6 +631,7 @@ def get_change_summary(branch_id=None):
         "collected_count": collected_count,
         "total_count": len(df)
     }
+
 
 def get_change_records_for_table(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
     """Get change records formatted for table display - INCLUDES DESCRIPTION"""
@@ -595,6 +670,7 @@ def get_change_records_for_table(branch_id=None, status=None, date_from=None, da
     display_df = display_df[[c for c in cols if c in display_df.columns]]
     
     return display_df
+
 
 def get_change_records_with_summary(branch_id=None, status=None, date_from=None, date_to=None, customer_name=None):
     """Get change records with today/previous summary"""
@@ -654,6 +730,11 @@ def get_change_records_with_summary(branch_id=None, status=None, date_from=None,
 # ==============================
 
 def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", description="", phone="", expected_repayment=None, branch_id=None):
+    """
+    Create a credit record. If an existing ACTIVE or PARTIAL_PAID credit 
+    exists for the same customer, auto-merge by adding the amount,
+    recalculating balance, and appending the description.
+    """
     if branch_id is None:
         branch_id = get_current_branch()
     
@@ -688,9 +769,87 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
             return False, "Database connection failed", None
         
         cur = conn.cursor()
-        
-        credit_id = f"CRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # ==============================
+        # LOOK FOR EXISTING ACTIVE / PARTIAL CREDIT FOR THIS CUSTOMER
+        # ==============================
+        cur.execute("""
+            SELECT credit_id, amount, amount_paid, balance, description, phone,
+                   credit_type, expected_repayment_date
+            FROM floating_credits
+            WHERE branch_id = %s
+              AND LOWER(TRIM(customer_name)) = LOWER(TRIM(%s))
+              AND status IN ('ACTIVE', 'PARTIAL_PAID')
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (branch_id, customer_name))
+        
+        existing = cur.fetchone()
+        
+        if existing:
+            (existing_credit_id, old_amount, old_paid, old_balance, old_desc,
+             old_phone, old_credit_type, old_expected) = existing
+            
+            old_amount = float(old_amount)
+            old_paid = float(old_paid)
+            old_balance = float(old_balance)
+            
+            # Merge description
+            combined_desc = description
+            if old_desc and description:
+                combined_desc = f"{old_desc} | {description}"
+            elif old_desc:
+                combined_desc = old_desc
+            
+            # Merge phone
+            merged_phone = phone if phone else (old_phone or "")
+            
+            # Merge credit_type (use new if provided, else old)
+            merged_type = credit_type if credit_type and credit_type != "OTHER" else (old_credit_type or "OTHER")
+            
+            # Merge expected repayment date (use new if provided, else old)
+            merged_expected = expected_repayment if expected_repayment else old_expected
+            
+            # New totals
+            new_amount = old_amount + amount_clean
+            new_balance = old_balance + amount_clean
+            
+            cur.execute("""
+                UPDATE floating_credits
+                SET amount = %s,
+                    balance = %s,
+                    description = %s,
+                    phone = %s,
+                    credit_type = %s,
+                    expected_repayment_date = %s,
+                    updated_at = %s
+                WHERE credit_id = %s
+            """, (
+                new_amount,
+                new_balance,
+                combined_desc,
+                merged_phone,
+                merged_type,
+                merged_expected,
+                now,
+                existing_credit_id
+            ))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            return (
+                True,
+                f"Credit updated for {customer_name}. New total: ${new_amount:.2f}, "
+                f"Paid: ${old_paid:.2f}, Balance: ${new_balance:.2f}",
+                existing_credit_id
+            )
+        
+        # ==============================
+        # NO EXISTING RECORD → CREATE NEW
+        # ==============================
+        credit_id = f"CRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         
         cur.execute("""
             INSERT INTO floating_credits (
@@ -712,6 +871,7 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
     except Exception as e:
         logger.error(f"Error creating credit record: {e}")
         return False, f"Error: {str(e)}", None
+
 
 def record_credit_payment(credit_id, amount, payment_note="", payment_method="CASH"):
     valid, amount_clean, msg = validate_amount(amount)
@@ -793,6 +953,7 @@ def record_credit_payment(credit_id, amount, payment_note="", payment_method="CA
         logger.error(f"Error recording credit payment: {e}")
         return False, f"Error: {str(e)}"
 
+
 def get_credit_records(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
     if branch_id is None:
         branch_id = get_current_branch()
@@ -857,6 +1018,7 @@ def get_credit_records(branch_id=None, status=None, credit_type=None, date_from=
         logger.error(f"Error getting credit records: {e}")
         return pd.DataFrame()
 
+
 def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
     """Get credit records formatted for table display - INCLUDES DESCRIPTION"""
     df = get_credit_records(branch_id, status, credit_type, date_from, date_to, customer_name)
@@ -906,6 +1068,7 @@ def get_credit_records_for_table(branch_id=None, status=None, credit_type=None, 
     display_df = display_df[[c for c in cols if c in display_df.columns]]
     
     return display_df
+
 
 def get_credit_summary(branch_id=None):
     """Get summary statistics for credit records"""
@@ -960,6 +1123,7 @@ def get_credit_summary(branch_id=None):
         "total_count": len(df)
     }
 
+
 def get_overdue_credits(branch_id=None, days=30):
     """Get overdue credit records"""
     if branch_id is None:
@@ -1006,6 +1170,7 @@ def get_overdue_credits(branch_id=None, days=30):
     except Exception as e:
         logger.error(f"Error getting overdue credits: {e}")
         return pd.DataFrame()
+
 
 def get_credit_records_with_summary(branch_id=None, status=None, credit_type=None, date_from=None, date_to=None, customer_name=None):
     """Get credit records with today/previous summary"""

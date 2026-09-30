@@ -1,5 +1,6 @@
 # backend/modules/floating_financials.py - Complete with Today/Previous split for gas sales (FIXED)
 # ADDED: Description column in Change and Credit tables
+# ADDED: Auto-merge credits and changes by customer name
 
 import streamlit as st
 import pandas as pd
@@ -230,6 +231,7 @@ def change_management_tab():
     # Record New Change
     with st.form("record_change_form"):
         st.markdown("### Record New Uncollected Change")
+        st.caption("If customer already has an unpaid change, the new amount will be automatically added to it.")
         
         customer_name, phone = get_customer_name_input("change")
         new_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_change_amount")
@@ -441,6 +443,7 @@ def credit_management_tab():
     # Record New Credit
     with st.form("record_credit_form"):
         st.markdown("### Record New Credit/Loan")
+        st.caption("If customer already has an active credit, the new amount will be automatically added to it.")
         
         customer_name, phone = get_customer_name_input("credit")
         new_credit_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_credit_amount")
