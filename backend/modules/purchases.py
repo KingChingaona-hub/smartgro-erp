@@ -1,6 +1,7 @@
 """
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
+ADDED: Bulk-confirm all pending POs in one action.
 """
 
 import streamlit as st
@@ -67,6 +68,138 @@ def get_supplier_suggestions():
     except Exception as e:
         print(f"Error getting supplier suggestions: {e}")
         return []
+
+
+# ==============================
+# BULK-CONFIRM HELPERS
+# ==============================
+def get_all_pending_pos():
+    """
+    Return a list of dicts summarising every PO whose status is PENDING.
+    Each dict contains:
+      - po_number
+      - supplier
+      - item_count
+      - total_value
+      - expected_date
+    """
+    try:
+        purchases_df = load_purchases()
+        if purchases_df.empty:
+            return []
+
+        if "status" not in purchases_df.columns:
+            return []
+
+        pending_df = purchases_df[
+            purchases_df["status"].astype(str).str.upper() == "PENDING"
+        ].copy()
+
+        if pending_df.empty:
+            return []
+
+        results = []
+        for po_number, group in pending_df.groupby("po_number"):
+            supplier = ""
+            if "supplier" in group.columns and not group["supplier"].isna().all():
+                supplier = str(group["supplier"].iloc[0])
+
+            expected_date = ""
+            if "expected_date" in group.columns and not group["expected_date"].isna().all():
+                expected_date = str(group["expected_date"].iloc[0])
+
+            total_value = 0.0
+            if "total_cost" in group.columns:
+                try:
+                    total_value = float(group["total_cost"].sum())
+                except Exception:
+                    total_value = 0.0
+
+            results.append({
+                "po_number": str(po_number),
+                "supplier": supplier,
+                "item_count": len(group),
+                "total_value": total_value,
+                "expected_date": expected_date,
+            })
+
+        results.sort(key=lambda x: x.get("po_number", ""))
+        return results
+
+    except Exception as e:
+        print(f"Error getting pending POs: {e}")
+        return []
+
+
+def confirm_all_pending_pos(confirmed_by="system"):
+    """
+    Confirm every PO that is currently PENDING in a single transaction.
+
+    Updates the `status` column to 'CONFIRMED' for all matching rows.
+    If a `date_confirmed` column exists, it is stamped as well.
+
+    Returns (success: bool, message: str, count: int)
+    """
+    try:
+        with get_db_connection() as conn:
+            if conn is None:
+                return False, "Database connection failed", 0
+
+            cur = conn.cursor()
+
+            # Inspect the columns we care about
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_name = 'purchases' AND column_name = 'status'
+                )
+            """)
+            has_status = bool(cur.fetchone()[0])
+
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_name = 'purchases' AND column_name = 'date_confirmed'
+                )
+            """)
+            has_date_confirmed = bool(cur.fetchone()[0])
+
+            if not has_status:
+                cur.close()
+                return False, "purchases table has no 'status' column", 0
+
+            if has_date_confirmed:
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cur.execute("""
+                    UPDATE purchases
+                    SET status = 'CONFIRMED',
+                        date_confirmed = %s
+                    WHERE UPPER(status) = 'PENDING'
+                """, (now_str,))
+            else:
+                cur.execute("""
+                    UPDATE purchases
+                    SET status = 'CONFIRMED'
+                    WHERE UPPER(status) = 'PENDING'
+                """)
+
+            count = cur.rowcount or 0
+            conn.commit()
+            cur.close()
+
+        if count == 0:
+            return True, "No pending purchase orders to confirm", 0
+
+        return (
+            True,
+            f"Confirmed {count} item(s) across all pending purchase orders.",
+            count,
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return False, f"Error confirming POs: {str(e)}", 0
 
 
 # ==============================
@@ -472,32 +605,22 @@ def get_po_details(po_number):
 def supplier_autocomplete(key_suffix=""):
     """Supplier input with autocomplete from existing suppliers - OPTIMIZED"""
     
-    # Get existing suppliers with caching
     supplier_suggestions = get_supplier_suggestions()
-    
-    # Get current value from session state
     current_value = st.session_state.get(f"supplier_name_{key_suffix}", "")
-    
-    # Check if current value is new (not in suggestions)
     is_new_supplier = current_value and current_value not in supplier_suggestions and current_value.strip()
     
-    # Create options list with existing suppliers
     options = supplier_suggestions.copy() if supplier_suggestions else []
     
-    # Add current value if it's not in the list
     if is_new_supplier:
         options.append(current_value)
     
-    # Always add an empty option at the beginning
     options = [""] + sorted(set(options))
     
-    # Find the index of current value
     try:
         current_index = options.index(current_value) if current_value in options else 0
     except ValueError:
         current_index = 0
     
-    # Create two columns for input and new supplier indicator
     col1, col2 = st.columns([4, 1])
     
     with col1:
@@ -511,13 +634,11 @@ def supplier_autocomplete(key_suffix=""):
         )
     
     with col2:
-        # Show indicator if it's a new supplier
         if selected_supplier and selected_supplier not in supplier_suggestions:
             st.caption("New Supplier")
         else:
             st.caption(" ")
     
-    # Allow manual entry of new supplier via text input
     col1, col2 = st.columns([4, 1])
     
     with col1:
@@ -532,7 +653,6 @@ def supplier_autocomplete(key_suffix=""):
     with col2:
         st.caption(" ")
     
-    # If user typed a new name, use it
     if new_supplier and new_supplier.strip():
         return new_supplier.strip()
     
@@ -548,7 +668,6 @@ def purchases_page():
     st.title("Purchases and Suppliers Management")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
     
-    # Load products once with caching
     @st.cache_data(ttl=60)
     def load_products_cached():
         return load_products()
@@ -584,6 +703,11 @@ def purchases_page():
         st.session_state.batch_quantities = {}
     if "show_batch_add" not in st.session_state:
         st.session_state.show_batch_add = False
+    # NEW state for bulk confirm
+    if "bulk_confirm_success" not in st.session_state:
+        st.session_state.bulk_confirm_success = None
+    if "bulk_confirm_message" not in st.session_state:
+        st.session_state.bulk_confirm_message = None
     
     # Handle refresh after deletion
     if st.session_state.refresh_required:
@@ -608,6 +732,16 @@ def purchases_page():
             st.success(f"Purchase Order {st.session_state.deleted_po_number} deleted successfully!")
         st.session_state.po_deleted = False
         st.session_state.deleted_po_number = None
+    
+    # Display bulk confirm message (persists until next rerun)
+    if st.session_state.bulk_confirm_success is not None:
+        if st.session_state.bulk_confirm_success:
+            st.success(st.session_state.bulk_confirm_message or "Pending POs confirmed.")
+            st.balloons()
+        else:
+            st.error(st.session_state.bulk_confirm_message or "Bulk confirm failed.")
+        st.session_state.bulk_confirm_success = None
+        st.session_state.bulk_confirm_message = None
     
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -1315,6 +1449,77 @@ Contact: +263 78 290 5853
         st.markdown("## Receive Stock - Auto Update Inventory")
         st.caption("Confirm receipt of stock. Inventory will be automatically updated.")
         
+        # ============================================================
+        # BULK CONFIRM PENDING POs
+        # ============================================================
+        st.markdown("### Confirm All Pending Purchase Orders")
+        st.caption(
+            "Confirm every pending PO in one click before receiving stock. "
+            "This sets each PO's status to CONFIRMED."
+        )
+
+        pending_pos_for_confirm = get_all_pending_pos()
+
+        if not pending_pos_for_confirm:
+            st.info("No pending purchase orders to confirm.")
+        else:
+            preview_rows = []
+            for po in pending_pos_for_confirm:
+                preview_rows.append({
+                    "PO Number": po.get("po_number", ""),
+                    "Supplier": po.get("supplier", ""),
+                    "Items": po.get("item_count", 0),
+                    "Total Value": po.get("total_value", 0.0),
+                    "Expected Date": po.get("expected_date", ""),
+                })
+            preview_df = pd.DataFrame(preview_rows)
+
+            st.dataframe(
+                preview_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Total Value": st.column_config.NumberColumn("Total Value", format="$%.2f"),
+                },
+            )
+
+            total_pending_value = preview_df["Total Value"].sum() if "Total Value" in preview_df else 0
+            st.caption(
+                f"**{len(pending_pos_for_confirm)}** pending PO(s) — "
+                f"total value **${total_pending_value:,.2f}**"
+            )
+
+            col_a, col_b = st.columns([1, 2])
+            with col_a:
+                bulk_confirm_clicked = st.button(
+                    "✅ Confirm ALL Pending POs",
+                    key="bulk_confirm_pending_pos_btn",
+                    type="primary",
+                    use_container_width=True,
+                )
+            with col_b:
+                st.caption(
+                    "This will flip every PENDING PO to CONFIRMED in a single transaction. "
+                    "It does not receive stock."
+                )
+
+            if bulk_confirm_clicked:
+                with st.spinner("Confirming all pending purchase orders..."):
+                    try:
+                        confirmed_by = st.session_state.get("username", "system")
+                    except Exception:
+                        confirmed_by = "system"
+                    ok, msg, count = confirm_all_pending_pos(confirmed_by=confirmed_by)
+
+                st.session_state.bulk_confirm_success = ok
+                st.session_state.bulk_confirm_message = msg
+                st.rerun()
+
+        st.markdown("---")
+        # ============================================================
+        # END BULK CONFIRM
+        # ============================================================
+        
         @st.cache_data(ttl=60)
         def load_purchases_cached():
             return load_purchases()
@@ -1327,12 +1532,17 @@ Contact: +263 78 290 5853
             if "status" not in purchases_df.columns:
                 purchases_df["status"] = "PENDING"
             
-            pending_pos = purchases_df[purchases_df["status"] == "PENDING"]["po_number"].unique().tolist()
-            partial_pos = purchases_df[purchases_df["status"] == "PARTIALLY_RECEIVED"]["po_number"].unique().tolist()
+            # Receiving can be done on PENDING, CONFIRMED, or PARTIALLY_RECEIVED
+            pending_pos = purchases_df[
+                purchases_df["status"].astype(str).str.upper().isin(["PENDING", "CONFIRMED"])
+            ]["po_number"].unique().tolist()
+            partial_pos = purchases_df[
+                purchases_df["status"].astype(str).str.upper() == "PARTIALLY_RECEIVED"
+            ]["po_number"].unique().tolist()
             all_receivable = list(set(pending_pos + partial_pos))
             
             if not all_receivable:
-                st.info("No pending or partially received purchase orders. All orders have been completed.")
+                st.info("No pending, confirmed, or partially received purchase orders. All orders have been completed.")
             else:
                 st.info(f"Found {len(all_receivable)} orders ready for receiving")
                 
@@ -1342,7 +1552,7 @@ Contact: +263 78 290 5853
                     po_details = get_po_details(selected_po)
                     
                     if po_details:
-                        status_label = "PENDING" if po_details['status'] == "PENDING" else "PARTIALLY RECEIVED"
+                        status_label = str(po_details['status']).upper()
                         st.markdown(f"### PO: {selected_po} - {status_label}")
                         st.markdown(f"**Supplier:** {po_details['supplier']}")
                         st.markdown(f"**Order Date:** {po_details['date_ordered']}")
@@ -1377,9 +1587,9 @@ Contact: +263 78 290 5853
                         st.info(f"PO Total: ${po_total:,.2f}")
                         
                         # ============================================================
-                        # DELETE PURCHASE ORDER - FIXED: Shows for BOTH PENDING AND PARTIALLY_RECEIVED
+                        # DELETE PURCHASE ORDER
                         # ============================================================
-                        if po_details['status'] in ["PENDING", "PARTIALLY_RECEIVED"]:
+                        if status_label in ["PENDING", "CONFIRMED", "PARTIALLY_RECEIVED"]:
                             st.markdown("---")
                             st.markdown("### Delete Purchase Order")
                             st.warning(f"This will permanently delete this purchase order ({selected_po}) and all its items.")
@@ -1407,7 +1617,6 @@ Contact: +263 78 290 5853
                                 if delete_all_btn:
                                     st.session_state.confirm_delete_all = True
                             
-                            # Confirmation for delete all
                             if st.session_state.get("confirm_delete_all", False):
                                 st.warning("⚠️ ARE YOU SURE? This will delete ALL purchase orders!")
                                 col_a, col_b = st.columns(2)
@@ -1576,7 +1785,19 @@ Contact: +263 78 290 5853
             col1, col2 = st.columns(2)
             
             with col1:
-                date_filter = st.selectbox("Filter by", ["All", "Last 30 Days", "Last 90 Days", "This Year"], key="purchase_filter")
+                date_filter = st.selectbox(
+                    "Filter by",
+                    ["All", "Last 30 Days", "Last 90 Days", "This Year"],
+                    key="purchase_filter"
+                )
+            
+            # NEW: status filter (helps see CONFIRMED vs PENDING)
+            with col2:
+                status_filter = st.selectbox(
+                    "Status",
+                    ["All", "PENDING", "CONFIRMED", "PARTIALLY_RECEIVED", "COMPLETED", "RECEIVED"],
+                    key="purchase_status_filter"
+                )
             
             today = datetime.now()
             if "date_ordered" in purchases_df.columns:
@@ -1591,6 +1812,11 @@ Contact: +263 78 290 5853
                 elif date_filter == "This Year":
                     cutoff = today.replace(month=1, day=1)
                     purchases_df = purchases_df[purchases_df["date_ordered_dt"] >= cutoff]
+            
+            if status_filter != "All" and "status" in purchases_df.columns:
+                purchases_df = purchases_df[
+                    purchases_df["status"].astype(str).str.upper() == status_filter.upper()
+                ]
             
             total_purchases = purchases_df["total_cost"].sum() if "total_cost" in purchases_df.columns else 0
             total_items = purchases_df["quantity_ordered"].sum() if "quantity_ordered" in purchases_df.columns else 0
@@ -1608,52 +1834,61 @@ Contact: +263 78 290 5853
             
             st.markdown("### Purchase Order Summary")
             
-            po_summary = purchases_df.groupby(["po_number", "supplier", "date_ordered", "status"]).agg({
-                "total_cost": "sum",
-                "quantity_ordered": "sum"
-            }).reset_index()
-            
-            po_summary = po_summary.sort_values("date_ordered", ascending=False)
-            
-            st.dataframe(
-                po_summary[["po_number", "supplier", "date_ordered", "total_cost", "quantity_ordered", "status"]],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "quantity_ordered": st.column_config.NumberColumn("Total Qty", format="%.2f"),
-                    "total_cost": st.column_config.NumberColumn("Total ($)", format="$%.2f")
-                }
-            )
-            
-            st.markdown("---")
-            
-            with st.expander("View Detailed Purchase Records"):
-                display_cols = ["po_number", "date_ordered", "supplier", "product_name", "category", "quantity_ordered", "quantity_received", "cost_price", "total_cost", "status"]
-                available_cols = [col for col in display_cols if col in purchases_df.columns]
+            if purchases_df.empty:
+                st.info("No records match the selected filters.")
+            else:
+                group_cols = ["po_number", "supplier", "date_ordered", "status"]
+                group_cols = [c for c in group_cols if c in purchases_df.columns]
+                po_summary = purchases_df.groupby(group_cols).agg({
+                    "total_cost": "sum",
+                    "quantity_ordered": "sum"
+                }).reset_index()
                 
-                if "date_ordered" in purchases_df.columns:
-                    purchases_df = purchases_df.sort_values("date_ordered", ascending=False)
+                if "date_ordered" in po_summary.columns:
+                    po_summary = po_summary.sort_values("date_ordered", ascending=False)
+                
+                summary_cols = ["po_number", "supplier", "date_ordered", "total_cost", "quantity_ordered", "status"]
+                summary_cols = [c for c in summary_cols if c in po_summary.columns]
                 
                 st.dataframe(
-                    purchases_df[available_cols].head(100), 
-                    use_container_width=True, 
+                    po_summary[summary_cols],
+                    use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "quantity_ordered": st.column_config.NumberColumn("Ordered", format="%.2f"),
-                        "quantity_received": st.column_config.NumberColumn("Received", format="%.2f"),
-                        "cost_price": st.column_config.NumberColumn("Unit Cost", format="$%.2f"),
-                        "total_cost": st.column_config.NumberColumn("Total", format="$%.2f")
+                        "quantity_ordered": st.column_config.NumberColumn("Total Qty", format="%.2f"),
+                        "total_cost": st.column_config.NumberColumn("Total ($)", format="$%.2f")
                     }
                 )
-            
-            csv = purchases_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="Download Purchase History (CSV)",
-                data=csv,
-                file_name=f"purchase_history_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+                
+                st.markdown("---")
+                
+                with st.expander("View Detailed Purchase Records"):
+                    display_cols = ["po_number", "date_ordered", "supplier", "product_name", "category", "quantity_ordered", "quantity_received", "cost_price", "total_cost", "status"]
+                    available_cols = [col for col in display_cols if col in purchases_df.columns]
+                    
+                    if "date_ordered" in purchases_df.columns:
+                        purchases_df = purchases_df.sort_values("date_ordered", ascending=False)
+                    
+                    st.dataframe(
+                        purchases_df[available_cols].head(100), 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "quantity_ordered": st.column_config.NumberColumn("Ordered", format="%.2f"),
+                            "quantity_received": st.column_config.NumberColumn("Received", format="%.2f"),
+                            "cost_price": st.column_config.NumberColumn("Unit Cost", format="$%.2f"),
+                            "total_cost": st.column_config.NumberColumn("Total", format="$%.2f")
+                        }
+                    )
+                
+                csv = purchases_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Download Purchase History (CSV)",
+                    data=csv,
+                    file_name=f"purchase_history_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
 
 # ==============================
