@@ -3,6 +3,8 @@
 # FIXED: auto-merge visible immediately (cache cleared in core)
 # ADDED: Write-Off for Changes and Bad Debts for Credits
 # ADDED: Auto-flag overdue records at page load
+# ADDED: Dedicated "Written Off Changes" and "Bad Debts" sections so you
+#        can SEE the records after confirming, not just the counts.
 
 import streamlit as st
 import pandas as pd
@@ -12,29 +14,31 @@ from backend.core.floating_financials import (
     create_change_record,
     collect_change,
     write_off_change,
+    get_written_off_changes,
     get_change_records,
     get_change_summary,
     get_overdue_changes,
     CHANGE_STATUSES,
-    
+
     # Credit Management
     create_credit_record,
     record_credit_payment,
     write_off_credit,
+    get_bad_debt_credits,
     get_credit_records,
     get_credit_summary,
     get_overdue_credits,
     CREDIT_TYPES,
     CREDIT_STATUSES,
-    
+
     # Auto write-off / bad debt
     auto_flag_overdue_records,
     BAD_DEBT_DAYS_THRESHOLD,
-    
+
     # Gas Sales - Recording only
     create_gas_sale,
     get_gas_sales,
-    get_gas_sales_summary
+    get_gas_sales_summary,
 )
 from backend.core.auth import can_access_feature
 from backend.core.theme_manager import apply_page_theme
@@ -51,18 +55,22 @@ def get_customer_suggestions():
         sales_df = load_sales()
         if sales_df.empty:
             return []
-        
+
         customer_col = None
         for col in ["customer_name", "customer", "Customer"]:
             if col in sales_df.columns:
                 customer_col = col
                 break
-        
+
         if not customer_col:
             return []
-        
+
         customers = sales_df[customer_col].dropna().unique().tolist()
-        customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+        customers = [
+            str(c).strip()
+            for c in customers
+            if str(c).strip() and str(c).strip().lower() != "walk-in"
+        ]
         return sorted(set(customers))
     except Exception as e:
         print(f"Error getting customer suggestions: {e}")
@@ -75,20 +83,20 @@ def get_customer_phone_mapping():
         sales_df = load_sales()
         if sales_df.empty:
             return {}
-        
+
         name_col = None
         phone_col = None
-        
+
         for col in ["customer_name", "customer", "Customer"]:
             if col in sales_df.columns:
                 name_col = col
                 break
-        
+
         for col in ["customer_phone", "phone", "Phone"]:
             if col in sales_df.columns:
                 phone_col = col
                 break
-        
+
         if name_col and phone_col:
             mapping = {}
             for _, row in sales_df.iterrows():
@@ -97,7 +105,7 @@ def get_customer_phone_mapping():
                 if name and name.lower() != "walk-in" and phone:
                     mapping[name] = phone
             return mapping
-        
+
         return {}
     except Exception as e:
         print(f"Error getting customer phone mapping: {e}")
@@ -107,47 +115,51 @@ def get_customer_phone_mapping():
 def get_customer_name_input(key_suffix=""):
     customer_suggestions = get_customer_suggestions()
     customer_phones = get_customer_phone_mapping()
-    
+
     all_options = ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
-    
+
     current_name = st.session_state.get(f"customer_name_{key_suffix}", "Walk-in")
-    
-    is_new_customer = current_name not in all_options and current_name != "Walk-in" and current_name.strip()
+
+    is_new_customer = (
+        current_name not in all_options
+        and current_name != "Walk-in"
+        and current_name.strip()
+    )
     if is_new_customer:
         all_options.append(current_name)
-    
+
     try:
         current_index = all_options.index(current_name) if current_name in all_options else 0
     except ValueError:
         current_index = 0
-    
+
     selected_customer = st.selectbox(
         "Customer Name",
         options=all_options,
         index=current_index,
-        key=f"customer_select_{key_suffix}"
+        key=f"customer_select_{key_suffix}",
     )
-    
+
     new_customer_name = st.text_input(
         "Or type new customer name",
         placeholder="Enter new name...",
-        key=f"new_customer_{key_suffix}"
+        key=f"new_customer_{key_suffix}",
     )
-    
+
     if new_customer_name and new_customer_name.strip():
         selected_customer = new_customer_name.strip()
-    
+
     auto_phone = ""
     if selected_customer != "Walk-in" and selected_customer in customer_phones:
         auto_phone = customer_phones[selected_customer]
-    
+
     phone = st.text_input(
         "Phone",
         value=auto_phone,
         key=f"customer_phone_{key_suffix}",
-        placeholder="Enter phone number"
+        placeholder="Enter phone number",
     )
-    
+
     return selected_customer, phone
 
 
@@ -157,15 +169,15 @@ def get_customer_name_input(key_suffix=""):
 
 def floating_financials_page():
     apply_page_theme("floating_financials")
-    
+
     st.title("Floating Financials")
     st.caption("Manage change, credits, and gas sales")
-    
+
     role = st.session_state.get("role", "cashier")
     if not can_access_feature(role, "floating_financials"):
         st.error("You don't have permission to access this page")
         return
-    
+
     # Auto-flag overdue records once per session
     if "auto_flag_done" not in st.session_state:
         with st.spinner("Checking for overdue records..."):
@@ -178,44 +190,44 @@ def floating_financials_page():
                 f"{flagged.get('credits_flagged', 0)} credit(s) were overdue by more than "
                 f"{BAD_DEBT_DAYS_THRESHOLD} days and have been flagged as Written Off / Bad Debt."
             )
-    
+
     tab_names = ["Change Management", "Credit Management", "Gas Sales"]
-    
+
     if "floating_tab" not in st.session_state:
         st.session_state.floating_tab = 0
-    
+
     try:
         params = st.query_params
         if "tab" in params:
             tab_param = params.get("tab")
             if tab_param in tab_names:
                 st.session_state.floating_tab = tab_names.index(tab_param)
-    except:
+    except Exception:
         pass
-    
+
     tab1, tab2, tab3 = st.tabs(tab_names)
-    
+
     with tab1:
         st.session_state.floating_tab = 0
         try:
             st.query_params["tab"] = "Change Management"
-        except:
+        except Exception:
             pass
         change_management_tab()
-    
+
     with tab2:
         st.session_state.floating_tab = 1
         try:
             st.query_params["tab"] = "Credit Management"
-        except:
+        except Exception:
             pass
         credit_management_tab()
-    
+
     with tab3:
         st.session_state.floating_tab = 2
         try:
             st.query_params["tab"] = "Gas Sales"
-        except:
+        except Exception:
             pass
         gas_sales_tab()
 
@@ -226,7 +238,7 @@ def floating_financials_page():
 
 def change_management_tab():
     summary = get_change_summary()
-    
+
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Change", f"${summary['total_change']:,.2f}")
@@ -238,66 +250,184 @@ def change_management_tab():
         st.metric("Uncollected", f"{summary['uncollected_count']}")
     with col5:
         st.metric("Written Off", f"{summary.get('written_off_count', 0)}")
-    
+
     st.divider()
-    
-    # ---------------- Write Off / Overdue Section ----------------
+
+    # ---------------- Overdue Changes (action required) ----------------
     overdue_changes = get_overdue_changes()
     if not overdue_changes.empty:
-        with st.expander(f"Overdue Changes ({len(overdue_changes)}) - action required", expanded=False):
-            st.caption(f"These changes have a due date in the past. Those overdue by more than "
-                       f"{BAD_DEBT_DAYS_THRESHOLD} days are automatically written off.")
+        with st.expander(
+            f"Overdue Changes ({len(overdue_changes)}) - action required",
+            expanded=False,
+        ):
+            st.caption(
+                f"These changes have a due date in the past. Those overdue by more "
+                f"than {BAD_DEBT_DAYS_THRESHOLD} days are automatically written off."
+            )
             od_display = overdue_changes.copy()
             for col in ["amount", "amount_collected", "balance"]:
                 if col in od_display.columns:
                     od_display[col] = pd.to_numeric(od_display[col], errors="coerce").fillna(0)
-            od_display["Days Overdue"] = od_display["days_overdue"]
-            od_display = od_display.rename(columns={
-                "customer_name": "Customer",
-                "description": "Description",
-                "balance": "Balance",
-                "expected_collection_date": "Due Date",
-                "change_id": "ID",
-            })
-            cols = [c for c in ["Customer", "Description", "Balance", "Due Date", "Days Overdue", "ID"] if c in od_display.columns]
+
+            if "days_overdue" in od_display.columns:
+                od_display["Days Overdue"] = od_display["days_overdue"]
+
+            od_display = od_display.rename(
+                columns={
+                    "customer_name": "Customer",
+                    "description": "Description",
+                    "balance": "Balance",
+                    "expected_collection_date": "Due Date",
+                    "change_id": "ID",
+                }
+            )
+            cols = [
+                c
+                for c in [
+                    "Customer",
+                    "Description",
+                    "Balance",
+                    "Due Date",
+                    "Days Overdue",
+                    "ID",
+                ]
+                if c in od_display.columns
+            ]
             st.dataframe(od_display[cols], use_container_width=True, hide_index=True)
-            
+
             # Manual write-off buttons
             st.markdown("**Manually Write Off a Change**")
             wo_options = []
             for _, r in overdue_changes.iterrows():
-                wo_options.append(f"{r.get('customer_name','?')} - ${float(r.get('balance',0)):.2f} - {r.get('change_id','')}")
-            selected_wo = st.selectbox("Select change to write off", wo_options, key="wo_change_select")
-            wo_reason = st.text_input("Write-off reason", value="Overdue > 2 months", key="wo_change_reason")
+                wo_options.append(
+                    f"{r.get('customer_name', '?')} - "
+                    f"${float(r.get('balance', 0)):.2f} - "
+                    f"{r.get('change_id', '')}"
+                )
+
+            selected_wo = st.selectbox(
+                "Select change to write off", wo_options, key="wo_change_select"
+            )
+            wo_reason = st.text_input(
+                "Write-off reason",
+                value="Overdue > 2 months",
+                key="wo_change_reason",
+            )
             if st.button("Write Off Selected Change", key="wo_change_btn"):
                 if selected_wo:
                     idx = wo_options.index(selected_wo)
                     row = overdue_changes.iloc[idx]
-                    ok, msg = write_off_change(row.get("change_id"), wo_reason or "Written off")
+                    ok, msg = write_off_change(
+                        row.get("change_id"), wo_reason or "Written off"
+                    )
                     if ok:
                         st.success(msg)
                         st.rerun()
                     else:
                         st.error(msg)
-    
+
+    # ---------------- Written Off Changes (visible history) ----------------
+    written_off_changes = get_written_off_changes()
+    if not written_off_changes.empty:
+        with st.expander(
+            f"Written Off Changes ({len(written_off_changes)}) - click to view history",
+            expanded=False,
+        ):
+            wo_display = written_off_changes.copy()
+            for col in ["amount", "amount_collected", "balance"]:
+                if col in wo_display.columns:
+                    wo_display[col] = pd.to_numeric(wo_display[col], errors="coerce").fillna(0)
+
+            if "written_off_at" in wo_display.columns:
+                wo_display["Written Off At"] = pd.to_datetime(
+                    wo_display["written_off_at"], errors="coerce"
+                ).dt.strftime("%Y-%m-%d %H:%M")
+            else:
+                wo_display["Written Off At"] = "N/A"
+
+            wo_display = wo_display.rename(
+                columns={
+                    "customer_name": "Customer",
+                    "description": "Description",
+                    "amount": "Original Amount",
+                    "amount_collected": "Collected",
+                    "balance": "Remaining Balance",
+                    "written_off_reason": "Reason",
+                    "change_id": "ID",
+                }
+            )
+
+            wo_cols = [
+                c
+                for c in [
+                    "Written Off At",
+                    "Customer",
+                    "Description",
+                    "Original Amount",
+                    "Collected",
+                    "Remaining Balance",
+                    "Reason",
+                    "ID",
+                ]
+                if c in wo_display.columns
+            ]
+
+            st.dataframe(
+                wo_display[wo_cols],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Original Amount": st.column_config.NumberColumn(
+                        "Original Amount", format="$%.2f"
+                    ),
+                    "Collected": st.column_config.NumberColumn(
+                        "Collected", format="$%.2f"
+                    ),
+                    "Remaining Balance": st.column_config.NumberColumn(
+                        "Remaining Balance", format="$%.2f"
+                    ),
+                    "Description": st.column_config.TextColumn(
+                        "Description", width="medium"
+                    ),
+                },
+            )
+
+            total_written_off_amount = (
+                float(written_off_changes["amount"].sum())
+                if "amount" in written_off_changes.columns
+                else 0
+            )
+            st.caption(
+                f"Total original value written off: "
+                f"**${total_written_off_amount:,.2f}** across "
+                f"**{len(written_off_changes)}** record(s)."
+            )
+
     st.divider()
-    
-    # Record New Change
+
+    # ---------------- Record New Change ----------------
     with st.form("record_change_form"):
         st.markdown("### Record New Uncollected Change")
-        st.caption("If this customer already has an unpaid change, the amount will be MERGED into that existing row "
-                   "(single row per customer, description combined).")
-        
+        st.caption(
+            "If this customer already has an unpaid change, the amount will be MERGED "
+            "into that existing row (single row per customer, description combined)."
+        )
+
         customer_name, phone = get_customer_name_input("change")
-        new_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_change_amount")
-        new_desc = st.text_area("Description (Required)", key="new_change_desc",
-                                placeholder="e.g., Customer overpaid by $X, Gas sale change, etc.")
+        new_amount = st.number_input(
+            "Amount ($)", min_value=0.01, step=0.01, key="new_change_amount"
+        )
+        new_desc = st.text_area(
+            "Description (Required)",
+            key="new_change_desc",
+            placeholder="e.g., Customer overpaid by $X, Gas sale change, etc.",
+        )
         new_expected = st.date_input(
             "Expected Collection Date (Optional)",
             value=None,
-            key="new_change_expected"
+            key="new_change_expected",
         )
-        
+
         if st.form_submit_button("Record Change", use_container_width=True):
             if not customer_name:
                 st.error("Customer name is required")
@@ -311,53 +441,57 @@ def change_management_tab():
                     amount=new_amount,
                     description=new_desc,
                     phone=phone,
-                    expected_collection_date=new_expected.strftime("%Y-%m-%d") if new_expected else None
+                    expected_collection_date=(
+                        new_expected.strftime("%Y-%m-%d") if new_expected else None
+                    ),
                 )
                 if success:
                     st.success(message)
                     st.rerun()
                 else:
                     st.error(message)
-    
+
     st.divider()
-    
-    # Filters
+
+    # ---------------- Filters + Main Table ----------------
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        filter_status = st.selectbox("Status", ["ALL"] + CHANGE_STATUSES, key="change_status_filter")
+        filter_status = st.selectbox(
+            "Status", ["ALL"] + CHANGE_STATUSES, key="change_status_filter"
+        )
     with col2:
         filter_customer = st.text_input("Customer", key="change_customer_filter")
     with col3:
         filter_date_from = st.date_input("From", value=None, key="change_date_from")
     with col4:
         filter_date_to = st.date_input("To", value=None, key="change_date_to")
-    
+
     # NO CACHE on these so merges are visible instantly
     df = get_change_records(
         status=None if filter_status == "ALL" else filter_status,
         customer_name=filter_customer if filter_customer else None,
         date_from=filter_date_from.strftime("%Y-%m-%d") if filter_date_from else None,
-        date_to=filter_date_to.strftime("%Y-%m-%d") if filter_date_to else None
+        date_to=filter_date_to.strftime("%Y-%m-%d") if filter_date_to else None,
     )
-    
+
     if df.empty:
-        st.info("No change records found")
+        st.info("No change records found for the selected filters")
         return
-    
+
     df_display = df.copy()
-    
+
     date_col = None
     for col in ["created_at", "updated_at", "date"]:
         if col in df_display.columns:
             date_col = col
             break
-    
+
     if date_col:
         df_display[date_col] = pd.to_datetime(df_display[date_col], errors="coerce")
         df_display["Date"] = df_display[date_col].dt.strftime("%Y-%m-%d %H:%M")
     else:
         df_display["Date"] = "N/A"
-    
+
     def get_status_label(status):
         if status == "COLLECTED":
             return "COLLECTED"
@@ -367,22 +501,24 @@ def change_management_tab():
             return "WRITTEN OFF"
         else:
             return "UNCOLLECTED"
-    
+
     df_display["Status"] = df_display["status"].apply(get_status_label)
-    
+
     rename_map = {
         "customer_name": "Customer",
         "amount": "Amount",
         "amount_collected": "Collected",
         "balance": "Balance",
         "change_id": "ID",
-        "description": "Description"
+        "description": "Description",
     }
     df_display = df_display.rename(columns=rename_map)
-    
+
     st.markdown("### All Change Records")
     st.dataframe(
-        df_display[["Date", "Customer", "Description", "Amount", "Collected", "Balance", "Status", "ID"]],
+        df_display[
+            ["Date", "Customer", "Description", "Amount", "Collected", "Balance", "Status", "ID"]
+        ],
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -390,39 +526,47 @@ def change_management_tab():
             "Collected": st.column_config.NumberColumn("Collected", format="$%.2f"),
             "Balance": st.column_config.NumberColumn("Balance", format="$%.2f"),
             "Description": st.column_config.TextColumn("Description", width="medium"),
-        }
+        },
     )
-    
-    # Collection section
+
+    # ---------------- Collection section ----------------
     st.markdown("### Collect Change")
-    
-    uncollected_df = df[(df["balance"] > 0) & (df["status"].isin(["UNCOLLECTED", "PARTIAL_COLLECTED"]))]
-    
+
+    uncollected_df = df[
+        (df["balance"] > 0) & (df["status"].isin(["UNCOLLECTED", "PARTIAL_COLLECTED"]))
+    ]
+
     if uncollected_df.empty:
         st.info("All changes have been collected")
     else:
         collection_options = []
-        for idx, row in uncollected_df.iterrows():
+        for _, row in uncollected_df.iterrows():
             customer = row.get("customer_name", "Unknown")
             balance = float(row.get("balance", 0))
             description = row.get("description", "")
             desc_short = description[:30] + "..." if len(description) > 30 else description
-            collection_options.append(f"{customer} - Balance: ${balance:.2f} ({desc_short})")
-        
+            collection_options.append(
+                f"{customer} - Balance: ${balance:.2f} ({desc_short})"
+            )
+
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
-            selected_option = st.selectbox("Select Change to Collect", collection_options, key="collect_change_select")
-        
+            selected_option = st.selectbox(
+                "Select Change to Collect",
+                collection_options,
+                key="collect_change_select",
+            )
+
         if selected_option:
             selected_idx = collection_options.index(selected_option)
             selected_row = uncollected_df.iloc[selected_idx]
             change_id = selected_row.get("change_id", "")
             balance = float(selected_row.get("balance", 0))
             description = selected_row.get("description", "")
-            
+
             st.info(f"**Description:** {description}")
-            
+
             with col2:
                 collect_amount = st.number_input(
                     "Amount to Collect ($)",
@@ -430,13 +574,19 @@ def change_management_tab():
                     max_value=balance,
                     value=balance,
                     step=0.01,
-                    key="collect_amount_input"
+                    key="collect_amount_input",
                 )
-            
+
             with col3:
-                if st.button("Collect Payment", use_container_width=True, key="collect_change_btn"):
+                if st.button(
+                    "Collect Payment",
+                    use_container_width=True,
+                    key="collect_change_btn",
+                ):
                     if collect_amount > 0:
-                        success, message = collect_change(change_id=change_id, amount=collect_amount)
+                        success, message = collect_change(
+                            change_id=change_id, amount=collect_amount
+                        )
                         if success:
                             st.success(message)
                             st.rerun()
@@ -444,15 +594,26 @@ def change_management_tab():
                             st.error(message)
                     else:
                         st.error("Please enter an amount to collect")
-    
+
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Change", f"${df['amount'].sum():,.2f}" if 'amount' in df.columns else "$0.00")
+        st.metric(
+            "Total Change",
+            f"${df['amount'].sum():,.2f}" if "amount" in df.columns else "$0.00",
+        )
     with col2:
-        st.metric("Total Collected", f"${df['amount_collected'].sum():,.2f}" if 'amount_collected' in df.columns else "$0.00")
+        st.metric(
+            "Total Collected",
+            f"${df['amount_collected'].sum():,.2f}"
+            if "amount_collected" in df.columns
+            else "$0.00",
+        )
     with col3:
-        st.metric("Total Balance", f"${df['balance'].sum():,.2f}" if 'balance' in df.columns else "$0.00")
+        st.metric(
+            "Total Balance",
+            f"${df['balance'].sum():,.2f}" if "balance" in df.columns else "$0.00",
+        )
 
 
 # ==============================
@@ -462,7 +623,7 @@ def change_management_tab():
 def credit_management_tab():
     summary = get_credit_summary()
     overdue_df = get_overdue_credits(days=30)
-    
+
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Credit", f"${summary['total_credit']:,.2f}")
@@ -474,67 +635,195 @@ def credit_management_tab():
         st.metric("Active Loans", f"{summary['active_count']}")
     with col5:
         st.metric("Bad Debts", f"{summary.get('bad_debt_count', 0)}")
-    
+
     if not overdue_df.empty:
         st.error(f"WARNING: {len(overdue_df)} credit(s) are overdue!")
-    
+
     st.divider()
-    
-    # ---------------- Bad Debts / Overdue Section ----------------
+
+    # ---------------- Overdue Credits (action required) ----------------
     if not overdue_df.empty:
-        with st.expander(f"Overdue Credits ({len(overdue_df)}) - action required", expanded=False):
-            st.caption(f"Credits overdue by more than {BAD_DEBT_DAYS_THRESHOLD} days are automatically flagged as Bad Debt.")
+        with st.expander(
+            f"Overdue Credits ({len(overdue_df)}) - action required",
+            expanded=False,
+        ):
+            st.caption(
+                f"Credits overdue by more than {BAD_DEBT_DAYS_THRESHOLD} days are "
+                f"automatically flagged as Bad Debt."
+            )
             od_display = overdue_df.copy()
             for col in ["amount", "amount_paid", "balance"]:
                 if col in od_display.columns:
                     od_display[col] = pd.to_numeric(od_display[col], errors="coerce").fillna(0)
-            od_display["Days Overdue"] = od_display["days_overdue"]
-            od_display = od_display.rename(columns={
-                "customer_name": "Customer",
-                "description": "Description",
-                "balance": "Balance",
-                "expected_repayment_date": "Due Date",
-                "credit_id": "ID",
-            })
-            cols = [c for c in ["Customer", "Description", "Balance", "Due Date", "Days Overdue", "ID"] if c in od_display.columns]
+
+            if "days_overdue" in od_display.columns:
+                od_display["Days Overdue"] = od_display["days_overdue"]
+
+            od_display = od_display.rename(
+                columns={
+                    "customer_name": "Customer",
+                    "description": "Description",
+                    "balance": "Balance",
+                    "expected_repayment_date": "Due Date",
+                    "credit_id": "ID",
+                }
+            )
+            cols = [
+                c
+                for c in [
+                    "Customer",
+                    "Description",
+                    "Balance",
+                    "Due Date",
+                    "Days Overdue",
+                    "ID",
+                ]
+                if c in od_display.columns
+            ]
             st.dataframe(od_display[cols], use_container_width=True, hide_index=True)
-            
+
             st.markdown("**Manually Write Off as Bad Debt**")
             wo_options = []
             for _, r in overdue_df.iterrows():
-                wo_options.append(f"{r.get('customer_name','?')} - ${float(r.get('balance',0)):.2f} - {r.get('credit_id','')}")
-            selected_wo = st.selectbox("Select credit to write off", wo_options, key="wo_credit_select")
-            wo_reason = st.text_input("Bad debt reason", value="Bad debt - overdue > 2 months", key="wo_credit_reason")
+                wo_options.append(
+                    f"{r.get('customer_name', '?')} - "
+                    f"${float(r.get('balance', 0)):.2f} - "
+                    f"{r.get('credit_id', '')}"
+                )
+            selected_wo = st.selectbox(
+                "Select credit to write off", wo_options, key="wo_credit_select"
+            )
+            wo_reason = st.text_input(
+                "Bad debt reason",
+                value="Bad debt - overdue > 2 months",
+                key="wo_credit_reason",
+            )
             if st.button("Write Off Selected Credit", key="wo_credit_btn"):
                 if selected_wo:
                     idx = wo_options.index(selected_wo)
                     row = overdue_df.iloc[idx]
-                    ok, msg = write_off_credit(row.get("credit_id"), wo_reason or "Bad debt")
+                    ok, msg = write_off_credit(
+                        row.get("credit_id"), wo_reason or "Bad debt"
+                    )
                     if ok:
                         st.success(msg)
                         st.rerun()
                     else:
                         st.error(msg)
-    
+
+    # ---------------- Bad Debts / Written Off Credits (visible history) ----------------
+    bad_debt_credits = get_bad_debt_credits()
+    if not bad_debt_credits.empty:
+        with st.expander(
+            f"Bad Debts / Written Off Credits ({len(bad_debt_credits)}) - click to view history",
+            expanded=False,
+        ):
+            bd_display = bad_debt_credits.copy()
+            for col in ["amount", "amount_paid", "balance"]:
+                if col in bd_display.columns:
+                    bd_display[col] = pd.to_numeric(bd_display[col], errors="coerce").fillna(0)
+
+            if "written_off_at" in bd_display.columns:
+                bd_display["Written Off At"] = pd.to_datetime(
+                    bd_display["written_off_at"], errors="coerce"
+                ).dt.strftime("%Y-%m-%d %H:%M")
+            else:
+                bd_display["Written Off At"] = "N/A"
+
+            bd_display = bd_display.rename(
+                columns={
+                    "customer_name": "Customer",
+                    "description": "Description",
+                    "amount": "Original Amount",
+                    "amount_paid": "Paid",
+                    "balance": "Remaining Balance",
+                    "credit_type": "Type",
+                    "status": "Status",
+                    "written_off_reason": "Reason",
+                    "credit_id": "ID",
+                }
+            )
+
+            bd_cols = [
+                c
+                for c in [
+                    "Written Off At",
+                    "Customer",
+                    "Description",
+                    "Original Amount",
+                    "Paid",
+                    "Remaining Balance",
+                    "Type",
+                    "Status",
+                    "Reason",
+                    "ID",
+                ]
+                if c in bd_display.columns
+            ]
+
+            st.dataframe(
+                bd_display[bd_cols],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Original Amount": st.column_config.NumberColumn(
+                        "Original Amount", format="$%.2f"
+                    ),
+                    "Paid": st.column_config.NumberColumn("Paid", format="$%.2f"),
+                    "Remaining Balance": st.column_config.NumberColumn(
+                        "Remaining Balance", format="$%.2f"
+                    ),
+                    "Description": st.column_config.TextColumn(
+                        "Description", width="medium"
+                    ),
+                },
+            )
+
+            total_bad_debt_amount = (
+                float(bad_debt_credits["amount"].sum())
+                if "amount" in bad_debt_credits.columns
+                else 0
+            )
+            total_bad_debt_balance = (
+                float(bad_debt_credits["balance"].sum())
+                if "balance" in bad_debt_credits.columns
+                else 0
+            )
+            st.caption(
+                f"Total original value: **${total_bad_debt_amount:,.2f}** — "
+                f"remaining uncollected balance now written off: "
+                f"**${total_bad_debt_balance:,.2f}** across "
+                f"**{len(bad_debt_credits)}** record(s)."
+            )
+
     st.divider()
-    
-    # Record New Credit
+
+    # ---------------- Record New Credit ----------------
     with st.form("record_credit_form"):
         st.markdown("### Record New Credit/Loan")
-        st.caption("If this customer already has an active credit, the amount will be MERGED into that existing row "
-                   "(single row per customer, description combined).")
-        
+        st.caption(
+            "If this customer already has an active credit, the amount will be MERGED "
+            "into that existing row (single row per customer, description combined)."
+        )
+
         customer_name, phone = get_customer_name_input("credit")
-        new_credit_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="new_credit_amount")
-        new_credit_type = st.selectbox("Credit Type", CREDIT_TYPES, key="new_credit_type")
-        new_credit_desc = st.text_area("Description (Required)", key="new_credit_desc",
-                                       placeholder="e.g., Loan for goods, Cash advance, etc.")
+        new_credit_amount = st.number_input(
+            "Amount ($)", min_value=0.01, step=0.01, key="new_credit_amount"
+        )
+        new_credit_type = st.selectbox(
+            "Credit Type", CREDIT_TYPES, key="new_credit_type"
+        )
+        new_credit_desc = st.text_area(
+            "Description (Required)",
+            key="new_credit_desc",
+            placeholder="e.g., Loan for goods, Cash advance, etc.",
+        )
         new_credit_repayment = st.date_input(
             "Expected Repayment Date",
             value=datetime.now() + timedelta(days=30),
-            key="new_credit_repayment"
+            key="new_credit_repayment",
         )
-        
+
         if st.form_submit_button("Record Credit", use_container_width=True):
             if not customer_name:
                 st.error("Customer/Person name is required")
@@ -549,56 +838,78 @@ def credit_management_tab():
                     credit_type=new_credit_type,
                     description=new_credit_desc,
                     phone=phone,
-                    expected_repayment=new_credit_repayment.strftime("%Y-%m-%d") if new_credit_repayment else None
+                    expected_repayment=(
+                        new_credit_repayment.strftime("%Y-%m-%d")
+                        if new_credit_repayment
+                        else None
+                    ),
                 )
                 if success:
                     st.success(message)
                     st.rerun()
                 else:
                     st.error(message)
-    
+
     st.divider()
-    
-    # Filters
+
+    # ---------------- Filters + Main Table ----------------
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        filter_credit_status = st.selectbox("Status", ["ALL"] + CREDIT_STATUSES, key="credit_status_filter")
+        filter_credit_status = st.selectbox(
+            "Status", ["ALL"] + CREDIT_STATUSES, key="credit_status_filter"
+        )
     with col2:
-        filter_credit_type = st.selectbox("Type", ["ALL"] + CREDIT_TYPES, key="credit_type_filter")
+        filter_credit_type = st.selectbox(
+            "Type", ["ALL"] + CREDIT_TYPES, key="credit_type_filter"
+        )
     with col3:
-        filter_credit_customer = st.text_input("Customer", key="credit_customer_filter")
+        filter_credit_customer = st.text_input(
+            "Customer", key="credit_customer_filter"
+        )
     with col4:
-        filter_credit_date_from = st.date_input("From", value=None, key="credit_date_from")
+        filter_credit_date_from = st.date_input(
+            "From", value=None, key="credit_date_from"
+        )
     with col5:
-        filter_credit_date_to = st.date_input("To", value=None, key="credit_date_to")
-    
+        filter_credit_date_to = st.date_input(
+            "To", value=None, key="credit_date_to"
+        )
+
     # NO CACHE — visible instantly after merge
     df = get_credit_records(
         status=None if filter_credit_status == "ALL" else filter_credit_status,
         credit_type=None if filter_credit_type == "ALL" else filter_credit_type,
         customer_name=filter_credit_customer if filter_credit_customer else None,
-        date_from=filter_credit_date_from.strftime("%Y-%m-%d") if filter_credit_date_from else None,
-        date_to=filter_credit_date_to.strftime("%Y-%m-%d") if filter_credit_date_to else None
+        date_from=(
+            filter_credit_date_from.strftime("%Y-%m-%d")
+            if filter_credit_date_from
+            else None
+        ),
+        date_to=(
+            filter_credit_date_to.strftime("%Y-%m-%d")
+            if filter_credit_date_to
+            else None
+        ),
     )
-    
+
     if df.empty:
-        st.info("No credit records found")
+        st.info("No credit records found for the selected filters")
         return
-    
+
     df_display = df.copy()
-    
+
     date_col = None
     for col in ["created_at", "updated_at", "date"]:
         if col in df_display.columns:
             date_col = col
             break
-    
+
     if date_col:
         df_display[date_col] = pd.to_datetime(df_display[date_col], errors="coerce")
         df_display["Date"] = df_display[date_col].dt.strftime("%Y-%m-%d %H:%M")
     else:
         df_display["Date"] = "N/A"
-    
+
     def get_overdue_status(row):
         status = row.get("status", "ACTIVE")
         expected = row.get("expected_repayment_date", "")
@@ -608,12 +919,12 @@ def credit_management_tab():
                 if due_date < datetime.now():
                     days = (datetime.now() - due_date).days
                     return f"OVERDUE ({days}d)"
-            except:
+            except Exception:
                 pass
         return status
-    
+
     df_display["Status_Display"] = df_display.apply(get_overdue_status, axis=1)
-    
+
     rename_map = {
         "customer_name": "Customer",
         "amount": "Amount",
@@ -622,15 +933,26 @@ def credit_management_tab():
         "credit_type": "Type",
         "expected_repayment_date": "Due Date",
         "credit_id": "ID",
-        "description": "Description"
+        "description": "Description",
     }
     df_display = df_display.rename(columns=rename_map)
-    
+
     st.markdown("### All Credit Records")
-    
-    display_cols = ["Date", "Customer", "Description", "Amount", "Paid", "Balance", "Type", "Due Date", "Status_Display", "ID"]
+
+    display_cols = [
+        "Date",
+        "Customer",
+        "Description",
+        "Amount",
+        "Paid",
+        "Balance",
+        "Type",
+        "Due Date",
+        "Status_Display",
+        "ID",
+    ]
     available_cols = [col for col in display_cols if col in df_display.columns]
-    
+
     st.dataframe(
         df_display[available_cols],
         use_container_width=True,
@@ -640,39 +962,45 @@ def credit_management_tab():
             "Paid": st.column_config.NumberColumn("Paid", format="$%.2f"),
             "Balance": st.column_config.NumberColumn("Balance", format="$%.2f"),
             "Description": st.column_config.TextColumn("Description", width="medium"),
-        }
+        },
     )
-    
-    # Payment section
+
+    # ---------------- Payment section ----------------
     st.markdown("### Record Payment")
-    
-    active_credits = df[(df["balance"] > 0) & (df["status"].isin(["ACTIVE", "PARTIAL_PAID"]))]
-    
+
+    active_credits = df[
+        (df["balance"] > 0) & (df["status"].isin(["ACTIVE", "PARTIAL_PAID"]))
+    ]
+
     if active_credits.empty:
         st.info("All credits are fully paid")
     else:
         payment_options = []
-        for idx, row in active_credits.iterrows():
+        for _, row in active_credits.iterrows():
             customer = row.get("customer_name", "Unknown")
             balance = float(row.get("balance", 0))
             description = row.get("description", "")
             desc_short = description[:30] + "..." if len(description) > 30 else description
-            payment_options.append(f"{customer} - Balance: ${balance:.2f} ({desc_short})")
-        
+            payment_options.append(
+                f"{customer} - Balance: ${balance:.2f} ({desc_short})"
+            )
+
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
-            selected_payment = st.selectbox("Select Credit to Pay", payment_options, key="credit_payment_select")
-        
+            selected_payment = st.selectbox(
+                "Select Credit to Pay", payment_options, key="credit_payment_select"
+            )
+
         if selected_payment:
             selected_idx = payment_options.index(selected_payment)
             selected_row = active_credits.iloc[selected_idx]
             credit_id = selected_row.get("credit_id", "")
             balance = float(selected_row.get("balance", 0))
             description = selected_row.get("description", "")
-            
+
             st.info(f"**Description:** {description}")
-            
+
             with col2:
                 payment_amount = st.number_input(
                     "Payment Amount ($)",
@@ -680,24 +1008,28 @@ def credit_management_tab():
                     max_value=balance,
                     value=balance,
                     step=0.01,
-                    key="credit_payment_amount"
+                    key="credit_payment_amount",
                 )
-            
+
             with col3:
                 payment_method = st.selectbox(
                     "Payment Method",
                     ["CASH", "BANK", "MOBILE_MONEY", "ECOCASH"],
-                    key="credit_payment_method"
+                    key="credit_payment_method",
                 )
-            
+
             with col4:
-                if st.button("Record Payment", use_container_width=True, key="record_credit_payment"):
+                if st.button(
+                    "Record Payment",
+                    use_container_width=True,
+                    key="record_credit_payment",
+                ):
                     if payment_amount > 0:
                         success, message = record_credit_payment(
                             credit_id=credit_id,
                             amount=payment_amount,
                             payment_note="Payment recorded",
-                            payment_method=payment_method
+                            payment_method=payment_method,
                         )
                         if success:
                             st.success(message)
@@ -706,15 +1038,26 @@ def credit_management_tab():
                             st.error(message)
                     else:
                         st.error("Please enter a payment amount")
-    
+
     st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Credit", f"${df['amount'].sum():,.2f}" if 'amount' in df.columns else "$0.00")
+        st.metric(
+            "Total Credit",
+            f"${df['amount'].sum():,.2f}" if "amount" in df.columns else "$0.00",
+        )
     with col2:
-        st.metric("Total Paid", f"${df['amount_paid'].sum():,.2f}" if 'amount_paid' in df.columns else "$0.00")
+        st.metric(
+            "Total Paid",
+            f"${df['amount_paid'].sum():,.2f}"
+            if "amount_paid" in df.columns
+            else "$0.00",
+        )
     with col3:
-        st.metric("Total Balance", f"${df['balance'].sum():,.2f}" if 'balance' in df.columns else "$0.00")
+        st.metric(
+            "Total Balance",
+            f"${df['balance'].sum():,.2f}" if "balance" in df.columns else "$0.00",
+        )
 
 
 # ==============================
@@ -724,7 +1067,7 @@ def credit_management_tab():
 def gas_sales_tab():
     all_records = get_gas_sales()
     today = datetime.now().date()
-    
+
     today_df = pd.DataFrame()
     previous_df = pd.DataFrame()
     today_total_kgs = 0
@@ -736,43 +1079,73 @@ def gas_sales_tab():
     overall_total_kgs = 0
     overall_total_amount = 0
     overall_count = 0
-    
+
     if not all_records.empty:
         date_col = None
         for col in ["sale_date", "created_at", "date"]:
             if col in all_records.columns:
                 date_col = col
                 break
-        
+
         if date_col:
-            all_records[date_col] = pd.to_datetime(all_records[date_col], errors="coerce")
+            all_records[date_col] = pd.to_datetime(
+                all_records[date_col], errors="coerce"
+            )
             all_records = all_records.dropna(subset=[date_col])
-            
+
             if not all_records.empty:
                 if "kgs" in all_records.columns:
-                    all_records["kgs"] = pd.to_numeric(all_records["kgs"], errors="coerce").fillna(0)
+                    all_records["kgs"] = pd.to_numeric(
+                        all_records["kgs"], errors="coerce"
+                    ).fillna(0)
                 if "total_amount" in all_records.columns:
-                    all_records["total_amount"] = pd.to_numeric(all_records["total_amount"], errors="coerce").fillna(0)
-                
+                    all_records["total_amount"] = pd.to_numeric(
+                        all_records["total_amount"], errors="coerce"
+                    ).fillna(0)
+
                 all_records["is_today"] = all_records[date_col].dt.date == today
-                
+
                 today_df = all_records[all_records["is_today"]].copy()
                 previous_df = all_records[~all_records["is_today"]].copy()
-                
+
                 if not today_df.empty:
-                    today_total_kgs = float(today_df["kgs"].sum()) if "kgs" in today_df.columns else 0
-                    today_total_amount = float(today_df["total_amount"].sum()) if "total_amount" in today_df.columns else 0
+                    today_total_kgs = (
+                        float(today_df["kgs"].sum())
+                        if "kgs" in today_df.columns
+                        else 0
+                    )
+                    today_total_amount = (
+                        float(today_df["total_amount"].sum())
+                        if "total_amount" in today_df.columns
+                        else 0
+                    )
                     today_count = len(today_df)
-                
+
                 if not previous_df.empty:
-                    previous_total_kgs = float(previous_df["kgs"].sum()) if "kgs" in previous_df.columns else 0
-                    previous_total_amount = float(previous_df["total_amount"].sum()) if "total_amount" in previous_df.columns else 0
+                    previous_total_kgs = (
+                        float(previous_df["kgs"].sum())
+                        if "kgs" in previous_df.columns
+                        else 0
+                    )
+                    previous_total_amount = (
+                        float(previous_df["total_amount"].sum())
+                        if "total_amount" in previous_df.columns
+                        else 0
+                    )
                     previous_count = len(previous_df)
-                
-                overall_total_kgs = float(all_records["kgs"].sum()) if "kgs" in all_records.columns else 0
-                overall_total_amount = float(all_records["total_amount"].sum()) if "total_amount" in all_records.columns else 0
+
+                overall_total_kgs = (
+                    float(all_records["kgs"].sum())
+                    if "kgs" in all_records.columns
+                    else 0
+                )
+                overall_total_amount = (
+                    float(all_records["total_amount"].sum())
+                    if "total_amount" in all_records.columns
+                    else 0
+                )
                 overall_count = len(all_records)
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total KGs Sold", f"{overall_total_kgs:,.2f}")
@@ -780,22 +1153,31 @@ def gas_sales_tab():
         st.metric("Total Amount", f"${overall_total_amount:,.2f}")
     with col3:
         st.metric("Total Sales", f"{overall_count}")
-    
+
     st.divider()
-    
+
     with st.form("record_gas_form"):
         st.markdown("### Record Gas Sale")
         st.caption("Enter the amount paid and price per KG to calculate KGs sold")
-        
+
         customer_name, phone = get_customer_name_input("gas")
-        new_gas_price = st.number_input("Price per KG ($)", min_value=0.01, step=0.01, key="new_gas_price")
-        new_gas_amount = st.number_input("Amount Customer Paid ($)", min_value=0.01, step=0.01, key="new_gas_amount")
+        new_gas_price = st.number_input(
+            "Price per KG ($)", min_value=0.01, step=0.01, key="new_gas_price"
+        )
+        new_gas_amount = st.number_input(
+            "Amount Customer Paid ($)",
+            min_value=0.01,
+            step=0.01,
+            key="new_gas_amount",
+        )
         new_gas_desc = st.text_area("Description (Optional)", key="new_gas_desc")
-        
+
         if new_gas_price > 0 and new_gas_amount > 0:
             calculated_kgs = new_gas_amount / new_gas_price
-            st.info(f"Calculated KGs: **{calculated_kgs:.2f}** (${new_gas_price:.2f}/KG)")
-        
+            st.info(
+                f"Calculated KGs: **{calculated_kgs:.2f}** (${new_gas_price:.2f}/KG)"
+            )
+
         if st.form_submit_button("Record Gas Sale", use_container_width=True):
             if not customer_name:
                 st.error("Customer name is required")
@@ -808,42 +1190,50 @@ def gas_sales_tab():
                     customer_name=customer_name,
                     amount_paid=new_gas_amount,
                     price_per_kg=new_gas_price,
-                    description=new_gas_desc
+                    description=new_gas_desc,
                 )
                 if success:
                     st.success(message)
                     st.rerun()
                 else:
                     st.error(message)
-    
+
     st.divider()
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        filter_gas_customer = st.text_input("Filter by Customer", key="gas_customer_filter")
+        filter_gas_customer = st.text_input(
+            "Filter by Customer", key="gas_customer_filter"
+        )
     with col2:
         filter_gas_date_from = st.date_input("From", value=None, key="gas_date_from")
     with col3:
         filter_gas_date_to = st.date_input("To", value=None, key="gas_date_to")
-    
+
     df = get_gas_sales(
         customer_name=filter_gas_customer if filter_gas_customer else None,
-        date_from=filter_gas_date_from.strftime("%Y-%m-%d") if filter_gas_date_from else None,
-        date_to=filter_gas_date_to.strftime("%Y-%m-%d") if filter_gas_date_to else None
+        date_from=(
+            filter_gas_date_from.strftime("%Y-%m-%d")
+            if filter_gas_date_from
+            else None
+        ),
+        date_to=(
+            filter_gas_date_to.strftime("%Y-%m-%d") if filter_gas_date_to else None
+        ),
     )
-    
+
     if df.empty:
         st.info("No gas sales records found")
         return
-    
+
     df_display = df.copy()
-    
+
     date_col = None
     for col in ["sale_date", "created_at", "date"]:
         if col in df_display.columns:
             date_col = col
             break
-    
+
     if date_col:
         df_display[date_col] = pd.to_datetime(df_display[date_col], errors="coerce")
         df_display = df_display.dropna(subset=[date_col])
@@ -852,32 +1242,42 @@ def gas_sales_tab():
     else:
         df_display["Date"] = "N/A"
         df_display["is_today"] = False
-    
+
     if "kgs" in df_display.columns:
         df_display["kgs"] = pd.to_numeric(df_display["kgs"], errors="coerce").fillna(0)
     if "total_amount" in df_display.columns:
-        df_display["total_amount"] = pd.to_numeric(df_display["total_amount"], errors="coerce").fillna(0)
-    
+        df_display["total_amount"] = pd.to_numeric(
+            df_display["total_amount"], errors="coerce"
+        ).fillna(0)
+
     today_df_filtered = df_display[df_display["is_today"]].copy()
     previous_df_filtered = df_display[~df_display["is_today"]].copy()
-    
+
     rename_map = {
         "customer_name": "Customer",
         "kgs": "KGs",
         "price_per_kg": "Price/KG",
         "total_amount": "Total",
-        "gas_sale_id": "ID"
+        "gas_sale_id": "ID",
     }
-    
+
     display_cols = ["Date", "Customer", "KGs", "Price/KG", "Total", "ID"]
-    
+
     st.markdown("### Today's Records")
-    
+
     if not today_df_filtered.empty:
-        today_total_kgs_display = float(today_df_filtered["kgs"].sum()) if "kgs" in today_df_filtered.columns else 0
-        today_total_amount_display = float(today_df_filtered["total_amount"].sum()) if "total_amount" in today_df_filtered.columns else 0
+        today_total_kgs_display = (
+            float(today_df_filtered["kgs"].sum())
+            if "kgs" in today_df_filtered.columns
+            else 0
+        )
+        today_total_amount_display = (
+            float(today_df_filtered["total_amount"].sum())
+            if "total_amount" in today_df_filtered.columns
+            else 0
+        )
         today_count_display = len(today_df_filtered)
-        
+
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Today's KGs", f"{today_total_kgs_display:,.2f}")
@@ -885,7 +1285,7 @@ def gas_sales_tab():
             st.metric("Today's Amount", f"${today_total_amount_display:,.2f}")
         with col3:
             st.metric("Today's Sales", f"{today_count_display}")
-        
+
         today_display = today_df_filtered.rename(columns=rename_map)
         st.dataframe(
             today_display[display_cols],
@@ -893,21 +1293,31 @@ def gas_sales_tab():
             hide_index=True,
             column_config={
                 "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                "Price/KG": st.column_config.NumberColumn("Price/KG", format="$%.2f"),
+                "Price/KG": st.column_config.NumberColumn(
+                    "Price/KG", format="$%.2f"
+                ),
                 "KGs": st.column_config.NumberColumn("KGs", format="%.2f"),
-            }
+            },
         )
     else:
         st.info("No gas sales recorded for today")
-    
+
     st.markdown("---")
     st.markdown("### Previous Records")
-    
+
     if not previous_df_filtered.empty:
-        prev_total_kgs_display = float(previous_df_filtered["kgs"].sum()) if "kgs" in previous_df_filtered.columns else 0
-        prev_total_amount_display = float(previous_df_filtered["total_amount"].sum()) if "total_amount" in previous_df_filtered.columns else 0
+        prev_total_kgs_display = (
+            float(previous_df_filtered["kgs"].sum())
+            if "kgs" in previous_df_filtered.columns
+            else 0
+        )
+        prev_total_amount_display = (
+            float(previous_df_filtered["total_amount"].sum())
+            if "total_amount" in previous_df_filtered.columns
+            else 0
+        )
         prev_count_display = len(previous_df_filtered)
-        
+
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Previous KGs", f"{prev_total_kgs_display:,.2f}")
@@ -915,7 +1325,7 @@ def gas_sales_tab():
             st.metric("Previous Amount", f"${prev_total_amount_display:,.2f}")
         with col3:
             st.metric("Previous Sales", f"{prev_count_display}")
-        
+
         previous_display = previous_df_filtered.rename(columns=rename_map)
         st.dataframe(
             previous_display[display_cols],
@@ -923,16 +1333,18 @@ def gas_sales_tab():
             hide_index=True,
             column_config={
                 "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                "Price/KG": st.column_config.NumberColumn("Price/KG", format="$%.2f"),
+                "Price/KG": st.column_config.NumberColumn(
+                    "Price/KG", format="$%.2f"
+                ),
                 "KGs": st.column_config.NumberColumn("KGs", format="%.2f"),
-            }
+            },
         )
     else:
         st.info("No previous gas sales records")
-    
+
     st.markdown("---")
     st.markdown("### Overall Summary")
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total KGs", f"{overall_total_kgs:,.2f}")

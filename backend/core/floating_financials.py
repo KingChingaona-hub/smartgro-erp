@@ -1451,7 +1451,88 @@ def get_overdue_changes(branch_id=None):
         logger.error(f"Error getting overdue changes: {e}")
         return pd.DataFrame()
 
+def get_written_off_changes(branch_id=None):
+    """Return all changes that have been written off (manual or auto)."""
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return pd.DataFrame()
+        
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT change_id, customer_name, phone, amount, amount_collected,
+                   balance, status, description, expected_collection_date,
+                   written_off_at, written_off_reason, created_at, updated_at
+            FROM floating_changes
+            WHERE branch_id = %s
+              AND status = 'WRITTEN_OFF'
+            ORDER BY written_off_at DESC NULLS LAST, updated_at DESC
+        """, (branch_id,))
+        rows = cur.fetchall()
+        
+        if rows:
+            col_names = [desc[0] for desc in cur.description]
+            df = pd.DataFrame(rows, columns=col_names)
+            for col in ["amount", "amount_collected", "balance"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            cur.close()
+            conn.close()
+            return df
+        
+        cur.close()
+        conn.close()
+        return pd.DataFrame()
+        
+    except Exception as e:
+        logger.error(f"Error getting written off changes: {e}")
+        return pd.DataFrame()
 
+
+def get_bad_debt_credits(branch_id=None):
+    """Return all credits marked as BAD_DEBT or WRITTEN_OFF."""
+    if branch_id is None:
+        branch_id = get_current_branch()
+    
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return pd.DataFrame()
+        
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT credit_id, customer_name, phone, amount, amount_paid,
+                   balance, status, credit_type, description,
+                   expected_repayment_date, written_off_at, written_off_reason,
+                   created_at, updated_at
+            FROM floating_credits
+            WHERE branch_id = %s
+              AND status IN ('BAD_DEBT', 'WRITTEN_OFF')
+            ORDER BY written_off_at DESC NULLS LAST, updated_at DESC
+        """, (branch_id,))
+        rows = cur.fetchall()
+        
+        if rows:
+            col_names = [desc[0] for desc in cur.description]
+            df = pd.DataFrame(rows, columns=col_names)
+            for col in ["amount", "amount_paid", "balance"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            cur.close()
+            conn.close()
+            return df
+        
+        cur.close()
+        conn.close()
+        return pd.DataFrame()
+        
+    except Exception as e:
+        logger.error(f"Error getting bad debt credits: {e}")
+        return pd.DataFrame()
+    
 # ==============================
 # GAS SALES
 # ==============================
@@ -1586,10 +1667,10 @@ def get_gas_sales_summary(branch_id=None):
 # Export all functions
 __all__ = [
     'create_change_record', 'collect_change', 'write_off_change',
-    'get_change_records', 'get_change_summary', 'get_overdue_changes', 'CHANGE_STATUSES',
+    'get_change_records', 'get_change_summary', 'get_overdue_changes','get_written_off_changes', 'CHANGE_STATUSES',
     'get_change_records_for_table',
     'create_credit_record', 'record_credit_payment', 'write_off_credit',
-    'get_credit_records', 'get_credit_summary', 'get_overdue_credits',
+    'get_credit_records', 'get_credit_summary', 'get_overdue_credits','get_bad_debt_credits',
     'get_credit_records_for_table',
     'CREDIT_TYPES', 'CREDIT_STATUSES',
     'auto_flag_overdue_records', 'BAD_DEBT_DAYS_THRESHOLD',
