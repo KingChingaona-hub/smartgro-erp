@@ -1,7 +1,8 @@
 """
 Purchases Management Module
 Handles purchase orders, receiving stock, and supplier management
-ADDED: Bulk-confirm all pending POs in one action.
+ADDED: Bulk-confirm AND receive all pending POs in one action, using the
+       exact same stock-update flow as the single PO receive.
 """
 
 import streamlit as st
@@ -71,30 +72,24 @@ def get_supplier_suggestions():
 
 
 # ==============================
-# BULK-CONFIRM HELPERS
+# GET ALL PENDING POs (for bulk confirm preview)
 # ==============================
 def get_all_pending_pos():
     """
     Return a list of dicts summarising every PO whose status is PENDING.
-    Each dict contains:
-      - po_number
-      - supplier
-      - item_count
-      - total_value
-      - expected_date
+    Each dict contains: po_number, supplier, item_count, total_value,
+    expected_date.
     """
     try:
         purchases_df = load_purchases()
         if purchases_df.empty:
             return []
-
         if "status" not in purchases_df.columns:
             return []
 
         pending_df = purchases_df[
             purchases_df["status"].astype(str).str.upper() == "PENDING"
         ].copy()
-
         if pending_df.empty:
             return []
 
@@ -131,75 +126,217 @@ def get_all_pending_pos():
         return []
 
 
-def confirm_all_pending_pos(confirmed_by="system"):
+# ==============================
+# BULK CONFIRM + RECEIVE ALL PENDING POs
+# ==============================
+def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system"):
     """
-    Confirm every PO that is currently PENDING in a single transaction.
+    For every PO currently PENDING:
+      - Receive all remaining quantities (same logic as receive_purchase_order)
+      - Auto-update product stock (create new products for unknown barcodes)
+      - Mark each PO's rows as COMPLETED (or PARTIALLY_RECEIVED if any item
+        cannot be fully received)
 
-    Updates the `status` column to 'CONFIRMED' for all matching rows.
-    If a `date_confirmed` column exists, it is stamped as well.
+    Runs in memory on the purchases / products DataFrames and saves them
+    in the same way the single-receive flow does.
 
-    Returns (success: bool, message: str, count: int)
+    Returns (success, message, summary_dict)
+    summary_dict:
+      {
+        "pos_completed": int,
+        "pos_partial": int,
+        "items_received": int,
+        "products_updated": int,
+        "products_created": int,
+        "total_received_value": float,
+      }
     """
+    summary = {
+        "pos_completed": 0,
+        "pos_partial": 0,
+        "items_received": 0,
+        "products_updated": 0,
+        "products_created": 0,
+        "total_received_value": 0.0,
+    }
+
+    if not invoice_no or not str(invoice_no).strip():
+        return False, "Supplier invoice number is required", summary
+
+    invoice_no = str(invoice_no).strip()
+
     try:
-        with get_db_connection() as conn:
-            if conn is None:
-                return False, "Database connection failed", 0
+        purchases_df = load_purchases()
+        products_df = load_products()
 
-            cur = conn.cursor()
+        if purchases_df.empty:
+            return True, "No purchase orders to confirm", summary
 
-            # Inspect the columns we care about
-            cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.columns
-                    WHERE table_name = 'purchases' AND column_name = 'status'
-                )
-            """)
-            has_status = bool(cur.fetchone()[0])
+        # --- Ensure columns exist (same as single receive) ---
+        if "status" not in purchases_df.columns:
+            purchases_df["status"] = "PENDING"
+        if "quantity_received" not in purchases_df.columns:
+            purchases_df["quantity_received"] = 0
+        if "date_received" not in purchases_df.columns:
+            purchases_df["date_received"] = ""
+        if "invoice_no" not in purchases_df.columns:
+            purchases_df["invoice_no"] = ""
 
-            cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.columns
-                    WHERE table_name = 'purchases' AND column_name = 'date_confirmed'
-                )
-            """)
-            has_date_confirmed = bool(cur.fetchone()[0])
+        # --- Collect every PO that is currently PENDING ---
+        pending_mask = purchases_df["status"].astype(str).str.upper() == "PENDING"
+        pending_pos = purchases_df.loc[pending_mask, "po_number"].dropna().unique().tolist()
 
-            if not has_status:
-                cur.close()
-                return False, "purchases table has no 'status' column", 0
+        if not pending_pos:
+            return True, "No pending purchase orders to confirm", summary
 
-            if has_date_confirmed:
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                cur.execute("""
-                    UPDATE purchases
-                    SET status = 'CONFIRMED',
-                        date_confirmed = %s
-                    WHERE UPPER(status) = 'PENDING'
-                """, (now_str,))
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        # Track products updated / created so we don't double-count
+        products_updated_names = set()
+        products_created_names = set()
+
+        for po_number in pending_pos:
+            po_mask = purchases_df["po_number"] == po_number
+            po_indices = purchases_df[po_mask].index.tolist()
+            if not po_indices:
+                continue
+
+            supplier_for_po = ""
+            first_row = purchases_df.loc[po_indices[0]]
+            if "supplier" in purchases_df.columns:
+                supplier_for_po = str(first_row.get("supplier", "Unknown") or "Unknown")
+
+            # --- Receive every remaining quantity for this PO ---
+            for idx in po_indices:
+                row = purchases_df.loc[idx]
+
+                try:
+                    qty_ordered = float(row.get("quantity_ordered", 0) or 0)
+                except Exception:
+                    qty_ordered = 0.0
+                try:
+                    qty_received = float(row.get("quantity_received", 0) or 0)
+                except Exception:
+                    qty_received = 0.0
+
+                remaining = qty_ordered - qty_received
+                if remaining <= 0:
+                    continue  # already received on a prior partial
+
+                try:
+                    cost_price = float(row.get("cost_price", 0) or 0)
+                except Exception:
+                    cost_price = 0.0
+
+                product_name = str(row.get("product_name", "Unknown") or "Unknown")
+                barcode = str(row.get("barcode", "") or "").strip()
+                category = str(row.get("category", "New Purchase") or "New Purchase").strip()
+                if not category or category.lower() in ("nan", "none"):
+                    category = "New Purchase"
+
+                # Mark purchase row as received for this PO
+                purchases_df.loc[idx, "quantity_received"] = qty_ordered
+                purchases_df.loc[idx, "date_received"] = now_str
+                purchases_df.loc[idx, "status"] = "RECEIVED"
+                purchases_df.loc[idx, "invoice_no"] = invoice_no
+
+                summary["items_received"] += 1
+                summary["total_received_value"] += remaining * cost_price
+
+                # --- Update product stock (same as single receive) ---
+                product_idx = products_df[products_df["barcode"] == barcode].index
+
+                if len(product_idx) > 0:
+                    current_stock = (
+                        float(products_df.loc[product_idx[0], "stock"])
+                        if "stock" in products_df.columns else 0.0
+                    )
+                    new_stock = current_stock + remaining
+                    products_df.loc[product_idx[0], "stock"] = new_stock
+
+                    # Keep the purchased cost fresh
+                    if "cost" in products_df.columns and cost_price > 0:
+                        products_df.loc[product_idx[0], "cost"] = cost_price
+
+                    products_updated_names.add(product_name)
+                else:
+                    # New product — match single-receive behaviour
+                    new_product = pd.DataFrame([{
+                        "barcode": barcode,
+                        "name": product_name,
+                        "category": category if category != "New Purchase" else "New Purchase",
+                        "price": cost_price * 1.3,
+                        "cost": cost_price,
+                        "stock": remaining,
+                        "reorder_level": 5,
+                    }])
+                    products_df = pd.concat([products_df, new_product], ignore_index=True)
+                    products_created_names.add(product_name)
+
+            # --- Decide the final status for this PO ---
+            po_rows = purchases_df.loc[po_indices]
+            all_full = True
+            for _, r in po_rows.iterrows():
+                try:
+                    qo = float(r.get("quantity_ordered", 0) or 0)
+                    qr = float(r.get("quantity_received", 0) or 0)
+                except Exception:
+                    qo, qr = 0.0, 0.0
+                if qr < qo:
+                    all_full = False
+                    break
+
+            if all_full:
+                purchases_df.loc[po_indices, "status"] = "COMPLETED"
+                summary["pos_completed"] += 1
             else:
-                cur.execute("""
-                    UPDATE purchases
-                    SET status = 'CONFIRMED'
-                    WHERE UPPER(status) = 'PENDING'
-                """)
+                purchases_df.loc[po_indices, "status"] = "PARTIALLY_RECEIVED"
+                summary["pos_partial"] += 1
 
-            count = cur.rowcount or 0
-            conn.commit()
-            cur.close()
+        summary["products_updated"] = len(products_updated_names)
+        summary["products_created"] = len(products_created_names)
 
-        if count == 0:
-            return True, "No pending purchase orders to confirm", 0
+        # --- Save (same functions the single-receive flow uses) ---
+        try:
+            save_products(products_df)
+            save_purchases(purchases_df)
+        except Exception as e:
+            print(f"Error saving after bulk receive: {e}")
+            return False, f"Failed to save: {str(e)}", summary
 
-        return (
-            True,
-            f"Confirmed {count} item(s) across all pending purchase orders.",
-            count,
+        # Clear any cached data so the UI refreshes
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
+
+        message_parts = [
+            f"Confirmed and received {summary['items_received']} item(s) across "
+            f"{summary['pos_completed'] + summary['pos_partial']} PO(s)."
+        ]
+        if summary["pos_partial"]:
+            message_parts.append(
+                f"{summary['pos_partial']} PO(s) marked PARTIALLY_RECEIVED."
+            )
+        if summary["products_created"]:
+            message_parts.append(
+                f"{summary['products_created']} new product(s) created."
+            )
+        if summary["products_updated"]:
+            message_parts.append(
+                f"{summary['products_updated']} product(s) restocked."
+            )
+        message_parts.append(
+            f"Total received value: ${summary['total_received_value']:,.2f}."
         )
+
+        return True, " ".join(message_parts), summary
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return False, f"Error confirming POs: {str(e)}", 0
+        return False, f"Error during bulk confirm: {str(e)}", summary
 
 
 # ==============================
@@ -229,7 +366,6 @@ def create_purchase_order(supplier, items, expected_date):
         if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
         
-        # Ensure barcode exists
         barcode = str(item.get("barcode", ""))
         if not barcode or barcode == "nan" or barcode == "None" or barcode == "":
             barcode = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}-{idx}"
@@ -260,10 +396,10 @@ def create_purchase_order(supplier, items, expected_date):
 
 
 # ==============================
-# DELETE PURCHASE ORDER - DIRECT SQL (WORKS WITHOUT SAVE FUNCTION)
+# DELETE PURCHASE ORDER - DIRECT SQL
 # ==============================
 def delete_purchase_order(po_number):
-    """Delete a purchase order using direct SQL - WORKS INDEPENDENTLY"""
+    """Delete a purchase order using direct SQL"""
     try:
         po_number_str = str(po_number).strip()
         
@@ -273,7 +409,6 @@ def delete_purchase_order(po_number):
             
             cur = conn.cursor()
             
-            # Check if PO exists
             cur.execute("SELECT COUNT(*) FROM purchases WHERE po_number = %s", (po_number_str,))
             result = cur.fetchone()
             count = result[0] if result else 0
@@ -281,11 +416,9 @@ def delete_purchase_order(po_number):
             if count == 0:
                 return False, f"Purchase Order {po_number_str} not found"
             
-            # Delete the PO
             cur.execute("DELETE FROM purchases WHERE po_number = %s", (po_number_str,))
             conn.commit()
             
-            # Verify deletion
             cur.execute("SELECT COUNT(*) FROM purchases WHERE po_number = %s", (po_number_str,))
             result = cur.fetchone()
             remaining = result[0] if result else 0
@@ -315,22 +448,18 @@ def delete_all_purchase_orders():
             
             cur = conn.cursor()
             
-            # Get count before deletion
             cur.execute("SELECT COUNT(*) FROM purchases")
             total_items = cur.fetchone()[0]
             
             if total_items == 0:
                 return False, "No purchase orders found to delete"
             
-            # Get unique PO count
             cur.execute("SELECT COUNT(DISTINCT po_number) FROM purchases")
             unique_pos = cur.fetchone()[0]
             
-            # Delete all
             cur.execute("DELETE FROM purchases")
             conn.commit()
             
-            # Verify
             cur.execute("SELECT COUNT(*) FROM purchases")
             remaining = cur.fetchone()[0]
             
@@ -348,7 +477,7 @@ def delete_all_purchase_orders():
 
 
 # ==============================
-# RECEIVE PURCHASE ORDER - OPTIMIZED
+# RECEIVE PURCHASE ORDER (SINGLE) - UNCHANGED
 # ==============================
 def receive_purchase_order(po_number, received_items, invoice_no):
     """Receive items against a purchase order and AUTO-UPDATE stock"""
@@ -600,10 +729,10 @@ def get_po_details(po_number):
 
 
 # ==============================
-# SUPPLIER AUTOCOMPLETE COMPONENT - OPTIMIZED
+# SUPPLIER AUTOCOMPLETE COMPONENT
 # ==============================
 def supplier_autocomplete(key_suffix=""):
-    """Supplier input with autocomplete from existing suppliers - OPTIMIZED"""
+    """Supplier input with autocomplete from existing suppliers"""
     
     supplier_suggestions = get_supplier_suggestions()
     current_value = st.session_state.get(f"supplier_name_{key_suffix}", "")
@@ -660,10 +789,10 @@ def supplier_autocomplete(key_suffix=""):
 
 
 # ==============================
-# PURCHASES PAGE - COMPLETE FIXED VERSION
+# PURCHASES PAGE
 # ==============================
 def purchases_page():
-    """Enhanced Purchases Management Page with Batch Addition to Cart - COMPLETE FIX"""
+    """Enhanced Purchases Management Page"""
     
     st.title("Purchases and Suppliers Management")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
@@ -703,11 +832,13 @@ def purchases_page():
         st.session_state.batch_quantities = {}
     if "show_batch_add" not in st.session_state:
         st.session_state.show_batch_add = False
-    # NEW state for bulk confirm
+    # Bulk confirm messages
     if "bulk_confirm_success" not in st.session_state:
         st.session_state.bulk_confirm_success = None
     if "bulk_confirm_message" not in st.session_state:
         st.session_state.bulk_confirm_message = None
+    if "bulk_confirm_summary" not in st.session_state:
+        st.session_state.bulk_confirm_summary = None
     
     # Handle refresh after deletion
     if st.session_state.refresh_required:
@@ -733,15 +864,27 @@ def purchases_page():
         st.session_state.po_deleted = False
         st.session_state.deleted_po_number = None
     
-    # Display bulk confirm message (persists until next rerun)
+    # Display bulk-confirm results
     if st.session_state.bulk_confirm_success is not None:
         if st.session_state.bulk_confirm_success:
             st.success(st.session_state.bulk_confirm_message or "Pending POs confirmed.")
             st.balloons()
+            s = st.session_state.bulk_confirm_summary or {}
+            if s:
+                st.info(
+                    f"📦 **Bulk receive summary** — "
+                    f"POs completed: **{s.get('pos_completed', 0)}** "
+                    f"(partial: {s.get('pos_partial', 0)}) • "
+                    f"Items received: **{s.get('items_received', 0)}** • "
+                    f"Products restocked: **{s.get('products_updated', 0)}** • "
+                    f"New products created: **{s.get('products_created', 0)}** • "
+                    f"Total value: **${s.get('total_received_value', 0):,.2f}**"
+                )
         else:
             st.error(st.session_state.bulk_confirm_message or "Bulk confirm failed.")
         st.session_state.bulk_confirm_success = None
         st.session_state.bulk_confirm_message = None
+        st.session_state.bulk_confirm_summary = None
     
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -1443,19 +1586,20 @@ Contact: +263 78 290 5853
             st.info("Review the preview above and click 'Confirm and Create PO' to save.")
     
     # ==============================
-    # TAB 2: RECEIVE STOCK - COMPLETE FIX WITH DELETE OPTIONS
+    # TAB 2: RECEIVE STOCK - SAME FLOW FOR BULK AND SINGLE
     # ==============================
     with tab2:
         st.markdown("## Receive Stock - Auto Update Inventory")
         st.caption("Confirm receipt of stock. Inventory will be automatically updated.")
         
         # ============================================================
-        # BULK CONFIRM PENDING POs
+        # BULK: CONFIRM ALL PENDING POs AND UPDATE STOCK
         # ============================================================
-        st.markdown("### Confirm All Pending Purchase Orders")
+        st.markdown("### Confirm All Pending POs and Update Stock")
         st.caption(
-            "Confirm every pending PO in one click before receiving stock. "
-            "This sets each PO's status to CONFIRMED."
+            "This does exactly the same thing as the single receive flow, "
+            "but for every pending PO at once: it marks each PO received, "
+            "auto-updates inventory, and moves the PO out of the pending list."
         )
 
         pending_pos_for_confirm = get_all_pending_pos()
@@ -1489,37 +1633,55 @@ Contact: +263 78 290 5853
                 f"total value **${total_pending_value:,.2f}**"
             )
 
+            # Invoice number is required, same as single receive
+            bulk_invoice_no = st.text_input(
+                "Supplier Invoice Number * (applied to all pending POs)",
+                key="bulk_receive_invoice_no",
+                placeholder="Enter invoice number to stamp on every pending PO",
+            )
+
             col_a, col_b = st.columns([1, 2])
             with col_a:
                 bulk_confirm_clicked = st.button(
-                    "✅ Confirm ALL Pending POs",
-                    key="bulk_confirm_pending_pos_btn",
+                    "✅ Confirm ALL & Update Stock",
+                    key="bulk_confirm_and_receive_btn",
                     type="primary",
                     use_container_width=True,
                 )
             with col_b:
                 st.caption(
-                    "This will flip every PENDING PO to CONFIRMED in a single transaction. "
-                    "It does not receive stock."
+                    "Every pending PO will be received in full and its stock "
+                    "added to inventory, exactly like doing it one by one."
                 )
 
             if bulk_confirm_clicked:
-                with st.spinner("Confirming all pending purchase orders..."):
-                    try:
-                        confirmed_by = st.session_state.get("username", "system")
-                    except Exception:
-                        confirmed_by = "system"
-                    ok, msg, count = confirm_all_pending_pos(confirmed_by=confirmed_by)
+                if not bulk_invoice_no or not bulk_invoice_no.strip():
+                    st.error("Please enter the supplier invoice number first.")
+                else:
+                    with st.spinner("Confirming and receiving all pending POs..."):
+                        try:
+                            confirmed_by = st.session_state.get("username", "system")
+                        except Exception:
+                            confirmed_by = "system"
+                        ok, msg, summary = confirm_and_receive_all_pending_pos(
+                            invoice_no=bulk_invoice_no.strip(),
+                            confirmed_by=confirmed_by,
+                        )
 
-                st.session_state.bulk_confirm_success = ok
-                st.session_state.bulk_confirm_message = msg
-                st.rerun()
+                    st.session_state.bulk_confirm_success = ok
+                    st.session_state.bulk_confirm_message = msg
+                    st.session_state.bulk_confirm_summary = summary
+                    if ok and summary.get("items_received", 0) > 0:
+                        # Trigger the same success banner pattern as single receive
+                        st.session_state.stock_updated = True
+                        st.session_state.last_received_po = "BULK"
+                    st.rerun()
 
         st.markdown("---")
         # ============================================================
-        # END BULK CONFIRM
+        # END BULK
         # ============================================================
-        
+
         @st.cache_data(ttl=60)
         def load_purchases_cached():
             return load_purchases()
@@ -1532,21 +1694,19 @@ Contact: +263 78 290 5853
             if "status" not in purchases_df.columns:
                 purchases_df["status"] = "PENDING"
             
-            # Receiving can be done on PENDING, CONFIRMED, or PARTIALLY_RECEIVED
-            pending_pos = purchases_df[
-                purchases_df["status"].astype(str).str.upper().isin(["PENDING", "CONFIRMED"])
+            # Same filter as before — completed POs never appear here
+            receivable_pos = purchases_df[
+                purchases_df["status"].astype(str).str.upper().isin(
+                    ["PENDING", "CONFIRMED", "PARTIALLY_RECEIVED"]
+                )
             ]["po_number"].unique().tolist()
-            partial_pos = purchases_df[
-                purchases_df["status"].astype(str).str.upper() == "PARTIALLY_RECEIVED"
-            ]["po_number"].unique().tolist()
-            all_receivable = list(set(pending_pos + partial_pos))
             
-            if not all_receivable:
-                st.info("No pending, confirmed, or partially received purchase orders. All orders have been completed.")
+            if not receivable_pos:
+                st.info("No pending or partially received purchase orders. All orders have been completed.")
             else:
-                st.info(f"Found {len(all_receivable)} orders ready for receiving")
+                st.info(f"Found {len(receivable_pos)} order(s) ready for receiving")
                 
-                selected_po = st.selectbox("Select Purchase Order to Receive", all_receivable, key="receive_po")
+                selected_po = st.selectbox("Select Purchase Order to Receive", receivable_pos, key="receive_po")
                 
                 if selected_po:
                     po_details = get_po_details(selected_po)
@@ -1586,9 +1746,7 @@ Contact: +263 78 290 5853
                         po_total = po_details['total_value']
                         st.info(f"PO Total: ${po_total:,.2f}")
                         
-                        # ============================================================
-                        # DELETE PURCHASE ORDER
-                        # ============================================================
+                        # ---------------- DELETE OPTIONS ----------------
                         if status_label in ["PENDING", "CONFIRMED", "PARTIALLY_RECEIVED"]:
                             st.markdown("---")
                             st.markdown("### Delete Purchase Order")
@@ -1638,6 +1796,7 @@ Contact: +263 78 290 5853
                                         st.session_state.confirm_delete_all = False
                                         st.rerun()
                         
+                        # ---------------- SINGLE RECEIVE (UNCHANGED) ----------------
                         st.markdown("---")
                         st.markdown("### Receiving Details")
                         st.info("When you receive items, stock will be automatically added to inventory.")
@@ -1791,11 +1950,10 @@ Contact: +263 78 290 5853
                     key="purchase_filter"
                 )
             
-            # NEW: status filter (helps see CONFIRMED vs PENDING)
             with col2:
                 status_filter = st.selectbox(
                     "Status",
-                    ["All", "PENDING", "CONFIRMED", "PARTIALLY_RECEIVED", "COMPLETED", "RECEIVED"],
+                    ["All", "PENDING", "PARTIALLY_RECEIVED", "COMPLETED", "RECEIVED"],
                     key="purchase_status_filter"
                 )
             
