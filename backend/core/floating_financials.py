@@ -4,6 +4,9 @@
 # ADDED: Robust auto-merge credits and changes by customer name
 # ADDED: Write-Off for Changes, Bad Debt for Credits
 # ADDED: Auto-flag records overdue by 60+ days
+# ADDED: Recovery collection/payment for WRITTEN_OFF changes & BAD_DEBT credits
+#        - Full recovery DELETES the row so it disappears from all views
+#        - Partial recovery keeps it in WRITTEN_OFF / BAD_DEBT with updated reason
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -273,7 +276,6 @@ try:
         if count == 0:
             init_floating_tables()
         else:
-            # still run init to add new columns
             init_floating_tables()
             logger.info("Floating tables already exist, ensuring new columns exist")
 except:
@@ -423,7 +425,6 @@ def create_change_record(customer_name, amount, description="", phone="", branch
             return False, f"Invalid description: {desc_clean}", None
         description = desc_clean
     
-    # Normalise customer name for merging
     customer_key = str(customer_name).strip()
     
     try:
@@ -434,12 +435,6 @@ def create_change_record(customer_name, amount, description="", phone="", branch
         cur = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # ==============================================================
-        # LOOK FOR EXISTING UNCOLLECTED / PARTIAL CHANGE FOR THIS CUSTOMER
-        # Uses case-insensitive + trimmed comparison. Also searches only
-        # within the same branch. The existing record must still have a
-        # positive balance (so already-collected records don't merge).
-        # ==============================================================
         cur.execute("""
             SELECT change_id, amount, amount_collected, balance, description, phone,
                    expected_collection_date
@@ -461,7 +456,6 @@ def create_change_record(customer_name, amount, description="", phone="", branch
             old_collected = float(old_collected)
             old_balance = float(old_balance)
             
-            # Merge description
             if old_desc and description:
                 combined_desc = f"{old_desc} | {description}"
             elif old_desc:
@@ -469,10 +463,8 @@ def create_change_record(customer_name, amount, description="", phone="", branch
             else:
                 combined_desc = description
             
-            # Merge phone (keep existing if new one empty)
             merged_phone = phone if phone else (old_phone or "")
             
-            # Merge expected collection date (keep earliest if both present)
             merged_expected = old_expected
             if expected_collection_date:
                 if old_expected:
@@ -518,9 +510,6 @@ def create_change_record(customer_name, amount, description="", phone="", branch
                 existing_change_id
             )
         
-        # ==============================================================
-        # NO EXISTING RECORD → CREATE NEW
-        # ==============================================================
         change_id = f"CHG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         
         cur.execute("""
@@ -580,7 +569,7 @@ def collect_change(change_id, amount, collection_note=""):
         if status == "WRITTEN_OFF":
             cur.close()
             conn.close()
-            return False, "This change has been written off"
+            return False, "This change has been written off. Use Recovery Collection instead."
         
         current_balance = float(current_balance)
         current_collected = float(current_collected)
@@ -682,6 +671,138 @@ def write_off_change(change_id, reason="Written off - overdue > 2 months"):
         return False, f"Error: {str(e)}"
 
 
+def recover_written_off_change(change_id, amount, note="Recovery collection"):
+    """
+    Record a recovery collection against a WRITTEN_OFF change.
+    - If the recovered amount covers the original balance, the row is DELETED.
+    - Otherwise, the amount is recorded and a note is appended to written_off_reason.
+    Returns (success, message).
+    """
+    valid, amount_clean, msg = validate_amount(amount)
+    if not valid:
+        return False, f"Invalid amount: {msg}"
+    if amount_clean <= 0:
+        return False, "Amount must be greater than 0"
+
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return False, "Database connection failed"
+
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT status, amount, amount_collected, written_off_reason, change_id
+            FROM floating_changes
+            WHERE change_id = %s
+        """, (change_id,))
+        record = cur.fetchone()
+
+        if not record:
+            cur.close()
+            conn.close()
+            return False, "Change record not found"
+
+        status, original_amount, amount_collected, wo_reason, _ = record
+
+        if status != "WRITTEN_OFF":
+            cur.close()
+            conn.close()
+            return False, "This change is not in WRITTEN_OFF state"
+
+        original_amount = float(original_amount or 0)
+        amount_collected = float(amount_collected or 0)
+        remaining = max(original_amount - amount_collected, 0.0)
+
+        # If the recovery covers the original amount → delete row entirely
+        if amount_clean >= remaining:
+            # Log the collection first (nice to keep an audit trail) then delete the change
+            collection_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Best-effort: record the recovery in the collections table before deleting
+            try:
+                cur.execute("""
+                    INSERT INTO floating_change_collections (
+                        collection_id, change_id, amount, balance_before,
+                        balance_after, note, collected_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    collection_id, change_id, amount_clean,
+                    remaining, 0.0,
+                    note or "Recovery collection (full)", now
+                ))
+            except Exception as e:
+                logger.warning(f"Could not log recovery collection: {e}")
+                conn.rollback()
+
+            # Delete the change row itself
+            cur.execute("DELETE FROM floating_changes WHERE change_id = %s", (change_id,))
+
+            conn.commit()
+            cur.close()
+            conn.close()
+            _clear_floating_cache()
+            return True, (
+                f"Recovery of ${amount_clean:.2f} recorded. "
+                f"Full amount recovered — record {change_id} has been removed."
+            )
+
+        # Partial recovery: keep the record but append a note
+        new_collected = amount_collected + amount_clean
+        new_remaining = original_amount - new_collected
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        appended_reason = (wo_reason or "").strip()
+        recovery_note = (
+            f"Recovered ${amount_clean:.2f} on "
+            f"{datetime.now().strftime('%Y-%m-%d')}"
+            + (f" ({note})" if note else "")
+        )
+        if appended_reason:
+            appended_reason = f"{appended_reason} | {recovery_note}"
+        else:
+            appended_reason = recovery_note
+
+        cur.execute("""
+            UPDATE floating_changes
+            SET amount_collected = %s,
+                balance = %s,
+                written_off_reason = %s,
+                updated_at = %s
+            WHERE change_id = %s
+        """, (new_collected, new_remaining, appended_reason, now, change_id))
+
+        # Log the recovery collection
+        collection_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+        try:
+            cur.execute("""
+                INSERT INTO floating_change_collections (
+                    collection_id, change_id, amount, balance_before,
+                    balance_after, note, collected_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                collection_id, change_id, amount_clean,
+                new_remaining + amount_clean, new_remaining,
+                note or "Recovery collection (partial)", now
+            ))
+        except Exception as e:
+            logger.warning(f"Could not log recovery collection: {e}")
+            conn.rollback()
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        _clear_floating_cache()
+        return True, (
+            f"Recovery of ${amount_clean:.2f} recorded. "
+            f"Remaining unrecovered: ${new_remaining:.2f}."
+        )
+
+    except Exception as e:
+        logger.error(f"Error recovering written off change: {e}")
+        return False, f"Error: {str(e)}"
+
+
 def write_off_credit(credit_id, reason="Bad debt - overdue > 2 months"):
     """
     Write off a credit as a bad debt: zero its balance, mark as BAD_DEBT.
@@ -736,12 +857,138 @@ def write_off_credit(credit_id, reason="Bad debt - overdue > 2 months"):
         return False, f"Error: {str(e)}"
 
 
+def recover_bad_debt_credit(credit_id, amount, payment_method="CASH", note="Recovery payment"):
+    """
+    Record a recovery payment against a BAD_DEBT / WRITTEN_OFF credit.
+    - If the recovered amount covers the original amount, the row is DELETED.
+    - Otherwise, the amount is recorded and a note is appended to written_off_reason.
+    Returns (success, message).
+    """
+    valid, amount_clean, msg = validate_amount(amount)
+    if not valid:
+        return False, f"Invalid amount: {msg}"
+    if amount_clean <= 0:
+        return False, "Amount must be greater than 0"
+
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return False, "Database connection failed"
+
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT status, amount, amount_paid, written_off_reason
+            FROM floating_credits
+            WHERE credit_id = %s
+        """, (credit_id,))
+        record = cur.fetchone()
+
+        if not record:
+            cur.close()
+            conn.close()
+            return False, "Credit record not found"
+
+        status, original_amount, amount_paid, wo_reason = record
+
+        if status not in ("BAD_DEBT", "WRITTEN_OFF"):
+            cur.close()
+            conn.close()
+            return False, "This credit is not in BAD_DEBT / WRITTEN_OFF state"
+
+        original_amount = float(original_amount or 0)
+        amount_paid = float(amount_paid or 0)
+        remaining = max(original_amount - amount_paid, 0.0)
+
+        # Full recovery → delete row
+        if amount_clean >= remaining:
+            payment_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            try:
+                cur.execute("""
+                    INSERT INTO floating_credit_payments (
+                        payment_id, credit_id, amount, balance_before,
+                        balance_after, payment_method, note, paid_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    payment_id, credit_id, amount_clean,
+                    remaining, 0.0,
+                    payment_method, note or "Recovery payment (full)", now
+                ))
+            except Exception as e:
+                logger.warning(f"Could not log recovery payment: {e}")
+                conn.rollback()
+
+            cur.execute("DELETE FROM floating_credits WHERE credit_id = %s", (credit_id,))
+
+            conn.commit()
+            cur.close()
+            conn.close()
+            _clear_floating_cache()
+            return True, (
+                f"Recovery payment of ${amount_clean:.2f} recorded. "
+                f"Full amount recovered — credit {credit_id} has been removed."
+            )
+
+        # Partial recovery → keep and append note
+        new_paid = amount_paid + amount_clean
+        new_remaining = original_amount - new_paid
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        appended_reason = (wo_reason or "").strip()
+        recovery_note = (
+            f"Recovered ${amount_clean:.2f} on "
+            f"{datetime.now().strftime('%Y-%m-%d')}"
+            + (f" ({note})" if note else "")
+        )
+        if appended_reason:
+            appended_reason = f"{appended_reason} | {recovery_note}"
+        else:
+            appended_reason = recovery_note
+
+        cur.execute("""
+            UPDATE floating_credits
+            SET amount_paid = %s,
+                balance = %s,
+                written_off_reason = %s,
+                updated_at = %s
+            WHERE credit_id = %s
+        """, (new_paid, new_remaining, appended_reason, now, credit_id))
+
+        payment_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+        try:
+            cur.execute("""
+                INSERT INTO floating_credit_payments (
+                    payment_id, credit_id, amount, balance_before,
+                    balance_after, payment_method, note, paid_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                payment_id, credit_id, amount_clean,
+                new_remaining + amount_clean, new_remaining,
+                payment_method, note or "Recovery payment (partial)", now
+            ))
+        except Exception as e:
+            logger.warning(f"Could not log recovery payment: {e}")
+            conn.rollback()
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        _clear_floating_cache()
+        return True, (
+            f"Recovery payment of ${amount_clean:.2f} recorded. "
+            f"Remaining unrecovered: ${new_remaining:.2f}."
+        )
+
+    except Exception as e:
+        logger.error(f"Error recovering bad debt credit: {e}")
+        return False, f"Error: {str(e)}"
+
+
 def auto_flag_overdue_records(branch_id=None):
     """
     Automatically flag any change or credit that has been overdue for
     BAD_DEBT_DAYS_THRESHOLD days (60 days = ~2 months) as WRITTEN_OFF / BAD_DEBT.
-    
-    Returns a dict with counts of newly flagged records.
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -757,7 +1004,6 @@ def auto_flag_overdue_records(branch_id=None):
         cutoff_date = (datetime.now() - timedelta(days=BAD_DEBT_DAYS_THRESHOLD)).strftime("%Y-%m-%d")
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # ----- Auto write off changes -----
         try:
             cur.execute("""
                 UPDATE floating_changes
@@ -777,7 +1023,6 @@ def auto_flag_overdue_records(branch_id=None):
             logger.warning(f"Auto write-off changes skipped: {e}")
             conn.rollback()
         
-        # ----- Auto bad debt credits -----
         try:
             cur.execute("""
                 UPDATE floating_credits
@@ -993,10 +1238,6 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
         cur = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # ==============================================================
-        # LOOK FOR EXISTING ACTIVE / PARTIAL CREDIT FOR THIS CUSTOMER
-        # Case-insensitive + trimmed; positive balance required.
-        # ==============================================================
         cur.execute("""
             SELECT credit_id, amount, amount_paid, balance, description, phone,
                    credit_type, expected_repayment_date
@@ -1019,7 +1260,6 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
             old_paid = float(old_paid)
             old_balance = float(old_balance)
             
-            # Merge description
             if old_desc and description:
                 combined_desc = f"{old_desc} | {description}"
             elif old_desc:
@@ -1027,13 +1267,9 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
             else:
                 combined_desc = description
             
-            # Merge phone
             merged_phone = phone if phone else (old_phone or "")
-            
-            # Merge credit_type (new wins if not OTHER)
             merged_type = credit_type if credit_type and credit_type != "OTHER" else (old_credit_type or "OTHER")
             
-            # Merge expected repayment date (earliest wins if both present)
             merged_expected = old_expected
             if expected_repayment:
                 if old_expected:
@@ -1081,9 +1317,6 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
                 existing_credit_id
             )
         
-        # ==============================================================
-        # NO EXISTING RECORD → CREATE NEW
-        # ==============================================================
         credit_id = f"CRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         
         cur.execute("""
@@ -1143,7 +1376,7 @@ def record_credit_payment(credit_id, amount, payment_note="", payment_method="CA
         if status in ("WRITTEN_OFF", "BAD_DEBT"):
             cur.close()
             conn.close()
-            return False, "This credit has been written off / bad debt"
+            return False, "This credit has been written off / bad debt. Use Recovery Payment instead."
         
         current_balance = float(current_balance)
         current_paid = float(current_paid)
@@ -1451,6 +1684,7 @@ def get_overdue_changes(branch_id=None):
         logger.error(f"Error getting overdue changes: {e}")
         return pd.DataFrame()
 
+
 def get_written_off_changes(branch_id=None):
     """Return all changes that have been written off (manual or auto)."""
     if branch_id is None:
@@ -1666,11 +1900,12 @@ def get_gas_sales_summary(branch_id=None):
 
 # Export all functions
 __all__ = [
-    'create_change_record', 'collect_change', 'write_off_change',
-    'get_change_records', 'get_change_summary', 'get_overdue_changes','get_written_off_changes', 'CHANGE_STATUSES',
+    'create_change_record', 'collect_change', 'write_off_change', 'recover_written_off_change',
+    'get_change_records', 'get_change_summary', 'get_overdue_changes', 'get_written_off_changes',
+    'CHANGE_STATUSES',
     'get_change_records_for_table',
-    'create_credit_record', 'record_credit_payment', 'write_off_credit',
-    'get_credit_records', 'get_credit_summary', 'get_overdue_credits','get_bad_debt_credits',
+    'create_credit_record', 'record_credit_payment', 'write_off_credit', 'recover_bad_debt_credit',
+    'get_credit_records', 'get_credit_summary', 'get_overdue_credits', 'get_bad_debt_credits',
     'get_credit_records_for_table',
     'CREDIT_TYPES', 'CREDIT_STATUSES',
     'auto_flag_overdue_records', 'BAD_DEBT_DAYS_THRESHOLD',

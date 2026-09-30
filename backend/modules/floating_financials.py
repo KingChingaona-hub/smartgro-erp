@@ -5,6 +5,10 @@
 # ADDED: Auto-flag overdue records at page load
 # ADDED: Dedicated "Written Off Changes" and "Bad Debts" sections so you
 #        can SEE the records after confirming, not just the counts.
+# ADDED: Recovery collection / recovery payment inside the written-off and
+#        bad debt sections. Full recovery DELETES the record so it disappears
+#        from every view. Partial recovery keeps the record with an updated
+#        reason showing what has been recovered so far.
 
 import streamlit as st
 import pandas as pd
@@ -14,6 +18,7 @@ from backend.core.floating_financials import (
     create_change_record,
     collect_change,
     write_off_change,
+    recover_written_off_change,
     get_written_off_changes,
     get_change_records,
     get_change_summary,
@@ -24,6 +29,7 @@ from backend.core.floating_financials import (
     create_credit_record,
     record_credit_payment,
     write_off_credit,
+    recover_bad_debt_credit,
     get_bad_debt_credits,
     get_credit_records,
     get_credit_summary,
@@ -295,7 +301,6 @@ def change_management_tab():
             ]
             st.dataframe(od_display[cols], use_container_width=True, hide_index=True)
 
-            # Manual write-off buttons
             st.markdown("**Manually Write Off a Change**")
             wo_options = []
             for _, r in overdue_changes.iterrows():
@@ -326,11 +331,11 @@ def change_management_tab():
                     else:
                         st.error(msg)
 
-    # ---------------- Written Off Changes (visible history) ----------------
+    # ---------------- Written Off Changes (visible history + recovery) ----------------
     written_off_changes = get_written_off_changes()
     if not written_off_changes.empty:
         with st.expander(
-            f"Written Off Changes ({len(written_off_changes)}) - click to view history",
+            f"Written Off Changes ({len(written_off_changes)}) - click to view / recover",
             expanded=False,
         ):
             wo_display = written_off_changes.copy()
@@ -345,13 +350,17 @@ def change_management_tab():
             else:
                 wo_display["Written Off At"] = "N/A"
 
+            # Compute an "Outstanding" column: original amount minus recovered
+            wo_display["Outstanding"] = (
+                wo_display["amount"] - wo_display["amount_collected"]
+            ).clip(lower=0)
+
             wo_display = wo_display.rename(
                 columns={
                     "customer_name": "Customer",
                     "description": "Description",
                     "amount": "Original Amount",
-                    "amount_collected": "Collected",
-                    "balance": "Remaining Balance",
+                    "amount_collected": "Recovered",
                     "written_off_reason": "Reason",
                     "change_id": "ID",
                 }
@@ -364,8 +373,8 @@ def change_management_tab():
                     "Customer",
                     "Description",
                     "Original Amount",
-                    "Collected",
-                    "Remaining Balance",
+                    "Recovered",
+                    "Outstanding",
                     "Reason",
                     "ID",
                 ]
@@ -380,11 +389,11 @@ def change_management_tab():
                     "Original Amount": st.column_config.NumberColumn(
                         "Original Amount", format="$%.2f"
                     ),
-                    "Collected": st.column_config.NumberColumn(
-                        "Collected", format="$%.2f"
+                    "Recovered": st.column_config.NumberColumn(
+                        "Recovered", format="$%.2f"
                     ),
-                    "Remaining Balance": st.column_config.NumberColumn(
-                        "Remaining Balance", format="$%.2f"
+                    "Outstanding": st.column_config.NumberColumn(
+                        "Outstanding", format="$%.2f"
                     ),
                     "Description": st.column_config.TextColumn(
                         "Description", width="medium"
@@ -402,6 +411,68 @@ def change_management_tab():
                 f"**${total_written_off_amount:,.2f}** across "
                 f"**{len(written_off_changes)}** record(s)."
             )
+
+            # ---------------- Recovery Collection ----------------
+            st.markdown("---")
+            st.markdown("**Recovery Collection**")
+            st.caption(
+                "If the customer comes back and collects a written-off change, "
+                "record it here. A full recovery removes the row completely; "
+                "a partial recovery keeps it visible with the amount noted."
+            )
+
+            rec_options = []
+            for _, r in written_off_changes.iterrows():
+                original = float(r.get("amount", 0) or 0)
+                recovered = float(r.get("amount_collected", 0) or 0)
+                outstanding = max(original - recovered, 0.0)
+                rec_options.append(
+                    f"{r.get('customer_name', '?')} - "
+                    f"Outstanding: ${outstanding:.2f} - "
+                    f"{r.get('change_id', '')}"
+                )
+
+            rec_col1, rec_col2, rec_col3 = st.columns([2, 1, 1])
+            with rec_col1:
+                selected_rec = st.selectbox(
+                    "Select written-off change to recover",
+                    rec_options,
+                    key="rec_change_select",
+                )
+            with rec_col2:
+                rec_amount = st.number_input(
+                    "Amount Collected ($)",
+                    min_value=0.01,
+                    step=0.01,
+                    value=0.01,
+                    key="rec_change_amount",
+                )
+            with rec_col3:
+                rec_note = st.text_input(
+                    "Note (optional)",
+                    value="Recovery collection",
+                    key="rec_change_note",
+                )
+
+            if st.button(
+                "Collect Recovery",
+                key="rec_change_btn",
+                use_container_width=True,
+            ):
+                if not selected_rec:
+                    st.error("Please select a written-off change to recover")
+                else:
+                    idx = rec_options.index(selected_rec)
+                    row = written_off_changes.iloc[idx]
+                    change_id = row.get("change_id")
+                    ok, msg = recover_written_off_change(
+                        change_id, rec_amount, rec_note or "Recovery collection"
+                    )
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
     st.divider()
 
@@ -466,7 +537,6 @@ def change_management_tab():
     with col4:
         filter_date_to = st.date_input("To", value=None, key="change_date_to")
 
-    # NO CACHE on these so merges are visible instantly
     df = get_change_records(
         status=None if filter_status == "ALL" else filter_status,
         customer_name=filter_customer if filter_customer else None,
@@ -711,11 +781,11 @@ def credit_management_tab():
                     else:
                         st.error(msg)
 
-    # ---------------- Bad Debts / Written Off Credits (visible history) ----------------
+    # ---------------- Bad Debts / Written Off Credits (visible + recovery) ----------------
     bad_debt_credits = get_bad_debt_credits()
     if not bad_debt_credits.empty:
         with st.expander(
-            f"Bad Debts / Written Off Credits ({len(bad_debt_credits)}) - click to view history",
+            f"Bad Debts / Written Off Credits ({len(bad_debt_credits)}) - click to view / recover",
             expanded=False,
         ):
             bd_display = bad_debt_credits.copy()
@@ -730,13 +800,17 @@ def credit_management_tab():
             else:
                 bd_display["Written Off At"] = "N/A"
 
+            # Compute outstanding: original amount - amount paid so far
+            bd_display["Outstanding"] = (
+                bd_display["amount"] - bd_display["amount_paid"]
+            ).clip(lower=0)
+
             bd_display = bd_display.rename(
                 columns={
                     "customer_name": "Customer",
                     "description": "Description",
                     "amount": "Original Amount",
                     "amount_paid": "Paid",
-                    "balance": "Remaining Balance",
                     "credit_type": "Type",
                     "status": "Status",
                     "written_off_reason": "Reason",
@@ -752,7 +826,7 @@ def credit_management_tab():
                     "Description",
                     "Original Amount",
                     "Paid",
-                    "Remaining Balance",
+                    "Outstanding",
                     "Type",
                     "Status",
                     "Reason",
@@ -770,8 +844,8 @@ def credit_management_tab():
                         "Original Amount", format="$%.2f"
                     ),
                     "Paid": st.column_config.NumberColumn("Paid", format="$%.2f"),
-                    "Remaining Balance": st.column_config.NumberColumn(
-                        "Remaining Balance", format="$%.2f"
+                    "Outstanding": st.column_config.NumberColumn(
+                        "Outstanding", format="$%.2f"
                     ),
                     "Description": st.column_config.TextColumn(
                         "Description", width="medium"
@@ -784,17 +858,91 @@ def credit_management_tab():
                 if "amount" in bad_debt_credits.columns
                 else 0
             )
-            total_bad_debt_balance = (
-                float(bad_debt_credits["balance"].sum())
-                if "balance" in bad_debt_credits.columns
+            total_bad_debt_outstanding = (
+                (
+                    bad_debt_credits["amount"] - bad_debt_credits["amount_paid"]
+                ).clip(lower=0).sum()
+                if "amount" in bad_debt_credits.columns
+                and "amount_paid" in bad_debt_credits.columns
                 else 0
             )
             st.caption(
                 f"Total original value: **${total_bad_debt_amount:,.2f}** — "
-                f"remaining uncollected balance now written off: "
-                f"**${total_bad_debt_balance:,.2f}** across "
+                f"total outstanding (still unrecovered): "
+                f"**${total_bad_debt_outstanding:,.2f}** across "
                 f"**{len(bad_debt_credits)}** record(s)."
             )
+
+            # ---------------- Recovery Payment ----------------
+            st.markdown("---")
+            st.markdown("**Recovery Payment**")
+            st.caption(
+                "If the customer comes back and pays a bad-debt / written-off credit, "
+                "record it here. A full payment removes the row completely; "
+                "a partial payment keeps it visible with the amount noted."
+            )
+
+            rec_options = []
+            for _, r in bad_debt_credits.iterrows():
+                original = float(r.get("amount", 0) or 0)
+                paid = float(r.get("amount_paid", 0) or 0)
+                outstanding = max(original - paid, 0.0)
+                rec_options.append(
+                    f"{r.get('customer_name', '?')} - "
+                    f"Outstanding: ${outstanding:.2f} - "
+                    f"{r.get('credit_id', '')}"
+                )
+
+            rec_col1, rec_col2, rec_col3, rec_col4 = st.columns([2, 1, 1, 1])
+            with rec_col1:
+                selected_rec = st.selectbox(
+                    "Select bad debt to recover",
+                    rec_options,
+                    key="rec_credit_select",
+                )
+            with rec_col2:
+                rec_amount = st.number_input(
+                    "Payment Amount ($)",
+                    min_value=0.01,
+                    step=0.01,
+                    value=0.01,
+                    key="rec_credit_amount",
+                )
+            with rec_col3:
+                rec_method = st.selectbox(
+                    "Payment Method",
+                    ["CASH", "BANK", "MOBILE_MONEY", "ECOCASH"],
+                    key="rec_credit_method",
+                )
+            with rec_col4:
+                rec_note = st.text_input(
+                    "Note (optional)",
+                    value="Recovery payment",
+                    key="rec_credit_note",
+                )
+
+            if st.button(
+                "Record Recovery Payment",
+                key="rec_credit_btn",
+                use_container_width=True,
+            ):
+                if not selected_rec:
+                    st.error("Please select a bad debt to recover")
+                else:
+                    idx = rec_options.index(selected_rec)
+                    row = bad_debt_credits.iloc[idx]
+                    credit_id = row.get("credit_id")
+                    ok, msg = recover_bad_debt_credit(
+                        credit_id,
+                        rec_amount,
+                        payment_method=rec_method or "CASH",
+                        note=rec_note or "Recovery payment",
+                    )
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
     st.divider()
 
@@ -875,7 +1023,6 @@ def credit_management_tab():
             "To", value=None, key="credit_date_to"
         )
 
-    # NO CACHE — visible instantly after merge
     df = get_credit_records(
         status=None if filter_credit_status == "ALL" else filter_credit_status,
         credit_type=None if filter_credit_type == "ALL" else filter_credit_type,
