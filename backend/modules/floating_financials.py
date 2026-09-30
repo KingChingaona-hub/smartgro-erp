@@ -9,6 +9,8 @@
 #        bad debt sections. Full recovery DELETES the record so it disappears
 #        from every view. Partial recovery keeps the record with an updated
 #        reason showing what has been recovered so far.
+# ADDED: Block new credit issuance to customers currently in bad debt.
+#        Shows a red banner + live warning on the credit form.
 
 import streamlit as st
 import pandas as pd
@@ -36,6 +38,10 @@ from backend.core.floating_financials import (
     get_overdue_credits,
     CREDIT_TYPES,
     CREDIT_STATUSES,
+
+    # Bad debt blocking helpers
+    is_customer_in_bad_debt,
+    get_bad_debt_customers,
 
     # Auto write-off / bad debt
     auto_flag_overdue_records,
@@ -350,7 +356,6 @@ def change_management_tab():
             else:
                 wo_display["Written Off At"] = "N/A"
 
-            # Compute an "Outstanding" column: original amount minus recovered
             wo_display["Outstanding"] = (
                 wo_display["amount"] - wo_display["amount_collected"]
             ).clip(lower=0)
@@ -693,6 +698,7 @@ def change_management_tab():
 def credit_management_tab():
     summary = get_credit_summary()
     overdue_df = get_overdue_credits(days=30)
+    bad_debt_customers_df = get_bad_debt_customers()
 
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -705,6 +711,18 @@ def credit_management_tab():
         st.metric("Active Loans", f"{summary['active_count']}")
     with col5:
         st.metric("Bad Debts", f"{summary.get('bad_debt_count', 0)}")
+
+    # ---------------- Bad-debt customer block banner ----------------
+    if not bad_debt_customers_df.empty:
+        blocked_names = sorted(
+            set(bad_debt_customers_df["customer_name"].astype(str).tolist())
+        )
+        st.error(
+            "🚫 **Credit BLOCKED for the following customers (unresolved Bad Debt / Written Off):**\n\n"
+            + ", ".join(f"**{n}**" for n in blocked_names)
+            + "\n\nNew credit cannot be issued until their existing bad debt "
+            "is fully recovered via the Recovery Payment section below."
+        )
 
     if not overdue_df.empty:
         st.error(f"WARNING: {len(overdue_df)} credit(s) are overdue!")
@@ -800,7 +818,6 @@ def credit_management_tab():
             else:
                 bd_display["Written Off At"] = "N/A"
 
-            # Compute outstanding: original amount - amount paid so far
             bd_display["Outstanding"] = (
                 bd_display["amount"] - bd_display["amount_paid"]
             ).clip(lower=0)
@@ -879,7 +896,9 @@ def credit_management_tab():
             st.caption(
                 "If the customer comes back and pays a bad-debt / written-off credit, "
                 "record it here. A full payment removes the row completely; "
-                "a partial payment keeps it visible with the amount noted."
+                "a partial payment keeps it visible with the amount noted. "
+                "Once the balance reaches zero, the customer is automatically "
+                "unblocked for new credit."
             )
 
             rec_options = []
@@ -951,7 +970,8 @@ def credit_management_tab():
         st.markdown("### Record New Credit/Loan")
         st.caption(
             "If this customer already has an active credit, the amount will be MERGED "
-            "into that existing row (single row per customer, description combined)."
+            "into that existing row (single row per customer, description combined). "
+            "Customers with unresolved bad debt cannot receive new credit."
         )
 
         customer_name, phone = get_customer_name_input("credit")
@@ -972,7 +992,20 @@ def credit_management_tab():
             key="new_credit_repayment",
         )
 
-        if st.form_submit_button("Record Credit", use_container_width=True):
+        # Live block check (shows as soon as a bad-debt customer is picked)
+        live_blocked, live_reason = (False, "")
+        if customer_name and customer_name.strip():
+            live_blocked, live_reason = is_customer_in_bad_debt(customer_name)
+        if live_blocked:
+            st.error(f"🚫 {live_reason}")
+            st.caption(
+                "The Record Credit button below will be blocked until this "
+                "customer's bad debt is fully recovered."
+            )
+
+        submit = st.form_submit_button("Record Credit", use_container_width=True)
+
+        if submit:
             if not customer_name:
                 st.error("Customer/Person name is required")
             elif new_credit_amount <= 0:

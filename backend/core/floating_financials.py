@@ -7,6 +7,8 @@
 # ADDED: Recovery collection/payment for WRITTEN_OFF changes & BAD_DEBT credits
 #        - Full recovery DELETES the row so it disappears from all views
 #        - Partial recovery keeps it in WRITTEN_OFF / BAD_DEBT with updated reason
+# ADDED: DENY new credit to customers who currently have an unresolved
+#        BAD_DEBT / WRITTEN_OFF credit (is_customer_in_bad_debt check)
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -118,7 +120,6 @@ def init_floating_tables():
             """)
             logger.info("Created floating_changes table")
         else:
-            # Add new columns if they don't exist (safe migration)
             for col_def in [
                 ("expected_collection_date", "DATE"),
                 ("written_off_at", "TIMESTAMP"),
@@ -200,7 +201,6 @@ def init_floating_tables():
         else:
             logger.info("floating_gas_sales table already exists, data preserved")
         
-        # collections
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -224,7 +224,6 @@ def init_floating_tables():
             """)
             logger.info("Created floating_change_collections table")
         
-        # payments
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -389,6 +388,119 @@ def get_customer_phone_mapping():
     except Exception as e:
         print(f"Error getting customer phone mapping: {e}")
         return {}
+
+
+# ==============================
+# BAD-DEBT CUSTOMER CHECKS
+# ==============================
+
+def is_customer_in_bad_debt(customer_name, branch_id=None):
+    """
+    Check whether the given customer currently has any unresolved
+    BAD_DEBT / WRITTEN_OFF credit record (i.e. original amount has not
+    been fully recovered yet).
+
+    Returns:
+        (True, reason_string)  if the customer is blocked
+        (False, "")            if the customer is free to receive new credit
+    """
+    if branch_id is None:
+        branch_id = get_current_branch()
+
+    if not customer_name or not str(customer_name).strip():
+        return False, ""
+
+    customer_key = str(customer_name).strip()
+
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return False, ""
+
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT credit_id, amount, amount_paid, status
+            FROM floating_credits
+            WHERE branch_id = %s
+              AND LOWER(TRIM(customer_name)) = LOWER(TRIM(%s))
+              AND status IN ('BAD_DEBT', 'WRITTEN_OFF')
+              AND COALESCE(amount, 0) > COALESCE(amount_paid, 0)
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """, (branch_id, customer_key))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if row:
+            credit_id, amount, amount_paid, status = row
+            try:
+                amount = float(amount or 0)
+                amount_paid = float(amount_paid or 0)
+            except Exception:
+                amount = 0.0
+                amount_paid = 0.0
+            outstanding = max(amount - amount_paid, 0.0)
+            reason = (
+                f"Customer {customer_key} currently has an unresolved "
+                f"{status} record (ID: {credit_id}) with an outstanding "
+                f"amount of ${outstanding:.2f}. "
+                f"New credit cannot be issued until this is fully recovered."
+            )
+            return True, reason
+
+        return False, ""
+
+    except Exception as e:
+        logger.error(f"Error checking bad debt for {customer_name}: {e}")
+        return False, ""
+
+
+def get_bad_debt_customers(branch_id=None):
+    """
+    Return a DataFrame of every customer that currently has an unresolved
+    BAD_DEBT / WRITTEN_OFF credit on this branch.
+    Columns: customer_name, credit_id, amount, amount_paid, outstanding, status
+    """
+    if branch_id is None:
+        branch_id = get_current_branch()
+
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return pd.DataFrame()
+
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT customer_name, credit_id, amount, amount_paid,
+                   status, written_off_reason, updated_at
+            FROM floating_credits
+            WHERE branch_id = %s
+              AND status IN ('BAD_DEBT', 'WRITTEN_OFF')
+              AND COALESCE(amount, 0) > COALESCE(amount_paid, 0)
+            ORDER BY updated_at DESC
+        """, (branch_id,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if not rows:
+            return pd.DataFrame()
+
+        col_names = [
+            "customer_name", "credit_id", "amount",
+            "amount_paid", "status", "written_off_reason", "updated_at"
+        ]
+        df = pd.DataFrame(rows, columns=col_names)
+        df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+        df["amount_paid"] = pd.to_numeric(df["amount_paid"], errors="coerce").fillna(0)
+        df["outstanding"] = (df["amount"] - df["amount_paid"]).clip(lower=0)
+        return df
+
+    except Exception as e:
+        logger.error(f"Error getting bad debt customers: {e}")
+        return pd.DataFrame()
+
 
 # ==============================
 # CHANGE MANAGEMENT
@@ -713,13 +825,10 @@ def recover_written_off_change(change_id, amount, note="Recovery collection"):
         amount_collected = float(amount_collected or 0)
         remaining = max(original_amount - amount_collected, 0.0)
 
-        # If the recovery covers the original amount → delete row entirely
         if amount_clean >= remaining:
-            # Log the collection first (nice to keep an audit trail) then delete the change
             collection_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Best-effort: record the recovery in the collections table before deleting
             try:
                 cur.execute("""
                     INSERT INTO floating_change_collections (
@@ -735,7 +844,6 @@ def recover_written_off_change(change_id, amount, note="Recovery collection"):
                 logger.warning(f"Could not log recovery collection: {e}")
                 conn.rollback()
 
-            # Delete the change row itself
             cur.execute("DELETE FROM floating_changes WHERE change_id = %s", (change_id,))
 
             conn.commit()
@@ -747,7 +855,6 @@ def recover_written_off_change(change_id, amount, note="Recovery collection"):
                 f"Full amount recovered — record {change_id} has been removed."
             )
 
-        # Partial recovery: keep the record but append a note
         new_collected = amount_collected + amount_clean
         new_remaining = original_amount - new_collected
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -772,7 +879,6 @@ def recover_written_off_change(change_id, amount, note="Recovery collection"):
             WHERE change_id = %s
         """, (new_collected, new_remaining, appended_reason, now, change_id))
 
-        # Log the recovery collection
         collection_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
         try:
             cur.execute("""
@@ -899,7 +1005,6 @@ def recover_bad_debt_credit(credit_id, amount, payment_method="CASH", note="Reco
         amount_paid = float(amount_paid or 0)
         remaining = max(original_amount - amount_paid, 0.0)
 
-        # Full recovery → delete row
         if amount_clean >= remaining:
             payment_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -930,7 +1035,6 @@ def recover_bad_debt_credit(credit_id, amount, payment_method="CASH", note="Reco
                 f"Full amount recovered — credit {credit_id} has been removed."
             )
 
-        # Partial recovery → keep and append note
         new_paid = amount_paid + amount_clean
         new_remaining = original_amount - new_paid
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1199,6 +1303,9 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
     Create a credit record. If an existing ACTIVE or PARTIAL_PAID credit
     exists for the same customer, auto-merge by adding the amount,
     recalculating balance, and appending the description.
+
+    DENIES the credit if the customer already has an unresolved
+    BAD_DEBT / WRITTEN_OFF credit on this branch.
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -1229,6 +1336,17 @@ def create_credit_record(customer_name, amount, credit_type="WORKMATE_LOAN", des
         credit_type = "OTHER"
     
     customer_key = str(customer_name).strip()
+    
+    # ---------------- BAD-DEBT BLOCK ----------------
+    blocked, block_reason = is_customer_in_bad_debt(customer_key, branch_id=branch_id)
+    if blocked:
+        logger.info(f"Credit DENIED for {customer_key}: {block_reason}")
+        return (
+            False,
+            f"Credit DENIED: {block_reason}",
+            None
+        )
+    # ------------------------------------------------
     
     try:
         conn = get_db_connection()
@@ -1909,6 +2027,7 @@ __all__ = [
     'get_credit_records_for_table',
     'CREDIT_TYPES', 'CREDIT_STATUSES',
     'auto_flag_overdue_records', 'BAD_DEBT_DAYS_THRESHOLD',
+    'is_customer_in_bad_debt', 'get_bad_debt_customers',
     'create_gas_sale', 'get_gas_sales', 'get_gas_sales_summary',
     'get_customer_suggestions',
     'get_customer_phone_mapping'
