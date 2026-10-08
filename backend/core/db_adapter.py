@@ -437,6 +437,7 @@ def save_branches(df):
                     VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (branch_id) DO UPDATE SET
                         branch_name = EXCLUDED.branch_name,
+                        branch_id = EXCLUDED.branch_id,
                         location = EXCLUDED.location,
                         level = EXCLUDED.level,
                         active = EXCLUDED.active
