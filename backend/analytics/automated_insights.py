@@ -8,7 +8,13 @@ DEBT SOURCE: Floating Financials (floating_credits + floating_changes),
 NOT the legacy debtors table.
 
 INCOME: Sourced from its own recorded income table/CSV — NOT from sales revenue.
-NET PROFIT: Income − Expenses, computed over the selected reporting period.
+
+NET PROFIT (for the selected period):
+    Net Profit = Gross Profit + Income − Expenses
+
+    - Gross Profit = Revenue − COGS  (from sales, filtered to the period)
+    - Income       = sum of recorded income in the period (own source)
+    - Expenses     = sum of recorded expenses in the period
 """
 
 import streamlit as st
@@ -52,8 +58,6 @@ from backend.core.floating_financials import (
 # ==============================
 # OPTIONAL INCOME LOADERS
 # ==============================
-# Try to import a dedicated income loader from the project. It's optional
-# so this file still works if the income module hasn't been created yet.
 _load_income_from_db = None
 try:
     from backend.core.db_adapter import load_income as _load_income_from_db  # type: ignore
@@ -78,7 +82,6 @@ INCOME_FILE = DATA_DIR / "income.csv"
 # ==============================
 
 def safe_float(value, default=0.0):
-    """Safely convert value to float"""
     if value is None:
         return default
     try:
@@ -88,7 +91,6 @@ def safe_float(value, default=0.0):
 
 
 def get_date_column(df):
-    """Find date column in dataframe"""
     if df is None or df.empty:
         return None
     for col in ["date", "sale_date", "transaction_date", "created_at"]:
@@ -98,7 +100,6 @@ def get_date_column(df):
 
 
 def get_amount_column(df):
-    """Find amount column"""
     if df is None or df.empty:
         return None
     for col in ["final_total", "total", "amount", "spent"]:
@@ -107,8 +108,27 @@ def get_amount_column(df):
     return None
 
 
+def get_cost_column(df):
+    """Find a cost column in a sales dataframe (for COGS calculation)."""
+    if df is None or df.empty:
+        return None
+    for col in ["cost", "cost_price", "unit_cost", "purchase_price", "buy_price"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def get_profit_column(df):
+    """Find a pre-computed profit column in a sales dataframe."""
+    if df is None or df.empty:
+        return None
+    for col in ["profit", "gross_profit", "margin"]:
+        if col in df.columns:
+            return col
+    return None
+
+
 def get_receipt_column(df):
-    """Find receipt number column"""
     if df is None or df.empty:
         return None
     for col in ["receipt_no", "receipt", "transaction_id"]:
@@ -118,7 +138,6 @@ def get_receipt_column(df):
 
 
 def get_unique_id_column(df):
-    """Find a unique identifier column"""
     if df is None or df.empty:
         return None
     for col in ["id", "expense_id", "income_id", "receipt_no", "transaction_id", "uuid"]:
@@ -128,7 +147,6 @@ def get_unique_id_column(df):
 
 
 def get_customer_column(df):
-    """Find customer name column"""
     if df is None or df.empty:
         return None
     for col in ["customer_name", "customer", "Customer", "client", "buyer"]:
@@ -138,7 +156,6 @@ def get_customer_column(df):
 
 
 def deduplicate_dataframe(df, subset_cols=None):
-    """Deduplicate a dataframe using the best available method."""
     if df is None or df.empty:
         return df
 
@@ -226,7 +243,7 @@ def get_customers_from_sales(sales_df):
 
 
 # ==============================
-# INCOME LOADERS  (NEW)
+# INCOME LOADERS
 # ==============================
 
 DATE_ALIASES = [
@@ -244,7 +261,6 @@ CATEGORY_ALIASES = [
 
 
 def _find_first_column(df, aliases):
-    """Return the first column name (case-insensitive) present in the aliases list."""
     if df is None or df.empty:
         return None
     lower_map = {str(c).lower().strip(): c for c in df.columns}
@@ -259,12 +275,6 @@ def _find_first_column(df, aliases):
 
 
 def _normalize_income_df(df, source_label=""):
-    """
-    Normalize an income DataFrame so it always has:
-      - a datetime column named 'date'
-      - a numeric column named 'amount'
-      - a 'category'/'source' column if available
-    """
     diagnostics = {
         "source": source_label,
         "rows": 0,
@@ -318,7 +328,6 @@ def _normalize_income_df(df, source_label=""):
 
 
 def _try_load_income_from_db():
-    """Try loading income from the database adapter / income module."""
     if _load_income_from_db is None:
         return None, None
     try:
@@ -331,7 +340,6 @@ def _try_load_income_from_db():
 
 
 def _try_load_income_from_csv(path: Path):
-    """Try loading income from a specific CSV path."""
     try:
         if path.exists() and path.stat().st_size > 0:
             df = pd.read_csv(path)
@@ -343,7 +351,6 @@ def _try_load_income_from_csv(path: Path):
 
 
 def _discover_income_csvs():
-    """Search common locations for any income*.csv file."""
     candidates = []
     search_dirs = [DATA_DIR, Path("."), Path("exports"), Path("backend"), Path("database")]
     for d in search_dirs:
@@ -357,19 +364,12 @@ def _discover_income_csvs():
 
 
 def load_income_auto():
-    """
-    Load income from the first source that returns non-empty data.
-    Returns:
-        (normalized_df, source_label, diagnostics_dict)
-    """
-    # 1) Database / income module first
     df, src = _try_load_income_from_db()
     if df is not None:
         normalized, label, diag = _normalize_income_df(df, src)
         if not normalized.empty:
             return normalized, label, diag
 
-    # 2) Known CSVs
     known_paths = [
         INCOME_FILE,
         Path("income.csv"),
@@ -383,7 +383,6 @@ def load_income_auto():
             if not normalized.empty:
                 return normalized, label, diag
 
-    # 3) Any income*.csv discovered
     for p in _discover_income_csvs():
         df, src = _try_load_income_from_csv(p)
         if df is not None:
@@ -402,7 +401,6 @@ def load_income_auto():
 
 
 def income_in_period(income_df, date_from, date_to):
-    """Filter income DataFrame to the selected period."""
     if income_df is None or income_df.empty:
         return pd.DataFrame()
 
@@ -420,7 +418,6 @@ def income_in_period(income_df, date_from, date_to):
 
 
 def expenses_in_period(expenses_df, date_from, date_to):
-    """Filter expenses DataFrame to the selected period."""
     if expenses_df is None or expenses_df.empty:
         return pd.DataFrame()
 
@@ -439,7 +436,6 @@ def expenses_in_period(expenses_df, date_from, date_to):
 
 
 def sum_amount_column(df, amount_col_candidates=None):
-    """Sum the first available amount column in a DataFrame."""
     if df is None or df.empty:
         return 0.0
     if amount_col_candidates is None:
@@ -454,11 +450,129 @@ def sum_amount_column(df, amount_col_candidates=None):
 
 
 # ==============================
+# GROSS PROFIT HELPERS (NEW)
+# ==============================
+
+def _period_filter_by_date(df, date_col, date_from, date_to):
+    """Return df rows with df[date_col] inside [date_from, date_to] inclusive."""
+    if df is None or df.empty or date_col is None:
+        return df
+    df = df.copy()
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df = df.dropna(subset=[date_col])
+
+    start_dt = pd.to_datetime(date_from)
+    end_dt = pd.to_datetime(date_to) + timedelta(days=1) - timedelta(seconds=1)
+    return df[(df[date_col] >= start_dt) & (df[date_col] <= end_dt)]
+
+
+def compute_gross_profit_in_period(sales_df, date_from, date_to):
+    """
+    Compute Gross Profit for the selected period from the sales data.
+
+    Returns dict:
+        {
+          "revenue": float,        # sales total in period
+          "cogs": float,           # cost of goods sold in period (if derivable)
+          "gross_profit": float,   # revenue - cogs OR sum of 'profit' column
+          "receipts": int,         # unique receipts in period
+          "basis": str,            # "profit column" | "revenue - cost" | "revenue only"
+          "message": str,          # human-friendly explanation
+        }
+    """
+    result = {
+        "revenue": 0.0,
+        "cogs": 0.0,
+        "gross_profit": 0.0,
+        "receipts": 0,
+        "basis": "revenue only",
+        "message": "",
+    }
+
+    if sales_df is None or sales_df.empty:
+        result["message"] = "No sales data available for the period."
+        return result
+
+    date_col = get_date_column(sales_df)
+    amount_col = get_amount_column(sales_df)
+    receipt_col = get_receipt_column(sales_df)
+    cost_col = get_cost_column(sales_df)
+    profit_col = get_profit_column(sales_df)
+
+    if date_col is None or amount_col is None:
+        result["message"] = "Sales data missing date or amount column."
+        return result
+
+    period_df = _period_filter_by_date(sales_df, date_col, date_from, date_to)
+
+    if period_df.empty:
+        result["message"] = "No sales in the selected period."
+        return result
+
+    # Deduplicate by receipt to avoid counting the same sale multiple times
+    if receipt_col and receipt_col in period_df.columns:
+        period_df = period_df.drop_duplicates(subset=[receipt_col])
+
+    # Coerce numerics
+    try:
+        period_df = period_df.copy()
+        period_df[amount_col] = pd.to_numeric(period_df[amount_col], errors="coerce").fillna(0)
+    except Exception:
+        pass
+
+    revenue = safe_float(period_df[amount_col].sum())
+    result["revenue"] = revenue
+    result["receipts"] = len(period_df)
+
+    # Prefer a pre-computed profit column
+    if profit_col and profit_col in period_df.columns:
+        try:
+            gp = safe_float(pd.to_numeric(period_df[profit_col], errors="coerce").fillna(0).sum())
+            result["gross_profit"] = gp
+            # COGS is implicit: revenue - gross_profit
+            result["cogs"] = max(revenue - gp, 0.0)
+            result["basis"] = "profit column"
+            result["message"] = (
+                f"Gross profit from '{profit_col}' column; "
+                f"COGS derived as revenue − gross profit."
+            )
+            return result
+        except Exception:
+            pass
+
+    # Fall back to revenue − cost if a cost column exists
+    if cost_col and cost_col in period_df.columns:
+        try:
+            period_df[cost_col] = pd.to_numeric(period_df[cost_col], errors="coerce").fillna(0)
+            cogs = safe_float(period_df[cost_col].sum())
+            gp = revenue - cogs
+            result["cogs"] = cogs
+            result["gross_profit"] = gp
+            result["basis"] = "revenue - cost"
+            result["message"] = (
+                f"Gross profit computed as revenue − COGS using '{cost_col}'."
+            )
+            return result
+        except Exception:
+            pass
+
+    # No cost info available: treat revenue as gross profit and flag it
+    result["gross_profit"] = revenue
+    result["cogs"] = 0.0
+    result["basis"] = "revenue only"
+    result["message"] = (
+        "No cost or profit column found in sales data — "
+        "gross profit equals revenue for the period. Add a 'cost' or 'profit' "
+        "column to sales to get a true gross profit."
+    )
+    return result
+
+
+# ==============================
 # FLOATING FINANCIALS DEBT HELPERS
 # ==============================
 
 def fetch_floating_debt_snapshot():
-    """Pull debt metrics from Floating Financials."""
     snapshot = {
         "total_credit_balance": 0.0,
         "active_credit_count": 0,
@@ -485,7 +599,6 @@ def fetch_floating_debt_snapshot():
         "overdue_change_balance": 0.0,
     }
 
-    # Credit summary
     try:
         cs = get_credit_summary() or {}
         snapshot["total_credit_amount"] = safe_float(cs.get("total_credit", 0))
@@ -496,7 +609,6 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_credit_summary failed: {e}")
 
-    # Change summary
     try:
         chs = get_change_summary() or {}
         snapshot["total_change_amount"] = safe_float(chs.get("total_change", 0))
@@ -507,7 +619,6 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_change_summary failed: {e}")
 
-    # Bad debt credits
     try:
         bd_df = get_bad_debt_credits()
         if bd_df is not None and not bd_df.empty:
@@ -522,7 +633,6 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_bad_debt_credits failed: {e}")
 
-    # Written off changes
     try:
         wo_df = get_written_off_changes()
         if wo_df is not None and not wo_df.empty:
@@ -537,7 +647,6 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_written_off_changes failed: {e}")
 
-    # Overdue credits
     try:
         od_cr = get_overdue_credits()
         if od_cr is not None and not od_cr.empty:
@@ -548,7 +657,6 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_overdue_credits failed: {e}")
 
-    # Overdue changes
     try:
         od_ch = get_overdue_changes()
         if od_ch is not None and not od_ch.empty:
@@ -577,18 +685,17 @@ class InsightsGenerator:
 
     def generate_daily_insights(self, date_from=None, date_to=None):
         """
-        Generate daily business insights.
+        Generate business insights.
 
-        date_from / date_to : optional explicit period for the Net Profit
-                              calculation. Defaults to last 30 days.
+        date_from / date_to : optional explicit period for period-based
+                              metrics (Gross Profit, Income, Expenses, Net Profit).
+                              Defaults to last 30 days.
         """
-        # Default period: last 30 days
         if date_to is None:
             date_to = datetime.now().date()
         if date_from is None:
             date_from = date_to - timedelta(days=30)
 
-        # Normalize to date objects
         try:
             date_from = pd.to_datetime(date_from).date()
             date_to = pd.to_datetime(date_to).date()
@@ -596,13 +703,12 @@ class InsightsGenerator:
             date_from = datetime.now().date() - timedelta(days=30)
             date_to = datetime.now().date()
 
-        # Save the period for the report
         self.report_period = {
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
         }
 
-        # ------------------ Load data ------------------
+        # Load data
         sales_df = load_sales()
         products_df = load_products()
         expenses_df = load_expenses_direct()
@@ -610,7 +716,7 @@ class InsightsGenerator:
         # Debt from floating financials
         debt_snapshot = fetch_floating_debt_snapshot()
 
-        # Income from its OWN recorded source
+        # Income from its own recorded source
         income_df, income_source, income_diag = load_income_auto()
 
         customers_df = get_customers_from_sales(sales_df)
@@ -622,47 +728,44 @@ class InsightsGenerator:
         week_ago = today - timedelta(days=7)
         month_ago = today - timedelta(days=30)
 
-        # Reset collections
         self.insights = []
         self.metrics = {}
         self.recommendations = []
         self.alerts = []
 
-        # Keep the income source info around
         self.metrics["income_source"] = income_source
         self.metrics["income_rows_total"] = income_diag.get("rows", 0)
         self.metrics["income_date_col"] = income_diag.get("date_col")
         self.metrics["income_amount_col"] = income_diag.get("amount_col")
 
-        # 1. Sales Insights
+        # Sales Insights
         sales_insights = self._analyze_sales(sales_df, today, yesterday, week_ago, month_ago)
         self.insights.extend(sales_insights)
 
-        # 2. Product Insights
+        # Product Insights
         product_insights = self._analyze_products(products_df, sales_df)
         self.insights.extend(product_insights)
 
-        # 3. Customer Insights
+        # Customer Insights
         customer_insights = self._analyze_customers(customers_df, sales_df)
         self.insights.extend(customer_insights)
 
-        # 4. Financial Insights (expenses + revenue + period income + net profit)
+        # Financial Insights (Gross Profit + Income - Expenses => Net Profit)
         financial_insights = self._analyze_financials(
             expenses_df, sales_df, income_df, date_from, date_to
         )
         self.insights.extend(financial_insights)
 
-        # 5. Floating Financials debt insights
+        # Floating Financials debt insights
         debt_insights = self._analyze_floating_debt(debt_snapshot)
         self.insights.extend(debt_insights)
 
-        # 6. Alerts
+        # Alerts
         self.alerts = self._generate_alerts(products_df, sales_df, debt_snapshot)
 
         return self._format_report()
 
     def _analyze_sales(self, sales_df, today, yesterday, week_ago, month_ago):
-        """Analyze sales data - WITH DEDUPLICATION"""
         insights = []
 
         if sales_df.empty:
@@ -675,6 +778,7 @@ class InsightsGenerator:
         if date_col is None or amount_col is None:
             return [{"type": "sales", "message": "Sales data incomplete", "priority": "info"}]
 
+        sales_df = sales_df.copy()
         sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
         sales_df = sales_df.dropna(subset=[date_col])
 
@@ -753,7 +857,6 @@ class InsightsGenerator:
         return insights
 
     def _analyze_products(self, products_df, sales_df):
-        """Analyze product data"""
         insights = []
 
         if products_df.empty:
@@ -824,7 +927,6 @@ class InsightsGenerator:
         return insights
 
     def _analyze_customers(self, customers_df, sales_df):
-        """Analyze customer data - USING CUSTOMERS FROM SALES"""
         insights = []
 
         if customers_df.empty:
@@ -838,6 +940,7 @@ class InsightsGenerator:
             date_col = get_date_column(sales_df)
 
             if customer_col and date_col:
+                sales_df = sales_df.copy()
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 month_ago = datetime.now() - timedelta(days=30)
 
@@ -908,40 +1011,81 @@ class InsightsGenerator:
 
         return insights
 
+    # ============================================================
+    # FINANCIALS — Net Profit = Gross Profit + Income − Expenses
+    # ============================================================
     def _analyze_financials(self, expenses_df, sales_df, income_df, date_from, date_to):
-        """
-        Analyze financial data for the SELECTED PERIOD.
-
-        - Income is loaded from its own recorded source (income_df).
-        - Expenses come from the expenses module.
-        - Net Profit = Income − Expenses, for the selected period.
-        - Sales revenue is kept as its own metric (total_revenue) and is NOT
-          treated as income.
-        """
         insights = []
 
         period_label = f"{date_from.isoformat()} → {date_to.isoformat()}"
         self.metrics["period_label"] = period_label
         self.metrics["net_profit_period_label"] = period_label
 
-        # ---------- Income for the period (OWN SOURCE) ----------
+        # ---------- 1) GROSS PROFIT (from sales, filtered to period) ----------
+        gp = compute_gross_profit_in_period(sales_df, date_from, date_to)
+        period_revenue = gp["revenue"]
+        period_cogs = gp["cogs"]
+        period_gross_profit = gp["gross_profit"]
+        gross_profit_basis = gp["basis"]
+        gross_profit_message = gp["message"]
+
+        self.metrics["period_revenue"] = period_revenue
+        self.metrics["period_cogs"] = period_cogs
+        self.metrics["period_gross_profit"] = period_gross_profit
+        self.metrics["gross_profit_basis"] = gross_profit_basis
+        self.metrics["gross_profit_message"] = gross_profit_message
+        self.metrics["period_receipts"] = gp["receipts"]
+
+        # Keep an all-time revenue metric for backwards compatibility
+        all_time_revenue = 0
+        if not sales_df.empty:
+            amt_col = get_amount_column(sales_df)
+            rec_col = get_receipt_column(sales_df)
+            if amt_col:
+                tmp = sales_df
+                if rec_col and rec_col in sales_df.columns:
+                    tmp = sales_df.drop_duplicates(subset=[rec_col])
+                all_time_revenue = safe_float(pd.to_numeric(tmp[amt_col], errors="coerce").fillna(0).sum())
+        self.metrics["total_revenue"] = all_time_revenue
+
+        # Gross profit insight
+        if period_revenue > 0 or period_gross_profit > 0:
+            insights.append({
+                "type": "financial",
+                "message": f"Gross profit for period ({period_label}): ${period_gross_profit:,.2f}",
+                "priority": "info",
+                "detail": (
+                    f"Revenue ${period_revenue:,.2f} − COGS ${period_cogs:,.2f} "
+                    f"({gp['receipts']} receipts) • basis: {gross_profit_basis}"
+                )
+            })
+        else:
+            insights.append({
+                "type": "financial",
+                "message": "No sales in the selected period — gross profit is $0",
+                "priority": "info",
+                "detail": gross_profit_message
+            })
+
+        # ---------- 2) INCOME (from its own source, filtered to period) ----------
         period_income_df = income_in_period(income_df, date_from, date_to)
         period_income = sum_amount_column(
-            period_income_df, ["amount", "total", "value", "income_amount", "received"]
+            period_income_df,
+            ["amount", "total", "value", "income_amount", "received"]
         )
         self.metrics["period_income"] = period_income
-        self.metrics["total_income"] = period_income  # alias used by email/dashboard
+        self.metrics["total_income"] = period_income
 
         # Monthly income (last 30 days) for reference
         month_ago = datetime.now().date() - timedelta(days=30)
         today = datetime.now().date()
         month_income_df = income_in_period(income_df, month_ago, today)
         monthly_income = sum_amount_column(
-            month_income_df, ["amount", "total", "value", "income_amount", "received"]
+            month_income_df,
+            ["amount", "total", "value", "income_amount", "received"]
         )
         self.metrics["monthly_income"] = monthly_income
 
-        # Income insight
         if period_income > 0:
             insights.append({
                 "type": "income",
@@ -957,13 +1101,14 @@ class InsightsGenerator:
                 "detail": f"Source checked: {self.metrics.get('income_source', 'unknown')}"
             })
 
-        # ---------- Expenses for the period ----------
+        # ---------- 3) EXPENSES (filtered to period) ----------
         period_expenses_df = expenses_in_period(expenses_df, date_from, date_to)
         period_expenses = sum_amount_column(
-            period_expenses_df, ["amount", "total", "value", "expense_amount"]
+            period_expenses_df,
+            ["amount", "total", "value", "expense_amount"]
         )
 
-        # Fallback: if module returned nothing, try db_adapter
+        # Fallback to db_adapter if module returned nothing
         if period_expenses == 0:
             try:
                 from backend.core.db_adapter import load_expenses as load_expenses_core
@@ -977,12 +1122,13 @@ class InsightsGenerator:
                 pass
 
         self.metrics["period_expenses"] = period_expenses
-        self.metrics["total_expenses"] = period_expenses  # keep old key working
+        self.metrics["total_expenses"] = period_expenses  # backwards compat
 
         # Monthly expenses for reference
         month_expenses_df = expenses_in_period(expenses_df, month_ago, today)
         monthly_expenses = sum_amount_column(
-            month_expenses_df, ["amount", "total", "value", "expense_amount"]
+            month_expenses_df,
+            ["amount", "total", "value", "expense_amount"]
         )
         self.metrics["monthly_expenses"] = monthly_expenses
 
@@ -1001,70 +1147,54 @@ class InsightsGenerator:
                 "detail": "Start recording expenses in the Expenses module"
             })
 
-        # ---------- Sales revenue (kept as its own metric, NOT income) ----------
-        total_revenue = 0
-        sales_undup = pd.DataFrame()
-
-        if not sales_df.empty:
-            amount_col = get_amount_column(sales_df)
-            receipt_col = get_receipt_column(sales_df)
-
-            if amount_col:
-                if receipt_col and receipt_col in sales_df.columns:
-                    sales_undup = sales_df.drop_duplicates(subset=[receipt_col])
-                else:
-                    sales_undup = sales_df.copy()
-                    if "date" in sales_undup.columns:
-                        sales_undup = sales_undup.drop_duplicates(subset=["date", amount_col])
-                total_revenue = safe_float(sales_undup[amount_col].sum())
-
-        self.metrics["total_revenue"] = total_revenue
-        self.metrics["revenue_unique_receipts"] = len(sales_undup) if not sales_undup.empty else 0
-
-        if total_revenue > 0:
-            insights.append({
-                "type": "sales",
-                "message": f"Revenue (all-time): ${total_revenue:,.2f}",
-                "priority": "info",
-                "detail": f"Based on {len(sales_undup)} unique receipts"
-            })
-
-        # ---------- NET PROFIT for the selected period ----------
-        net_profit = period_income - period_expenses
+        # ---------- 4) NET PROFIT = Gross Profit + Income − Expenses ----------
+        net_profit = period_gross_profit + period_income - period_expenses
         self.metrics["net_profit"] = net_profit
 
-        # Legacy keys — keep both "net_income" and "income" pointing to the
-        # new, correctly-sourced value so any downstream code keeps working.
+        # Legacy keys kept aligned to the new value
         self.metrics["net_income"] = net_profit
-        self.metrics["income"] = period_income  # "income" now means the recorded income
+        self.metrics["income"] = period_income  # recorded income in the period
+
+        # Also store the breakdown so downstream displays can show it
+        self.metrics["net_profit_formula"] = (
+            f"Gross Profit ${period_gross_profit:,.2f} "
+            f"+ Income ${period_income:,.2f} "
+            f"− Expenses ${period_expenses:,.2f} "
+            f"= Net Profit ${net_profit:,.2f}"
+        )
 
         # Net profit insight
-        if period_income > 0 or period_expenses > 0:
+        if (
+            period_revenue > 0
+            or period_income > 0
+            or period_expenses > 0
+            or period_gross_profit > 0
+        ):
             if net_profit > 0:
                 insights.append({
                     "type": "financial",
                     "message": f"Net profit for period ({period_label}): ${net_profit:,.2f}",
                     "priority": "success",
-                    "detail": f"Income ${period_income:,.2f} − Expenses ${period_expenses:,.2f}"
+                    "detail": self.metrics["net_profit_formula"]
                 })
             elif net_profit < 0:
                 insights.append({
                     "type": "financial",
                     "message": f"Net loss for period ({period_label}): ${abs(net_profit):,.2f}",
                     "priority": "high",
-                    "detail": f"Income ${period_income:,.2f} − Expenses ${period_expenses:,.2f}"
+                    "detail": self.metrics["net_profit_formula"]
                 })
             else:
                 insights.append({
                     "type": "financial",
                     "message": f"Net profit is $0 (break-even) for period ({period_label})",
                     "priority": "info",
-                    "detail": f"Income ${period_income:,.2f} = Expenses ${period_expenses:,.2f}"
+                    "detail": self.metrics["net_profit_formula"]
                 })
         else:
             insights.append({
                 "type": "financial",
-                "message": "Net profit cannot be computed — no income or expenses in period",
+                "message": "Net profit cannot be computed — no revenue, income, or expenses in period",
                 "priority": "info",
                 "detail": f"Period: {period_label}"
             })
@@ -1072,7 +1202,6 @@ class InsightsGenerator:
         return insights
 
     def _analyze_floating_debt(self, snapshot):
-        """Analyze debt data coming from Floating Financials."""
         insights = []
 
         if not snapshot:
@@ -1093,14 +1222,12 @@ class InsightsGenerator:
         self.metrics["overdue_change_count"] = snapshot.get("overdue_change_count", 0)
         self.metrics["overdue_change_balance"] = snapshot.get("overdue_change_balance", 0.0)
 
-        # Legacy-compatible keys
         self.metrics["total_debt"] = snapshot.get("total_credit_balance", 0.0)
         self.metrics["debtors_count"] = (
             int(snapshot.get("active_credit_count", 0) or 0)
             + int(snapshot.get("partial_credit_count", 0) or 0)
         )
 
-        # Outstanding credit
         credit_balance = snapshot.get("total_credit_balance", 0.0)
         open_credit_count = (
             int(snapshot.get("active_credit_count", 0) or 0)
@@ -1121,7 +1248,6 @@ class InsightsGenerator:
                 "detail": "All credits fully paid"
             })
 
-        # Outstanding change
         change_balance = snapshot.get("total_change_balance", 0.0)
         open_change_count = (
             int(snapshot.get("uncollected_change_count", 0) or 0)
@@ -1135,7 +1261,6 @@ class InsightsGenerator:
                 "detail": f"{open_change_count} open change record(s) in Floating Financials"
             })
 
-        # Bad debt credits
         bd_outstanding = snapshot.get("bad_debt_outstanding", 0.0)
         bd_count = snapshot.get("bad_debt_count", 0)
         if bd_count > 0:
@@ -1146,7 +1271,6 @@ class InsightsGenerator:
                 "detail": "See Bad Debts section in Floating Financials for recovery"
             })
 
-        # Written-off changes
         wo_outstanding = snapshot.get("written_off_changes_outstanding", 0.0)
         wo_count = snapshot.get("written_off_changes_count", 0)
         if wo_count > 0:
@@ -1157,7 +1281,6 @@ class InsightsGenerator:
                 "detail": "See Written Off Changes section in Floating Financials"
             })
 
-        # Overdue
         od_cr_count = snapshot.get("overdue_credit_count", 0)
         od_cr_balance = snapshot.get("overdue_credit_balance", 0.0)
         if od_cr_count > 0:
@@ -1181,10 +1304,8 @@ class InsightsGenerator:
         return insights
 
     def _generate_alerts(self, products_df, sales_df, debt_snapshot):
-        """Generate critical alerts (debt now comes from floating financials)"""
         alerts = []
 
-        # Stock alerts
         if not products_df.empty:
             out_of_stock = len(products_df[products_df["stock"] == 0])
             if out_of_stock > 0:
@@ -1194,7 +1315,6 @@ class InsightsGenerator:
                     "severity": "critical"
                 })
 
-        # Debt alerts — from floating financials
         if debt_snapshot:
             credit_balance = debt_snapshot.get("total_credit_balance", 0.0)
             if credit_balance > 1000:
@@ -1230,18 +1350,18 @@ class InsightsGenerator:
             if net_profit is not None and net_profit < 0:
                 alerts.append({
                     "type": "profit",
-                    "message": f"Negative net profit for period: ${net_profit:,.2f} (expenses exceed income)",
+                    "message": f"Negative net profit for period: ${net_profit:,.2f} (expenses exceed gross profit + income)",
                     "severity": "warning"
                 })
         except Exception:
             pass
 
-        # Sales alerts
         if not sales_df.empty:
             date_col = get_date_column(sales_df)
             receipt_col = get_receipt_column(sales_df)
 
             if date_col:
+                sales_df = sales_df.copy()
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 today = datetime.now().date()
 
@@ -1260,7 +1380,6 @@ class InsightsGenerator:
         return alerts
 
     def _format_report(self):
-        """Format insights into report"""
         return {
             "generated_at": datetime.now().isoformat(),
             "period": "daily",
@@ -1272,7 +1391,6 @@ class InsightsGenerator:
         }
 
     def _generate_summary(self):
-        """Generate executive summary"""
         summary = []
 
         high_count = sum(1 for i in self.insights if i.get("priority") == "high")
@@ -1290,12 +1408,18 @@ class InsightsGenerator:
             else:
                 summary.append("No sales recorded today")
 
-            # Income line (from its own recorded source)
+            gross_profit = self.metrics.get("period_gross_profit", 0.0)
+            if gross_profit:
+                summary.append(f"Gross profit: ${gross_profit:,.2f}")
+
             period_income = self.metrics.get("period_income", 0.0)
             if period_income > 0:
                 summary.append(f"Income: ${period_income:,.2f}")
 
-            # Net profit line
+            period_expenses = self.metrics.get("period_expenses", 0.0)
+            if period_expenses > 0:
+                summary.append(f"Expenses: ${period_expenses:,.2f}")
+
             net_profit = self.metrics.get("net_profit", None)
             if net_profit is not None:
                 if net_profit >= 0:
@@ -1303,7 +1427,6 @@ class InsightsGenerator:
                 else:
                     summary.append(f"Net loss: ${abs(net_profit):,.2f}")
 
-            # Debt line
             credit_balance = self.metrics.get("total_credit_balance", 0.0)
             if credit_balance > 0:
                 summary.append(f"Outstanding credit: ${credit_balance:,.2f}")
@@ -1323,7 +1446,6 @@ class InsightsGenerator:
 # ==============================
 
 def load_insights_settings():
-    """Load insights settings"""
     if INSIGHTS_FILE.exists():
         try:
             with open(INSIGHTS_FILE, "r") as f:
@@ -1347,25 +1469,22 @@ def load_insights_settings():
 
 
 def save_insights_settings(settings):
-    """Save insights settings"""
     INSIGHTS_FILE.parent.mkdir(exist_ok=True)
     with open(INSIGHTS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
 
 
 def log_insights_history(insights_data):
-    """Log insights in history"""
     INSIGHTS_FILE.parent.mkdir(exist_ok=True)
 
     columns = [
-        "timestamp", "period", "revenue", "income",
-        "expenses", "net_profit", "transactions", "insights_count",
+        "timestamp", "period", "revenue", "gross_profit", "cogs",
+        "income", "expenses", "net_profit", "transactions", "insights_count",
     ]
     if not INSIGHTS_HISTORY_FILE.exists():
         df = pd.DataFrame(columns=columns)
     else:
         df = pd.read_csv(INSIGHTS_HISTORY_FILE)
-        # Ensure new columns exist for old files
         for c in columns:
             if c not in df.columns:
                 df[c] = None
@@ -1374,7 +1493,9 @@ def log_insights_history(insights_data):
     new_row = pd.DataFrame([{
         "timestamp": insights_data.get("generated_at", datetime.now().isoformat()),
         "period": insights_data.get("period", "daily"),
-        "revenue": metrics.get("today_revenue", 0),
+        "revenue": metrics.get("period_revenue", 0),
+        "gross_profit": metrics.get("period_gross_profit", 0),
+        "cogs": metrics.get("period_cogs", 0),
         "income": metrics.get("period_income", 0),
         "expenses": metrics.get("period_expenses", 0),
         "net_profit": metrics.get("net_profit", 0),
@@ -1391,12 +1512,9 @@ def log_insights_history(insights_data):
 # ==============================
 
 def generate_insights_email_html(insights_data):
-    """Generate HTML email for insights"""
-
     metrics = insights_data.get("metrics", {})
     insights = insights_data.get("insights", [])
     alerts = insights_data.get("alerts", [])
-    report_period = insights_data.get("report_period", {})
     period_label = metrics.get("period_label", "")
 
     html = f"""
@@ -1406,112 +1524,25 @@ def generate_insights_email_html(insights_data):
         <meta charset="UTF-8">
         <title>Business Insights - Aziel Investments</title>
         <style>
-            body {{
-                font-family: Arial, sans-serif;
-                margin: 0;
-                padding: 20px;
-                background: #f4f4f4;
-            }}
-            .container {{
-                max-width: 700px;
-                margin: 0 auto;
-                background: white;
-                padding: 30px;
-                border-radius: 10px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }}
-            .header {{
-                text-align: center;
-                border-bottom: 3px solid #6366F1;
-                padding-bottom: 20px;
-                margin-bottom: 25px;
-            }}
-            .header h1 {{
-                color: #1a1a2e;
-                margin: 0;
-                font-size: 24px;
-            }}
-            .header p {{
-                color: #666;
-                margin: 5px 0 0 0;
-                font-size: 14px;
-            }}
-            .metric-grid {{
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 15px;
-                margin-bottom: 25px;
-            }}
-            .metric-card {{
-                background: #f8f9fa;
-                padding: 15px;
-                border-radius: 8px;
-                text-align: center;
-                border: 1px solid #e5e7eb;
-            }}
-            .metric-value {{
-                font-size: 22px;
-                font-weight: bold;
-                color: #1a1a2e;
-            }}
-            .metric-label {{
-                font-size: 12px;
-                color: #6B7280;
-                margin-top: 5px;
-            }}
-            .insight-item {{
-                padding: 12px 15px;
-                margin: 8px 0;
-                border-radius: 8px;
-                border-left: 4px solid #6366F1;
-                background: #f8f9fa;
-            }}
-            .insight-critical {{
-                border-left-color: #ef4444;
-                background: #fef2f2;
-            }}
-            .insight-high {{
-                border-left-color: #f59e0b;
-                background: #fffbeb;
-            }}
-            .insight-medium {{
-                border-left-color: #3b82f6;
-                background: #eff6ff;
-            }}
-            .insight-info {{
-                border-left-color: #10b981;
-                background: #ecfdf5;
-            }}
-            .alert-item {{
-                padding: 12px 15px;
-                margin: 8px 0;
-                border-radius: 8px;
-                background: #fef2f2;
-                border: 1px solid #fca5a5;
-                color: #991b1b;
-            }}
-            .footer {{
-                text-align: center;
-                margin-top: 30px;
-                padding-top: 20px;
-                border-top: 1px solid #e5e7eb;
-                color: #6B7280;
-                font-size: 12px;
-            }}
-            .summary {{
-                background: #f0fdf4;
-                padding: 15px;
-                border-radius: 8px;
-                margin-bottom: 20px;
-                border: 1px solid #bbf7d0;
-                color: #166534;
-            }}
-            .period {{
-                text-align: center;
-                color: #4B5563;
-                font-size: 13px;
-                margin-bottom: 15px;
-            }}
+            body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f4; }}
+            .container {{ max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+            .header {{ text-align: center; border-bottom: 3px solid #6366F1; padding-bottom: 20px; margin-bottom: 25px; }}
+            .header h1 {{ color: #1a1a2e; margin: 0; font-size: 24px; }}
+            .header p {{ color: #666; margin: 5px 0 0 0; font-size: 14px; }}
+            .metric-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px; }}
+            .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #e5e7eb; }}
+            .metric-value {{ font-size: 22px; font-weight: bold; color: #1a1a2e; }}
+            .metric-label {{ font-size: 12px; color: #6B7280; margin-top: 5px; }}
+            .insight-item {{ padding: 12px 15px; margin: 8px 0; border-radius: 8px; border-left: 4px solid #6366F1; background: #f8f9fa; }}
+            .insight-critical {{ border-left-color: #ef4444; background: #fef2f2; }}
+            .insight-high {{ border-left-color: #f59e0b; background: #fffbeb; }}
+            .insight-medium {{ border-left-color: #3b82f6; background: #eff6ff; }}
+            .insight-info {{ border-left-color: #10b981; background: #ecfdf5; }}
+            .alert-item {{ padding: 12px 15px; margin: 8px 0; border-radius: 8px; background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }}
+            .footer {{ text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6B7280; font-size: 12px; }}
+            .summary {{ background: #f0fdf4; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #bbf7d0; color: #166534; }}
+            .period {{ text-align: center; color: #4B5563; font-size: 13px; margin-bottom: 15px; }}
+            .formula {{ background: #eef2ff; padding: 12px 15px; border-radius: 8px; margin: 10px 0 20px 0; border: 1px solid #c7d2fe; color: #3730a3; font-size: 13px; }}
         </style>
     </head>
     <body>
@@ -1524,9 +1555,7 @@ def generate_insights_email_html(insights_data):
     """
 
     if period_label:
-        html += f"""
-            <div class="period">Reporting period: <strong>{period_label}</strong></div>
-        """
+        html += f'<div class="period">Reporting period: <strong>{period_label}</strong></div>'
 
     if insights_data.get("summary"):
         html += f"""
@@ -1536,31 +1565,28 @@ def generate_insights_email_html(insights_data):
             </div>
         """
 
+    # Show the net-profit formula explicitly
+    formula = metrics.get("net_profit_formula")
+    if formula:
+        html += f'<div class="formula"><strong>Net Profit:</strong> {formula}</div>'
+
     if alerts:
-        html += """
-            <h3 style="color: #991b1b;">Alerts</h3>
-        """
+        html += '<h3 style="color: #991b1b;">Alerts</h3>'
         for alert in alerts:
-            html += f"""
-                <div class="alert-item">
-                    <strong>{alert.get('message', 'Alert')}</strong>
-                </div>
-            """
+            html += f'<div class="alert-item"><strong>{alert.get("message", "Alert")}</strong></div>'
 
     if metrics:
-        html += """
-            <h3>Key Metrics</h3>
-            <div class="metric-grid">
-        """
+        html += '<h3>Key Metrics</h3><div class="metric-grid">'
 
-        # Period-based metrics + debt metrics
         metric_display = [
             ("Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}"),
             ("Transactions", f"{metrics.get('today_transactions', 0)}"),
-            ("Period Income", f"${metrics.get('period_income', 0):,.2f}"),
-            ("Period Expenses", f"${metrics.get('period_expenses', 0):,.2f}"),
+            ("Period Revenue", f"${metrics.get('period_revenue', 0):,.2f}"),
+            ("Period COGS", f"${metrics.get('period_cogs', 0):,.2f}"),
+            ("Gross Profit (period)", f"${metrics.get('period_gross_profit', 0):,.2f}"),
+            ("Income (period)", f"${metrics.get('period_income', 0):,.2f}"),
+            ("Expenses (period)", f"${metrics.get('period_expenses', 0):,.2f}"),
             ("Net Profit (period)", f"${metrics.get('net_profit', 0):,.2f}"),
-            ("Total Revenue (all-time)", f"${metrics.get('total_revenue', 0):,.2f}"),
             ("Products", f"{metrics.get('total_products', 0)}"),
             ("Customers", f"{metrics.get('total_customers', 0)}"),
             ("Low Stock", f"{metrics.get('low_stock', 0)}"),
@@ -1577,15 +1603,10 @@ def generate_insights_email_html(insights_data):
                 </div>
             """
 
-        html += """
-            </div>
-        """
+        html += '</div>'
 
     if insights:
-        html += """
-            <h3>Insights</h3>
-        """
-
+        html += '<h3>Insights</h3>'
         for insight in insights:
             priority = insight.get("priority", "info")
             if priority == "critical":
@@ -1624,8 +1645,6 @@ def generate_insights_email_html(insights_data):
 # ==============================
 
 def send_insights_email(insights_data, recipient=None):
-    """Send insights email to recipient"""
-
     settings = load_insights_settings()
 
     if not settings.get("enabled", True):
@@ -1662,14 +1681,12 @@ def send_insights_email(insights_data, recipient=None):
 
 
 def send_daily_insights(date_from=None, date_to=None):
-    """Send daily insights to all recipients"""
     generator = InsightsGenerator()
     insights_data = generator.generate_daily_insights(date_from=date_from, date_to=date_to)
     return send_insights_email(insights_data)
 
 
 def send_test_insights_email(email, date_from=None, date_to=None):
-    """Send a test insights email"""
     generator = InsightsGenerator()
     insights_data = generator.generate_daily_insights(date_from=date_from, date_to=date_to)
     return send_insights_email(insights_data, email)
@@ -1680,8 +1697,6 @@ def send_test_insights_email(email, date_from=None, date_to=None):
 # ==============================
 
 def automated_insights_dashboard():
-    """Automated Insights Digest Dashboard"""
-
     st.title("Automated Insights Digest")
     st.caption("Daily/weekly AI-generated business summaries sent via email")
 
@@ -1693,23 +1708,16 @@ def automated_insights_dashboard():
 
     settings = load_insights_settings()
 
-    tab1, tab2, tab3 = st.tabs([
-        "Generate Insights",
-        "Settings",
-        "History"
-    ])
+    tab1, tab2, tab3 = st.tabs(["Generate Insights", "Settings", "History"])
 
-    # ==============================
-    # TAB 1: GENERATE INSIGHTS
-    # ==============================
+    # ---------------- TAB 1 ----------------
     with tab1:
         st.markdown("## Generate Business Insights")
         st.caption(
-            "Debt is sourced from Floating Financials. Income is sourced from its own "
-            "recorded table/CSV. Net Profit = Income − Expenses for the selected period."
+            "Net Profit = Gross Profit + Income − Expenses, all scoped to the selected period. "
+            "Debt is sourced from Floating Financials."
         )
 
-        # Period selector for Net Profit
         col1, col2, col3 = st.columns([2, 2, 1])
         default_days = int(settings.get("period_days", 30))
         with col1:
@@ -1776,35 +1784,40 @@ def automated_insights_dashboard():
                 with col4:
                     st.metric("Customers", metrics.get('total_customers', 0))
 
-                # Row 2: Income / Expenses / Net Profit / Low Stock
+                # Row 2: Period revenue, COGS, Gross Profit
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Period Revenue", f"${metrics.get('period_revenue', 0):,.2f}")
+                with col2:
+                    st.metric("Period COGS", f"${metrics.get('period_cogs', 0):,.2f}")
+                with col3:
+                    st.metric("Gross Profit (period)", f"${metrics.get('period_gross_profit', 0):,.2f}")
+
+                # Row 3: Income, Expenses, Net Profit, Low stock
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Period Income", f"${metrics.get('period_income', 0):,.2f}")
+                    st.metric("Income (period)", f"${metrics.get('period_income', 0):,.2f}")
                 with col2:
-                    st.metric("Period Expenses", f"${metrics.get('period_expenses', 0):,.2f}")
+                    st.metric("Expenses (period)", f"${metrics.get('period_expenses', 0):,.2f}")
                 with col3:
-                    net_profit = metrics.get('net_profit', 0)
-                    st.metric("Net Profit (period)", f"${net_profit:,.2f}")
+                    st.metric("Net Profit (period)", f"${metrics.get('net_profit', 0):,.2f}")
                 with col4:
                     st.metric("Low Stock", metrics.get('low_stock', 0))
 
-                # Row 3: Revenue + debt metrics
+                # Formula caption
+                if metrics.get("net_profit_formula"):
+                    st.caption(metrics["net_profit_formula"])
+
+                # Row 4: Debt metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Revenue (all-time)", f"${metrics.get('total_revenue', 0):,.2f}")
-                with col2:
                     st.metric("Outstanding Credit", f"${metrics.get('total_credit_balance', 0):,.2f}")
-                with col3:
-                    st.metric("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}")
-                with col4:
-                    st.metric("Uncollected Changes", f"${metrics.get('total_change_balance', 0):,.2f}")
-
-                # Row 4: Overdue
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Overdue Credits", metrics.get('overdue_credit_count', 0))
                 with col2:
-                    st.metric("Overdue Changes", metrics.get('overdue_change_count', 0))
+                    st.metric("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}")
+                with col3:
+                    st.metric("Uncollected Changes", f"${metrics.get('total_change_balance', 0):,.2f}")
+                with col4:
+                    st.metric("Overdue Credits", metrics.get('overdue_credit_count', 0))
 
                 # Income source diagnostics
                 with st.expander(
@@ -1818,6 +1831,13 @@ def automated_insights_dashboard():
                         st.metric("Date Column", str(metrics.get("income_date_col")))
                     with ic3:
                         st.metric("Amount Column", str(metrics.get("income_amount_col")))
+
+                # Gross profit basis
+                with st.expander(
+                    f"📈 Gross profit basis: {metrics.get('gross_profit_basis', 'unknown')}",
+                    expanded=False,
+                ):
+                    st.write(metrics.get("gross_profit_message", ""))
 
             insights = insights_data.get("insights", [])
             if insights:
@@ -1870,9 +1890,7 @@ def automated_insights_dashboard():
                         else:
                             st.error(f"{message}")
 
-    # ==============================
-    # TAB 2: SETTINGS
-    # ==============================
+    # ---------------- TAB 2 ----------------
     with tab2:
         st.markdown("## Insights Settings")
 
@@ -1945,9 +1963,7 @@ def automated_insights_dashboard():
                 else:
                     st.error(f"{message}")
 
-    # ==============================
-    # TAB 3: HISTORY
-    # ==============================
+    # ---------------- TAB 3 ----------------
     with tab3:
         st.markdown("## Insights History")
 
@@ -1958,15 +1974,10 @@ def automated_insights_dashboard():
                 history_df["timestamp"] = pd.to_datetime(history_df["timestamp"])
                 history_df["date"] = history_df["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
 
-                display_cols = ["date", "period", "revenue"]
-                if "income" in history_df.columns:
-                    display_cols.append("income")
-                if "expenses" in history_df.columns:
-                    display_cols.append("expenses")
-                if "net_profit" in history_df.columns:
-                    display_cols.append("net_profit")
-                display_cols.extend(["transactions", "insights_count"])
-                display_cols = [c for c in display_cols if c in history_df.columns]
+                display_cols = ["date", "period"]
+                for c in ["revenue", "gross_profit", "cogs", "income", "expenses", "net_profit", "transactions", "insights_count"]:
+                    if c in history_df.columns:
+                        display_cols.append(c)
 
                 st.dataframe(
                     history_df[display_cols].tail(30),
@@ -1974,6 +1985,8 @@ def automated_insights_dashboard():
                     hide_index=True,
                     column_config={
                         "revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
+                        "gross_profit": st.column_config.NumberColumn("Gross Profit", format="$%.2f"),
+                        "cogs": st.column_config.NumberColumn("COGS", format="$%.2f"),
                         "income": st.column_config.NumberColumn("Income", format="$%.2f"),
                         "expenses": st.column_config.NumberColumn("Expenses", format="$%.2f"),
                         "net_profit": st.column_config.NumberColumn("Net Profit", format="$%.2f"),
@@ -1985,36 +1998,40 @@ def automated_insights_dashboard():
 
                     if "revenue" in history_df.columns:
                         fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"],
-                            y=history_df["revenue"],
-                            mode="lines+markers",
-                            name="Revenue",
+                            x=history_df["timestamp"], y=history_df["revenue"],
+                            mode="lines+markers", name="Revenue",
                             line=dict(color="#6366F1", width=2)
                         ))
-
+                    if "gross_profit" in history_df.columns:
+                        fig.add_trace(go.Scatter(
+                            x=history_df["timestamp"], y=history_df["gross_profit"],
+                            mode="lines+markers", name="Gross Profit",
+                            line=dict(color="#0EA5E9", width=2)
+                        ))
                     if "income" in history_df.columns:
                         fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"],
-                            y=history_df["income"],
-                            mode="lines+markers",
-                            name="Income",
+                            x=history_df["timestamp"], y=history_df["income"],
+                            mode="lines+markers", name="Income",
                             line=dict(color="#10B981", width=2)
                         ))
-
+                    if "expenses" in history_df.columns:
+                        fig.add_trace(go.Scatter(
+                            x=history_df["timestamp"], y=history_df["expenses"],
+                            mode="lines+markers", name="Expenses",
+                            line=dict(color="#EF4444", width=2)
+                        ))
                     if "net_profit" in history_df.columns:
                         fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"],
-                            y=history_df["net_profit"],
-                            mode="lines+markers",
-                            name="Net Profit",
+                            x=history_df["timestamp"], y=history_df["net_profit"],
+                            mode="lines+markers", name="Net Profit",
                             line=dict(color="#F59E0B", width=2)
                         ))
 
                     fig.update_layout(
-                        title="Revenue, Income & Net Profit Trend",
+                        title="Revenue, Gross Profit, Income, Expenses & Net Profit Trend",
                         xaxis_title="Date",
                         yaxis_title="Amount ($)",
-                        height=300
+                        height=320
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
