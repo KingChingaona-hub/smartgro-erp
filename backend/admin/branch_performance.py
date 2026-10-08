@@ -39,6 +39,7 @@ def _find_first_column(df, aliases):
     for alias in aliases:
         if alias in lower_map:
             return lower_map[alias]
+    # Fallback: substring match
     for col_lower, col_orig in lower_map.items():
         for alias in aliases:
             if alias in col_lower:
@@ -46,12 +47,28 @@ def _find_first_column(df, aliases):
     return None
 
 
+def _safe_numeric(series):
+    """
+    Convert a series to numeric, stripping commas, spaces, currency symbols
+    and any alphabetic prefix/suffix that might be attached to the number.
+    """
+    s = series.astype(str)
+    s = s.str.replace(",", "", regex=False)
+    s = s.str.replace("$", "", regex=False)
+    s = s.str.replace("USD", "", regex=False)
+    s = s.str.replace("usd", "", regex=False)
+    s = s.str.replace(" ", "", regex=False)
+    # Keep digits, dot, and minus only
+    s = s.str.replace(r"[^0-9\.\-]", "", regex=True)
+    return pd.to_numeric(s, errors="coerce").fillna(0)
+
+
 def _normalize_expenses_df(df, source_label="", branch_id=None):
     """
     Normalise an expenses DataFrame so it always has:
       - a datetime column named 'date'
       - a numeric column named 'amount'
-    Optionally filters rows to the given branch_id if a branch column exists.
+    Optionally filter rows to the given branch_id if a branch column exists.
     Returns (normalized_df, source_label, diagnostics_dict)
     """
     diagnostics = {
@@ -61,6 +78,10 @@ def _normalize_expenses_df(df, source_label="", branch_id=None):
         "date_col": None,
         "amount_col": None,
         "branch_col": None,
+        "amount_sum_before_filter": 0.0,
+        "amount_sum_after_filter": 0.0,
+        "nonzero_amounts": 0,
+        "sample_amount_values": [],
         "error": None,
     }
 
@@ -68,6 +89,7 @@ def _normalize_expenses_df(df, source_label="", branch_id=None):
         return pd.DataFrame(), source_label, diagnostics
 
     df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
 
     date_col = _find_first_column(df, _EXPENSE_DATE_ALIASES)
     amount_col = _find_first_column(df, _EXPENSE_AMOUNT_ALIASES)
@@ -76,6 +98,19 @@ def _normalize_expenses_df(df, source_label="", branch_id=None):
     diagnostics["date_col"] = date_col
     diagnostics["amount_col"] = amount_col
     diagnostics["branch_col"] = branch_col
+
+    # If no amount column could be found, try a numeric scan to identify one.
+    if amount_col is None:
+        # Look for the first column whose values are numeric for a majority of rows
+        for c in df.columns:
+            try:
+                coerced = pd.to_numeric(df[c], errors="coerce")
+                if coerced.notna().mean() >= 0.5:
+                    amount_col = c
+                    diagnostics["amount_col"] = c
+                    break
+            except Exception:
+                continue
 
     if date_col is None and amount_col is None:
         diagnostics["error"] = "No recognizable date or amount column."
@@ -89,18 +124,24 @@ def _normalize_expenses_df(df, source_label="", branch_id=None):
     else:
         df["date"] = pd.NaT
 
-    # Coerce amount
+    # Coerce amount — robust
     if amount_col is not None:
-        df["amount"] = (
-            df[amount_col]
-            .astype(str)
-            .str.replace(",", "", regex=False)
-            .str.replace("$", "", regex=False)
-            .str.replace(" ", "", regex=False)
-        )
-        df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+        df["amount"] = _safe_numeric(df[amount_col])
+        diagnostics["amount_sum_before_filter"] = float(df["amount"].sum())
+        diagnostics["nonzero_amounts"] = int((df["amount"] != 0).sum())
+        # Capture a few sample values for troubleshooting
+        try:
+            diagnostics["sample_amount_values"] = (
+                df[amount_col].astype(str).head(5).tolist()
+            )
+        except Exception:
+            diagnostics["sample_amount_values"] = []
     else:
         df["amount"] = 0
+        diagnostics["error"] = (
+            "No amount column detected. None of the aliases matched and "
+            "no numeric column found."
+        )
 
     # Optional branch filter
     if branch_id is not None and branch_col is not None:
@@ -112,6 +153,10 @@ def _normalize_expenses_df(df, source_label="", branch_id=None):
             pass
 
     diagnostics["rows_branch"] = len(df)
+    diagnostics["amount_sum_after_filter"] = (
+        float(df["amount"].sum()) if "amount" in df.columns and not df.empty else 0.0
+    )
+
     return df, source_label, diagnostics
 
 
@@ -119,7 +164,6 @@ def _normalize_expenses_df(df, source_label="", branch_id=None):
 # MULTI-SOURCE EXPENSE LOADER
 # ==============================
 def _try_db_expenses_with_branch(branch_id):
-    """Try load_expenses(branch_id) from db_adapter."""
     try:
         df = load_expenses(branch_id)
         if df is not None and not df.empty:
@@ -130,7 +174,6 @@ def _try_db_expenses_with_branch(branch_id):
 
 
 def _try_db_expenses_global():
-    """Try load_expenses() without a branch filter — we'll filter rows later."""
     try:
         df = load_expenses()
         if df is not None and not df.empty:
@@ -152,24 +195,17 @@ def _try_csv(path: Path, label_prefix="csv"):
 
 
 def _candidate_expense_paths(branch_id):
-    """Build a list of likely CSV paths for this branch's expenses."""
     candidates = []
-
-    # 1) Whatever branch_data_manager gives us
     try:
         candidates.append(get_branch_data_path(branch_id, "expenses.csv"))
     except Exception:
         pass
-
-    # 2) Common layouts
     candidates.extend([
         Path("data") / str(branch_id) / "expenses.csv",
         Path("data") / "branches" / str(branch_id) / "expenses.csv",
         Path("data") / "branch_data" / str(branch_id) / "expenses.csv",
         Path("exports") / str(branch_id) / "expenses.csv",
     ])
-
-    # 3) Glob for any expenses*.csv inside branch folders
     for base in [
         Path("data"),
         Path("data") / "branches",
@@ -184,12 +220,10 @@ def _candidate_expense_paths(branch_id):
                     candidates.append(p)
         except Exception:
             continue
-
     return candidates
 
 
 def _global_expense_paths():
-    """Global expense CSVs that may contain a branch_id column."""
     return [
         Path("data") / "expenses.csv",
         Path("expenses.csv"),
@@ -202,12 +236,18 @@ def load_branch_expenses_auto(branch_id):
     """
     Try every plausible source for this branch's expenses.
     Returns (normalized_df, source_label, diagnostics_dict).
+
+    A source that returns rows but $0 amount is treated as insufficient
+    and the loader continues to the next source.
     """
+    attempts = []  # for diagnostics: list of (label, diag)
+
     # 1) Branch-scoped DB
     df, src = _try_db_expenses_with_branch(branch_id)
     if df is not None:
         norm, label, diag = _normalize_expenses_df(df, src, branch_id=branch_id)
-        if not norm.empty:
+        attempts.append((label, diag))
+        if not norm.empty and diag.get("amount_sum_after_filter", 0) != 0:
             return norm, label, diag
 
     # 2) Branch-scoped CSV candidates
@@ -215,61 +255,68 @@ def load_branch_expenses_auto(branch_id):
         df, src = _try_csv(path, "csv (branch)")
         if df is not None:
             norm, label, diag = _normalize_expenses_df(df, src, branch_id=branch_id)
-            if not norm.empty:
+            attempts.append((label, diag))
+            if not norm.empty and diag.get("amount_sum_after_filter", 0) != 0:
                 return norm, label, diag
 
-    # 3) Global DB (filter rows by branch col if present)
+    # 3) Global DB
     df, src = _try_db_expenses_global()
     if df is not None:
         norm, label, diag = _normalize_expenses_df(df, src, branch_id=branch_id)
-        if not norm.empty:
+        attempts.append((label, diag))
+        if not norm.empty and diag.get("amount_sum_after_filter", 0) != 0:
             return norm, label, diag
 
-    # 4) Global CSVs (filter rows by branch col if present)
+    # 4) Global CSVs
     for path in _global_expense_paths():
         df, src = _try_csv(path, "csv (global)")
         if df is not None:
             norm, label, diag = _normalize_expenses_df(df, src, branch_id=branch_id)
-            if not norm.empty:
+            attempts.append((label, diag))
+            if not norm.empty and diag.get("amount_sum_after_filter", 0) != 0:
                 return norm, label, diag
 
-    # Nothing found — return empty with a diagnostic
-    return pd.DataFrame(), "not found", {
+    # If we got here, either nothing returned rows, or everything returned
+    # rows but the amount column summed to 0. Return the best attempt with
+    # full diagnostics so the UI can tell us what happened.
+    if attempts:
+        # Prefer the attempt with the most rows
+        best = max(attempts, key=lambda x: x[1].get("rows_total", 0))
+        return (
+            pd.DataFrame(columns=["date", "amount"]),
+            best[0],
+            best[1],
+        )
+
+    return pd.DataFrame(columns=["date", "amount"]), "not found", {
         "source": "not found",
         "rows_total": 0,
         "rows_branch": 0,
         "date_col": None,
         "amount_col": None,
         "branch_col": None,
+        "amount_sum_before_filter": 0.0,
+        "amount_sum_after_filter": 0.0,
+        "nonzero_amounts": 0,
+        "sample_amount_values": [],
         "error": "No expense source returned data for this branch.",
     }
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _cached_load_branch_expenses(branch_id: str, _refresh_token: int = 0):
-    """
-    Cached wrapper around the auto loader. We pass a refresh token so calling
-    with a higher value busts the cache.
-    """
     return load_branch_expenses_auto(branch_id)
 
 
 def load_branch_expenses(branch_id):
-    """
-    Branch-scoped expense loader used by the rest of the page.
-    Reads from the cached auto loader. Refresh button in the dashboard clears
-    the cache and re-runs.
-    """
     try:
         df, _src, _diag = _cached_load_branch_expenses(str(branch_id))
     except Exception:
         df, _src, _diag = load_branch_expenses_auto(branch_id)
-
     return df if df is not None else pd.DataFrame()
 
 
 def get_branch_expense_diagnostics(branch_id):
-    """Return (source, diagnostics) for the last load attempt for this branch."""
     try:
         _df, src, diag = _cached_load_branch_expenses(str(branch_id))
         return src, diag
@@ -279,10 +326,9 @@ def get_branch_expense_diagnostics(branch_id):
 
 
 # ==============================
-# LOAD BRANCH DATA (unchanged except expenses)
+# LOAD BRANCH DATA
 # ==============================
 def load_branch_sales(branch_id):
-    """Load sales data for a specific branch"""
     try:
         sales_df = load_sales(branch_id)
         if not sales_df.empty:
@@ -316,7 +362,6 @@ def load_branch_sales(branch_id):
 
 
 def load_branch_customers(branch_id):
-    """Load customers data for a specific branch"""
     try:
         customers_df = load_customers(branch_id)
         if not customers_df.empty:
@@ -339,12 +384,9 @@ def load_branch_customers(branch_id):
 # BRANCH PERFORMANCE SUMMARY
 # ==============================
 def get_branch_summary(branch_id, period="daily", date=None):
-    """Get branch performance summary for a specific period"""
 
     sales_df = load_branch_sales(branch_id)
     customers_df = load_branch_customers(branch_id)
-
-    # NEW: multi-source expense loader (auto-discovery)
     expenses_df = load_branch_expenses(branch_id)
 
     if sales_df.empty:
@@ -397,12 +439,11 @@ def get_branch_summary(branch_id, period="daily", date=None):
             end_date = end_date.replace(day=1) - timedelta(days=1)
         end_date = end_date.replace(hour=23, minute=59, second=59)
         period_name = f"Q{quarter} {date.year}"
-    else:  # yearly
+    else:
         start_date = date.replace(month=1, day=1, hour=0, minute=0, second=0)
         end_date = date.replace(month=12, day=31, hour=23, minute=59, second=59)
         period_name = str(date.year)
 
-    # Filter sales by date range
     if "date" in sales_df.columns:
         filtered_sales = sales_df[(sales_df["date"] >= start_date) & (sales_df["date"] <= end_date)]
     else:
@@ -413,7 +454,6 @@ def get_branch_summary(branch_id, period="daily", date=None):
     total_transactions = len(filtered_sales)
     total_items = to_float(filtered_sales["items"].sum()) if "items" in filtered_sales.columns else 0
 
-    # Filter expenses by date range
     if not expenses_df.empty and "date" in expenses_df.columns:
         expenses_df = expenses_df.copy()
         expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
@@ -423,9 +463,7 @@ def get_branch_summary(branch_id, period="daily", date=None):
         total_expenses = 0
 
     net_profit = total_profit - total_expenses
-
     total_customers = len(customers_df) if not customers_df.empty else 0
-
     avg_transaction = total_sales / total_transactions if total_transactions > 0 else 0
     profit_margin = (total_profit / total_sales * 100) if total_sales > 0 else 0
 
@@ -448,8 +486,6 @@ def get_branch_summary(branch_id, period="daily", date=None):
 
 
 def get_all_branches_summary(period="monthly", selected_date=None):
-    """Get performance summary for all branches"""
-
     branches_df = load_branches()
     summaries = []
 
@@ -472,7 +508,6 @@ def get_all_branches_summary(period="monthly", selected_date=None):
 # BRANCH PERFORMANCE PAGE
 # ==============================
 def branch_performance_page():
-    """Branch Performance Dashboard"""
 
     st.title("Branch Performance Dashboard")
     st.caption("Compare performance across all branches with detailed analytics")
@@ -543,10 +578,12 @@ def branch_performance_page():
     # ==============================
     # EXPENSE SOURCE DIAGNOSTICS
     # ==============================
-    with st.expander("📂 Expense source diagnostics", expanded=False):
+    with st.expander("📂 Expense source diagnostics", expanded=True):
         st.caption(
             "Shows where expense data was pulled for each branch. "
-            "Click the 🔄 Refresh Expenses button above to force a re-read."
+            "If a source returned rows but $0 in the amount column, "
+            "the diagnosis below tells you exactly which column it used "
+            "and what values it saw."
         )
         diag_rows = []
         for _, b in branches_df.iterrows():
@@ -560,10 +597,25 @@ def branch_performance_page():
                 "Date col": str(diag.get("date_col")),
                 "Amount col": str(diag.get("amount_col")),
                 "Branch col": str(diag.get("branch_col")),
+                "Sum before filter": diag.get("amount_sum_before_filter", 0.0),
+                "Sum after filter": diag.get("amount_sum_after_filter", 0.0),
+                "Non-zero amounts": diag.get("nonzero_amounts", 0),
                 "Error": diag.get("error") or "",
             })
         if diag_rows:
             st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
+
+        # Show raw samples of the amount column for the first branch
+        if not branches_df.empty:
+            first_bid = branches_df.iloc[0]["branch_id"]
+            _df, _src, first_diag = _cached_load_branch_expenses(str(first_bid))
+            sample_vals = first_diag.get("sample_amount_values", [])
+            if sample_vals:
+                st.markdown(
+                    f"**Sample amount values from `{first_bid}` source "
+                    f"(`{first_diag.get('amount_col')}` column):**"
+                )
+                st.code("\n".join(f"- {v}" for v in sample_vals))
 
     # ==============================
     # DISPLAY SUMMARY TABLE
@@ -588,11 +640,7 @@ def branch_performance_page():
 
         available_cols = [col for col in display_cols if col in display_df.columns]
 
-        st.dataframe(
-            display_df[available_cols],
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(display_df[available_cols], use_container_width=True, hide_index=True)
 
         st.markdown("---")
         st.markdown("### Overall Totals")
@@ -617,13 +665,9 @@ def branch_performance_page():
 
         with col1:
             fig_sales = px.bar(
-                summary_df,
-                x="branch_name",
-                y="total_sales",
-                title="Sales by Branch",
-                color="total_sales",
-                color_continuous_scale="Greens",
-                text="total_sales"
+                summary_df, x="branch_name", y="total_sales",
+                title="Sales by Branch", color="total_sales",
+                color_continuous_scale="Greens", text="total_sales"
             )
             fig_sales.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
             fig_sales.update_layout(height=400)
@@ -631,53 +675,36 @@ def branch_performance_page():
 
         with col2:
             fig_profit = px.bar(
-                summary_df,
-                x="branch_name",
-                y="total_profit",
-                title="Profit by Branch",
-                color="total_profit",
-                color_continuous_scale="Blues",
-                text="total_profit"
+                summary_df, x="branch_name", y="total_profit",
+                title="Profit by Branch", color="total_profit",
+                color_continuous_scale="Blues", text="total_profit"
             )
             fig_profit.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
             fig_profit.update_layout(height=400)
             st.plotly_chart(fig_profit, use_container_width=True)
 
-        # Expenses by branch (new)
         fig_expenses = px.bar(
-            summary_df,
-            x="branch_name",
-            y="total_expenses",
-            title="Expenses by Branch",
-            color="total_expenses",
-            color_continuous_scale="Oranges",
-            text="total_expenses"
+            summary_df, x="branch_name", y="total_expenses",
+            title="Expenses by Branch", color="total_expenses",
+            color_continuous_scale="Oranges", text="total_expenses"
         )
         fig_expenses.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
         fig_expenses.update_layout(height=400)
         st.plotly_chart(fig_expenses, use_container_width=True)
 
         fig_margin = px.bar(
-            summary_df,
-            x="branch_name",
-            y="profit_margin",
-            title="Profit Margin by Branch (%)",
-            color="profit_margin",
-            color_continuous_scale="Reds",
-            text="profit_margin"
+            summary_df, x="branch_name", y="profit_margin",
+            title="Profit Margin by Branch (%)", color="profit_margin",
+            color_continuous_scale="Reds", text="profit_margin"
         )
         fig_margin.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
         fig_margin.update_layout(height=400)
         st.plotly_chart(fig_margin, use_container_width=True)
 
         fig_trans = px.bar(
-            summary_df,
-            x="branch_name",
-            y="total_transactions",
-            title="Number of Transactions by Branch",
-            color="total_transactions",
-            color_continuous_scale="Purples",
-            text="total_transactions"
+            summary_df, x="branch_name", y="total_transactions",
+            title="Number of Transactions by Branch", color="total_transactions",
+            color_continuous_scale="Purples", text="total_transactions"
         )
         fig_trans.update_traces(texttemplate="%{text}", textposition="outside")
         fig_trans.update_layout(height=400)
@@ -702,7 +729,6 @@ def branch_performance_page():
             detail_data = get_branch_summary(branch_id, period, selected_datetime)
             daily_df = detail_data["daily_data"]
 
-            # Show expenses metric for this branch in the header
             st.markdown(f"### {selected_branch} — Expenses: ${detail_data['total_expenses']:,.2f}")
 
             src, diag = get_branch_expense_diagnostics(branch_id)
@@ -711,7 +737,9 @@ def branch_performance_page():
                 f"rows loaded: {diag.get('rows_total', 0)} · "
                 f"rows for this branch: {diag.get('rows_branch', 0)} · "
                 f"date col: {diag.get('date_col')} · "
-                f"amount col: {diag.get('amount_col')}"
+                f"amount col: {diag.get('amount_col')} · "
+                f"sum before filter: {diag.get('amount_sum_before_filter', 0.0):,.2f} · "
+                f"sum after filter: {diag.get('amount_sum_after_filter', 0.0):,.2f}"
             )
 
             if not daily_df.empty:
@@ -722,12 +750,9 @@ def branch_performance_page():
                     daily_trend.columns = ["Date", "Sales"]
 
                     fig_trend = px.line(
-                        daily_trend,
-                        x="Date",
-                        y="Sales",
+                        daily_trend, x="Date", y="Sales",
                         title=f"Sales Trend - {selected_branch}",
-                        markers=True,
-                        line_shape="spline"
+                        markers=True, line_shape="spline"
                     )
                     fig_trend.update_layout(height=400)
                     st.plotly_chart(fig_trend, use_container_width=True)
@@ -738,13 +763,9 @@ def branch_performance_page():
                     top_products = daily_df.groupby("name")["items"].sum().nlargest(10).reset_index()
                     if not top_products.empty:
                         fig_products = px.bar(
-                            top_products,
-                            x="items",
-                            y="name",
-                            orientation="h",
-                            title="Top Selling Products",
-                            color="items",
-                            color_continuous_scale="Orange",
+                            top_products, x="items", y="name",
+                            orientation="h", title="Top Selling Products",
+                            color="items", color_continuous_scale="Orange",
                             text="items"
                         )
                         fig_products.update_layout(height=400)
@@ -760,11 +781,8 @@ def branch_performance_page():
                     payment_dist.columns = ["Method", "Count"]
 
                     fig_payment = px.pie(
-                        payment_dist,
-                        values="Count",
-                        names="Method",
-                        title="Payment Distribution",
-                        hole=0.3
+                        payment_dist, values="Count", names="Method",
+                        title="Payment Distribution", hole=0.3
                     )
                     st.plotly_chart(fig_payment, use_container_width=True)
             else:
@@ -789,8 +807,6 @@ def branch_performance_page():
 
     with col2:
         if st.button("Generate Detailed Report", use_container_width=True):
-            period_display = summary_df.iloc[0]["period"] if not summary_df.empty and "period" in summary_df.columns else selected_datetime.strftime("%Y-%m-%d")
-
             report_text = f"""
             {'='*60}
             AZIEL INVESTMENTS - BRANCH PERFORMANCE REPORT
@@ -803,9 +819,7 @@ def branch_performance_page():
             {'-'*40}
             SUMMARY
             {'-'*40}
-
             """
-
             for _, row in summary_df.iterrows():
                 report_text += f"""
             Branch: {row['branch_name']} ({row.get('location', 'N/A')})
@@ -815,9 +829,7 @@ def branch_performance_page():
             - Net Profit: ${row['net_profit']:,.2f}
             - Transactions: {int(row['total_transactions'])}
             - Profit Margin: {row['profit_margin']:.1f}%
-
             """
-
             report_text += f"""
             {'='*60}
             GRAND TOTALS
@@ -828,7 +840,6 @@ def branch_performance_page():
             Total Net Profit: ${summary_df['net_profit'].sum():,.2f}
             {'='*60}
             """
-
             st.download_button(
                 label="Download Report (TXT)",
                 data=report_text,
