@@ -9,6 +9,7 @@ Branch-aware: every loader and saver is scoped to the session branch.
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+
 from backend.core.db_adapter import (
     load_products,
     load_purchases,
@@ -20,13 +21,52 @@ from backend.core.db_adapter import (
 
 
 # ==============================
+# CANONICAL STATUS VOCABULARY
+# ==============================
+STATUS_PENDING = "PENDING"
+STATUS_PARTIAL = "PARTIALLY_RECEIVED"
+STATUS_COMPLETED = "COMPLETED"
+
+RECEIVABLE_STATUSES = (STATUS_PENDING, STATUS_PARTIAL)
+
+_LEGACY_STATUS_MAP = {
+    "RECEIVED": STATUS_COMPLETED,
+    "CONFIRMED": STATUS_PENDING,
+}
+
+
+def _normalize_status(value):
+    """Map a stored status to a canonical value. Unknown → PENDING."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return STATUS_PENDING
+    s = str(value).strip().upper()
+    if s in _LEGACY_STATUS_MAP:
+        return _LEGACY_STATUS_MAP[s]
+    if s in (STATUS_PENDING, STATUS_PARTIAL, STATUS_COMPLETED):
+        return s
+    if not s:
+        return STATUS_PENDING
+    return STATUS_PENDING
+
+
+def _migrate_statuses(df):
+    """In-memory normalization of the status column."""
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    if "status" not in df.columns:
+        df["status"] = STATUS_PENDING
+    df["status"] = df["status"].apply(_normalize_status)
+    return df
+
+
+# ==============================
 # SESSION BRANCH HELPERS
 # ==============================
 def _get_session_branch():
     """
     Return the authoritative branch for the current session.
-    Prefers `current_branch_code` (set by the branch-selection screen)
-    over `user_branch` (which may be a stale default).
+    Prefers `current_branch_code` over `user_branch`.
     """
     return (
         st.session_state.get("current_branch_code")
@@ -71,7 +111,7 @@ def supports_decimal(product_name, category=""):
     decimal_keywords = [
         "gas", "kg", "bread", "loaf", "flour", "sugar",
         "rice", "maize meal", "cooking oil", "milk",
-        "liquid", "weight", "kg",
+        "liquid", "weight", "kg"
     ]
 
     for keyword in decimal_keywords:
@@ -108,22 +148,20 @@ def get_supplier_suggestions(branch_id: str):
 # ==============================
 def get_all_pending_pos(branch_id=None):
     """
-    Return a list of dicts summarising every PO whose status is PENDING
-    for the given branch.
+    Return a list of dicts summarising every PO currently PENDING or
+    PARTIALLY_RECEIVED in this branch. Each dict contains: po_number,
+    supplier, item_count, total_value, expected_date.
     """
     if branch_id is None:
         branch_id = _get_session_branch()
 
     try:
-        purchases_df = load_purchases(branch_id=branch_id)
+        purchases_df = _migrate_statuses(load_purchases(branch_id=branch_id))
         if purchases_df.empty:
             return []
-        if "status" not in purchases_df.columns:
-            return []
 
-        pending_df = purchases_df[
-            purchases_df["status"].astype(str).str.upper() == "PENDING"
-        ].copy()
+        pending_mask = purchases_df["status"].isin(RECEIVABLE_STATUSES)
+        pending_df = purchases_df[pending_mask].copy()
         if pending_df.empty:
             return []
 
@@ -150,6 +188,7 @@ def get_all_pending_pos(branch_id=None):
                 "item_count": len(group),
                 "total_value": total_value,
                 "expected_date": expected_date,
+                "status": str(group["status"].iloc[0]),
             })
 
         results.sort(key=lambda x: x.get("po_number", ""))
@@ -165,10 +204,25 @@ def get_all_pending_pos(branch_id=None):
 # ==============================
 def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branch_id=None):
     """
-    For every PO currently PENDING in this branch:
+    For every PO currently PENDING or PARTIALLY_RECEIVED:
       - Receive all remaining quantities
-      - Auto-update product stock
-      - Mark each PO's rows COMPLETED (or PARTIALLY_RECEIVED)
+      - Auto-update product stock (create new products for unknown barcodes)
+      - Mark each PO's rows as COMPLETED (or PARTIALLY_RECEIVED if any item
+        cannot be fully received)
+
+    Per-row writes update quantity_received / date_received / invoice_no.
+    Per-PO status is written exactly once at the end of the group.
+
+    Returns (success, message, summary_dict)
+    summary_dict:
+      {
+        "pos_completed": int,
+        "pos_partial": int,
+        "items_received": int,
+        "products_updated": int,
+        "products_created": int,
+        "total_received_value": float,
+      }
     """
     if branch_id is None:
         branch_id = _get_session_branch()
@@ -188,22 +242,23 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
     invoice_no = str(invoice_no).strip()
 
     try:
-        purchases_df = load_purchases(branch_id=branch_id)
+        purchases_df = _migrate_statuses(load_purchases(branch_id=branch_id))
         products_df = load_products(branch_id=branch_id)
 
         if purchases_df.empty:
             return True, "No purchase orders to confirm", summary
 
-        if "status" not in purchases_df.columns:
-            purchases_df["status"] = "PENDING"
-        if "quantity_received" not in purchases_df.columns:
-            purchases_df["quantity_received"] = 0
-        if "date_received" not in purchases_df.columns:
-            purchases_df["date_received"] = ""
-        if "invoice_no" not in purchases_df.columns:
-            purchases_df["invoice_no"] = ""
+        # --- Ensure columns exist (same as single receive) ---
+        for col, default in [
+            ("quantity_received", 0),
+            ("date_received", ""),
+            ("invoice_no", ""),
+        ]:
+            if col not in purchases_df.columns:
+                purchases_df[col] = default
 
-        pending_mask = purchases_df["status"].astype(str).str.upper() == "PENDING"
+        # --- Collect every PO that is currently receivable ---
+        pending_mask = purchases_df["status"].isin(RECEIVABLE_STATUSES)
         pending_pos = purchases_df.loc[pending_mask, "po_number"].dropna().unique().tolist()
 
         if not pending_pos:
@@ -211,6 +266,7 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
 
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        # Track products updated / created so we don't double-count
         products_updated_names = set()
         products_created_names = set()
 
@@ -220,6 +276,7 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
             if not po_indices:
                 continue
 
+            # --- Receive every remaining quantity for this PO ---
             for idx in po_indices:
                 row = purchases_df.loc[idx]
 
@@ -234,7 +291,7 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
 
                 remaining = qty_ordered - qty_received
                 if remaining <= 0:
-                    continue
+                    continue  # already received on a prior partial
 
                 try:
                     cost_price = float(row.get("cost_price", 0) or 0)
@@ -247,14 +304,15 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
                 if not category or category.lower() in ("nan", "none"):
                     category = "New Purchase"
 
+                # Per-row writes only — status set below, once per PO
                 purchases_df.loc[idx, "quantity_received"] = qty_ordered
                 purchases_df.loc[idx, "date_received"] = now_str
-                purchases_df.loc[idx, "status"] = "RECEIVED"
                 purchases_df.loc[idx, "invoice_no"] = invoice_no
 
                 summary["items_received"] += 1
                 summary["total_received_value"] += remaining * cost_price
 
+                # --- Update product stock (same as single receive) ---
                 product_idx = products_df[products_df["barcode"] == barcode].index
 
                 if len(product_idx) > 0:
@@ -282,6 +340,7 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
                     products_df = pd.concat([products_df, new_product], ignore_index=True)
                     products_created_names.add(product_name)
 
+            # --- Decide the final status for this PO (written once) ---
             po_rows = purchases_df.loc[po_indices]
             all_full = True
             for _, r in po_rows.iterrows():
@@ -295,15 +354,16 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
                     break
 
             if all_full:
-                purchases_df.loc[po_indices, "status"] = "COMPLETED"
+                purchases_df.loc[po_indices, "status"] = STATUS_COMPLETED
                 summary["pos_completed"] += 1
             else:
-                purchases_df.loc[po_indices, "status"] = "PARTIALLY_RECEIVED"
+                purchases_df.loc[po_indices, "status"] = STATUS_PARTIAL
                 summary["pos_partial"] += 1
 
         summary["products_updated"] = len(products_updated_names)
         summary["products_created"] = len(products_created_names)
 
+        # --- Save (same functions the single-receive flow uses) ---
         try:
             save_products(products_df, branch_id=branch_id)
             save_purchases(purchases_df, branch_id=branch_id)
@@ -311,6 +371,7 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
             print(f"Error saving after bulk receive: {e}")
             return False, f"Failed to save: {str(e)}", summary
 
+        # Clear any cached data so the UI refreshes
         try:
             st.cache_data.clear()
         except Exception:
@@ -345,7 +406,7 @@ def confirm_and_receive_all_pending_pos(invoice_no, confirmed_by="system", branc
 
 
 # ==============================
-# CREATE PURCHASE ORDER (branch-scoped)
+# CREATE PURCHASE ORDER - OPTIMIZED (branch-scoped)
 # ==============================
 def create_purchase_order(supplier, items, expected_date, branch_id=None):
     """Create a purchase order before receiving stock (branch-scoped)"""
@@ -374,9 +435,11 @@ def create_purchase_order(supplier, items, expected_date, branch_id=None):
         if not category or category == "nan" or category == "None" or category == "":
             category = "New Purchase"
 
-        barcode = str(item.get("barcode", ""))
-        if not barcode or barcode == "nan" or barcode == "None" or barcode == "":
-            barcode = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}-{idx}"
+        barcode = str(item.get("barcode", "")).strip()
+        if not barcode or barcode in ("nan", "None", ""):
+            # Numeric-only fallback so validate_barcode can't reject it
+            digits = datetime.now().strftime("%Y%m%d%H%M%S") + f"{idx:02d}"
+            barcode = ("9" + digits)[:13].ljust(13, "0")
 
         po_data.append({
             "branch_id": branch_id,
@@ -391,10 +454,10 @@ def create_purchase_order(supplier, items, expected_date, branch_id=None):
             "expected_date": str(expected_date),
             "date_received": "",
             "quantity_received": 0,
-            "status": "PENDING",
+            "status": STATUS_PENDING,
             "payment_status": "UNPAID",
             "invoice_no": "",
-            "category": category,
+            "category": category
         })
 
     if not po_data:
@@ -509,15 +572,16 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
     if branch_id is None:
         branch_id = _get_session_branch()
 
-    purchases_df = load_purchases(branch_id=branch_id)
+    purchases_df = _migrate_statuses(load_purchases(branch_id=branch_id))
     products_df = load_products(branch_id=branch_id)
 
-    if "status" not in purchases_df.columns:
-        purchases_df["status"] = "PENDING"
-    if "quantity_received" not in purchases_df.columns:
-        purchases_df["quantity_received"] = 0
-    if "date_received" not in purchases_df.columns:
-        purchases_df["date_received"] = ""
+    for col, default in [
+        ("quantity_received", 0),
+        ("date_received", ""),
+        ("invoice_no", ""),
+    ]:
+        if col not in purchases_df.columns:
+            purchases_df[col] = default
 
     updated_products = []
     new_products = []
@@ -568,9 +632,9 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
                     break
 
         if matching_idx is not None:
+            # Per-row writes — status set once at the end for the whole PO
             purchases_df.loc[matching_idx, "quantity_received"] = received_qty
             purchases_df.loc[matching_idx, "date_received"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            purchases_df.loc[matching_idx, "status"] = "RECEIVED"
             purchases_df.loc[matching_idx, "invoice_no"] = invoice_no
 
             product_idx = products_df[products_df["barcode"] == barcode].index
@@ -588,7 +652,7 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
                     "new_stock": new_stock,
                     "cost": float(products_df.loc[product_idx[0], "cost"]) if "cost" in products_df.columns else 0,
                     "price": float(products_df.loc[product_idx[0], "price"]) if "price" in products_df.columns else 0,
-                    "category": products_df.loc[product_idx[0], "category"] if "category" in products_df.columns else "Uncategorized",
+                    "category": products_df.loc[product_idx[0], "category"] if "category" in products_df.columns else "Uncategorized"
                 })
             else:
                 new_product = pd.DataFrame([{
@@ -598,7 +662,7 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
                     "price": cost_price * 1.3,
                     "cost": cost_price,
                     "stock": received_qty,
-                    "reorder_level": 5,
+                    "reorder_level": 5
                 }])
                 products_df = pd.concat([products_df, new_product], ignore_index=True)
 
@@ -607,16 +671,22 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
                     "stock": received_qty,
                     "cost": cost_price,
                     "price": cost_price * 1.3,
-                    "category": category if category and category != "New Purchase" else "New Purchase",
+                    "category": category if category and category != "New Purchase" else "New Purchase"
                 })
         else:
             st.warning(f"Item '{product_name}' not found in purchase order. Adding as new item.")
+
+            supplier_value = (
+                purchases_df[purchases_df["po_number"] == po_number].iloc[0].get("supplier", "Unknown")
+                if not purchases_df[purchases_df["po_number"] == po_number].empty
+                else "Unknown"
+            )
 
             new_row = {
                 "branch_id": branch_id,
                 "po_number": po_number,
                 "date_ordered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "supplier": purchases_df[purchases_df["po_number"] == po_number].iloc[0].get("supplier", "Unknown"),
+                "supplier": supplier_value,
                 "product_name": product_name,
                 "barcode": barcode,
                 "quantity_ordered": received_qty,
@@ -625,10 +695,10 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
                 "expected_date": datetime.now().strftime("%Y-%m-%d"),
                 "date_received": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "quantity_received": received_qty,
-                "status": "RECEIVED",
+                "status": STATUS_PENDING,   # per-PO status set below
                 "payment_status": "UNPAID",
                 "invoice_no": invoice_no,
-                "category": category if category and category != "New Purchase" else "New Purchase",
+                "category": category if category and category != "New Purchase" else "New Purchase"
             }
 
             for col in purchases_df.columns:
@@ -646,7 +716,7 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
                     "price": cost_price * 1.3,
                     "cost": cost_price,
                     "stock": received_qty,
-                    "reorder_level": 5,
+                    "reorder_level": 5
                 }])
                 products_df = pd.concat([products_df, new_product], ignore_index=True)
 
@@ -655,9 +725,10 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
                     "stock": received_qty,
                     "cost": cost_price,
                     "price": cost_price * 1.3,
-                    "category": category if category and category != "New Purchase" else "New Purchase",
+                    "category": category if category and category != "New Purchase" else "New Purchase"
                 })
 
+    # Single authoritative status write for the whole PO
     po_items = purchases_df[purchases_df["po_number"] == po_number]
     all_received = True
     for idx in po_items.index:
@@ -667,14 +738,17 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
             all_received = False
             break
 
-    if all_received:
-        purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "COMPLETED"
-    else:
-        purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = "PARTIALLY_RECEIVED"
+    purchases_df.loc[purchases_df["po_number"] == po_number, "status"] = (
+        STATUS_COMPLETED if all_received else STATUS_PARTIAL
+    )
 
     try:
         save_products(products_df, branch_id=branch_id)
         save_purchases(purchases_df, branch_id=branch_id)
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
         return True, updated_products, new_products
     except Exception as e:
         print(f"Error saving: {e}")
@@ -686,10 +760,11 @@ def receive_purchase_order(po_number, received_items, invoice_no, branch_id=None
 # ==============================
 def get_supplier_performance(branch_id=None):
     """Calculate supplier performance metrics from purchase history (branch-scoped)"""
+
     if branch_id is None:
         branch_id = _get_session_branch()
 
-    purchases_df = load_purchases(branch_id=branch_id)
+    purchases_df = _migrate_statuses(load_purchases(branch_id=branch_id))
 
     if purchases_df.empty:
         return pd.DataFrame()
@@ -704,14 +779,14 @@ def get_supplier_performance(branch_id=None):
         "po_number": "nunique",
         "total_cost": "sum",
         "quantity_ordered": "sum",
-        "quantity_received": "sum",
+        "quantity_received": "sum"
     }).reset_index()
 
     supplier_stats.columns = ["Supplier", "Orders", "Total Spent", "Units Ordered", "Units Received"]
 
     supplier_stats["Fulfillment Rate"] = supplier_stats.apply(
         lambda x: (x["Units Received"] / x["Units Ordered"] * 100) if x["Units Ordered"] > 0 else 0,
-        axis=1,
+        axis=1
     )
     supplier_stats = supplier_stats.sort_values("Total Spent", ascending=False)
 
@@ -726,7 +801,7 @@ def get_po_details(po_number, branch_id=None):
     if branch_id is None:
         branch_id = _get_session_branch()
 
-    purchases_df = load_purchases(branch_id=branch_id)
+    purchases_df = _migrate_statuses(load_purchases(branch_id=branch_id))
     po_items = purchases_df[purchases_df["po_number"] == po_number]
 
     if po_items.empty:
@@ -757,7 +832,7 @@ def get_po_details(po_number, branch_id=None):
         "expected_date": expected_date_str,
         "items": po_items.to_dict('records'),
         "total_value": float(po_items["total_cost"].sum()) if "total_cost" in po_items.columns else 0,
-        "status": po_items.iloc[0].get("status", "PENDING"),
+        "status": po_items.iloc[0].get("status", STATUS_PENDING)
     }
 
 
@@ -794,7 +869,7 @@ def supplier_autocomplete(key_suffix="", branch_id=None):
             index=current_index,
             key=f"supplier_select_{key_suffix}_{branch_id}",
             placeholder="Type to search or select a supplier...",
-            label_visibility="collapsed",
+            label_visibility="collapsed"
         )
 
     with col2:
@@ -811,7 +886,7 @@ def supplier_autocomplete(key_suffix="", branch_id=None):
             value=selected_supplier if selected_supplier and selected_supplier not in supplier_suggestions else "",
             key=f"new_supplier_{key_suffix}_{branch_id}",
             placeholder="Enter new supplier name...",
-            label_visibility="collapsed",
+            label_visibility="collapsed"
         )
 
     with col2:
@@ -832,55 +907,42 @@ def purchases_page():
     branch_id = _get_session_branch()
     branch_label = _branch_display_name(branch_id)
 
-    st.title(f"Purchases and Suppliers Management - {branch_label}")
+    st.title(f"Purchases and Suppliers Management — {branch_label}")
     st.caption("Create purchase orders, receive stock, and auto-update inventory")
 
-    @st.cache_data(ttl=60)
-    def load_products_cached(branch_id: str):
-        return load_products(branch_id=branch_id)
-
-    products_df = load_products_cached(branch_id)
+    # No caching across writes: reads always reflect the DB.
+    products_df = load_products(branch_id=branch_id)
 
     # Initialize session state
-    if "po_cart" not in st.session_state:
-        st.session_state.po_cart = []
-    if "po_created" not in st.session_state:
-        st.session_state.po_created = False
-    if "last_po_number" not in st.session_state:
-        st.session_state.last_po_number = None
-    if "stock_updated" not in st.session_state:
-        st.session_state.stock_updated = False
-    if "last_received_po" not in st.session_state:
-        st.session_state.last_received_po = None
-    if "po_deleted" not in st.session_state:
-        st.session_state.po_deleted = False
-    if "deleted_po_number" not in st.session_state:
-        st.session_state.deleted_po_number = None
-    if "show_preview" not in st.session_state:
-        st.session_state.show_preview = False
-    if "preview_data" not in st.session_state:
-        st.session_state.preview_data = None
-    if "refresh_required" not in st.session_state:
-        st.session_state.refresh_required = False
-    if "confirm_delete_all" not in st.session_state:
-        st.session_state.confirm_delete_all = False
-    if "batch_selected_products" not in st.session_state:
-        st.session_state.batch_selected_products = []
-    if "batch_quantities" not in st.session_state:
-        st.session_state.batch_quantities = {}
-    if "show_batch_add" not in st.session_state:
-        st.session_state.show_batch_add = False
-    if "bulk_confirm_success" not in st.session_state:
-        st.session_state.bulk_confirm_success = None
-    if "bulk_confirm_message" not in st.session_state:
-        st.session_state.bulk_confirm_message = None
-    if "bulk_confirm_summary" not in st.session_state:
-        st.session_state.bulk_confirm_summary = None
+    defaults = {
+        "po_cart": [],
+        "po_created": False,
+        "last_po_number": None,
+        "stock_updated": False,
+        "last_received_po": None,
+        "po_deleted": False,
+        "deleted_po_number": None,
+        "show_preview": False,
+        "preview_data": None,
+        "refresh_required": False,
+        "confirm_delete_all": False,
+        "batch_selected_products": [],
+        "batch_quantities": {},
+        "show_batch_add": False,
+        "bulk_confirm_success": None,
+        "bulk_confirm_message": None,
+        "bulk_confirm_summary": None,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
+    # Handle refresh after deletion
     if st.session_state.refresh_required:
         st.session_state.refresh_required = False
         st.rerun()
 
+    # Display success messages
     if st.session_state.po_created and st.session_state.last_po_number:
         st.success(f"Purchase Order {st.session_state.last_po_number} created successfully!")
         st.balloons()
@@ -920,11 +982,12 @@ def purchases_page():
         st.session_state.bulk_confirm_message = None
         st.session_state.bulk_confirm_summary = None
 
+    # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
         "Create Purchase Order",
         "Receive Stock",
         "Supplier Performance",
-        "Purchase History",
+        "Purchase History"
     ])
 
     # ==============================
@@ -947,7 +1010,7 @@ def purchases_page():
                 "Expected Delivery Date *",
                 min_value=datetime.now().date(),
                 value=datetime.now().date() + timedelta(days=7),
-                key=f"po_expected_date_{branch_id}",
+                key=f"po_expected_date_{branch_id}"
             )
 
         st.markdown("---")
@@ -966,7 +1029,7 @@ def purchases_page():
                 search_batch = st.text_input(
                     "Search Products for Batch",
                     key=f"batch_search_{branch_id}",
-                    placeholder="Type product name or barcode to filter...",
+                    placeholder="Type product name or barcode to filter..."
                 )
 
             with col2:
@@ -1024,7 +1087,7 @@ def purchases_page():
                                 selected = st.checkbox(
                                     f"**{name}**",
                                     key=f"batch_check_{branch_id}_{barcode}",
-                                    value=is_selected,
+                                    value=is_selected
                                 )
 
                                 if selected and barcode not in st.session_state.batch_selected_products:
@@ -1043,7 +1106,7 @@ def purchases_page():
                                         step=0.5,
                                         format="%.2f",
                                         key=f"batch_qty_{branch_id}_{barcode}",
-                                        label_visibility="collapsed",
+                                        label_visibility="collapsed"
                                     )
                                     st.caption("Decimal quantities supported")
                                 else:
@@ -1053,7 +1116,7 @@ def purchases_page():
                                         value=int(st.session_state.batch_quantities.get(barcode, 1)),
                                         step=1,
                                         key=f"batch_qty_{branch_id}_{barcode}",
-                                        label_visibility="collapsed",
+                                        label_visibility="collapsed"
                                     )
 
                                 st.session_state.batch_quantities[barcode] = qty
@@ -1086,7 +1149,7 @@ def purchases_page():
                                             "quantity": float(qty),
                                             "cost": cost_val,
                                             "total": float(qty) * cost_val,
-                                            "category": str(p.get("category", "New Purchase")),
+                                            "category": str(p.get("category", "New Purchase"))
                                         })
 
                                 if selected_products:
@@ -1098,8 +1161,8 @@ def purchases_page():
                                         column_config={
                                             "quantity": st.column_config.NumberColumn("Qty", format="%.2f"),
                                             "cost": st.column_config.NumberColumn("Unit Cost", format="$%.2f"),
-                                            "total": st.column_config.NumberColumn("Total", format="$%.2f"),
-                                        },
+                                            "total": st.column_config.NumberColumn("Total", format="$%.2f")
+                                        }
                                     )
                                     st.info(f"Total: ${preview_df['total'].sum():,.2f}")
 
@@ -1141,7 +1204,7 @@ def purchases_page():
                                                     "quantity": float(qty),
                                                     "cost": cost_val,
                                                     "total": cost_val * float(qty),
-                                                    "category": category_val,
+                                                    "category": category_val
                                                 })
                                             added_count += 1
 
@@ -1166,10 +1229,13 @@ def purchases_page():
             st.markdown("#### Add Single Product")
 
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            selected_product = None
 
             with col1:
-                search = st.text_input("Search Product", key=f"po_search_{branch_id}",
-                                      placeholder="Type product name or barcode")
+                search = st.text_input(
+                    "Search Product", key=f"po_search_{branch_id}",
+                    placeholder="Type product name or barcode"
+                )
 
                 filtered_products = products_df.copy()
                 if search:
@@ -1210,7 +1276,7 @@ def purchases_page():
                             value=1.0,
                             step=0.5,
                             format="%.2f",
-                            key=f"po_qty_{branch_id}",
+                            key=f"po_qty_{branch_id}"
                         )
                         st.caption("Decimal quantities supported (e.g., 0.5, 1.5)")
                     else:
@@ -1219,7 +1285,7 @@ def purchases_page():
                             min_value=1,
                             value=1,
                             step=1,
-                            key=f"po_qty_{branch_id}",
+                            key=f"po_qty_{branch_id}"
                         )
 
                     st.caption(f"Current stock: {selected_product['stock']:.2f}")
@@ -1263,7 +1329,7 @@ def purchases_page():
                                     "quantity": quantity_val,
                                     "cost": cost_val,
                                     "total": cost_val * quantity_val,
-                                    "category": category_val,
+                                    "category": category_val
                                 })
 
                             if isinstance(po_qty, float) and po_qty % 1 != 0:
@@ -1312,7 +1378,7 @@ def purchases_page():
                         value=1.0,
                         step=0.5,
                         format="%.2f",
-                        key=f"manual_item_qty_{branch_id}",
+                        key=f"manual_item_qty_{branch_id}"
                     )
                     st.caption("Decimal quantities supported")
                 else:
@@ -1321,7 +1387,7 @@ def purchases_page():
                         min_value=1,
                         value=1,
                         step=1,
-                        key=f"manual_item_qty_{branch_id}",
+                        key=f"manual_item_qty_{branch_id}"
                     )
 
             with col6:
@@ -1376,7 +1442,7 @@ def purchases_page():
                                 "cost": cost_val,
                                 "price": price_val,
                                 "total": cost_val * qty_val,
-                                "category": category,
+                                "category": category
                             })
 
                             if isinstance(manual_item_qty, float) and manual_item_qty % 1 != 0:
@@ -1412,8 +1478,8 @@ def purchases_page():
                     "quantity": st.column_config.NumberColumn("Quantity", format="%.2f"),
                     "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
                     "price": st.column_config.NumberColumn("Selling Price ($)", format="$%.2f"),
-                    "total": st.column_config.NumberColumn("Total ($)", format="$%.2f"),
-                },
+                    "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
+                }
             )
 
             po_total = po_cart_df["total"].sum()
@@ -1423,7 +1489,7 @@ def purchases_page():
             item_to_remove = st.selectbox(
                 "Select item to remove",
                 [item["name"] for item in st.session_state.po_cart],
-                key=f"remove_item_select_{branch_id}",
+                key=f"remove_item_select_{branch_id}"
             )
 
             if st.button("Remove Selected Item", key=f"remove_item_btn_{branch_id}", use_container_width=True):
@@ -1455,7 +1521,7 @@ def purchases_page():
                             "items": cart_items,
                             "expected_date": expected_date,
                             "po_cart_df": po_cart_df,
-                            "po_total": po_cart_df["total"].sum(),
+                            "po_total": po_cart_df["total"].sum()
                         }
                         st.session_state.show_preview = True
 
@@ -1479,8 +1545,8 @@ def purchases_page():
                     "quantity": st.column_config.NumberColumn("Quantity", format="%.2f"),
                     "cost": st.column_config.NumberColumn("Unit Cost ($)", format="$%.2f"),
                     "price": st.column_config.NumberColumn("Selling Price ($)", format="$%.2f"),
-                    "total": st.column_config.NumberColumn("Total ($)", format="$%.2f"),
-                },
+                    "total": st.column_config.NumberColumn("Total ($)", format="$%.2f")
+                }
             )
 
             st.info(f"**Total Order Value: ${preview['po_total']:,.2f}**")
@@ -1498,7 +1564,7 @@ def purchases_page():
                         supplier=preview['supplier'],
                         items=preview['items'],
                         expected_date=preview['expected_date'],
-                        branch_id=branch_id,
+                        branch_id=branch_id
                     )
 
                     if error:
@@ -1565,8 +1631,14 @@ Contact: +263 78 290 5853
                                 data=po_text,
                                 file_name=f"{po_number}.txt",
                                 mime="text/plain",
-                                use_container_width=True,
+                                use_container_width=True
                             )
+
+                            try:
+                                st.cache_data.clear()
+                            except Exception:
+                                pass
+                            st.rerun()
                         else:
                             st.error("Failed to save purchase order.")
 
@@ -1592,7 +1664,7 @@ Contact: +263 78 290 5853
                             supplier=supplier_name,
                             items=cart_items,
                             expected_date=expected_date,
-                            branch_id=branch_id,
+                            branch_id=branch_id
                         )
 
                         if error:
@@ -1621,13 +1693,19 @@ Contact: +263 78 290 5853
                                 - Total Value: ${po_total:,.2f}
                                 - Expected Date: {expected_date}
                                 """)
+
+                                try:
+                                    st.cache_data.clear()
+                                except Exception:
+                                    pass
+                                st.rerun()
                             else:
                                 st.error("Failed to save purchase order.")
         elif st.session_state.show_preview:
             st.info("Review the preview above and click 'Confirm and Create PO' to save.")
 
     # ==============================
-    # TAB 2: RECEIVE STOCK
+    # TAB 2: RECEIVE STOCK - SAME FLOW FOR BULK AND SINGLE
     # ==============================
     with tab2:
         st.markdown(f"## Receive Stock - Auto Update Inventory — {branch_label}")
@@ -1646,7 +1724,7 @@ Contact: +263 78 290 5853
         pending_pos_for_confirm = get_all_pending_pos(branch_id=branch_id)
 
         if not pending_pos_for_confirm:
-            st.info(f"No pending purchase orders to confirm in {branch_label}.")
+            st.info("No pending purchase orders to confirm.")
         else:
             preview_rows = []
             for po in pending_pos_for_confirm:
@@ -1722,22 +1800,14 @@ Contact: +263 78 290 5853
         # END BULK
         # ============================================================
 
-        @st.cache_data(ttl=60)
-        def load_purchases_cached(branch_id: str):
-            return load_purchases(branch_id=branch_id)
-
-        purchases_df = load_purchases_cached(branch_id)
+        # NOTE: no cache here — reads always reflect the DB
+        purchases_df = _migrate_statuses(load_purchases(branch_id=branch_id))
 
         if purchases_df.empty:
             st.info("No purchase orders found. Create a PO first in the Create Purchase Order tab.")
         else:
-            if "status" not in purchases_df.columns:
-                purchases_df["status"] = "PENDING"
-
             receivable_pos = purchases_df[
-                purchases_df["status"].astype(str).str.upper().isin(
-                    ["PENDING", "CONFIRMED", "PARTIALLY_RECEIVED"]
-                )
+                purchases_df["status"].isin(RECEIVABLE_STATUSES)
             ]["po_number"].unique().tolist()
 
             if not receivable_pos:
@@ -1748,7 +1818,7 @@ Contact: +263 78 290 5853
                 selected_po = st.selectbox(
                     "Select Purchase Order to Receive",
                     receivable_pos,
-                    key=f"receive_po_{branch_id}",
+                    key=f"receive_po_{branch_id}"
                 )
 
                 if selected_po:
@@ -1770,7 +1840,7 @@ Contact: +263 78 290 5853
                             items_df["received_status"] = items_df.apply(
                                 lambda row: "Received" if float(row["quantity_received"]) >= float(row["quantity_ordered"])
                                 else f"{row['quantity_received']}/{row['quantity_ordered']} received",
-                                axis=1,
+                                axis=1
                             )
                             display_cols = ["product_name", "quantity_ordered", "received_status", "cost_price", "total_cost"]
 
@@ -1782,32 +1852,24 @@ Contact: +263 78 290 5853
                                 "quantity_ordered": st.column_config.NumberColumn("Ordered", format="%.2f"),
                                 "quantity_received": st.column_config.NumberColumn("Received", format="%.2f"),
                                 "cost_price": st.column_config.NumberColumn("Cost", format="$%.2f"),
-                                "total_cost": st.column_config.NumberColumn("Total", format="$%.2f"),
-                            },
+                                "total_cost": st.column_config.NumberColumn("Total", format="$%.2f")
+                            }
                         )
 
                         po_total = po_details['total_value']
                         st.info(f"PO Total: ${po_total:,.2f}")
 
                         # ---------------- DELETE OPTIONS ----------------
-                        if status_label in ["PENDING", "CONFIRMED", "PARTIALLY_RECEIVED"]:
+                        if status_label in ["PENDING", "PARTIALLY_RECEIVED"]:
                             st.markdown("---")
                             st.markdown("### Delete Purchase Order")
                             st.warning(f"This will permanently delete this purchase order ({selected_po}) and all its items.")
 
                             col1, col2, col3 = st.columns([2, 1, 1])
                             with col1:
-                                confirm_delete = st.checkbox(
-                                    f"Confirm delete PO {selected_po}",
-                                    key=f"confirm_delete_{branch_id}_{selected_po}",
-                                )
+                                confirm_delete = st.checkbox(f"Confirm delete PO {selected_po}", key=f"confirm_delete_{branch_id}_{selected_po}")
                             with col2:
-                                delete_button = st.button(
-                                    "Delete This PO",
-                                    type="secondary",
-                                    use_container_width=True,
-                                    key=f"delete_po_{branch_id}_{selected_po}",
-                                )
+                                delete_button = st.button("Delete This PO", type="secondary", use_container_width=True, key=f"delete_po_{branch_id}_{selected_po}")
                                 if delete_button and confirm_delete:
                                     success, message = delete_purchase_order(selected_po, branch_id=branch_id)
                                     if success:
@@ -1815,6 +1877,10 @@ Contact: +263 78 290 5853
                                         st.session_state.deleted_po_number = selected_po
                                         st.session_state.refresh_required = True
                                         st.success(message)
+                                        try:
+                                            st.cache_data.clear()
+                                        except Exception:
+                                            pass
                                         st.rerun()
                                     else:
                                         st.error(message)
@@ -1822,25 +1888,15 @@ Contact: +263 78 290 5853
                                     st.error("Please confirm deletion")
 
                             with col3:
-                                delete_all_btn = st.button(
-                                    "Delete All POs",
-                                    type="secondary",
-                                    use_container_width=True,
-                                    key=f"delete_all_pos_{branch_id}",
-                                )
+                                delete_all_btn = st.button("Delete All POs", type="secondary", use_container_width=True, key=f"delete_all_pos_{branch_id}")
                                 if delete_all_btn:
                                     st.session_state.confirm_delete_all = True
 
                             if st.session_state.get("confirm_delete_all", False):
-                                st.warning("⚠️ ARE YOU SURE? This will delete ALL purchase orders for this branch!")
+                                st.warning("⚠️ ARE YOU SURE? This will delete ALL purchase orders!")
                                 col_a, col_b = st.columns(2)
                                 with col_a:
-                                    confirm_all = st.button(
-                                        "✅ YES, DELETE ALL",
-                                        type="primary",
-                                        use_container_width=True,
-                                        key=f"confirm_delete_all_yes_{branch_id}",
-                                    )
+                                    confirm_all = st.button("✅ YES, DELETE ALL", type="primary", use_container_width=True, key=f"confirm_delete_all_yes_{branch_id}")
                                     if confirm_all:
                                         success, message = delete_all_purchase_orders(branch_id=branch_id)
                                         if success:
@@ -1849,6 +1905,10 @@ Contact: +263 78 290 5853
                                             st.session_state.refresh_required = True
                                             st.session_state.confirm_delete_all = False
                                             st.success(message)
+                                            try:
+                                                st.cache_data.clear()
+                                            except Exception:
+                                                pass
                                             st.rerun()
                                         else:
                                             st.error(message)
@@ -1891,7 +1951,7 @@ Contact: +263 78 290 5853
                                     step=0.5,
                                     format="%.2f",
                                     key=f"rec_qty_{branch_id}_{barcode_val}_{idx}",
-                                    label_visibility="collapsed",
+                                    label_visibility="collapsed"
                                 )
 
                             with col3:
@@ -1908,7 +1968,7 @@ Contact: +263 78 290 5853
                                 "received_qty": float(received_qty),
                                 "cost": float(cost_price),
                                 "name": product_name,
-                                "category": category,
+                                "category": category
                             })
 
                         st.markdown(f"**Total Received Value: ${total_received_value:,.2f}**")
@@ -1916,18 +1976,13 @@ Contact: +263 78 290 5853
                         col1, col2 = st.columns(2)
 
                         with col1:
-                            confirm_button = st.button(
-                                "Confirm Receipt and Update Stock",
-                                type="primary",
-                                use_container_width=True,
-                                key=f"confirm_receipt_{branch_id}",
-                            )
+                            confirm_button = st.button("Confirm Receipt and Update Stock", type="primary", use_container_width=True, key=f"confirm_receipt_{branch_id}")
                             if confirm_button:
                                 if not invoice_no:
                                     st.error("Please enter supplier invoice number")
                                 else:
                                     success, updated_products, new_products = receive_purchase_order(
-                                        selected_po, received_items, invoice_no, branch_id=branch_id,
+                                        selected_po, received_items, invoice_no, branch_id=branch_id
                                     )
 
                                     if success:
@@ -1983,8 +2038,8 @@ Contact: +263 78 290 5853
                     "Units Ordered": st.column_config.NumberColumn("Units Ordered", format="%.2f"),
                     "Units Received": st.column_config.NumberColumn("Units Received", format="%.2f"),
                     "Total Spent": st.column_config.NumberColumn("Total Spent", format="$%.2f"),
-                    "Fulfillment Rate": st.column_config.NumberColumn("Fulfillment Rate", format="%.1f%%"),
-                },
+                    "Fulfillment Rate": st.column_config.NumberColumn("Fulfillment Rate", format="%.1f%%")
+                }
             )
 
             low_fulfillment = supplier_perf[supplier_perf["Fulfillment Rate"] < 80]
@@ -1998,11 +2053,8 @@ Contact: +263 78 290 5853
     with tab4:
         st.markdown(f"## Purchase History — {branch_label}")
 
-        @st.cache_data(ttl=60)
-        def load_purchases_history(branch_id: str):
-            return load_purchases(branch_id=branch_id)
-
-        purchases_df = load_purchases_history(branch_id)
+        # NOTE: no cache here — reads always reflect the DB
+        purchases_df = _migrate_statuses(load_purchases(branch_id=branch_id))
 
         if purchases_df.empty:
             st.info("No purchase records found.")
@@ -2013,14 +2065,14 @@ Contact: +263 78 290 5853
                 date_filter = st.selectbox(
                     "Filter by",
                     ["All", "Last 30 Days", "Last 90 Days", "This Year"],
-                    key=f"purchase_filter_{branch_id}",
+                    key=f"purchase_filter_{branch_id}"
                 )
 
             with col2:
                 status_filter = st.selectbox(
                     "Status",
-                    ["All", "PENDING", "PARTIALLY_RECEIVED", "COMPLETED", "RECEIVED"],
-                    key=f"purchase_status_filter_{branch_id}",
+                    ["All", "PENDING", "PARTIALLY_RECEIVED", "COMPLETED"],
+                    key=f"purchase_status_filter_{branch_id}"
                 )
 
             today = datetime.now()
@@ -2065,7 +2117,7 @@ Contact: +263 78 290 5853
                 group_cols = [c for c in group_cols if c in purchases_df.columns]
                 po_summary = purchases_df.groupby(group_cols).agg({
                     "total_cost": "sum",
-                    "quantity_ordered": "sum",
+                    "quantity_ordered": "sum"
                 }).reset_index()
 
                 if "date_ordered" in po_summary.columns:
@@ -2080,8 +2132,8 @@ Contact: +263 78 290 5853
                     hide_index=True,
                     column_config={
                         "quantity_ordered": st.column_config.NumberColumn("Total Qty", format="%.2f"),
-                        "total_cost": st.column_config.NumberColumn("Total ($)", format="$%.2f"),
-                    },
+                        "total_cost": st.column_config.NumberColumn("Total ($)", format="$%.2f")
+                    }
                 )
 
                 st.markdown("---")
@@ -2101,8 +2153,8 @@ Contact: +263 78 290 5853
                             "quantity_ordered": st.column_config.NumberColumn("Ordered", format="%.2f"),
                             "quantity_received": st.column_config.NumberColumn("Received", format="%.2f"),
                             "cost_price": st.column_config.NumberColumn("Unit Cost", format="$%.2f"),
-                            "total_cost": st.column_config.NumberColumn("Total", format="$%.2f"),
-                        },
+                            "total_cost": st.column_config.NumberColumn("Total", format="$%.2f")
+                        }
                     )
 
                 csv = purchases_df.to_csv(index=False).encode("utf-8")
@@ -2111,7 +2163,7 @@ Contact: +263 78 290 5853
                     data=csv,
                     file_name=f"purchase_history_{branch_id}_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    use_container_width=True
                 )
 
 
