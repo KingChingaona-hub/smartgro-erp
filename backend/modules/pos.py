@@ -1,4 +1,4 @@
-# backend/modules/pos.py - Updated with new customer support and fixed cart updates
+# backend/modules/pos.py - Caches removed; always reads fresh, branch-scoped data
 
 import streamlit as st
 import pandas as pd
@@ -15,8 +15,8 @@ from backend.core.db_adapter import (
 )
 
 from backend.modules.receipt import (
-    generate_receipt, 
-    generate_receipt_pdf, 
+    generate_receipt,
+    generate_receipt_pdf,
     generate_premium_receipt,
     generate_thermal_receipt,
     generate_html_receipt
@@ -84,59 +84,82 @@ def _get_session_branch():
 
 
 # ==============================
-# GET CUSTOMER SUGGESTIONS
+# BRANCH CONSISTENCY GUARD
 # ==============================
-@st.cache_data(ttl=60)
+def _ensure_branch_consistency():
+    """
+    If the session branch changed since the last render, drop every
+    session-scoped product cache so we never show another branch's stock.
+    """
+    current = _get_session_branch()
+    last = st.session_state.get("_pos_last_branch")
+    if last != current:
+        # Drop any per-branch product caches we created last time
+        for k in list(st.session_state.keys()):
+            if k.startswith("_products_cache_"):
+                del st.session_state[k]
+        st.session_state["_pos_last_branch"] = current
+
+
+def _drop_product_cache():
+    """Drop the in-render products cache so the next read hits the DB."""
+    for k in list(st.session_state.keys()):
+        if k.startswith("_products_cache_"):
+            del st.session_state[k]
+
+
+# ==============================
+# GET CUSTOMER SUGGESTIONS (NO CACHE)
+# ==============================
 def get_customer_suggestions(branch_id: str):
     """Get unique customer names from sales data for autocomplete (branch-scoped)."""
     try:
         sales_df = load_sales(branch_id=branch_id)
         if sales_df.empty:
             return []
-        
+
         customer_col = None
         for col in ["customer_name", "customer", "Customer"]:
             if col in sales_df.columns:
                 customer_col = col
                 break
-        
+
         if not customer_col:
             return []
-        
+
         customers = sales_df[customer_col].dropna().unique().tolist()
         customers = [c for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
         customers = sorted(set(customers))
-        
+
         return customers
     except Exception as e:
         print(f"Error getting customer suggestions: {e}")
         return []
 
 
-@st.cache_data(ttl=60)
 def get_customer_phone_suggestions(branch_id: str):
     """Get customer phone numbers from sales data (branch-scoped)."""
     try:
         sales_df = load_sales(branch_id=branch_id)
         if sales_df.empty:
             return {}
-        
+
         customer_col = None
         phone_col = None
-        
+
         for col in ["customer_name", "customer", "Customer"]:
             if col in sales_df.columns:
                 customer_col = col
                 break
-        
+
         for col in ["customer_phone", "phone", "Phone"]:
             if col in sales_df.columns:
                 phone_col = col
                 break
-        
+
         if not customer_col or not phone_col:
             return {}
-        
+
         customer_phones = {}
         for _, row in sales_df.iterrows():
             name = row.get(customer_col)
@@ -144,7 +167,7 @@ def get_customer_phone_suggestions(branch_id: str):
             if name and str(name).strip() and str(name).strip().lower() != "walk-in":
                 if phone and str(phone).strip():
                     customer_phones[str(name).strip()] = str(phone).strip()
-        
+
         return customer_phones
     except Exception as e:
         print(f"Error getting customer phone suggestions: {e}")
@@ -152,23 +175,32 @@ def get_customer_phone_suggestions(branch_id: str):
 
 
 # ==============================
-# PRODUCTS - CACHED (BRANCH-SCOPED)
+# PRODUCTS - SESSION-SCOPED, DROPPED ON CHECKOUT
 # ==============================
-@st.cache_data(ttl=5)
-def get_cached_products(branch_id: str):
-    """Cache products for 5 seconds to reduce DB hits — branch-scoped."""
-    return load_products(branch_id=branch_id)
-
-
 def get_products():
-    return get_cached_products(_get_session_branch())
+    """
+    Return products for the current branch.
+
+    Uses a session-scoped cache keyed by branch_id so we don't re-query
+    the DB multiple times within a single render. The cache is:
+      - dropped whenever the session branch changes (see _ensure_branch_consistency)
+      - dropped after every successful checkout (see pos_page)
+
+    We deliberately do NOT use @st.cache_data: a checkout in another tab
+    can change stock at any moment, and a persistent cache would let POS
+    sell stock that no longer exists.
+    """
+    branch_id = _get_session_branch()
+    cache_key = f"_products_cache_{branch_id}"
+    if cache_key not in st.session_state:
+        st.session_state[cache_key] = load_products(branch_id=branch_id)
+    return st.session_state[cache_key]
 
 
 # ==============================
-# CREDIT CHECK - CACHED (BRANCH-SCOPED)
+# CREDIT CHECK (NO CACHE)
 # ==============================
-@st.cache_data(ttl=60)
-def get_cached_credit_score(branch_id: str):
+def get_credit_scores(branch_id: str):
     """Credit score dataframe, filtered to the branch if a branch column exists."""
     try:
         df = get_credit_score()
@@ -184,30 +216,29 @@ def check_credit_allowed(customer_phone, amount):
 
     if not customer_phone:
         return False, "No customer phone provided"
-    
-    scores_df = get_cached_credit_score(branch_id)
+
+    scores_df = get_credit_scores(branch_id)
     if scores_df.empty:
         return True, "New customer"
-    
+
     match = scores_df[scores_df["phone"] == customer_phone]
     if match.empty:
         return True, "New customer - limited credit allowed"
-    
+
     score = int(match.iloc[0]["credit_score"])
-    
+
     if score <= 30:
         return False, "Customer blocked due to poor credit history"
     if score <= 60 and amount > 100:
         return False, "Credit limit exceeded for medium risk customer"
-    
+
     return True, "Credit approved"
 
 
 # ==============================
-# ACTIVE DEBT CHECK - CACHED (BRANCH-SCOPED)
+# ACTIVE DEBT CHECK (NO CACHE)
 # ==============================
-@st.cache_data(ttl=60)
-def get_cached_debtors(branch_id: str):
+def get_debtors_for_branch(branch_id: str):
     """Debtors for the current branch only."""
     try:
         df = load_debtors(branch_id=branch_id)
@@ -220,7 +251,7 @@ def get_cached_debtors(branch_id: str):
 
 def has_active_credit(phone):
     branch_id = _get_session_branch()
-    debts = get_cached_debtors(branch_id)
+    debts = get_debtors_for_branch(branch_id)
     if debts.empty:
         return False
     match = debts[(debts["phone"] == phone) & (debts["balance"] > 0)]
@@ -278,7 +309,7 @@ def add_recent_customer(name, phone):
 def get_branch_shift_status(branch_id):
     """Get the active shift status for a branch"""
     active_shift = get_active_shift_for_branch(branch_id)
-    
+
     if active_shift:
         return {
             "active": True,
@@ -332,19 +363,19 @@ def supports_decimal_quantity(product_name, category=""):
     """Check if a product supports decimal quantities"""
     if not product_name:
         return False
-    
+
     name_lower = product_name.lower()
     category_lower = str(category).lower()
-    
+
     decimal_products = [
-        "gas", "kg", "bread", "loaf", "flour", "sugar", "rice", 
+        "gas", "kg", "bread", "loaf", "flour", "sugar", "rice",
         "maize meal", "cooking oil", "milk", "liquid", "weight"
     ]
-    
+
     for keyword in decimal_products:
         if keyword in name_lower or keyword in category_lower:
             return True
-    
+
     return False
 
 
@@ -353,19 +384,20 @@ def supports_decimal_quantity(product_name, category=""):
 # ==============================
 def pos_page():
     init_session()
-    
+    _ensure_branch_consistency()
+
     st.title("AZIEL INVESTMENTS POS SYSTEM")
     st.caption("Fast, efficient, and modern point of sale")
-    
+
     try:
         st.image("aziellogo.png", width=120)
     except:
         pass
-    
-    # Load products once with caching (branch-scoped)
+
+    # Load products for the current branch (session-scoped, no cross-render cache)
     products_df = get_products()
     cart = st.session_state.cart
-    
+
     # ==============================
     # SHIFT STATUS - FAST (BRANCH-AWARE)
     # ==============================
@@ -374,10 +406,10 @@ def pos_page():
     active_shift_id = branch_shift.get("shift_id") if branch_shift.get("active") else None
     session_shift_id = st.session_state.get("active_shift_id")
     shift_to_use = active_shift_id if active_shift_id else session_shift_id
-    
+
     st.session_state.branch_shift_id = shift_to_use
     st.session_state.branch_shift_active = branch_shift.get("active", False)
-    
+
     if branch_shift.get("active"):
         st.success(f"Shift ACTIVE - Branch: {branch_shift.get('branch_name', user_branch)}")
     else:
@@ -387,19 +419,19 @@ def pos_page():
             if st.button("Go to Cash Dashboard", use_container_width=True):
                 st.session_state.current_page = "Cash Dashboard"
                 st.rerun()
-    
+
     # ==============================
     # QUICK ACTION PRODUCTS
     # ==============================
     st.markdown("## Quick Action Products")
-    
+
     sales_df = load_sales(branch_id=user_branch)
     if not sales_df.empty and "name" in sales_df.columns:
         top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
         quick_products = products_df[products_df["name"].isin(top_products)]
     else:
         quick_products = products_df.head(6) if not products_df.empty else pd.DataFrame()
-    
+
     if not quick_products.empty:
         cols = st.columns(min(6, len(quick_products)))
         for idx, (_, product) in enumerate(quick_products.iterrows()):
@@ -430,14 +462,14 @@ def pos_page():
                             st.toast(f"Added: {product['name']}")
                         else:
                             st.toast(f"{product['name']} is out of stock!")
-    
+
     st.markdown("---")
-    
+
     # ==============================
     # PRODUCT SEARCH WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Search Products")
-    
+
     if products_df.empty:
         st.warning(
             f"No products found for branch **{user_branch}**. "
@@ -447,54 +479,54 @@ def pos_page():
             st.session_state.current_page = "Inventory"
             st.rerun()
         return
-    
+
     col_search, col_qty, col_mode = st.columns([3, 1, 1])
-    
+
     with col_search:
         search = st.text_input(
             "Scan Barcode / Search Product",
             placeholder="Type product name or scan barcode...",
             key="search_input"
         )
-    
+
     with col_qty:
         quick_qty = st.number_input(
-            "Qty", 
-            min_value=0.0, 
-            value=1.0, 
+            "Qty",
+            min_value=0.0,
+            value=1.0,
             step=0.5,
             format="%.2f",
             key="quick_qty"
         )
-    
+
     with col_mode:
         quick_mode = st.selectbox(
             "Mode",
             ["Quantity", "Amount ($)"],
             key="quick_mode"
         )
-    
+
     filtered_df = products_df.copy()
     if search:
         filtered_df = products_df[
             products_df["barcode"].astype(str).str.contains(search, case=False) |
             products_df["name"].str.contains(search, case=False)
         ]
-    
+
     if not filtered_df.empty:
         selected_product = st.selectbox(
             "Select Product",
             filtered_df["name"].tolist(),
             key="product_select"
         )
-        
+
         if selected_product:
             product = filtered_df[filtered_df["name"] == selected_product].iloc[0]
             is_decimal = supports_decimal_quantity(
-                product["name"], 
+                product["name"],
                 product.get("category", "")
             )
-            
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.write(f"**Price:** ${product['price']:.2f}")
@@ -507,14 +539,14 @@ def pos_page():
                     st.success(f"**Stock:** {product['stock']:.2f} units")
             with col3:
                 st.write(f"**Category:** {product['category']}")
-            
+
             if is_decimal:
                 st.info("🔢 Decimal quantities supported (e.g., 0.5, 1.5, 2.0)")
                 st.caption("💡 Use 'Amount ($)' mode to buy by value instead of weight")
-            
+
             final_qty = quick_qty
             price_per_unit = float(product["price"])
-            
+
             if quick_mode == "Amount ($)":
                 amount_to_spend = quick_qty
                 if amount_to_spend > 0 and price_per_unit > 0:
@@ -524,12 +556,12 @@ def pos_page():
                     final_qty = 0
             else:
                 final_qty = quick_qty
-            
+
             if not is_decimal:
                 final_qty = int(final_qty) if final_qty > 0 else 0
                 if final_qty != quick_qty:
                     st.info(f"Quantity rounded to {final_qty} (whole units only)")
-            
+
             if st.button("Add to Cart", key="add_to_cart_btn", use_container_width=True):
                 if product["stock"] <= 0:
                     st.toast(f"{product['name']} is out of stock!")
@@ -554,7 +586,7 @@ def pos_page():
                             else:
                                 st.toast(f"Updated: {product['name']} x{int(new_qty)}")
                             break
-                    
+
                     if not found:
                         cart.append({
                             "barcode": product["barcode"],
@@ -568,17 +600,17 @@ def pos_page():
                             st.toast(f"Added: {product['name']} x{final_qty:.2f}")
                         else:
                             st.toast(f"Added: {product['name']} x{int(final_qty)}")
-    
+
     st.markdown("---")
-    
+
     # ==============================
     # CART DISPLAY WITH DECIMAL SUPPORT
     # ==============================
     st.markdown("## Current Cart")
-    
+
     if not cart:
         st.info("Cart is empty. Add products to continue.")
-        
+
         if st.session_state.saved_carts:
             with st.expander("Saved Carts"):
                 for cart_name in st.session_state.saved_carts.keys():
@@ -590,17 +622,17 @@ def pos_page():
                             load_saved_cart(cart_name)
                             st.rerun()
         return
-    
+
     st.write("### Cart Items")
-    
+
     for idx, item in enumerate(cart):
         col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
-        
+
         with col1:
             st.write(f"**{item['name']}**")
             if isinstance(item["qty"], float) and item["qty"] % 1 != 0:
                 st.caption(f"🔢 {item['qty']:.2f} units")
-        
+
         with col2:
             new_qty = st.number_input(
                 "Qty",
@@ -614,20 +646,20 @@ def pos_page():
             if new_qty != item["qty"]:
                 update_cart_quantity(idx, new_qty)
                 st.rerun()
-        
+
         with col3:
             st.write(f"${item['price']:.2f}")
-        
+
         with col4:
             st.write(f"${item['total']:.2f}")
-        
+
         with col5:
             if st.button("Remove", key=f"remove_{idx}_{item['barcode']}"):
                 remove_from_cart(idx)
                 st.rerun()
-        
+
         st.divider()
-    
+
     cart_df = pd.DataFrame(cart)
     st.dataframe(
         cart_df[["name", "qty", "price", "total"]],
@@ -639,14 +671,14 @@ def pos_page():
             "total": st.column_config.NumberColumn("Total", format="$%.2f")
         }
     )
-    
+
     subtotal = cart_df["total"].sum()
-    
+
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Subtotal", f"${subtotal:.2f}")
-    
+
     # ==============================
     # DISCOUNTS & TAX
     # ==============================
@@ -656,30 +688,30 @@ def pos_page():
         discount_value = st.number_input("Discount Value", min_value=0.0, value=0.0, key="discount_value")
     with col2:
         tax_rate = st.number_input("Tax %", min_value=0.0, value=0.0, key="tax_rate")
-    
+
     discount_amount = 0
     if discount_type == "PERCENT":
         discount_amount = subtotal * (discount_value / 100)
     elif discount_type == "FIXED":
         discount_amount = discount_value
-    
+
     tax_amount = ((subtotal - discount_amount) * tax_rate) / 100
     final_total = (subtotal - discount_amount) + tax_amount
-    
+
     with col3:
         st.metric("Final Total", f"${final_total:.2f}", delta=f"-${discount_amount:.2f}" if discount_amount > 0 else None)
-    
+
     st.markdown("---")
-    
+
     # ==============================
     # CUSTOMER DETAILS WITH AUTOCOMPLETE - FIXED FOR NEW CUSTOMERS
     # ==============================
     st.markdown("## Customer Details")
-    
-    # Branch-scoped customer suggestions
+
+    # Branch-scoped customer suggestions (no cache)
     customer_suggestions = get_customer_suggestions(user_branch)
     customer_phones = get_customer_phone_suggestions(user_branch)
-    
+
     # Recent customers
     if st.session_state.recent_customers:
         st.markdown("**Recent Customers:**")
@@ -690,27 +722,27 @@ def pos_page():
                     st.session_state.customer_name_input = customer['name']
                     st.session_state.customer_phone_input = customer['phone']
                     st.rerun()
-    
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("**Customer Name**")
-        
+
         all_options = ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
-        
+
         current_name = st.session_state.get("customer_name_input", "Walk-in")
-        
+
         is_new_customer = current_name not in all_options and current_name != "Walk-in" and current_name.strip()
-        
+
         if is_new_customer:
             all_options.append(current_name)
             st.caption(f"New customer: **{current_name}**")
-        
+
         try:
             current_index = all_options.index(current_name) if current_name in all_options else 0
         except ValueError:
             current_index = 0
-        
+
         selected_customer = st.selectbox(
             "Select or type customer name",
             options=all_options,
@@ -718,31 +750,31 @@ def pos_page():
             key="customer_name_select",
             label_visibility="collapsed"
         )
-        
+
         new_customer_name = st.text_input(
             "Or type new customer name",
             placeholder="Type new customer name here...",
             key="new_customer_name_input",
             label_visibility="collapsed"
         )
-        
+
         if new_customer_name and new_customer_name.strip():
             selected_customer = new_customer_name.strip()
             st.info(f"New customer: **{selected_customer}** will be added")
-        
+
         if selected_customer != st.session_state.customer_name_input:
             st.session_state.customer_name_input = selected_customer
-    
+
     with col2:
         st.markdown("**Phone Number**")
-        
+
         auto_phone = ""
         if selected_customer != "Walk-in" and selected_customer in customer_phones:
             auto_phone = customer_phones[selected_customer]
-        
+
         phone_key = "customer_phone_field"
         phone_value = st.session_state.get("customer_phone_input", auto_phone)
-        
+
         customer_phone = st.text_input(
             "Phone",
             value=phone_value,
@@ -750,38 +782,38 @@ def pos_page():
             label_visibility="collapsed",
             placeholder="Enter phone number"
         )
-        
+
         if customer_phone != st.session_state.customer_phone_input:
             st.session_state.customer_phone_input = customer_phone
-    
+
     customer_name = selected_customer
     customer_phone = st.session_state.customer_phone_input
-    
+
     if customer_name and customer_name != "Walk-in" and customer_phone:
         add_recent_customer(customer_name, customer_phone)
-    
+
     customer_display = customer_name.strip().title() if customer_name and customer_name.strip() else "Walk-in"
     customer_phone_clean = customer_phone.strip() if customer_phone else ""
-    
+
     st.caption(f"Customer: **{customer_display}**" + (f" | Phone: {customer_phone_clean}" if customer_phone_clean else ""))
-    
+
     # ==============================
     # RECEIPT STYLE
     # ==============================
     st.markdown("## Receipt Style")
-    
+
     receipt_style = st.selectbox(
         "Select Receipt Format",
         ["Standard", "Premium (Boxed)", "Thermal (58mm)", "HTML Print"],
         key="receipt_style_selector"
     )
     st.session_state.receipt_style = receipt_style
-    
+
     # ==============================
     # PAYMENT METHOD
     # ==============================
     st.markdown("## Payment")
-    
+
     col1, col2 = st.columns(2)
     with col1:
         payment_method = st.selectbox(
@@ -791,18 +823,18 @@ def pos_page():
         )
     with col2:
         cash_received = st.number_input("Cash Received", min_value=0.0, value=0.0, key="cash_received")
-    
+
     change = cash_received - final_total
-    
+
     can_checkout = True
-    
+
     if payment_method == "CASH":
         if cash_received < final_total:
             st.error("Insufficient cash")
             can_checkout = False
         else:
             st.success(f"Change: ${change:.2f}")
-    
+
     elif payment_method == "CREDIT":
         if has_active_credit(customer_phone_clean):
             st.error("Customer already has unpaid debt")
@@ -814,27 +846,27 @@ def pos_page():
                 can_checkout = False
             else:
                 st.warning(f"CREDIT APPROVED: {message}")
-    
+
     # ==============================
     # LOYALTY POINTS
     # ==============================
     points_earned = 0
     points_used = 0
-    
+
     if customer_phone_clean and payment_method != "CREDIT":
         customer_loyalty = get_customer_loyalty_info(customer_phone_clean)
-        
+
         if customer_loyalty and customer_loyalty["points"] >= 100:
             st.markdown("---")
             st.markdown("## Loyalty Points")
-            
+
             col1, col2 = st.columns(2)
             with col1:
                 st.info(f"Available Points: {customer_loyalty['points']} (Worth ${customer_loyalty['points']/100:.2f})")
-            
+
             with col2:
                 redeem = st.checkbox("Redeem points for this purchase", key="redeem_points_checkbox")
-            
+
             if redeem:
                 max_redeem = min(customer_loyalty["points"], final_total * 100)
                 points_to_redeem = st.number_input(
@@ -845,7 +877,7 @@ def pos_page():
                     value=min(500, int(max_redeem)),
                     key="points_to_redeem"
                 )
-                
+
                 if points_to_redeem >= 100:
                     success, discount_amount_loyalty, message = redeem_points(
                         customer_phone_clean,
@@ -857,17 +889,17 @@ def pos_page():
                         points_used = points_to_redeem
                         st.success(f"Redeemed {points_to_redeem} points for ${discount_amount_loyalty:.2f} discount!")
                         st.info(f"New total: ${final_total:.2f}")
-    
+
     # ==============================
     # CHECKOUT BUTTONS
     # ==============================
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
         if st.button("Clear Cart", key="clear_cart_btn", use_container_width=True):
             st.session_state.cart = []
             st.rerun()
-    
+
     with col2:
         cart_name = st.text_input("Save Cart As", placeholder="Cart name", key="save_cart_name", label_visibility="collapsed")
         if st.button("Save Cart", key="save_cart_btn", use_container_width=True):
@@ -876,14 +908,14 @@ def pos_page():
                 st.success(f"Cart saved as '{cart_name}'")
             else:
                 st.warning("Enter a name for the cart")
-    
+
     with col3:
         if st.session_state.saved_carts:
             load_cart_name = st.selectbox("Load Cart", [""] + list(st.session_state.saved_carts.keys()), key="load_cart_name", label_visibility="collapsed")
             if load_cart_name and st.button("Load Cart", key="load_cart_btn", use_container_width=True):
                 load_saved_cart(load_cart_name)
                 st.rerun()
-    
+
     with col4:
         if not st.session_state.branch_shift_active:
             st.error("No active shift")
@@ -895,18 +927,21 @@ def pos_page():
                 if not can_checkout:
                     st.error("Checkout validation failed. Please check payment details.")
                     st.stop()
-                
-                products_df = get_products()
-                stock_ok, stock_message = check_stock_available(products_df, cart)
+
+                # Re-read fresh products for the authoritative stock check
+                fresh_products_df = load_products(branch_id=_get_session_branch())
+                stock_ok, stock_message = check_stock_available(fresh_products_df, cart)
                 if not stock_ok:
                     st.error(f"STOCK ERROR: {stock_message}")
+                    # Drop the stale product cache so the next render shows truth
+                    _drop_product_cache()
                     st.stop()
-                
+
                 receipt_no = datetime.now().strftime("%Y%m%d%H%M%S")
                 st.session_state.receipt_no = receipt_no
-                
+
                 shift_id = st.session_state.branch_shift_id or st.session_state.get("shift_id", "")
-                
+
                 points_earned = 0
                 if customer_phone_clean and payment_method != "CREDIT":
                     try:
@@ -918,9 +953,9 @@ def pos_page():
                         )
                     except:
                         points_earned = 0
-                
+
                 st.session_state.checkout_processing = True
-                
+
                 checkout_data = {
                     "cart": cart.copy(),
                     "receipt_no": receipt_no,
@@ -931,18 +966,18 @@ def pos_page():
                     "shift_id": shift_id,
                     "cashier": st.session_state.get("username", "system")
                 }
-                
+
                 # ----- Branch authority: prefer current_branch_code -----
                 checkout_branch = _get_session_branch()
-                
+
                 success, message = process_checkout_batch(
                     branch_id=checkout_branch,
                     checkout_data=checkout_data
                 )
-                
+
                 if success:
                     selected_style = st.session_state.get("receipt_style", "Standard")
-                    
+
                     if selected_style == "Premium (Boxed)":
                         receipt_text = generate_premium_receipt(
                             cart=cart.copy(),
@@ -975,7 +1010,7 @@ def pos_page():
                             cart.copy(), subtotal, receipt_no, payment_method, customer_display,
                             discount_amount, tax_amount, cash_received, change, final_total
                         )
-                    
+
                     st.session_state.last_cart = cart.copy()
                     st.session_state.last_subtotal = subtotal
                     st.session_state.last_receipt_no = receipt_no
@@ -994,23 +1029,29 @@ def pos_page():
                     st.session_state.show_receipt = True
                     st.session_state.cart = []
                     st.session_state.checkout_processing = False
-                    
+
+                    # Drop the session-scoped product cache so the next
+                    # render reads fresh stock from the DB for this branch.
+                    _drop_product_cache()
+
                     st.success("Transaction completed successfully!")
                     st.balloons()
                     st.rerun()
                 else:
                     st.error(f"Checkout failed: {message}")
                     st.session_state.checkout_processing = False
-    
+                    # Stock may have changed under us — drop the cache.
+                    _drop_product_cache()
+
     # ==============================
     # RECEIPT DISPLAY
     # ==============================
     if st.session_state.get("show_receipt", False) and st.session_state.receipt:
         st.markdown("---")
         st.subheader("RECEIPT")
-        
+
         selected_style = st.session_state.get("receipt_style", "Standard")
-        
+
         if selected_style == "HTML Print":
             html_receipt = generate_html_receipt(
                 cart=st.session_state.get("last_cart", []),
@@ -1027,7 +1068,7 @@ def pos_page():
             st.components.v1.html(html_receipt, height=600, scrolling=True)
         else:
             st.text_area("Receipt Preview", st.session_state.receipt, height=300, key="receipt_preview")
-        
+
         pdf_file = generate_receipt_pdf(st.session_state.receipt)
         if pdf_file:
             st.download_button(
@@ -1038,7 +1079,7 @@ def pos_page():
                 key="download_pdf_receipt",
                 use_container_width=True
             )
-        
+
         customer_phone_data = st.session_state.get("last_customer_phone", "")
         if customer_phone_data:
             whatsapp_receipt = generate_whatsapp_receipt(
@@ -1062,7 +1103,7 @@ def pos_page():
                     </button>
                 </a>
                 """, unsafe_allow_html=True)
-        
+
         if selected_style != "HTML Print":
             print_html = f"""
             <html>
@@ -1079,7 +1120,7 @@ def pos_page():
             </html>
             """
             st.components.v1.html(print_html, height=400, scrolling=True)
-        
+
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Print", key="print_receipt_btn", use_container_width=True):
@@ -1088,7 +1129,7 @@ def pos_page():
             if st.button("Close Receipt", key="close_receipt_btn", use_container_width=True):
                 st.session_state.show_receipt = False
                 st.rerun()
-    
+
     # ==============================
     # LAST RECEIPT (REPRINT)
     # ==============================
@@ -1113,10 +1154,10 @@ def pos_page():
                         key="download_last_pdf",
                         use_container_width=True
                     )
-    
+
     st.markdown("---")
     if st.button("Refresh Page", key="refresh_page_btn", use_container_width=True):
-        st.cache_data.clear()
+        _drop_product_cache()
         st.rerun()
 
 
