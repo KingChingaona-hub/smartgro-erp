@@ -7,6 +7,10 @@ Branch-aware: every loader and saver is scoped to the session branch.
 Cache-safe: no @st.cache_data on reads, and every write path clears the
             Streamlit cache and reruns, so a fresh PO is visible in the
             Receive tab immediately.
+
+FIXED: create paths now pass ONLY the new PO rows to save_purchases,
+       and manual-item barcodes are generated as 13-digit numeric strings
+       so validate_barcode accepts them.
 """
 
 import streamlit as st
@@ -99,6 +103,26 @@ def _branch_display_name(branch_id):
 def generate_po_number():
     """Generate unique purchase order number"""
     return f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+
+# ==============================
+# GENERATE 13-DIGIT NUMERIC BARCODE
+# ==============================
+def _generate_numeric_barcode(seed_index=0):
+    """
+    Generate a 13-digit numeric barcode that validate_barcode will accept.
+
+    The old code produced strings like "MAN-20250101120000123456" which
+    validate_barcode rejects (it requires digits only). This function
+    produces a 13-character numeric string.
+    """
+    # Prefix with '2' so it never collides with the fallback '9...' barcodes
+    # used elsewhere and is clearly a generated (not scanned) code.
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")  # 20 digits
+    core = stamp[:12]
+    idx = f"{seed_index % 100:02d}"
+    raw = "2" + core + idx          # 1 + 12 + 2 = 15 chars
+    return raw[:13].ljust(13, "0")
 
 
 # ==============================
@@ -410,10 +434,17 @@ def create_purchase_order(supplier, items, expected_date, branch_id=None):
             category = "New Purchase"
 
         barcode = str(item.get("barcode", "")).strip()
-        if not barcode or barcode in ("nan", "None", ""):
-            # Numeric-only fallback so validate_barcode can't reject generated values
-            digits = datetime.now().strftime("%Y%m%d%H%M%S") + f"{idx:02d}"
-            barcode = ("9" + digits)[:13].ljust(13, "0")
+
+        # Ensure we always hand a barcode that validate_barcode will accept.
+        # validate_barcode requires digits only (typically 13 digits).
+        # If the incoming barcode is empty, or looks like a manual "MAN-..."
+        # placeholder, or is otherwise non-numeric, replace it with a
+        # generated 13-digit numeric code.
+        if (not barcode
+                or barcode in ("nan", "None", "")
+                or not barcode.isdigit()
+                or len(barcode) != 13):
+            barcode = _generate_numeric_barcode(idx)
 
         po_data.append({
             "branch_id": branch_id,
@@ -1405,7 +1436,8 @@ def purchases_page():
                                 break
 
                         if not existing:
-                            unique_barcode = f"MAN-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+                            # 13-digit numeric barcode so validate_barcode accepts it
+                            unique_barcode = _generate_numeric_barcode(len(st.session_state.po_cart))
                             if isinstance(manual_item_qty, float):
                                 qty_val = float(manual_item_qty)
                             else:
@@ -1546,14 +1578,14 @@ def purchases_page():
                     if error:
                         st.error(error)
                     else:
-                        existing_df = load_purchases(branch_id=branch_id)
-
-                        for col in po_df.columns:
-                            if col not in existing_df.columns:
-                                existing_df[col] = ""
-
-                        updated_df = pd.concat([existing_df, po_df], ignore_index=True)
-                        save_success = save_purchases(updated_df, branch_id=branch_id)
+                        # ----------------------------------------------------------
+                        # FIX: pass ONLY the new PO rows to save_purchases.
+                        # Previously the whole purchases table was concatenated and
+                        # re-saved, so other rows' success masked the new rows'
+                        # validation failures and the UI showed a fake success.
+                        # save_purchases handles ON CONFLICT DO UPDATE itself.
+                        # ----------------------------------------------------------
+                        save_success = save_purchases(po_df, branch_id=branch_id)
 
                         if save_success:
                             st.session_state.po_cart = []
@@ -1616,7 +1648,10 @@ Contact: +263 78 290 5853
                                 pass
                             st.rerun()
                         else:
-                            st.error("Failed to save purchase order.")
+                            st.error(
+                                "Failed to save purchase order. Some items failed validation. "
+                                "Check the barcodes and try again."
+                            )
 
         if not st.session_state.show_preview and st.session_state.po_cart:
             col1, col2 = st.columns(2)
@@ -1646,14 +1681,10 @@ Contact: +263 78 290 5853
                         if error:
                             st.error(error)
                         else:
-                            existing_df = load_purchases(branch_id=branch_id)
-
-                            for col in po_df.columns:
-                                if col not in existing_df.columns:
-                                    existing_df[col] = ""
-
-                            updated_df = pd.concat([existing_df, po_df], ignore_index=True)
-                            save_success = save_purchases(updated_df, branch_id=branch_id)
+                            # ----------------------------------------------------------
+                            # FIX: pass ONLY the new PO rows to save_purchases.
+                            # ----------------------------------------------------------
+                            save_success = save_purchases(po_df, branch_id=branch_id)
 
                             if save_success:
                                 st.session_state.po_cart = []
@@ -1676,7 +1707,10 @@ Contact: +263 78 290 5853
                                     pass
                                 st.rerun()
                             else:
-                                st.error("Failed to save purchase order.")
+                                st.error(
+                                    "Failed to save purchase order. Some items failed validation. "
+                                    "Check the barcodes and try again."
+                                )
         elif st.session_state.show_preview:
             st.info("Review the preview above and click 'Confirm and Create PO' to save.")
 

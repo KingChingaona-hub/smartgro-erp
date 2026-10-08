@@ -5,8 +5,8 @@
 # - save_shifts re-tags the row's branch_id on conflict so a PK collision can
 #   never silently leave a row on the wrong branch
 # - save_purchases re-tags the row's branch_id on conflict AND returns False
-#   when nothing was actually written, so the UI can no longer show a fake
-#   success for an empty write
+#   when ANY row failed validation OR nothing was actually written, so the UI
+#   can no longer show a fake success for a partial/empty write
 # - start_shift / end_shift / update_shift_stats all pass branch_id through
 
 import psycopg2
@@ -2276,9 +2276,17 @@ def save_purchases(df, branch_id=None):
       - branch_id defaults to the session branch.
       - ON CONFLICT re-tags the row's branch_id so a cross-branch primary
         key collision can never leave the row on the wrong branch.
-      - If validation rejects every row (or there were no rows), the
-        function returns False so the caller can show a real failure
-        instead of a fake success.
+
+    Honest return value:
+      - Returns False if the DataFrame is empty.
+      - Returns False if ANY row failed validation (even if some rows
+        succeeded), so the UI cannot show a fake success for a
+        partially-rejected batch.
+      - Returns False if zero rows were actually written.
+      - Returns True only when every row in the batch was accepted.
+
+    The caller is expected to pass ONLY the rows it wants to save
+    (e.g. just the new PO's rows), not the entire purchases table.
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -2286,7 +2294,7 @@ def save_purchases(df, branch_id=None):
     # Normalise branch_id for the write so UPPER/LOWER mismatches never split rows.
     branch_id = str(branch_id).strip()
 
-    rows_in_df = 0 if df is None else len(df)
+    total_rows = 0 if df is None else len(df)
     saved_count = 0
     validation_errors = []
 
@@ -2301,8 +2309,6 @@ def save_purchases(df, branch_id=None):
                 return False
 
             for idx, row in df.iterrows():
-                rows_in_df = idx + 1
-
                 # ---- validation ----
                 if 'supplier' in row:
                     valid, msg = validate_supplier_name(row["supplier"])
@@ -2338,13 +2344,8 @@ def save_purchases(df, branch_id=None):
                     row["total_cost"] = amount
 
                 # ---- insert / update ----
-                #
-                # KEY FIX: `branch_id = EXCLUDED.branch_id` in the update list.
-                # Without it, if the same (po_number, barcode) already exists
-                # on another branch, the insert collides and the row stays
-                # tagged with the *other* branch, leaving this branch with
-                # no visible PO.
-                #
+                # `branch_id = EXCLUDED.branch_id` in the update list ensures a
+                # cross-branch primary-key collision re-tags the row.
                 cur.execute("""
                     INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
                         product_name, barcode, quantity_ordered, quantity_received,
@@ -2402,13 +2403,17 @@ def save_purchases(df, branch_id=None):
 
             print(
                 f"[save_purchases] branch_id={branch_id!r} "
-                f"rows_in_df={rows_in_df} rows_saved={saved_count} "
+                f"rows_in_df={total_rows} rows_saved={saved_count} "
                 f"total_in_branch={total_in_branch}"
             )
 
-            # ---- honest return value ----
+            # ---- HONEST RETURN ----
+            # Any validation error = the caller must know that the batch
+            # was not fully written.
+            if validation_errors:
+                return False
+
             if saved_count == 0:
-                # Nothing was actually written. Do NOT report success.
                 return False
 
             return True
@@ -3048,11 +3053,9 @@ def save_shifts(df, branch_id=None):
                 variance = to_float(row.get("variance"))
                 transactions = int(row.get("transactions", 0)) if row.get("transactions") else 0
 
-                # ------------------------------------------------------------------
-                # IMPORTANT: branch_id = EXCLUDED.branch_id is included in the
-                # update list so that a PK collision (shift_id) can never silently
-                # leave the row tagged with the wrong branch.
-                # ------------------------------------------------------------------
+                # `branch_id = EXCLUDED.branch_id` in the update list ensures a
+                # PK collision (shift_id) can never silently leave the row tagged
+                # with the wrong branch.
                 cur.execute("""
                     INSERT INTO shifts (shift_id, branch_id, branch_name, cashier_username,
                         cashier_name, manager_username, start_time, end_time,
