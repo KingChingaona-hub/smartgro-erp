@@ -1,5 +1,10 @@
 # backend/analytics/predictive.py
-# Predictive Analytics Dashboard - With proper deduplication
+# Predictive Analytics Dashboard — branch-aware.
+#
+# Scoping:
+#   branch_id = None            -> session branch
+#   branch_id = "HO"/"NAT"/..   -> single branch
+#   branch_id = "__ALL__"       -> aggregate across all branches (owner only)
 
 import streamlit as st
 import pandas as pd
@@ -12,20 +17,89 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import re
 import warnings
 warnings.filterwarnings('ignore')
 
-from backend.core.db_adapter import load_sales, load_products
+from backend.core.db_adapter import load_sales, load_products, load_branches
+
 
 # ==============================
-# HELPER FUNCTIONS
+# BRANCH RESOLUTION
 # ==============================
+ALL_BRANCHES = "__ALL__"
 
+
+def _resolve_branch(branch_id=None):
+    if branch_id is not None:
+        return branch_id
+    try:
+        return (
+            st.session_state.get("user_branch")
+            or st.session_state.get("current_branch_code")
+            or "HO"
+        )
+    except Exception:
+        return "HO"
+
+
+def _is_all_branches(branch_id):
+    return isinstance(branch_id, str) and branch_id.upper() == ALL_BRANCHES
+
+
+def _load_scoped(loader, branch_id, **kwargs):
+    if _is_all_branches(branch_id):
+        try:
+            bdf = load_branches()
+        except Exception:
+            bdf = pd.DataFrame()
+        if bdf is None or bdf.empty or "branch_id" not in bdf.columns:
+            try:
+                return loader(**kwargs)
+            except Exception:
+                return pd.DataFrame()
+        frames = []
+        for bid in bdf["branch_id"].astype(str).tolist():
+            try:
+                df = loader(branch_id=bid, **kwargs)
+                if df is not None and not df.empty:
+                    frames.append(df)
+            except Exception:
+                continue
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    try:
+        return loader(branch_id=branch_id, **kwargs)
+    except TypeError:
+        try:
+            return loader(**kwargs)
+        except Exception:
+            return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def _branch_label(branch_id):
+    if _is_all_branches(branch_id):
+        return "All Branches"
+    try:
+        bdf = load_branches()
+        if bdf is not None and not bdf.empty and "branch_id" in bdf.columns:
+            match = bdf[bdf["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+            if not match.empty:
+                row = match.iloc[0]
+                return f"{row.get('branch_name', '')} ({row.get('branch_id', '')})".strip()
+    except Exception:
+        pass
+    return str(branch_id)
+
+
+# ==============================
+# HELPERS
+# ==============================
 def convert_decimal_to_float(df):
-    """Convert all Decimal columns to float for compatibility"""
     if df is None or df.empty:
         return df
-    
     for col in df.columns:
         if df[col].dtype == object:
             sample = df[col].iloc[0] if len(df) > 0 else None
@@ -34,202 +108,165 @@ def convert_decimal_to_float(df):
     return df
 
 
-def get_sales_data():
-    """Load and prepare sales data with proper column handling and deduplication"""
-    sales_df = load_sales()
-    
-    if sales_df.empty:
+def get_sales_data(branch_id=None):
+    """Load and prepare sales data for the given branch (or __ALL__)."""
+    branch_id = _resolve_branch(branch_id)
+    sales_df = _load_scoped(load_sales, branch_id)
+
+    if sales_df is None or sales_df.empty:
         return pd.DataFrame()
-    
-    # Convert Decimal columns to float
+
     sales_df = convert_decimal_to_float(sales_df)
-    
-    # Find date column
+
     date_col = None
     for col in ["sale_date", "date", "transaction_date", "created_at"]:
         if col in sales_df.columns:
             date_col = col
             break
-    
     if date_col is None:
         return pd.DataFrame()
-    
-    # Convert date column
+
+    sales_df = sales_df.copy()
     sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
     sales_df = sales_df.dropna(subset=[date_col])
-    
-    # Rename to standard 'date' for consistency
     if date_col != "date":
         sales_df["date"] = sales_df[date_col]
-    
-    # Find receipt column for deduplication
+
     receipt_col = None
     for col in ["receipt_no", "receipt", "transaction_id", "order_id"]:
         if col in sales_df.columns:
             receipt_col = col
             break
-    
-    # ============================================================
-    # DEDUPLICATION: Use unique receipts to avoid duplicates
-    # ============================================================
+
     if receipt_col:
-        # Drop duplicates by receipt number (keep first occurrence)
         sales_df = sales_df.drop_duplicates(subset=[receipt_col], keep="first")
-    
-    # Find total column
+
     total_col = None
     for col in ["final_total", "total", "amount", "sale_amount"]:
         if col in sales_df.columns:
             total_col = col
             break
-    
+
     if total_col and total_col != "total":
         sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
     elif not total_col:
         sales_df["total"] = 0
-    
-    # Ensure total is float
     sales_df["total"] = sales_df["total"].astype(float)
-    
-    # Find profit column
+
     profit_col = None
     for col in ["profit", "profit_margin", "gross_profit"]:
         if col in sales_df.columns:
             profit_col = col
             break
-    
+
     if profit_col and profit_col != "profit":
         sales_df["profit"] = pd.to_numeric(sales_df[profit_col], errors="coerce").fillna(0)
     elif not profit_col:
         sales_df["profit"] = 0
-    
     sales_df["profit"] = sales_df["profit"].astype(float)
-    
-    # Find items column
+
     items_col = None
     for col in ["items", "quantity", "qty", "item_count"]:
         if col in sales_df.columns:
             items_col = col
             break
-    
+
     if items_col and items_col != "items":
         sales_df["items"] = pd.to_numeric(sales_df[items_col], errors="coerce").fillna(1)
     elif not items_col:
         sales_df["items"] = 1
-    
     sales_df["items"] = sales_df["items"].astype(int)
-    
-    # Find product name column
+
     product_col = None
     for col in ["name", "product_name", "Product", "item_name"]:
         if col in sales_df.columns:
             product_col = col
             break
-    
+
     if product_col and product_col != "name":
         sales_df["name"] = sales_df[product_col].fillna("Unknown")
     elif not product_col:
         sales_df["name"] = "Unknown"
-    
     sales_df["name"] = sales_df["name"].astype(str)
-    
-    # Find receipt column
+
     if receipt_col and receipt_col != "receipt_no":
         sales_df["receipt_no"] = sales_df[receipt_col].fillna("")
     elif not receipt_col:
         sales_df["receipt_no"] = sales_df.index.astype(str)
-    
+
     return sales_df
 
 
-def get_products_data():
-    """Load and prepare products data"""
-    products_df = load_products()
-    
-    if products_df.empty:
+def get_products_data(branch_id=None):
+    """Load and prepare products data for the given branch (or __ALL__)."""
+    branch_id = _resolve_branch(branch_id)
+    products_df = _load_scoped(load_products, branch_id)
+
+    if products_df is None or products_df.empty:
         return pd.DataFrame()
-    
+
     products_df = convert_decimal_to_float(products_df)
-    
-    # Find product name column
+
     product_col = None
     for col in ["name", "product_name", "Product"]:
         if col in products_df.columns:
             product_col = col
             break
-    
     if product_col and product_col != "name":
         products_df["name"] = products_df[product_col].fillna("Unknown")
-    
-    # Find price column
+
     price_col = None
     for col in ["price", "selling_price", "unit_price"]:
         if col in products_df.columns:
             price_col = col
             break
-    
     if price_col and price_col != "price":
         products_df["price"] = pd.to_numeric(products_df[price_col], errors="coerce").fillna(0)
-    
     if "price" not in products_df.columns:
         products_df["price"] = 0
-    
     products_df["price"] = products_df["price"].astype(float)
-    
-    # Find cost column
+
     cost_col = None
     for col in ["cost", "cost_price", "purchase_price"]:
         if col in products_df.columns:
             cost_col = col
             break
-    
     if cost_col and cost_col != "cost":
         products_df["cost"] = pd.to_numeric(products_df[cost_col], errors="coerce").fillna(0)
-    
     if "cost" not in products_df.columns:
         products_df["cost"] = 0
-    
     products_df["cost"] = products_df["cost"].astype(float)
-    
-    # Find stock column
+
     stock_col = None
     for col in ["stock", "quantity", "inventory", "current_stock"]:
         if col in products_df.columns:
             stock_col = col
             break
-    
     if stock_col and stock_col != "stock":
         products_df["stock"] = pd.to_numeric(products_df[stock_col], errors="coerce").fillna(0)
-    
     if "stock" not in products_df.columns:
         products_df["stock"] = 0
-    
     products_df["stock"] = products_df["stock"].astype(int)
-    
+
     return products_df
 
 
 def prepare_time_series_data(sales_df, product_name=None):
-    """Prepare time series data for forecasting"""
-    
-    if sales_df.empty:
+    if sales_df is None or sales_df.empty:
         return None
-    
-    # Filter by product if specified
-    if product_name and product_name != "All Products" and product_name != "All":
+
+    if product_name and product_name not in ("All Products", "All"):
         df = sales_df[sales_df["name"] == product_name].copy()
         if df.empty:
             return None
     else:
         df = sales_df.copy()
-    
-    # Aggregate by date
+
     daily_sales = df.groupby(df["date"].dt.date)["total"].sum().reset_index()
     daily_sales.columns = ["date", "sales"]
     daily_sales["date"] = pd.to_datetime(daily_sales["date"])
     daily_sales = daily_sales.sort_values("date")
-    
-    # Add time features
+
     daily_sales["day_of_week"] = daily_sales["date"].dt.dayofweek
     daily_sales["month"] = daily_sales["date"].dt.month
     daily_sales["day_of_month"] = daily_sales["date"].dt.day
@@ -237,42 +274,37 @@ def prepare_time_series_data(sales_df, product_name=None):
     daily_sales["quarter"] = daily_sales["date"].dt.quarter
     daily_sales["is_weekend"] = (daily_sales["day_of_week"] >= 5).astype(int)
     daily_sales["days_since_start"] = (daily_sales["date"] - daily_sales["date"].min()).dt.days
-    
+
     return daily_sales
 
 
 def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
-    """Generate sales forecast"""
-    
     if daily_sales is None or len(daily_sales) < 7:
         return None
-    
-    # Prepare features
+
     X = daily_sales["days_since_start"].values.reshape(-1, 1)
     y = daily_sales["sales"].values
-    
-    # Train model
+
     if model_type == "Linear Regression":
         model = LinearRegression()
         model.fit(X, y)
-    else:  # Random Forest
-        # Use more features for Random Forest
-        feature_cols = ["day_of_week", "month", "day_of_month", "week_of_year", "quarter", "is_weekend", "days_since_start"]
+    else:
+        feature_cols = ["day_of_week", "month", "day_of_month", "week_of_year",
+                        "quarter", "is_weekend", "days_since_start"]
         X_rf = daily_sales[feature_cols].values
         model = RandomForestRegressor(n_estimators=100, random_state=42)
         model.fit(X_rf, y)
-    
-    # Predict future
+
     last_day = daily_sales["days_since_start"].max()
     last_date = daily_sales["date"].max()
-    
+
     if model_type == "Linear Regression":
         future_days = np.arange(last_day + 1, last_day + days + 1).reshape(-1, 1)
         predictions = model.predict(future_days)
         model_type_used = "Linear Regression"
     else:
-        # Random Forest predictions with future features
-        feature_cols = ["day_of_week", "month", "day_of_month", "week_of_year", "quarter", "is_weekend", "days_since_start"]
+        feature_cols = ["day_of_week", "month", "day_of_month", "week_of_year",
+                        "quarter", "is_weekend", "days_since_start"]
         future_features = []
         for i in range(1, days + 1):
             future_date = last_date + timedelta(days=i)
@@ -283,46 +315,40 @@ def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
                 "week_of_year": future_date.isocalendar().week,
                 "quarter": (future_date.month - 1) // 3 + 1,
                 "is_weekend": 1 if future_date.weekday() >= 5 else 0,
-                "days_since_start": last_day + i
+                "days_since_start": last_day + i,
             }
             future_features.append([features[col] for col in feature_cols])
         predictions = model.predict(future_features)
         model_type_used = "Random Forest"
-    
-    predictions = np.maximum(predictions, 0)  # No negative sales
-    
-    # Calculate confidence intervals (95%)
+
+    predictions = np.maximum(predictions, 0)
+
     if model_type == "Linear Regression":
         y_pred = model.predict(X)
     else:
         y_pred = model.predict(X_rf)
-    
+
     residuals = y - y_pred
     std_residual = np.std(residuals)
     confidence_interval = 1.96 * std_residual
-    
-    # Generate forecast dates
+
     forecast_dates = [last_date + timedelta(days=i) for i in range(1, days + 1)]
-    
     forecast = []
-    for i, (date, pred) in enumerate(zip(forecast_dates, predictions)):
+    for date, pred in zip(forecast_dates, predictions):
         forecast.append({
             "date": date.strftime("%Y-%m-%d"),
             "forecast_sales": float(round(pred, 2)),
             "lower_bound": float(round(max(0, pred - confidence_interval), 2)),
-            "upper_bound": float(round(pred + confidence_interval, 2))
+            "upper_bound": float(round(pred + confidence_interval, 2)),
         })
-    
-    # Calculate metrics
+
     mae = float(mean_absolute_error(y, y_pred))
     rmse = float(np.sqrt(mean_squared_error(y, y_pred)))
     r2 = float(r2_score(y, y_pred))
-    
-    # Determine trend
+
     if model_type == "Linear Regression":
         trend = "increasing" if model.coef_[0] > 0 else "decreasing"
     else:
-        # For Random Forest, check if recent predictions are trending up or down
         if len(predictions) >= 3:
             mid = len(predictions) // 2
             first_half = np.mean(predictions[:mid])
@@ -330,7 +356,7 @@ def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
             trend = "increasing" if second_half > first_half else "decreasing"
         else:
             trend = "variable"
-    
+
     return {
         "forecast": forecast,
         "total_forecast": float(round(sum(predictions), 2)),
@@ -340,147 +366,160 @@ def forecast_sales(daily_sales, days=30, model_type="Linear Regression"):
         "r2": r2,
         "confidence_interval": float(round(confidence_interval, 2)),
         "model_type": model_type_used,
-        "trend": trend
+        "trend": trend,
     }
 
 
 def get_top_products(sales_df, n=10):
-    """Get top N products by sales"""
-    
-    if sales_df.empty:
+    if sales_df is None or sales_df.empty:
         return pd.DataFrame()
-    
     top_products = sales_df.groupby("name").agg({
-        "total": "sum",
-        "profit": "sum",
-        "items": "sum"
+        "total": "sum", "profit": "sum", "items": "sum",
     }).reset_index()
-    
     top_products = top_products.sort_values("total", ascending=False).head(n)
     top_products["total"] = top_products["total"].astype(float)
     top_products["profit"] = top_products["profit"].astype(float)
     top_products["items"] = top_products["items"].astype(int)
-    
     return top_products
 
 
 def get_product_trend(sales_df, product_name, days=30):
-    """Get product sales trend"""
-    
-    if sales_df.empty:
+    if sales_df is None or sales_df.empty:
         return pd.DataFrame()
-    
     product_sales = sales_df[sales_df["name"] == product_name].copy()
-    
     if product_sales.empty:
         return pd.DataFrame()
-    
-    # Get last N days
+
     cutoff_date = datetime.now() - timedelta(days=days)
     product_sales = product_sales[product_sales["date"] >= cutoff_date]
-    
     if product_sales.empty:
         return pd.DataFrame()
-    
-    # Aggregate by date
+
     trend = product_sales.groupby(product_sales["date"].dt.date)["total"].sum().reset_index()
     trend.columns = ["date", "sales"]
     trend["date"] = pd.to_datetime(trend["date"])
     trend = trend.sort_values("date")
-    
-    # Add moving average
+
     if len(trend) >= 3:
         trend["ma_3"] = trend["sales"].rolling(window=3, min_periods=1).mean()
         trend["ma_7"] = trend["sales"].rolling(window=7, min_periods=1).mean()
-    
     return trend
 
 
 # ==============================
-# PREDICTIVE ANALYTICS DASHBOARD
+# DASHBOARD
 # ==============================
-
 def predictive_analytics_dashboard():
-    """Main predictive analytics dashboard"""
-    
     st.title("Predictive Analytics Dashboard")
-    st.caption("AI-powered sales forecasting and business intelligence")
-    
-    # Load data
-    sales_df = get_sales_data()
-    products_df = get_products_data()
-    
+    st.caption("AI-powered sales forecasting and business intelligence — branch-scoped")
+
+    role = st.session_state.get("role", "cashier")
+
+    # ---- Branch scope ----
+    try:
+        branches_df = load_branches()
+    except Exception:
+        branches_df = pd.DataFrame()
+
+    is_owner = role in ("owner", "admin")
+
+    if is_owner and branches_df is not None and not branches_df.empty:
+        branch_options = ["All Branches"] + [
+            f"{r['branch_name']} ({r['branch_id']})" for _, r in branches_df.iterrows()
+        ]
+        choice = st.selectbox(
+            "Branch scope",
+            branch_options,
+            key="predictive_branch_scope",
+            help="Owners may forecast company-wide or one branch at a time.",
+        )
+        if choice == "All Branches":
+            branch_id = ALL_BRANCHES
+            branch_label = "All Branches"
+        else:
+            m = re.search(r"\(([^)]+)\)\s*$", choice)
+            branch_id = m.group(1).strip() if m else choice
+            branch_label = choice
+    else:
+        branch_id = _resolve_branch(None)
+        branch_label = _branch_label(branch_id)
+        st.info(f"Predictive analytics locked to your branch: **{branch_label}**")
+
+    st.caption(f"Analysis scope: **{branch_label}**")
+
+    # ---- Scoped loads ----
+    sales_df = get_sales_data(branch_id)
+    products_df = get_products_data(branch_id)
+
     if sales_df.empty:
-        st.warning("No sales data available for predictive analytics")
+        st.warning(f"No sales data available for {branch_label}")
         return
-    
+
     # ==============================
     # SIDEBAR FILTERS
     # ==============================
     st.sidebar.header("Filters")
-    
-    # Date filter
+    st.sidebar.caption(f"Scope: {branch_label}")
+
     min_date = sales_df["date"].min().date()
     max_date = sales_df["date"].max().date()
-    
     date_range = st.sidebar.date_input(
         "Date Range",
         value=(min_date, max_date),
         min_value=min_date,
-        max_value=max_date
+        max_value=max_date,
+        key=f"pred_date_range_{branch_id}",
     )
-    
-    # Apply date filter
+
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
         mask = (sales_df["date"].dt.date >= start_date) & (sales_df["date"].dt.date <= end_date)
         filtered_df = sales_df[mask].copy()
     else:
         filtered_df = sales_df.copy()
-    
+
     if filtered_df.empty:
         st.warning("No data matches the selected filters")
         return
-    
-    # ==============================
-    # TABS
-    # ==============================
+
     tab1, tab2, tab3, tab4 = st.tabs([
         "Sales Forecast",
         "Product Insights",
         "Trend Analysis",
-        "Predictions & Recommendations"
+        "Predictions & Recommendations",
     ])
-    
+
     # ==============================
     # TAB 1: SALES FORECAST
     # ==============================
     with tab1:
         st.markdown("## Sales Forecast")
-        
+        st.caption(f"Branch: **{branch_label}**")
+
         col1, col2 = st.columns(2)
-        
         with col1:
             products = ["All Products"] + sorted(filtered_df["name"].unique().tolist())
-            selected_product = st.selectbox("Select Product", products, key="forecast_product")
-        
+            selected_product = st.selectbox(
+                "Select Product", products, key=f"pred_product_{branch_id}",
+            )
         with col2:
-            forecast_days = st.slider("Forecast Days", 7, 90, 30, key="forecast_days")
-            model_type = st.selectbox("Forecast Model", ["Linear Regression", "Random Forest"], key="model_type")
-        
-        if st.button("Generate Forecast", type="primary", use_container_width=True):
-            with st.spinner("Training AI model and generating forecast..."):
-                # Prepare data
+            forecast_days = st.slider(
+                "Forecast Days", 7, 90, 30, key=f"pred_days_{branch_id}",
+            )
+            model_type = st.selectbox(
+                "Forecast Model", ["Linear Regression", "Random Forest"],
+                key=f"pred_model_{branch_id}",
+            )
+
+        if st.button("Generate Forecast", type="primary", use_container_width=True,
+                     key=f"pred_run_{branch_id}"):
+            with st.spinner(f"Training AI model for {branch_label}..."):
                 daily_sales = prepare_time_series_data(filtered_df, selected_product)
-                
                 if daily_sales is None or len(daily_sales) < 7:
                     st.error("Not enough historical data for this selection. Need at least 7 days of sales.")
                 else:
-                    # Generate forecast
                     forecast_result = forecast_sales(daily_sales, forecast_days, model_type)
-                    
                     if forecast_result:
-                        # Display metrics
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
                             st.metric("Total Forecast", f"${forecast_result['total_forecast']:,.2f}")
@@ -490,67 +529,43 @@ def predictive_analytics_dashboard():
                             st.metric("Trend", forecast_result['trend'].capitalize())
                         with col4:
                             st.metric("Confidence", f"±${forecast_result['confidence_interval']:.2f}")
-                        
+
                         st.markdown("---")
-                        
-                        # Forecast chart
                         forecast_df = pd.DataFrame(forecast_result['forecast'])
-                        
+
                         fig = go.Figure()
-                        
-                        # Actual sales (last 30 days)
                         actual_df = daily_sales.tail(30)
                         fig.add_trace(go.Scatter(
-                            x=actual_df["date"],
-                            y=actual_df["sales"],
-                            mode="lines+markers",
-                            name="Actual Sales",
-                            line=dict(color="#3498db", width=2),
-                            marker=dict(size=6)
+                            x=actual_df["date"], y=actual_df["sales"],
+                            mode="lines+markers", name="Actual Sales",
+                            line=dict(color="#3498db", width=2), marker=dict(size=6),
                         ))
-                        
-                        # Forecast
                         fig.add_trace(go.Scatter(
-                            x=forecast_df["date"],
-                            y=forecast_df["forecast_sales"],
-                            mode="lines+markers",
-                            name="Forecast",
+                            x=forecast_df["date"], y=forecast_df["forecast_sales"],
+                            mode="lines+markers", name="Forecast",
                             line=dict(color="#2ecc71", width=2, dash="dash"),
-                            marker=dict(size=6)
+                            marker=dict(size=6),
                         ))
-                        
-                        # Confidence interval
                         fig.add_trace(go.Scatter(
-                            x=forecast_df["date"],
-                            y=forecast_df["upper_bound"],
-                            mode="lines",
-                            name="Upper Bound",
+                            x=forecast_df["date"], y=forecast_df["upper_bound"],
+                            mode="lines", name="Upper Bound",
                             line=dict(color="rgba(46, 204, 113, 0.3)", width=0),
-                            showlegend=False
+                            showlegend=False,
                         ))
-                        
                         fig.add_trace(go.Scatter(
-                            x=forecast_df["date"],
-                            y=forecast_df["lower_bound"],
-                            mode="lines",
-                            name="Lower Bound",
+                            x=forecast_df["date"], y=forecast_df["lower_bound"],
+                            mode="lines", name="Lower Bound",
                             line=dict(color="rgba(46, 204, 113, 0.3)", width=0),
-                            fill="tonexty",
-                            fillcolor="rgba(46, 204, 113, 0.2)",
-                            showlegend=False
+                            fill="tonexty", fillcolor="rgba(46, 204, 113, 0.2)",
+                            showlegend=False,
                         ))
-                        
                         fig.update_layout(
-                            title=f"Sales Forecast - Next {forecast_days} Days",
-                            xaxis_title="Date",
-                            yaxis_title="Sales ($)",
-                            height=450,
-                            hovermode="x unified"
+                            title=f"Sales Forecast — {branch_label} (Next {forecast_days} Days)",
+                            xaxis_title="Date", yaxis_title="Sales ($)",
+                            height=450, hovermode="x unified",
                         )
-                        
                         st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Model metrics
+
                         with st.expander("Model Performance Metrics"):
                             col1, col2, col3 = st.columns(3)
                             with col1:
@@ -559,79 +574,64 @@ def predictive_analytics_dashboard():
                                 st.metric("Root Mean Squared Error (RMSE)", f"${forecast_result['rmse']:.2f}")
                             with col3:
                                 st.metric("R² Score", f"{forecast_result['r2']:.3f}")
-                        
-                        # Download forecast
+
                         csv = forecast_df.to_csv(index=False).encode('utf-8')
                         st.download_button(
                             label="Download Forecast (CSV)",
                             data=csv,
-                            file_name=f"forecast_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
+                            file_name=(
+                                f"forecast_{re.sub(r'[^A-Za-z0-9_-]+', '_', str(branch_id))}_"
+                                f"{datetime.now().strftime('%Y%m%d')}.csv"
+                            ),
+                            mime="text/csv",
                         )
                     else:
                         st.error("Forecast failed. Please try again.")
-    
+
     # ==============================
     # TAB 2: PRODUCT INSIGHTS
     # ==============================
     with tab2:
         st.markdown("## Product Insights")
-        
+        st.caption(f"Branch: **{branch_label}**")
+
         col1, col2 = st.columns(2)
-        
         with col1:
             st.markdown("### Top Products")
             top_products = get_top_products(filtered_df, 10)
-            
             if not top_products.empty:
                 fig = px.bar(
-                    top_products,
-                    x="total",
-                    y="name",
-                    orientation='h',
-                    title="Top 10 Products by Revenue",
-                    color="total",
-                    color_continuous_scale="Blues",
-                    text="total"
+                    top_products, x="total", y="name", orientation='h',
+                    title=f"Top 10 Products by Revenue — {branch_label}",
+                    color="total", color_continuous_scale="Blues", text="total",
                 )
                 fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
                 fig.update_layout(height=400)
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No product data available")
-        
+
         with col2:
             st.markdown("### Product Performance")
-            
             if not products_df.empty:
-                # Show product performance table
                 product_performance = filtered_df.groupby("name").agg({
-                    "total": "sum",
-                    "profit": "sum",
-                    "items": "sum"
+                    "total": "sum", "profit": "sum", "items": "sum",
                 }).reset_index()
-                
                 product_performance["total"] = product_performance["total"].astype(float)
                 product_performance["profit"] = product_performance["profit"].astype(float)
                 product_performance["items"] = product_performance["items"].astype(int)
-                
-                # Avoid division by zero
+
                 product_performance["margin"] = 0.0
                 mask = product_performance["total"] > 0
                 product_performance.loc[mask, "margin"] = (
-                    product_performance.loc[mask, "profit"] / product_performance.loc[mask, "total"] * 100
+                    product_performance.loc[mask, "profit"]
+                    / product_performance.loc[mask, "total"] * 100
                 ).fillna(0)
-                
-                # Merge with product data for stock info
-                if not products_df.empty:
-                    product_performance = product_performance.merge(
-                        products_df[["name", "stock"]], 
-                        on="name", 
-                        how="left"
-                    )
-                else:
-                    product_performance["stock"] = 0
-                
+
+                product_performance = product_performance.merge(
+                    products_df[["name", "stock"]], on="name", how="left",
+                )
+
                 st.dataframe(
                     product_performance.head(10),
                     use_container_width=True,
@@ -642,123 +642,86 @@ def predictive_analytics_dashboard():
                         "profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
                         "items": "Units Sold",
                         "margin": st.column_config.NumberColumn("Margin", format="%.1f%%"),
-                        "stock": "Stock"
-                    }
+                        "stock": "Stock",
+                    },
                 )
             else:
                 st.info("No performance data available")
-        
+
         st.markdown("---")
-        
-        # Product search
         st.markdown("### Product Lookup")
         search_product = st.selectbox(
             "Search for a product",
-            options=sorted(filtered_df["name"].unique().tolist())
+            options=sorted(filtered_df["name"].unique().tolist()),
+            key=f"pred_lookup_{branch_id}",
         )
-        
         if search_product:
             product_data = filtered_df[filtered_df["name"] == search_product]
-            
             col1, col2, col3 = st.columns(3)
-            
             with col1:
-                st.metric(
-                    "Total Revenue",
-                    f"${product_data['total'].sum():,.2f}"
-                )
-            
+                st.metric("Total Revenue", f"${product_data['total'].sum():,.2f}")
             with col2:
-                st.metric(
-                    "Units Sold",
-                    f"{product_data['items'].sum():,.0f}"
-                )
-            
+                st.metric("Units Sold", f"{product_data['items'].sum():,.0f}")
             with col3:
                 profit = product_data['profit'].sum()
                 total_rev = product_data['total'].sum()
                 margin = (profit / total_rev * 100) if total_rev > 0 else 0
-                st.metric(
-                    "Profit Margin",
-                    f"{margin:.1f}%"
-                )
-            
-            # Product trend
+                st.metric("Profit Margin", f"{margin:.1f}%")
+
             product_trend = get_product_trend(filtered_df, search_product, 30)
-            
             if not product_trend.empty:
                 fig = px.line(
-                    product_trend,
-                    x="date",
-                    y="sales",
-                    title=f"Sales Trend for {search_product}",
-                    labels={"sales": "Sales ($)", "date": "Date"}
+                    product_trend, x="date", y="sales",
+                    title=f"Sales Trend for {search_product} — {branch_label}",
+                    labels={"sales": "Sales ($)", "date": "Date"},
                 )
                 fig.update_layout(height=300)
                 st.plotly_chart(fig, use_container_width=True)
-    
+
     # ==============================
     # TAB 3: TREND ANALYSIS
     # ==============================
     with tab3:
         st.markdown("## Trend Analysis")
-        
-        # Overall sales trend
+        st.caption(f"Branch: **{branch_label}**")
+
         daily_total = filtered_df.groupby(filtered_df["date"].dt.date)["total"].sum().reset_index()
         daily_total.columns = ["date", "sales"]
         daily_total["date"] = pd.to_datetime(daily_total["date"])
         daily_total = daily_total.sort_values("date")
-        
+
         if not daily_total.empty:
-            # Add moving averages
             if len(daily_total) >= 7:
                 daily_total["ma_7"] = daily_total["sales"].rolling(window=7, min_periods=1).mean()
             if len(daily_total) >= 30:
                 daily_total["ma_30"] = daily_total["sales"].rolling(window=30, min_periods=1).mean()
-            
-            # Plot
+
             fig = go.Figure()
-            
             fig.add_trace(go.Scatter(
-                x=daily_total["date"],
-                y=daily_total["sales"],
-                mode="lines",
-                name="Daily Sales",
-                line=dict(color="#3498db", width=1),
-                opacity=0.5
+                x=daily_total["date"], y=daily_total["sales"],
+                mode="lines", name="Daily Sales",
+                line=dict(color="#3498db", width=1), opacity=0.5,
             ))
-            
             if "ma_7" in daily_total.columns:
                 fig.add_trace(go.Scatter(
-                    x=daily_total["date"],
-                    y=daily_total["ma_7"],
-                    mode="lines",
-                    name="7-Day MA",
-                    line=dict(color="#e67e22", width=2)
+                    x=daily_total["date"], y=daily_total["ma_7"],
+                    mode="lines", name="7-Day MA",
+                    line=dict(color="#e67e22", width=2),
                 ))
-            
             if "ma_30" in daily_total.columns:
                 fig.add_trace(go.Scatter(
-                    x=daily_total["date"],
-                    y=daily_total["ma_30"],
-                    mode="lines",
-                    name="30-Day MA",
-                    line=dict(color="#2ecc71", width=2)
+                    x=daily_total["date"], y=daily_total["ma_30"],
+                    mode="lines", name="30-Day MA",
+                    line=dict(color="#2ecc71", width=2),
                 ))
-            
             fig.update_layout(
-                title="Overall Sales Trend",
-                xaxis_title="Date",
-                yaxis_title="Sales ($)",
-                height=400,
-                hovermode="x unified"
+                title=f"Overall Sales Trend — {branch_label}",
+                xaxis_title="Date", yaxis_title="Sales ($)",
+                height=400, hovermode="x unified",
             )
-            
             st.plotly_chart(fig, use_container_width=True)
-            
-            # Growth metrics
+
             if len(daily_total) >= 2:
-                # Calculate growth
                 half_len = len(daily_total) // 2
                 if half_len > 0:
                     first_half = daily_total.head(half_len)["sales"].mean()
@@ -766,95 +729,73 @@ def predictive_analytics_dashboard():
                     growth = ((second_half - first_half) / first_half * 100) if first_half > 0 else 0
                 else:
                     growth = 0
-                
+
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
                     st.metric(
-                        "Growth Rate",
-                        f"{growth:.1f}%",
-                        delta=f"{growth:.1f}%" if growth != 0 else None
+                        "Growth Rate", f"{growth:.1f}%",
+                        delta=f"{growth:.1f}%" if growth != 0 else None,
                     )
-                
                 with col2:
-                    st.metric(
-                        "Avg Daily Sales",
-                        f"${daily_total['sales'].mean():.2f}"
-                    )
-                
+                    st.metric("Avg Daily Sales", f"${daily_total['sales'].mean():.2f}")
                 with col3:
-                    st.metric(
-                        "Avg 7-Day",
-                        f"${daily_total['sales'].tail(7).mean():.2f}"
-                    )
-            
-            # Weekly pattern
+                    st.metric("Avg 7-Day", f"${daily_total['sales'].tail(7).mean():.2f}")
+
             st.markdown("### Weekly Pattern")
-            
             daily_total["day_of_week"] = daily_total["date"].dt.dayofweek
             day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
             weekly_avg = daily_total.groupby("day_of_week")["sales"].mean().reset_index()
             weekly_avg["day_name"] = weekly_avg["day_of_week"].apply(lambda x: day_names[x])
-            
+
             fig = px.bar(
-                weekly_avg,
-                x="day_name",
-                y="sales",
-                title="Average Sales by Day of Week",
-                color="sales",
-                color_continuous_scale="Viridis",
-                text="sales"
+                weekly_avg, x="day_name", y="sales",
+                title=f"Average Sales by Day of Week — {branch_label}",
+                color="sales", color_continuous_scale="Viridis", text="sales",
             )
             fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
             fig.update_layout(height=350)
             st.plotly_chart(fig, use_container_width=True)
-    
+
     # ==============================
     # TAB 4: PREDICTIONS & RECOMMENDATIONS
     # ==============================
     with tab4:
         st.markdown("## AI Predictions & Recommendations")
-        
-        # Calculate various predictions
+        st.caption(f"Branch: **{branch_label}**")
+
         total_sales = float(filtered_df["total"].sum())
         total_profit = float(filtered_df["profit"].sum())
         total_items = int(filtered_df["items"].sum())
-        
-        # Calculate growth rate
+
         month_growth = 0
         if len(filtered_df) >= 2:
             try:
-                filtered_df["month"] = filtered_df["date"].dt.to_period("M")
-                monthly = filtered_df.groupby("month")["total"].sum()
-                
+                filtered_df_copy = filtered_df.copy()
+                filtered_df_copy["month"] = filtered_df_copy["date"].dt.to_period("M")
+                monthly = filtered_df_copy.groupby("month")["total"].sum()
                 if len(monthly) >= 2:
                     last_month = monthly.iloc[-1]
                     prev_month = monthly.iloc[-2]
                     month_growth = ((last_month - prev_month) / prev_month * 100) if prev_month > 0 else 0
-            except:
+            except Exception:
                 pass
-        
+
         col1, col2, col3 = st.columns(3)
-        
         with col1:
             st.metric(
-                "Monthly Growth",
-                f"{month_growth:.1f}%",
+                "Monthly Growth", f"{month_growth:.1f}%",
                 delta=f"{month_growth:.1f}%" if month_growth != 0 else None,
-                delta_color="normal" if month_growth >= 0 else "inverse"
+                delta_color="normal" if month_growth >= 0 else "inverse",
             )
-        
         with col2:
-            # Predict next month sales
             if len(filtered_df) >= 30:
                 daily = prepare_time_series_data(filtered_df)
                 if daily is not None and len(daily) >= 30:
                     forecast = forecast_sales(daily, 30, "Linear Regression")
                     if forecast:
                         st.metric(
-                            "Next Month Forecast",
-                            f"${forecast['total_forecast']:,.2f}",
-                            delta=f"±${forecast['confidence_interval']:.2f}"
+                            "Next Month Forecast", f"${forecast['total_forecast']:,.2f}",
+                            delta=f"±${forecast['confidence_interval']:.2f}",
                         )
                     else:
                         st.metric("Next Month Forecast", "Insufficient data")
@@ -862,29 +803,22 @@ def predictive_analytics_dashboard():
                     st.metric("Next Month Forecast", "Insufficient data")
             else:
                 st.metric("Next Month Forecast", "Need 30+ days of data")
-        
         with col3:
-            # Profitability prediction
             if total_sales > 0:
                 profit_margin = (total_profit / total_sales * 100)
                 status = "Good" if profit_margin > 20 else ("Fair" if profit_margin > 10 else "Low")
                 st.metric(
-                    "Profit Margin",
-                    f"{profit_margin:.1f}%",
+                    "Profit Margin", f"{profit_margin:.1f}%",
                     delta=status,
-                    delta_color="normal" if profit_margin > 15 else "inverse"
+                    delta_color="normal" if profit_margin > 15 else "inverse",
                 )
             else:
                 st.metric("Profit Margin", "N/A")
-        
+
         st.markdown("---")
-        
-        # Recommendations
         st.markdown("### AI Recommendations")
-        
+
         recommendations = []
-        
-        # Check for top products
         top_products = get_top_products(filtered_df, 5)
         if not top_products.empty:
             top_names = top_products["name"].head(3).tolist()
@@ -892,8 +826,7 @@ def predictive_analytics_dashboard():
                 f"Focus on Top Products: {', '.join(top_names)} are your best sellers. "
                 f"Consider increasing stock and marketing these products."
             )
-        
-        # Check for slow movers
+
         all_products = filtered_df["name"].unique()
         if len(all_products) > 5:
             product_counts = filtered_df.groupby("name")["items"].sum()
@@ -905,75 +838,76 @@ def predictive_analytics_dashboard():
                         f"Slow Movers: {', '.join(slow_movers)} have low sales. "
                         f"Consider discounting or running promotions to clear stock."
                     )
-        
-        # Check for seasonal patterns
+
         if len(filtered_df) >= 30:
             daily = prepare_time_series_data(filtered_df)
             if daily is not None and len(daily) >= 30:
-                # Check for weekend effect
                 weekend_avg = daily[daily["is_weekend"] == 1]["sales"].mean()
                 weekday_avg = daily[daily["is_weekend"] == 0]["sales"].mean()
-                
                 if weekday_avg > 0 and weekend_avg > weekday_avg * 1.2:
                     recommendations.append(
-                        f"Weekend Effect: Sales are {weekend_avg/weekday_avg:.1f}x higher on weekends. "
+                        f"Weekend Effect: Sales are {weekend_avg / weekday_avg:.1f}x higher on weekends. "
                         f"Consider weekend promotions and staffing accordingly."
                     )
-        
-        # Check for profit optimization
+
         if not filtered_df.empty:
             product_margin = filtered_df.groupby("name").agg({"profit": "sum", "total": "sum"}).reset_index()
             if not product_margin.empty:
                 product_margin["margin"] = 0.0
                 mask = product_margin["total"] > 0
                 product_margin.loc[mask, "margin"] = (
-                    product_margin.loc[mask, "profit"] / product_margin.loc[mask, "total"] * 100
+                    product_margin.loc[mask, "profit"]
+                    / product_margin.loc[mask, "total"] * 100
                 ).fillna(0)
-                
                 low_margin = product_margin[product_margin["margin"] < 10]["name"].tolist()[:3]
                 if low_margin:
                     recommendations.append(
                         f"Margin Improvement: {', '.join(low_margin)} have low profit margins. "
                         f"Review pricing or find cheaper suppliers."
                     )
-        
+
         if recommendations:
             for rec in recommendations:
                 st.info(rec)
         else:
             st.success("All metrics look good! Continue current strategies.")
-        
+
         st.markdown("---")
-        
-        # Export predictions
         st.markdown("### Export Predictions")
-        
-        if st.button("Generate AI Report", type="primary"):
-            receipt_count = filtered_df["receipt_no"].nunique() if "receipt_no" in filtered_df.columns else len(filtered_df)
+
+        if st.button("Generate AI Report", type="primary", key=f"pred_report_{branch_id}"):
+            receipt_count = (
+                filtered_df["receipt_no"].nunique()
+                if "receipt_no" in filtered_df.columns else len(filtered_df)
+            )
             avg_transaction = total_sales / receipt_count if receipt_count > 0 else 0
-            
+
             report_data = {
                 "Metric": [
-                    "Total Sales", "Total Profit", "Average Daily Sales",
-                    "Monthly Growth", "Number of Products Sold", "Average Transaction Value"
+                    "Branch", "Total Sales", "Total Profit", "Average Daily Sales",
+                    "Monthly Growth", "Number of Products Sold", "Average Transaction Value",
                 ],
                 "Value": [
+                    branch_label,
                     f"${total_sales:,.2f}",
                     f"${total_profit:,.2f}",
-                    f"${daily_total['sales'].mean():.2f}" if 'daily_total' in locals() and not daily_total.empty else "N/A",
+                    f"${daily_total['sales'].mean():.2f}"
+                    if 'daily_total' in locals() and not daily_total.empty else "N/A",
                     f"{month_growth:.1f}%",
                     len(filtered_df["name"].unique()),
-                    f"${avg_transaction:.2f}"
-                ]
+                    f"${avg_transaction:.2f}",
+                ],
             }
             report_df = pd.DataFrame(report_data)
-            
             csv_report = report_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download AI Report (CSV)",
                 data=csv_report,
-                file_name=f"ai_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+                file_name=(
+                    f"ai_report_{re.sub(r'[^A-Za-z0-9_-]+', '_', str(branch_id))}_"
+                    f"{datetime.now().strftime('%Y%m%d')}.csv"
+                ),
+                mime="text/csv",
             )
 
 

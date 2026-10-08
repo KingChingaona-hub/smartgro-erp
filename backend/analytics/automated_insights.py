@@ -1,20 +1,15 @@
 # backend/analytics/automated_insights.py
 """
-Automated Insights Digest
-Daily/weekly AI-generated business summaries sent via email
-Customers sourced from sales table as first priority
+Automated Insights Digest — branch-aware.
 
-DEBT SOURCE: Floating Financials (floating_credits + floating_changes),
-NOT the legacy debtors table.
+Key scoping rules:
+    branch_id = None            -> resolve from session (current user's branch)
+    branch_id = "HO"/"NAT"/..   -> that single branch
+    branch_id = "__ALL__"       -> aggregate across ALL branches (owner only)
 
-INCOME: Sourced from its own recorded income table/CSV — NOT from sales revenue.
-
-NET PROFIT (for the selected period):
-    Net Profit = Gross Profit + Income − Expenses
-
-    - Gross Profit = Revenue − COGS  (from sales, filtered to the period)
-    - Income       = sum of recorded income in the period (own source)
-    - Expenses     = sum of recorded expenses in the period
+Debt comes from Floating Financials (not the legacy debtors table).
+Income comes from its own recorded income source.
+Net Profit = Gross Profit + Income − Expenses, all scoped to the period.
 """
 
 import streamlit as st
@@ -38,7 +33,8 @@ from backend.core.db_adapter import (
     load_expenses,
     load_debtors,       # kept for backwards compatibility (not used for debt)
     load_purchases,
-    to_float
+    load_branches,
+    to_float,
 )
 from backend.integrations.email_reports import get_email_config, send_email
 from backend.modules.expenses import load_expenses as load_expenses_direct
@@ -53,6 +49,84 @@ from backend.core.floating_financials import (
     get_overdue_changes,
     get_written_off_changes,
 )
+
+
+# ==============================
+# BRANCH RESOLUTION
+# ==============================
+ALL_BRANCHES = "__ALL__"
+
+
+def _resolve_branch(branch_id=None):
+    if branch_id is not None:
+        return branch_id
+    try:
+        return (
+            st.session_state.get("user_branch")
+            or st.session_state.get("current_branch_code")
+            or "HO"
+        )
+    except Exception:
+        return "HO"
+
+
+def _is_all_branches(branch_id):
+    return isinstance(branch_id, str) and branch_id.upper() == ALL_BRANCHES
+
+
+def _load_scoped(loader, branch_id, **kwargs):
+    """
+    Call a loader once per branch when branch_id is __ALL__, otherwise once.
+    """
+    if _is_all_branches(branch_id):
+        try:
+            bdf = load_branches()
+        except Exception:
+            bdf = pd.DataFrame()
+        if bdf is None or bdf.empty or "branch_id" not in bdf.columns:
+            try:
+                return loader(**kwargs)
+            except Exception:
+                return pd.DataFrame()
+        frames = []
+        for bid in bdf["branch_id"].astype(str).tolist():
+            try:
+                df = loader(branch_id=bid, **kwargs)
+                if df is not None and not df.empty:
+                    frames.append(df)
+            except Exception:
+                continue
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    try:
+        return loader(branch_id=branch_id, **kwargs)
+    except TypeError:
+        try:
+            return loader(**kwargs)
+        except Exception:
+            return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def _branch_display_name(branch_id):
+    if _is_all_branches(branch_id):
+        return "All Branches"
+    if branch_id is None:
+        return "Current Branch"
+    try:
+        bdf = load_branches()
+        if bdf is None or bdf.empty or "branch_id" not in bdf.columns:
+            return str(branch_id)
+        match = bdf[bdf["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+        if match.empty:
+            return str(branch_id)
+        row = match.iloc[0]
+        name = str(row.get("branch_name", "")).strip()
+        code = str(row.get("branch_id", "")).strip()
+        return f"{name} ({code})" if name else code
+    except Exception:
+        return str(branch_id)
 
 
 # ==============================
@@ -80,7 +154,6 @@ INCOME_FILE = DATA_DIR / "income.csv"
 # ==============================
 # GENERIC HELPERS
 # ==============================
-
 def safe_float(value, default=0.0):
     if value is None:
         return default
@@ -109,7 +182,6 @@ def get_amount_column(df):
 
 
 def get_cost_column(df):
-    """Find a cost column in a sales dataframe (for COGS calculation)."""
     if df is None or df.empty:
         return None
     for col in ["cost", "cost_price", "unit_cost", "purchase_price", "buy_price"]:
@@ -119,7 +191,6 @@ def get_cost_column(df):
 
 
 def get_profit_column(df):
-    """Find a pre-computed profit column in a sales dataframe."""
     if df is None or df.empty:
         return None
     for col in ["profit", "gross_profit", "margin"]:
@@ -158,27 +229,22 @@ def get_customer_column(df):
 def deduplicate_dataframe(df, subset_cols=None):
     if df is None or df.empty:
         return df
-
     df = df.copy()
     unique_col = get_unique_id_column(df)
-
     if unique_col:
         return df.drop_duplicates(subset=[unique_col])
-
     if subset_cols is None:
         subset_cols = []
         for col in ["date", "category", "amount", "description", "vendor", "source"]:
             if col in df.columns:
                 subset_cols.append(col)
-
     if len(subset_cols) >= 2:
         return df.drop_duplicates(subset=subset_cols)
-
     return df
 
 
 def get_customers_from_sales(sales_df):
-    """Extract customers from sales data - PRIMARY SOURCE"""
+    """Extract customers from sales data — PRIMARY SOURCE."""
     if sales_df is None or sales_df.empty:
         return pd.DataFrame()
 
@@ -192,7 +258,6 @@ def get_customers_from_sales(sales_df):
         for c in customers
         if str(c).strip() and str(c).strip().lower() != "walk-in"
     ]
-
     if not customers:
         return pd.DataFrame()
 
@@ -221,9 +286,7 @@ def get_customers_from_sales(sales_df):
         date_col = get_date_column(sales_df)
         last_purchase = None
         if date_col and not customer_sales.empty:
-            customer_sales[date_col] = pd.to_datetime(
-                customer_sales[date_col], errors="coerce"
-            )
+            customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
             last_purchase = customer_sales[date_col].max()
 
         receipt_col = get_receipt_column(sales_df)
@@ -245,7 +308,6 @@ def get_customers_from_sales(sales_df):
 # ==============================
 # INCOME LOADERS
 # ==============================
-
 DATE_ALIASES = [
     "date", "income_date", "date_recorded", "created_at", "recorded_at",
     "transaction_date", "timestamp", "date_created", "entry_date",
@@ -276,19 +338,14 @@ def _find_first_column(df, aliases):
 
 def _normalize_income_df(df, source_label=""):
     diagnostics = {
-        "source": source_label,
-        "rows": 0,
-        "date_col": None,
-        "amount_col": None,
-        "category_col": None,
+        "source": source_label, "rows": 0,
+        "date_col": None, "amount_col": None, "category_col": None,
         "error": None,
     }
-
     if df is None or df.empty:
         return pd.DataFrame(), source_label, diagnostics
 
     df = df.copy()
-
     date_col = _find_first_column(df, DATE_ALIASES)
     amount_col = _find_first_column(df, AMOUNT_ALIASES)
     category_col = _find_first_column(df, CATEGORY_ALIASES)
@@ -308,8 +365,7 @@ def _normalize_income_df(df, source_label=""):
 
     if amount_col is not None:
         df["amount"] = (
-            df[amount_col]
-            .astype(str)
+            df[amount_col].astype(str)
             .str.replace(",", "", regex=False)
             .str.replace("$", "", regex=False)
             .str.replace(" ", "", regex=False)
@@ -327,11 +383,14 @@ def _normalize_income_df(df, source_label=""):
     return df, source_label, diagnostics
 
 
-def _try_load_income_from_db():
+def _try_load_income_from_db(branch_id=None):
     if _load_income_from_db is None:
         return None, None
     try:
-        df = _load_income_from_db()
+        try:
+            df = _load_income_from_db(branch_id=branch_id)
+        except TypeError:
+            df = _load_income_from_db()
         if df is not None and not df.empty:
             return df, "database (load_income)"
     except Exception as e:
@@ -363,13 +422,38 @@ def _discover_income_csvs():
     return candidates
 
 
-def load_income_auto():
-    df, src = _try_load_income_from_db()
-    if df is not None:
-        normalized, label, diag = _normalize_income_df(df, src)
-        if not normalized.empty:
-            return normalized, label, diag
+def load_income_auto(branch_id=None):
+    """Try DB (branch-scoped) first; fall back to CSV (company-wide, then branch filter)."""
+    branch_id = _resolve_branch(branch_id)
 
+    if _is_all_branches(branch_id):
+        # Sum across every branch's DB income
+        if _load_income_from_db is not None:
+            try:
+                bdf = load_branches()
+                frames = []
+                for bid in bdf["branch_id"].astype(str).tolist():
+                    try:
+                        df = _load_income_from_db(branch_id=bid)
+                        if df is not None and not df.empty:
+                            frames.append(df)
+                    except Exception:
+                        continue
+                if frames:
+                    combined = pd.concat(frames, ignore_index=True)
+                    normalized, label, diag = _normalize_income_df(combined, "database (all branches)")
+                    if not normalized.empty:
+                        return normalized, label, diag
+            except Exception as e:
+                print(f"[insights] all-branch income load failed: {e}")
+    else:
+        df, src = _try_load_income_from_db(branch_id=branch_id)
+        if df is not None:
+            normalized, label, diag = _normalize_income_df(df, src)
+            if not normalized.empty:
+                return normalized, label, diag
+
+    # CSV fallback (no branch column assumed — filter if present)
     known_paths = [
         INCOME_FILE,
         Path("income.csv"),
@@ -379,6 +463,8 @@ def load_income_auto():
     for p in known_paths:
         df, src = _try_load_income_from_csv(p)
         if df is not None:
+            if "branch_id" in df.columns and not _is_all_branches(branch_id):
+                df = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
             normalized, label, diag = _normalize_income_df(df, src)
             if not normalized.empty:
                 return normalized, label, diag
@@ -386,16 +472,15 @@ def load_income_auto():
     for p in _discover_income_csvs():
         df, src = _try_load_income_from_csv(p)
         if df is not None:
+            if "branch_id" in df.columns and not _is_all_branches(branch_id):
+                df = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
             normalized, label, diag = _normalize_income_df(df, src)
             if not normalized.empty:
                 return normalized, label, diag
 
     return pd.DataFrame(), "not found", {
-        "source": "not found",
-        "rows": 0,
-        "date_col": None,
-        "amount_col": None,
-        "category_col": None,
+        "source": "not found", "rows": 0,
+        "date_col": None, "amount_col": None, "category_col": None,
         "error": "No income source returned data.",
     }
 
@@ -403,35 +488,27 @@ def load_income_auto():
 def income_in_period(income_df, date_from, date_to):
     if income_df is None or income_df.empty:
         return pd.DataFrame()
-
     if "date" not in income_df.columns or "amount" not in income_df.columns:
         return income_df
-
     df = income_df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
-
     start_dt = pd.to_datetime(date_from)
     end_dt = pd.to_datetime(date_to) + timedelta(days=1) - timedelta(seconds=1)
-
     return df[(df["date"] >= start_dt) & (df["date"] <= end_dt)]
 
 
 def expenses_in_period(expenses_df, date_from, date_to):
     if expenses_df is None or expenses_df.empty:
         return pd.DataFrame()
-
     date_col = get_date_column(expenses_df)
     if date_col is None:
         return expenses_df
-
     df = expenses_df.copy()
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=[date_col])
-
     start_dt = pd.to_datetime(date_from)
     end_dt = pd.to_datetime(date_to) + timedelta(days=1) - timedelta(seconds=1)
-
     return df[(df[date_col] >= start_dt) & (df[date_col] <= end_dt)]
 
 
@@ -450,45 +527,24 @@ def sum_amount_column(df, amount_col_candidates=None):
 
 
 # ==============================
-# GROSS PROFIT HELPERS (NEW)
+# GROSS PROFIT HELPERS
 # ==============================
-
 def _period_filter_by_date(df, date_col, date_from, date_to):
-    """Return df rows with df[date_col] inside [date_from, date_to] inclusive."""
     if df is None or df.empty or date_col is None:
         return df
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=[date_col])
-
     start_dt = pd.to_datetime(date_from)
     end_dt = pd.to_datetime(date_to) + timedelta(days=1) - timedelta(seconds=1)
     return df[(df[date_col] >= start_dt) & (df[date_col] <= end_dt)]
 
 
 def compute_gross_profit_in_period(sales_df, date_from, date_to):
-    """
-    Compute Gross Profit for the selected period from the sales data.
-
-    Returns dict:
-        {
-          "revenue": float,        # sales total in period
-          "cogs": float,           # cost of goods sold in period (if derivable)
-          "gross_profit": float,   # revenue - cogs OR sum of 'profit' column
-          "receipts": int,         # unique receipts in period
-          "basis": str,            # "profit column" | "revenue - cost" | "revenue only"
-          "message": str,          # human-friendly explanation
-        }
-    """
     result = {
-        "revenue": 0.0,
-        "cogs": 0.0,
-        "gross_profit": 0.0,
-        "receipts": 0,
-        "basis": "revenue only",
-        "message": "",
+        "revenue": 0.0, "cogs": 0.0, "gross_profit": 0.0,
+        "receipts": 0, "basis": "revenue only", "message": "",
     }
-
     if sales_df is None or sales_df.empty:
         result["message"] = "No sales data available for the period."
         return result
@@ -504,16 +560,13 @@ def compute_gross_profit_in_period(sales_df, date_from, date_to):
         return result
 
     period_df = _period_filter_by_date(sales_df, date_col, date_from, date_to)
-
     if period_df.empty:
         result["message"] = "No sales in the selected period."
         return result
 
-    # Deduplicate by receipt to avoid counting the same sale multiple times
     if receipt_col and receipt_col in period_df.columns:
         period_df = period_df.drop_duplicates(subset=[receipt_col])
 
-    # Coerce numerics
     try:
         period_df = period_df.copy()
         period_df[amount_col] = pd.to_numeric(period_df[amount_col], errors="coerce").fillna(0)
@@ -524,12 +577,10 @@ def compute_gross_profit_in_period(sales_df, date_from, date_to):
     result["revenue"] = revenue
     result["receipts"] = len(period_df)
 
-    # Prefer a pre-computed profit column
     if profit_col and profit_col in period_df.columns:
         try:
             gp = safe_float(pd.to_numeric(period_df[profit_col], errors="coerce").fillna(0).sum())
             result["gross_profit"] = gp
-            # COGS is implicit: revenue - gross_profit
             result["cogs"] = max(revenue - gp, 0.0)
             result["basis"] = "profit column"
             result["message"] = (
@@ -540,7 +591,6 @@ def compute_gross_profit_in_period(sales_df, date_from, date_to):
         except Exception:
             pass
 
-    # Fall back to revenue − cost if a cost column exists
     if cost_col and cost_col in period_df.columns:
         try:
             period_df[cost_col] = pd.to_numeric(period_df[cost_col], errors="coerce").fillna(0)
@@ -549,21 +599,17 @@ def compute_gross_profit_in_period(sales_df, date_from, date_to):
             result["cogs"] = cogs
             result["gross_profit"] = gp
             result["basis"] = "revenue - cost"
-            result["message"] = (
-                f"Gross profit computed as revenue − COGS using '{cost_col}'."
-            )
+            result["message"] = f"Gross profit computed as revenue − COGS using '{cost_col}'."
             return result
         except Exception:
             pass
 
-    # No cost info available: treat revenue as gross profit and flag it
     result["gross_profit"] = revenue
     result["cogs"] = 0.0
     result["basis"] = "revenue only"
     result["message"] = (
-        "No cost or profit column found in sales data — "
-        "gross profit equals revenue for the period. Add a 'cost' or 'profit' "
-        "column to sales to get a true gross profit."
+        "No cost or profit column found in sales data — gross profit equals revenue "
+        "for the period. Add a 'cost' or 'profit' column to sales to get a true gross profit."
     )
     return result
 
@@ -571,44 +617,66 @@ def compute_gross_profit_in_period(sales_df, date_from, date_to):
 # ==============================
 # FLOATING FINANCIALS DEBT HELPERS
 # ==============================
+def fetch_floating_debt_snapshot(branch_id=None):
+    branch_id = _resolve_branch(branch_id)
 
-def fetch_floating_debt_snapshot():
     snapshot = {
-        "total_credit_balance": 0.0,
-        "active_credit_count": 0,
-        "partial_credit_count": 0,
-        "total_credit_amount": 0.0,
-        "total_credit_paid": 0.0,
-
-        "total_change_balance": 0.0,
-        "uncollected_change_count": 0,
-        "partial_change_count": 0,
-        "total_change_amount": 0.0,
-        "total_change_collected": 0.0,
-
-        "bad_debt_count": 0,
-        "bad_debt_outstanding": 0.0,
-        "bad_debt_original": 0.0,
-        "written_off_changes_count": 0,
-        "written_off_changes_outstanding": 0.0,
+        "total_credit_balance": 0.0, "active_credit_count": 0, "partial_credit_count": 0,
+        "total_credit_amount": 0.0, "total_credit_paid": 0.0,
+        "total_change_balance": 0.0, "uncollected_change_count": 0, "partial_change_count": 0,
+        "total_change_amount": 0.0, "total_change_collected": 0.0,
+        "bad_debt_count": 0, "bad_debt_outstanding": 0.0, "bad_debt_original": 0.0,
+        "written_off_changes_count": 0, "written_off_changes_outstanding": 0.0,
         "written_off_changes_original": 0.0,
-
-        "overdue_credit_count": 0,
-        "overdue_credit_balance": 0.0,
-        "overdue_change_count": 0,
-        "overdue_change_balance": 0.0,
+        "overdue_credit_count": 0, "overdue_credit_balance": 0.0,
+        "overdue_change_count": 0, "overdue_change_balance": 0.0,
     }
 
-    try:
-        cs = get_credit_summary() or {}
-        snapshot["total_credit_amount"] = safe_float(cs.get("total_credit", 0))
-        snapshot["total_credit_paid"] = safe_float(cs.get("total_paid", 0))
-        snapshot["total_credit_balance"] = safe_float(cs.get("total_balance", 0))
-        snapshot["active_credit_count"] = int(cs.get("active_count", 0) or 0)
-        snapshot["partial_credit_count"] = int(cs.get("partial_count", 0) or 0)
-    except Exception as e:
-        print(f"[insights] get_credit_summary failed: {e}")
+    def _scoped_credit_records():
+        """Return credit records, filtered to branch when possible."""
+        try:
+            try:
+                df = get_credit_records(branch_id=branch_id)
+            except TypeError:
+                df = get_credit_records()
+                if df is not None and not df.empty and "branch_id" in df.columns \
+                        and not _is_all_branches(branch_id):
+                    df = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+            return df
+        except Exception as e:
+            print(f"[insights] get_credit_records failed: {e}")
+            return pd.DataFrame()
 
+    # ---- Credit summary (recomputed from scoped records for consistency) ----
+    try:
+        records = _scoped_credit_records()
+        if records is not None and not records.empty:
+            records = records.copy()
+            if "amount" in records.columns:
+                records["amount"] = pd.to_numeric(records["amount"], errors="coerce").fillna(0)
+            if "amount_paid" in records.columns:
+                records["amount_paid"] = pd.to_numeric(records["amount_paid"], errors="coerce").fillna(0)
+            if "balance" in records.columns:
+                records["balance"] = pd.to_numeric(records["balance"], errors="coerce").fillna(0)
+
+            snapshot["total_credit_amount"] = safe_float(records.get("amount", pd.Series(dtype=float)).sum())
+            snapshot["total_credit_paid"] = safe_float(records.get("amount_paid", pd.Series(dtype=float)).sum())
+            snapshot["total_credit_balance"] = safe_float(records.get("balance", pd.Series(dtype=float)).sum())
+
+            if "status" in records.columns:
+                open_records = records[records["status"].astype(str).str.upper().isin(["ACTIVE", "PARTIAL", "NOT PAID", "PENDING"])]
+            else:
+                open_records = records[records.get("balance", 0) > 0]
+            snapshot["active_credit_count"] = int(len(open_records[open_records.get("balance", 0) > 0])) if not open_records.empty else 0
+
+            if "status" in records.columns:
+                snapshot["partial_credit_count"] = int(
+                    (records["status"].astype(str).str.upper() == "PARTIAL").sum()
+                )
+    except Exception as e:
+        print(f"[insights] scoped credit summary failed: {e}")
+
+    # ---- Changes ----
     try:
         chs = get_change_summary() or {}
         snapshot["total_change_amount"] = safe_float(chs.get("total_change", 0))
@@ -619,10 +687,13 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_change_summary failed: {e}")
 
+    # ---- Bad debt ----
     try:
         bd_df = get_bad_debt_credits()
         if bd_df is not None and not bd_df.empty:
             bd = bd_df.copy()
+            if "branch_id" in bd.columns and not _is_all_branches(branch_id):
+                bd = bd[bd["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
             bd["amount"] = pd.to_numeric(bd.get("amount"), errors="coerce").fillna(0)
             bd["amount_paid"] = pd.to_numeric(bd.get("amount_paid"), errors="coerce").fillna(0)
             bd["outstanding"] = (bd["amount"] - bd["amount_paid"]).clip(lower=0)
@@ -633,10 +704,13 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_bad_debt_credits failed: {e}")
 
+    # ---- Written-off changes ----
     try:
         wo_df = get_written_off_changes()
         if wo_df is not None and not wo_df.empty:
             wo = wo_df.copy()
+            if "branch_id" in wo.columns and not _is_all_branches(branch_id):
+                wo = wo[wo["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
             wo["amount"] = pd.to_numeric(wo.get("amount"), errors="coerce").fillna(0)
             wo["amount_collected"] = pd.to_numeric(wo.get("amount_collected"), errors="coerce").fillna(0)
             wo["outstanding"] = (wo["amount"] - wo["amount_collected"]).clip(lower=0)
@@ -647,20 +721,26 @@ def fetch_floating_debt_snapshot():
     except Exception as e:
         print(f"[insights] get_written_off_changes failed: {e}")
 
+    # ---- Overdue credits ----
     try:
         od_cr = get_overdue_credits()
         if od_cr is not None and not od_cr.empty:
             od_cr = od_cr.copy()
+            if "branch_id" in od_cr.columns and not _is_all_branches(branch_id):
+                od_cr = od_cr[od_cr["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
             od_cr["balance"] = pd.to_numeric(od_cr.get("balance"), errors="coerce").fillna(0)
             snapshot["overdue_credit_count"] = int(len(od_cr))
             snapshot["overdue_credit_balance"] = safe_float(od_cr["balance"].sum())
     except Exception as e:
         print(f"[insights] get_overdue_credits failed: {e}")
 
+    # ---- Overdue changes ----
     try:
         od_ch = get_overdue_changes()
         if od_ch is not None and not od_ch.empty:
             od_ch = od_ch.copy()
+            if "branch_id" in od_ch.columns and not _is_all_branches(branch_id):
+                od_ch = od_ch[od_ch["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
             od_ch["balance"] = pd.to_numeric(od_ch.get("balance"), errors="coerce").fillna(0)
             snapshot["overdue_change_count"] = int(len(od_ch))
             snapshot["overdue_change_balance"] = safe_float(od_ch["balance"].sum())
@@ -673,24 +753,25 @@ def fetch_floating_debt_snapshot():
 # ==============================
 # INSIGHTS GENERATOR
 # ==============================
-
 class InsightsGenerator:
-    """Generate automated business insights"""
+    """Generate automated business insights — branch-aware."""
 
     def __init__(self):
         self.insights = []
         self.metrics = {}
         self.recommendations = []
         self.alerts = []
+        self.branch_id = None
+        self.branch_name = None
 
-    def generate_daily_insights(self, date_from=None, date_to=None):
+    def generate_daily_insights(self, branch_id=None, date_from=None, date_to=None):
         """
-        Generate business insights.
+        Generate business insights for a branch (or all branches).
+        """
+        branch_id = _resolve_branch(branch_id)
+        self.branch_id = branch_id
+        self.branch_name = _branch_display_name(branch_id)
 
-        date_from / date_to : optional explicit period for period-based
-                              metrics (Gross Profit, Income, Expenses, Net Profit).
-                              Defaults to last 30 days.
-        """
         if date_to is None:
             date_to = datetime.now().date()
         if date_from is None:
@@ -708,20 +789,34 @@ class InsightsGenerator:
             "date_to": date_to.isoformat(),
         }
 
-        # Load data
-        sales_df = load_sales()
-        products_df = load_products()
-        expenses_df = load_expenses_direct()
+        # ---- Load branch-scoped data ----
+        sales_df = _load_scoped(load_sales, branch_id)
+        products_df = _load_scoped(load_products, branch_id)
 
-        # Debt from floating financials
-        debt_snapshot = fetch_floating_debt_snapshot()
+        # Expenses: prefer the module's loader, scoped
+        try:
+            if _is_all_branches(branch_id):
+                expenses_df = _load_scoped(load_expenses_direct, branch_id)
+            else:
+                expenses_df = load_expenses_direct(branch_id=branch_id)
+        except TypeError:
+            try:
+                expenses_df = load_expenses_direct()
+            except Exception:
+                expenses_df = pd.DataFrame()
+        except Exception:
+            expenses_df = pd.DataFrame()
 
-        # Income from its own recorded source
-        income_df, income_source, income_diag = load_income_auto()
+        # Debt from floating financials (branch-filtered)
+        debt_snapshot = fetch_floating_debt_snapshot(branch_id)
 
+        # Income from its own source (branch-scoped)
+        income_df, income_source, income_diag = load_income_auto(branch_id)
+
+        # Customers
         customers_df = get_customers_from_sales(sales_df)
         if customers_df.empty:
-            customers_df = load_customers()
+            customers_df = _load_scoped(load_customers, branch_id)
 
         today = datetime.now().date()
         yesterday = today - timedelta(days=1)
@@ -733,42 +828,28 @@ class InsightsGenerator:
         self.recommendations = []
         self.alerts = []
 
+        self.metrics["branch_id"] = branch_id
+        self.metrics["branch_name"] = self.branch_name
         self.metrics["income_source"] = income_source
         self.metrics["income_rows_total"] = income_diag.get("rows", 0)
         self.metrics["income_date_col"] = income_diag.get("date_col")
         self.metrics["income_amount_col"] = income_diag.get("amount_col")
 
-        # Sales Insights
-        sales_insights = self._analyze_sales(sales_df, today, yesterday, week_ago, month_ago)
-        self.insights.extend(sales_insights)
-
-        # Product Insights
-        product_insights = self._analyze_products(products_df, sales_df)
-        self.insights.extend(product_insights)
-
-        # Customer Insights
-        customer_insights = self._analyze_customers(customers_df, sales_df)
-        self.insights.extend(customer_insights)
-
-        # Financial Insights (Gross Profit + Income - Expenses => Net Profit)
-        financial_insights = self._analyze_financials(
+        self.insights.extend(self._analyze_sales(sales_df, today, yesterday, week_ago, month_ago))
+        self.insights.extend(self._analyze_products(products_df, sales_df))
+        self.insights.extend(self._analyze_customers(customers_df, sales_df))
+        self.insights.extend(self._analyze_financials(
             expenses_df, sales_df, income_df, date_from, date_to
-        )
-        self.insights.extend(financial_insights)
+        ))
+        self.insights.extend(self._analyze_floating_debt(debt_snapshot))
 
-        # Floating Financials debt insights
-        debt_insights = self._analyze_floating_debt(debt_snapshot)
-        self.insights.extend(debt_insights)
-
-        # Alerts
         self.alerts = self._generate_alerts(products_df, sales_df, debt_snapshot)
 
         return self._format_report()
 
     def _analyze_sales(self, sales_df, today, yesterday, week_ago, month_ago):
         insights = []
-
-        if sales_df.empty:
+        if sales_df is None or sales_df.empty:
             return [{"type": "sales", "message": "No sales data available", "priority": "info"}]
 
         date_col = get_date_column(sales_df)
@@ -781,7 +862,6 @@ class InsightsGenerator:
         sales_df = sales_df.copy()
         sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
         sales_df = sales_df.dropna(subset=[date_col])
-
         if sales_df.empty:
             return [{"type": "sales", "message": "No valid sales dates", "priority": "info"}]
 
@@ -815,35 +895,35 @@ class InsightsGenerator:
                         "type": "sales",
                         "message": f"Sales up {growth:.0f}% compared to yesterday",
                         "priority": "high",
-                        "detail": f"Today: ${today_revenue:,.2f} vs Yesterday: ${yesterday_revenue:,.2f}"
+                        "detail": f"Today: ${today_revenue:,.2f} vs Yesterday: ${yesterday_revenue:,.2f}",
                     })
                 elif growth < -20:
                     insights.append({
                         "type": "sales",
                         "message": f"Sales down {abs(growth):.0f}% compared to yesterday",
                         "priority": "medium",
-                        "detail": f"Today: ${today_revenue:,.2f} vs Yesterday: ${yesterday_revenue:,.2f}"
+                        "detail": f"Today: ${today_revenue:,.2f} vs Yesterday: ${yesterday_revenue:,.2f}",
                     })
                 else:
                     insights.append({
                         "type": "sales",
                         "message": f"Sales stable at ${today_revenue:,.2f} today",
                         "priority": "info",
-                        "detail": f"{today_transactions} transactions today"
+                        "detail": f"{today_transactions} transactions today",
                     })
             else:
                 insights.append({
                     "type": "sales",
                     "message": f"Today's sales: ${today_revenue:,.2f}",
                     "priority": "info",
-                    "detail": f"{today_transactions} transactions today"
+                    "detail": f"{today_transactions} transactions today",
                 })
         else:
             insights.append({
                 "type": "sales",
                 "message": "No sales recorded today",
                 "priority": "warning",
-                "detail": "Check if store is open and POS is working"
+                "detail": "Check if store is open and POS is working",
             })
 
         if week_revenue > 0:
@@ -851,19 +931,18 @@ class InsightsGenerator:
                 "type": "sales",
                 "message": f"Weekly sales: ${week_revenue:,.2f}",
                 "priority": "info",
-                "detail": "Last 7 days performance"
+                "detail": "Last 7 days performance",
             })
 
         return insights
 
     def _analyze_products(self, products_df, sales_df):
         insights = []
-
-        if products_df.empty:
+        if products_df is None or products_df.empty:
             return [{"type": "products", "message": "No products in inventory", "priority": "info"}]
 
         total_products = len(products_df)
-        out_of_stock = len(products_df[products_df["stock"] == 0])
+        out_of_stock = len(products_df[products_df["stock"] == 0]) if "stock" in products_df.columns else 0
 
         reorder_col = None
         for col in ["reorder_level", "reorder_point", "min_stock"]:
@@ -871,23 +950,25 @@ class InsightsGenerator:
                 reorder_col = col
                 break
 
-        if reorder_col:
+        if reorder_col and "stock" in products_df.columns:
             low_stock = len(products_df[products_df["stock"] <= products_df[reorder_col]])
-        else:
+        elif "stock" in products_df.columns:
             low_stock = len(products_df[(products_df["stock"] > 0) & (products_df["stock"] < 5)])
+        else:
+            low_stock = 0
 
         self.metrics["total_products"] = total_products
         self.metrics["out_of_stock"] = out_of_stock
         self.metrics["low_stock"] = low_stock
 
-        if out_of_stock > 0:
+        if out_of_stock > 0 and "name" in products_df.columns:
             out_of_stock_products = products_df[products_df["stock"] == 0]["name"].head(3).tolist()
             names = ", ".join(out_of_stock_products)
             insights.append({
                 "type": "products",
                 "message": f"{out_of_stock} products out of stock",
                 "priority": "critical",
-                "detail": f"Affected: {names}" + ("..." if len(out_of_stock_products) > 3 else "")
+                "detail": f"Affected: {names}" + ("..." if len(out_of_stock_products) > 3 else ""),
             })
 
         if low_stock > 0:
@@ -895,7 +976,7 @@ class InsightsGenerator:
                 "type": "products",
                 "message": f"{low_stock} products low on stock",
                 "priority": "high",
-                "detail": "Place orders soon to avoid stockouts"
+                "detail": "Place orders soon to avoid stockouts",
             })
 
         if out_of_stock == 0 and low_stock == 0:
@@ -903,16 +984,15 @@ class InsightsGenerator:
                 "type": "products",
                 "message": "All products in stock",
                 "priority": "success",
-                "detail": f"{total_products} products available"
+                "detail": f"{total_products} products available",
             })
 
-        if not sales_df.empty and "name" in sales_df.columns:
+        if sales_df is not None and not sales_df.empty and "name" in sales_df.columns:
             receipt_col = get_receipt_column(sales_df)
             if receipt_col and receipt_col in sales_df.columns:
                 sales_products = sales_df.drop_duplicates(subset=[receipt_col])
             else:
                 sales_products = sales_df
-
             if "items" in sales_products.columns:
                 top_products = sales_products.groupby("name")["items"].sum().nlargest(3)
                 if not top_products.empty:
@@ -921,55 +1001,45 @@ class InsightsGenerator:
                         "type": "products",
                         "message": f"Top selling products: {', '.join(top_names)}",
                         "priority": "info",
-                        "detail": "Focus on these best-sellers"
+                        "detail": "Focus on these best-sellers",
                     })
 
         return insights
 
     def _analyze_customers(self, customers_df, sales_df):
         insights = []
-
-        if customers_df.empty:
+        if customers_df is None or customers_df.empty:
             return [{"type": "customers", "message": "No customer data available (no sales with customer names)", "priority": "info"}]
 
         total_customers = len(customers_df)
         self.metrics["total_customers"] = total_customers
 
-        if not sales_df.empty:
+        if sales_df is not None and not sales_df.empty:
             customer_col = get_customer_column(sales_df)
             date_col = get_date_column(sales_df)
-
             if customer_col and date_col:
                 sales_df = sales_df.copy()
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 month_ago = datetime.now() - timedelta(days=30)
-
                 recent_sales = sales_df[sales_df[date_col] >= month_ago].copy()
                 if not recent_sales.empty:
                     receipt_col = get_receipt_column(sales_df)
                     if receipt_col and receipt_col in recent_sales.columns:
                         recent_sales = recent_sales.drop_duplicates(subset=[receipt_col])
-
                     recent_customers = recent_sales[customer_col].dropna().unique()
                     recent_customers = [
-                        str(c).strip()
-                        for c in recent_customers
+                        str(c).strip() for c in recent_customers
                         if str(c).strip().lower() != "walk-in"
                     ]
-
                     new_customers = len(recent_customers)
                     self.metrics["new_customers"] = new_customers
-
                     if new_customers > 0:
                         insights.append({
                             "type": "customers",
                             "message": f"{new_customers} active customers this month",
                             "priority": "info",
-                            "detail": f"Total: {total_customers} customers"
+                            "detail": f"Total: {total_customers} customers",
                         })
-
-        if not sales_df.empty:
-            customer_col = get_customer_column(sales_df)
 
             if customer_col:
                 receipt_col = get_receipt_column(sales_df)
@@ -977,14 +1047,11 @@ class InsightsGenerator:
                     sales_customers = sales_df.drop_duplicates(subset=[receipt_col])
                 else:
                     sales_customers = sales_df
-
                 customer_counts = sales_customers.groupby(customer_col).size()
                 customer_counts = customer_counts[customer_counts.index.str.lower() != "walk-in"]
-
                 if not customer_counts.empty:
                     repeat_customers = len(customer_counts[customer_counts > 1])
                     self.metrics["repeat_customers"] = repeat_customers
-
                     if repeat_customers > 0:
                         retention_rate = (repeat_customers / len(customer_counts) * 100) if len(customer_counts) > 0 else 0
                         if retention_rate < 20:
@@ -992,53 +1059,48 @@ class InsightsGenerator:
                                 "type": "customers",
                                 "message": f"Low retention rate: {retention_rate:.1f}%",
                                 "priority": "medium",
-                                "detail": "Consider loyalty programs to improve retention"
+                                "detail": "Consider loyalty programs to improve retention",
                             })
                         else:
                             insights.append({
                                 "type": "customers",
                                 "message": f"Customer retention: {retention_rate:.1f}%",
                                 "priority": "success",
-                                "detail": f"{repeat_customers} repeat customers"
+                                "detail": f"{repeat_customers} repeat customers",
                             })
                     else:
                         insights.append({
                             "type": "customers",
                             "message": "No repeat customers yet",
                             "priority": "info",
-                            "detail": "Focus on customer retention strategies"
+                            "detail": "Focus on customer retention strategies",
                         })
 
         return insights
 
-    # ============================================================
-    # FINANCIALS — Net Profit = Gross Profit + Income − Expenses
-    # ============================================================
     def _analyze_financials(self, expenses_df, sales_df, income_df, date_from, date_to):
         insights = []
-
         period_label = f"{date_from.isoformat()} → {date_to.isoformat()}"
         self.metrics["period_label"] = period_label
         self.metrics["net_profit_period_label"] = period_label
 
-        # ---------- 1) GROSS PROFIT (from sales, filtered to period) ----------
+        # 1) Gross Profit (sales, filtered to period)
         gp = compute_gross_profit_in_period(sales_df, date_from, date_to)
         period_revenue = gp["revenue"]
         period_cogs = gp["cogs"]
         period_gross_profit = gp["gross_profit"]
         gross_profit_basis = gp["basis"]
-        gross_profit_message = gp["message"]
 
         self.metrics["period_revenue"] = period_revenue
         self.metrics["period_cogs"] = period_cogs
         self.metrics["period_gross_profit"] = period_gross_profit
         self.metrics["gross_profit_basis"] = gross_profit_basis
-        self.metrics["gross_profit_message"] = gross_profit_message
+        self.metrics["gross_profit_message"] = gp["message"]
         self.metrics["period_receipts"] = gp["receipts"]
 
-        # Keep an all-time revenue metric for backwards compatibility
+        # All-time revenue (for backwards compatibility)
         all_time_revenue = 0
-        if not sales_df.empty:
+        if sales_df is not None and not sales_df.empty:
             amt_col = get_amount_column(sales_df)
             rec_col = get_receipt_column(sales_df)
             if amt_col:
@@ -1048,7 +1110,6 @@ class InsightsGenerator:
                 all_time_revenue = safe_float(pd.to_numeric(tmp[amt_col], errors="coerce").fillna(0).sum())
         self.metrics["total_revenue"] = all_time_revenue
 
-        # Gross profit insight
         if period_revenue > 0 or period_gross_profit > 0:
             insights.append({
                 "type": "financial",
@@ -1057,32 +1118,31 @@ class InsightsGenerator:
                 "detail": (
                     f"Revenue ${period_revenue:,.2f} − COGS ${period_cogs:,.2f} "
                     f"({gp['receipts']} receipts) • basis: {gross_profit_basis}"
-                )
+                ),
             })
         else:
             insights.append({
                 "type": "financial",
                 "message": "No sales in the selected period — gross profit is $0",
                 "priority": "info",
-                "detail": gross_profit_message
+                "detail": gp["message"],
             })
 
-        # ---------- 2) INCOME (from its own source, filtered to period) ----------
+        # 2) Income
         period_income_df = income_in_period(income_df, date_from, date_to)
         period_income = sum_amount_column(
             period_income_df,
-            ["amount", "total", "value", "income_amount", "received"]
+            ["amount", "total", "value", "income_amount", "received"],
         )
         self.metrics["period_income"] = period_income
         self.metrics["total_income"] = period_income
 
-        # Monthly income (last 30 days) for reference
         month_ago = datetime.now().date() - timedelta(days=30)
         today = datetime.now().date()
         month_income_df = income_in_period(income_df, month_ago, today)
         monthly_income = sum_amount_column(
             month_income_df,
-            ["amount", "total", "value", "income_amount", "received"]
+            ["amount", "total", "value", "income_amount", "received"],
         )
         self.metrics["monthly_income"] = monthly_income
 
@@ -1091,44 +1151,27 @@ class InsightsGenerator:
                 "type": "income",
                 "message": f"Income for period ({period_label}): ${period_income:,.2f}",
                 "priority": "info",
-                "detail": f"Sourced from: {self.metrics.get('income_source', 'unknown')}"
+                "detail": f"Sourced from: {self.metrics.get('income_source', 'unknown')}",
             })
         else:
             insights.append({
                 "type": "income",
                 "message": "No income recorded for the selected period",
                 "priority": "info",
-                "detail": f"Source checked: {self.metrics.get('income_source', 'unknown')}"
+                "detail": f"Source checked: {self.metrics.get('income_source', 'unknown')}",
             })
 
-        # ---------- 3) EXPENSES (filtered to period) ----------
+        # 3) Expenses
         period_expenses_df = expenses_in_period(expenses_df, date_from, date_to)
         period_expenses = sum_amount_column(
-            period_expenses_df,
-            ["amount", "total", "value", "expense_amount"]
+            period_expenses_df, ["amount", "total", "value", "expense_amount"]
         )
-
-        # Fallback to db_adapter if module returned nothing
-        if period_expenses == 0:
-            try:
-                from backend.core.db_adapter import load_expenses as load_expenses_core
-                alt_expenses = load_expenses_core()
-                if alt_expenses is not None and not alt_expenses.empty:
-                    alt_period = expenses_in_period(alt_expenses, date_from, date_to)
-                    period_expenses = sum_amount_column(
-                        alt_period, ["amount", "total", "value", "expense_amount"]
-                    )
-            except Exception:
-                pass
-
         self.metrics["period_expenses"] = period_expenses
-        self.metrics["total_expenses"] = period_expenses  # backwards compat
+        self.metrics["total_expenses"] = period_expenses
 
-        # Monthly expenses for reference
         month_expenses_df = expenses_in_period(expenses_df, month_ago, today)
         monthly_expenses = sum_amount_column(
-            month_expenses_df,
-            ["amount", "total", "value", "expense_amount"]
+            month_expenses_df, ["amount", "total", "value", "expense_amount"]
         )
         self.metrics["monthly_expenses"] = monthly_expenses
 
@@ -1137,25 +1180,21 @@ class InsightsGenerator:
                 "type": "financial",
                 "message": f"Expenses for period ({period_label}): ${period_expenses:,.2f}",
                 "priority": "info",
-                "detail": f"Monthly expenses: ${monthly_expenses:,.2f}"
+                "detail": f"Monthly expenses: ${monthly_expenses:,.2f}",
             })
         else:
             insights.append({
                 "type": "financial",
                 "message": "No expenses recorded for the selected period",
                 "priority": "info",
-                "detail": "Start recording expenses in the Expenses module"
+                "detail": "Start recording expenses in the Expenses module",
             })
 
-        # ---------- 4) NET PROFIT = Gross Profit + Income − Expenses ----------
+        # 4) Net profit
         net_profit = period_gross_profit + period_income - period_expenses
         self.metrics["net_profit"] = net_profit
-
-        # Legacy keys kept aligned to the new value
         self.metrics["net_income"] = net_profit
-        self.metrics["income"] = period_income  # recorded income in the period
-
-        # Also store the breakdown so downstream displays can show it
+        self.metrics["income"] = period_income
         self.metrics["net_profit_formula"] = (
             f"Gross Profit ${period_gross_profit:,.2f} "
             f"+ Income ${period_income:,.2f} "
@@ -1163,47 +1202,40 @@ class InsightsGenerator:
             f"= Net Profit ${net_profit:,.2f}"
         )
 
-        # Net profit insight
-        if (
-            period_revenue > 0
-            or period_income > 0
-            or period_expenses > 0
-            or period_gross_profit > 0
-        ):
+        if (period_revenue > 0 or period_income > 0 or period_expenses > 0 or period_gross_profit > 0):
             if net_profit > 0:
                 insights.append({
                     "type": "financial",
                     "message": f"Net profit for period ({period_label}): ${net_profit:,.2f}",
                     "priority": "success",
-                    "detail": self.metrics["net_profit_formula"]
+                    "detail": self.metrics["net_profit_formula"],
                 })
             elif net_profit < 0:
                 insights.append({
                     "type": "financial",
                     "message": f"Net loss for period ({period_label}): ${abs(net_profit):,.2f}",
                     "priority": "high",
-                    "detail": self.metrics["net_profit_formula"]
+                    "detail": self.metrics["net_profit_formula"],
                 })
             else:
                 insights.append({
                     "type": "financial",
                     "message": f"Net profit is $0 (break-even) for period ({period_label})",
                     "priority": "info",
-                    "detail": self.metrics["net_profit_formula"]
+                    "detail": self.metrics["net_profit_formula"],
                 })
         else:
             insights.append({
                 "type": "financial",
                 "message": "Net profit cannot be computed — no revenue, income, or expenses in period",
                 "priority": "info",
-                "detail": f"Period: {period_label}"
+                "detail": f"Period: {period_label}",
             })
 
         return insights
 
     def _analyze_floating_debt(self, snapshot):
         insights = []
-
         if not snapshot:
             return [{"type": "debt", "message": "No floating financials debt data available", "priority": "info"}]
 
@@ -1238,14 +1270,14 @@ class InsightsGenerator:
                 "type": "debt",
                 "message": f"Outstanding credit: ${credit_balance:,.2f}",
                 "priority": "medium" if credit_balance > 1000 else "info",
-                "detail": f"{open_credit_count} open credit record(s) in Floating Financials"
+                "detail": f"{open_credit_count} open credit record(s) in Floating Financials",
             })
         else:
             insights.append({
                 "type": "debt",
                 "message": "No outstanding customer credit",
                 "priority": "success",
-                "detail": "All credits fully paid"
+                "detail": "All credits fully paid",
             })
 
         change_balance = snapshot.get("total_change_balance", 0.0)
@@ -1258,7 +1290,7 @@ class InsightsGenerator:
                 "type": "debt",
                 "message": f"Uncollected change: ${change_balance:,.2f}",
                 "priority": "info",
-                "detail": f"{open_change_count} open change record(s) in Floating Financials"
+                "detail": f"{open_change_count} open change record(s) in Floating Financials",
             })
 
         bd_outstanding = snapshot.get("bad_debt_outstanding", 0.0)
@@ -1268,7 +1300,7 @@ class InsightsGenerator:
                 "type": "debt",
                 "message": f"{bd_count} bad-debt credit(s) still unrecovered (${bd_outstanding:,.2f})",
                 "priority": "high",
-                "detail": "See Bad Debts section in Floating Financials for recovery"
+                "detail": "See Bad Debts section in Floating Financials for recovery",
             })
 
         wo_outstanding = snapshot.get("written_off_changes_outstanding", 0.0)
@@ -1278,7 +1310,7 @@ class InsightsGenerator:
                 "type": "debt",
                 "message": f"{wo_count} written-off change(s) still unrecovered (${wo_outstanding:,.2f})",
                 "priority": "medium",
-                "detail": "See Written Off Changes section in Floating Financials"
+                "detail": "See Written Off Changes section in Floating Financials",
             })
 
         od_cr_count = snapshot.get("overdue_credit_count", 0)
@@ -1288,7 +1320,7 @@ class InsightsGenerator:
                 "type": "debt",
                 "message": f"{od_cr_count} overdue credit(s) totalling ${od_cr_balance:,.2f}",
                 "priority": "high",
-                "detail": "Follow up with these customers"
+                "detail": "Follow up with these customers",
             })
 
         od_ch_count = snapshot.get("overdue_change_count", 0)
@@ -1298,7 +1330,7 @@ class InsightsGenerator:
                 "type": "debt",
                 "message": f"{od_ch_count} overdue change(s) totalling ${od_ch_balance:,.2f}",
                 "priority": "medium",
-                "detail": "Collect or write off per Floating Financials policy"
+                "detail": "Collect or write off per Floating Financials policy",
             })
 
         return insights
@@ -1306,13 +1338,13 @@ class InsightsGenerator:
     def _generate_alerts(self, products_df, sales_df, debt_snapshot):
         alerts = []
 
-        if not products_df.empty:
+        if products_df is not None and not products_df.empty and "stock" in products_df.columns:
             out_of_stock = len(products_df[products_df["stock"] == 0])
             if out_of_stock > 0:
                 alerts.append({
                     "type": "stock",
                     "message": f"{out_of_stock} products out of stock",
-                    "severity": "critical"
+                    "severity": "critical",
                 })
 
         if debt_snapshot:
@@ -1325,7 +1357,7 @@ class InsightsGenerator:
                 alerts.append({
                     "type": "debt",
                     "message": f"Outstanding customer credit exceeds $1,000 (${credit_balance:,.2f} across {open_count} record(s))",
-                    "severity": "warning"
+                    "severity": "warning",
                 })
 
             od_cr_count = debt_snapshot.get("overdue_credit_count", 0)
@@ -1333,7 +1365,7 @@ class InsightsGenerator:
                 alerts.append({
                     "type": "debt",
                     "message": f"{od_cr_count} overdue credit(s) need follow-up",
-                    "severity": "warning"
+                    "severity": "warning",
                 })
 
             bd_count = debt_snapshot.get("bad_debt_count", 0)
@@ -1341,40 +1373,36 @@ class InsightsGenerator:
                 alerts.append({
                     "type": "debt",
                     "message": f"{bd_count} bad-debt credit(s) unrecovered",
-                    "severity": "warning"
+                    "severity": "warning",
                 })
 
-        # Net profit alert
         try:
             net_profit = self.metrics.get("net_profit", None)
             if net_profit is not None and net_profit < 0:
                 alerts.append({
                     "type": "profit",
                     "message": f"Negative net profit for period: ${net_profit:,.2f} (expenses exceed gross profit + income)",
-                    "severity": "warning"
+                    "severity": "warning",
                 })
         except Exception:
             pass
 
-        if not sales_df.empty:
+        if sales_df is not None and not sales_df.empty:
             date_col = get_date_column(sales_df)
             receipt_col = get_receipt_column(sales_df)
-
             if date_col:
                 sales_df = sales_df.copy()
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 today = datetime.now().date()
-
                 if receipt_col and receipt_col in sales_df.columns:
                     today_sales = sales_df[sales_df[date_col].dt.date == today].drop_duplicates(subset=[receipt_col])
                 else:
                     today_sales = sales_df[sales_df[date_col].dt.date == today]
-
                 if today_sales.empty:
                     alerts.append({
                         "type": "sales",
                         "message": "No sales recorded today",
-                        "severity": "warning"
+                        "severity": "warning",
                     })
 
         return alerts
@@ -1384,15 +1412,16 @@ class InsightsGenerator:
             "generated_at": datetime.now().isoformat(),
             "period": "daily",
             "report_period": getattr(self, "report_period", {}),
+            "branch_id": self.branch_id,
+            "branch_name": self.branch_name,
             "metrics": self.metrics,
             "insights": self.insights,
             "alerts": self.alerts,
-            "summary": self._generate_summary()
+            "summary": self._generate_summary(),
         }
 
     def _generate_summary(self):
         summary = []
-
         high_count = sum(1 for i in self.insights if i.get("priority") == "high")
         medium_count = sum(1 for i in self.insights if i.get("priority") == "medium")
 
@@ -1444,13 +1473,12 @@ class InsightsGenerator:
 # ==============================
 # INSIGHTS SETTINGS
 # ==============================
-
 def load_insights_settings():
     if INSIGHTS_FILE.exists():
         try:
             with open(INSIGHTS_FILE, "r") as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
 
     return {
@@ -1478,7 +1506,8 @@ def log_insights_history(insights_data):
     INSIGHTS_FILE.parent.mkdir(exist_ok=True)
 
     columns = [
-        "timestamp", "period", "revenue", "gross_profit", "cogs",
+        "timestamp", "period", "branch_id", "branch_name",
+        "revenue", "gross_profit", "cogs",
         "income", "expenses", "net_profit", "transactions", "insights_count",
     ]
     if not INSIGHTS_HISTORY_FILE.exists():
@@ -1493,6 +1522,8 @@ def log_insights_history(insights_data):
     new_row = pd.DataFrame([{
         "timestamp": insights_data.get("generated_at", datetime.now().isoformat()),
         "period": insights_data.get("period", "daily"),
+        "branch_id": insights_data.get("branch_id"),
+        "branch_name": insights_data.get("branch_name"),
         "revenue": metrics.get("period_revenue", 0),
         "gross_profit": metrics.get("period_gross_profit", 0),
         "cogs": metrics.get("period_cogs", 0),
@@ -1510,12 +1541,12 @@ def log_insights_history(insights_data):
 # ==============================
 # EMAIL REPORT GENERATOR
 # ==============================
-
 def generate_insights_email_html(insights_data):
     metrics = insights_data.get("metrics", {})
     insights = insights_data.get("insights", [])
     alerts = insights_data.get("alerts", [])
     period_label = metrics.get("period_label", "")
+    branch_name = insights_data.get("branch_name") or metrics.get("branch_name") or "—"
 
     html = f"""
     <!DOCTYPE html>
@@ -1529,6 +1560,9 @@ def generate_insights_email_html(insights_data):
             .header {{ text-align: center; border-bottom: 3px solid #6366F1; padding-bottom: 20px; margin-bottom: 25px; }}
             .header h1 {{ color: #1a1a2e; margin: 0; font-size: 24px; }}
             .header p {{ color: #666; margin: 5px 0 0 0; font-size: 14px; }}
+            .branch-badge {{ display: inline-block; background: #eef2ff; color: #3730a3;
+                             padding: 6px 14px; border-radius: 20px; font-weight: bold;
+                             font-size: 14px; margin-top: 10px; }}
             .metric-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px; }}
             .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #e5e7eb; }}
             .metric-value {{ font-size: 22px; font-weight: bold; color: #1a1a2e; }}
@@ -1550,7 +1584,8 @@ def generate_insights_email_html(insights_data):
             <div class="header">
                 <h1>SmartGro ERP Insights</h1>
                 <p>Business Intelligence Report</p>
-                <p style="font-size: 12px; color: #999;">Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                <div class="branch-badge">Branch: {branch_name}</div>
+                <p style="font-size: 12px; color: #999; margin-top: 10px;">Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
             </div>
     """
 
@@ -1565,7 +1600,6 @@ def generate_insights_email_html(insights_data):
             </div>
         """
 
-    # Show the net-profit formula explicitly
     formula = metrics.get("net_profit_formula")
     if formula:
         html += f'<div class="formula"><strong>Net Profit:</strong> {formula}</div>'
@@ -1577,7 +1611,6 @@ def generate_insights_email_html(insights_data):
 
     if metrics:
         html += '<h3>Key Metrics</h3><div class="metric-grid">'
-
         metric_display = [
             ("Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}"),
             ("Transactions", f"{metrics.get('today_transactions', 0)}"),
@@ -1594,7 +1627,6 @@ def generate_insights_email_html(insights_data):
             ("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}"),
             ("Uncollected Changes", f"${metrics.get('total_change_balance', 0):,.2f}"),
         ]
-
         for label, value in metric_display:
             html += f"""
                 <div class="metric-card">
@@ -1602,21 +1634,17 @@ def generate_insights_email_html(insights_data):
                     <div class="metric-label">{label}</div>
                 </div>
             """
-
         html += '</div>'
 
     if insights:
         html += '<h3>Insights</h3>'
         for insight in insights:
             priority = insight.get("priority", "info")
-            if priority == "critical":
-                priority_class = "insight-critical"
-            elif priority == "high":
-                priority_class = "insight-high"
-            elif priority == "medium":
-                priority_class = "insight-medium"
-            else:
-                priority_class = "insight-info"
+            priority_class = {
+                "critical": "insight-critical",
+                "high": "insight-high",
+                "medium": "insight-medium",
+            }.get(priority, "insight-info")
 
             detail = insight.get("detail", "")
             html += f"""
@@ -1629,24 +1657,22 @@ def generate_insights_email_html(insights_data):
     html += f"""
             <div class="footer">
                 <p>SmartGro ERP System • Aziel Investments</p>
-                <p>This report is automatically generated. For support, contact +263 78 290 5853</p>
+                <p>This report is scoped to <strong>{branch_name}</strong>.</p>
+                <p>For support, contact +263 78 290 5853</p>
                 <p>© {datetime.now().year} Aziel Investments. All rights reserved.</p>
             </div>
         </div>
     </body>
     </html>
     """
-
     return html
 
 
 # ==============================
 # SEND INSIGHTS
 # ==============================
-
 def send_insights_email(insights_data, recipient=None):
     settings = load_insights_settings()
-
     if not settings.get("enabled", True):
         return False, "Insights are disabled"
 
@@ -1657,7 +1683,8 @@ def send_insights_email(insights_data, recipient=None):
     if not recipients:
         return False, "No recipients configured"
 
-    subject = f"SmartGro Insights - {datetime.now().strftime('%Y-%m-%d')}"
+    branch_name = insights_data.get("branch_name") or "All Branches"
+    subject = f"SmartGro Insights [{branch_name}] - {datetime.now().strftime('%Y-%m-%d')}"
     body = generate_insights_email_html(insights_data)
 
     success_count = 0
@@ -1666,7 +1693,7 @@ def send_insights_email(insights_data, recipient=None):
             success, message = send_email(
                 recipient=email.strip(),
                 subject=subject,
-                body=body
+                body=body,
             )
             if success:
                 success_count += 1
@@ -1680,33 +1707,75 @@ def send_insights_email(insights_data, recipient=None):
     return False, "Failed to send to any recipient"
 
 
-def send_daily_insights(date_from=None, date_to=None):
+def send_daily_insights(branch_id=None, date_from=None, date_to=None):
     generator = InsightsGenerator()
-    insights_data = generator.generate_daily_insights(date_from=date_from, date_to=date_to)
+    insights_data = generator.generate_daily_insights(
+        branch_id=branch_id, date_from=date_from, date_to=date_to
+    )
     return send_insights_email(insights_data)
 
 
-def send_test_insights_email(email, date_from=None, date_to=None):
+def send_test_insights_email(email, branch_id=None, date_from=None, date_to=None):
     generator = InsightsGenerator()
-    insights_data = generator.generate_daily_insights(date_from=date_from, date_to=date_to)
+    insights_data = generator.generate_daily_insights(
+        branch_id=branch_id, date_from=date_from, date_to=date_to
+    )
     return send_insights_email(insights_data, email)
 
 
 # ==============================
 # INSIGHTS DASHBOARD
 # ==============================
-
 def automated_insights_dashboard():
     st.title("Automated Insights Digest")
-    st.caption("Daily/weekly AI-generated business summaries sent via email")
+    st.caption("Daily/weekly AI-generated business summaries sent via email — branch-scoped")
 
     role = st.session_state.get("role", "cashier")
-
     if role not in ["owner", "manager"]:
         st.error("Access Denied. Only owners and managers can access insights digest.")
         return
 
     settings = load_insights_settings()
+
+    # ---- Branch scope selector ----
+    try:
+        branches_df = load_branches()
+    except Exception:
+        branches_df = pd.DataFrame()
+
+    if branches_df is not None and not branches_df.empty and "branch_id" in branches_df.columns:
+        branch_options = ["All Branches"] + [
+            f"{r['branch_name']} ({r['branch_id']})"
+            for _, r in branches_df.iterrows()
+        ]
+    else:
+        branch_options = ["All Branches"]
+
+    is_owner = role in ("owner", "admin")
+
+    if is_owner:
+        choice = st.selectbox(
+            "Branch scope",
+            branch_options,
+            key="insights_branch_scope",
+            help="Owners may send company-wide digests or one per branch.",
+        )
+        if choice == "All Branches":
+            selected_branch_id = ALL_BRANCHES
+            selected_branch_label = "All Branches"
+        else:
+            import re
+            m = re.search(r"\(([^)]+)\)\s*$", choice)
+            selected_branch_id = m.group(1).strip() if m else choice
+            selected_branch_label = choice
+    else:
+        selected_branch_id = (
+            st.session_state.get("user_branch")
+            or st.session_state.get("current_branch_code")
+            or "HO"
+        )
+        selected_branch_label = _branch_display_name(selected_branch_id)
+        st.info(f"Insights are locked to your branch: **{selected_branch_label}**")
 
     tab1, tab2, tab3 = st.tabs(["Generate Insights", "Settings", "History"])
 
@@ -1714,8 +1783,8 @@ def automated_insights_dashboard():
     with tab1:
         st.markdown("## Generate Business Insights")
         st.caption(
-            "Net Profit = Gross Profit + Income − Expenses, all scoped to the selected period. "
-            "Debt is sourced from Floating Financials."
+            "Net Profit = Gross Profit + Income − Expenses, all scoped to the selected "
+            "period. Debt is sourced from Floating Financials."
         )
 
         col1, col2, col3 = st.columns([2, 2, 1])
@@ -1743,18 +1812,22 @@ def automated_insights_dashboard():
                 pass
 
         if st.button("Generate Today's Insights", type="primary", use_container_width=True):
-            with st.spinner("Generating insights..."):
+            with st.spinner(f"Generating insights for {selected_branch_label}..."):
                 generator = InsightsGenerator()
                 insights_data = generator.generate_daily_insights(
-                    date_from=date_from, date_to=date_to
+                    branch_id=selected_branch_id,
+                    date_from=date_from,
+                    date_to=date_to,
                 )
-
                 st.session_state.current_insights = insights_data
-                st.success("Insights generated!")
+                st.success(f"Insights generated for {selected_branch_label}!")
                 st.balloons()
 
         if "current_insights" in st.session_state:
             insights_data = st.session_state.current_insights
+            shown_branch = insights_data.get("branch_name", "—")
+
+            st.markdown(f"### Report for **{shown_branch}**")
 
             if insights_data.get("summary"):
                 st.info(f"{insights_data.get('summary')}")
@@ -1772,8 +1845,6 @@ def automated_insights_dashboard():
             metrics = insights_data.get("metrics", {})
             if metrics:
                 st.markdown("### Key Metrics")
-
-                # Row 1: Sales / ops
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}")
@@ -1784,7 +1855,6 @@ def automated_insights_dashboard():
                 with col4:
                     st.metric("Customers", metrics.get('total_customers', 0))
 
-                # Row 2: Period revenue, COGS, Gross Profit
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Period Revenue", f"${metrics.get('period_revenue', 0):,.2f}")
@@ -1793,7 +1863,6 @@ def automated_insights_dashboard():
                 with col3:
                     st.metric("Gross Profit (period)", f"${metrics.get('period_gross_profit', 0):,.2f}")
 
-                # Row 3: Income, Expenses, Net Profit, Low stock
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Income (period)", f"${metrics.get('period_income', 0):,.2f}")
@@ -1804,11 +1873,9 @@ def automated_insights_dashboard():
                 with col4:
                     st.metric("Low Stock", metrics.get('low_stock', 0))
 
-                # Formula caption
                 if metrics.get("net_profit_formula"):
                     st.caption(metrics["net_profit_formula"])
 
-                # Row 4: Debt metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Outstanding Credit", f"${metrics.get('total_credit_balance', 0):,.2f}")
@@ -1819,7 +1886,6 @@ def automated_insights_dashboard():
                 with col4:
                     st.metric("Overdue Credits", metrics.get('overdue_credit_count', 0))
 
-                # Income source diagnostics
                 with st.expander(
                     f"📂 Income source: {metrics.get('income_source', 'unknown')}",
                     expanded=False,
@@ -1832,7 +1898,6 @@ def automated_insights_dashboard():
                     with ic3:
                         st.metric("Amount Column", str(metrics.get("income_amount_col")))
 
-                # Gross profit basis
                 with st.expander(
                     f"📈 Gross profit basis: {metrics.get('gross_profit_basis', 'unknown')}",
                     expanded=False,
@@ -1849,7 +1914,7 @@ def automated_insights_dashboard():
                         "high": "[HIGH]",
                         "medium": "[MEDIUM]",
                         "info": "[INFO]",
-                        "success": "[OK]"
+                        "success": "[OK]",
                     }.get(priority, "[INFO]")
 
                     if priority in ["critical", "high"]:
@@ -1883,7 +1948,10 @@ def automated_insights_dashboard():
                 if recipient and st.button("Send Test Email", use_container_width=True):
                     with st.spinner("Sending..."):
                         success, message = send_test_insights_email(
-                            recipient, date_from=date_from, date_to=date_to
+                            recipient,
+                            branch_id=selected_branch_id,
+                            date_from=date_from,
+                            date_to=date_to,
                         )
                         if success:
                             st.success(f"{message}")
@@ -1895,22 +1963,20 @@ def automated_insights_dashboard():
         st.markdown("## Insights Settings")
 
         col1, col2 = st.columns(2)
-
         with col1:
             enabled = st.checkbox("Enable Automated Insights", value=settings.get("enabled", True))
             frequency = st.selectbox(
                 "Frequency",
                 ["daily", "weekly"],
-                index=["daily", "weekly"].index(settings.get("frequency", "daily"))
+                index=["daily", "weekly"].index(settings.get("frequency", "daily")),
             )
             send_time = st.time_input(
                 "Send Time",
-                value=datetime.strptime(settings.get("send_time", "08:00"), "%H:%M").time()
+                value=datetime.strptime(settings.get("send_time", "08:00"), "%H:%M").time(),
             )
             period_days = st.number_input(
                 "Default Period (days)",
-                min_value=1,
-                max_value=365,
+                min_value=1, max_value=365,
                 value=int(settings.get("period_days", 30)),
                 step=1,
             )
@@ -1924,17 +1990,15 @@ def automated_insights_dashboard():
 
         st.markdown("---")
         st.markdown("### Recipients")
-
         recipients_text = st.text_area(
             "Recipient Emails (one per line)",
             value="\n".join(settings.get("recipients", [])),
             height=100,
-            placeholder="manager@example.com\nowner@example.com"
+            placeholder="manager@example.com\nowner@example.com",
         )
 
         if st.button("Save Settings", type="primary", use_container_width=True):
             recipients = [r.strip() for r in recipients_text.split("\n") if r.strip()]
-
             settings.update({
                 "enabled": enabled,
                 "frequency": frequency,
@@ -1947,7 +2011,6 @@ def automated_insights_dashboard():
                 "send_alerts": send_alerts,
                 "period_days": int(period_days),
             })
-
             save_insights_settings(settings)
             st.success("Settings saved successfully!")
             st.rerun()
@@ -1956,7 +2019,7 @@ def automated_insights_dashboard():
         if st.button("Send Test Insights Email", use_container_width=True):
             with st.spinner("Generating and sending..."):
                 generator = InsightsGenerator()
-                insights_data = generator.generate_daily_insights()
+                insights_data = generator.generate_daily_insights(branch_id=selected_branch_id)
                 success, message = send_insights_email(insights_data)
                 if success:
                     st.success(f"{message}")
@@ -1969,13 +2032,23 @@ def automated_insights_dashboard():
 
         if INSIGHTS_HISTORY_FILE.exists():
             history_df = pd.read_csv(INSIGHTS_HISTORY_FILE)
-
             if not history_df.empty:
                 history_df["timestamp"] = pd.to_datetime(history_df["timestamp"])
                 history_df["date"] = history_df["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
 
-                display_cols = ["date", "period"]
-                for c in ["revenue", "gross_profit", "cogs", "income", "expenses", "net_profit", "transactions", "insights_count"]:
+                # Optional branch filter in history
+                if "branch_name" in history_df.columns:
+                    branch_filter = st.selectbox(
+                        "Filter by branch",
+                        ["All"] + sorted(history_df["branch_name"].dropna().unique().tolist()),
+                        key="history_branch_filter",
+                    )
+                    if branch_filter != "All":
+                        history_df = history_df[history_df["branch_name"] == branch_filter]
+
+                display_cols = ["date", "period", "branch_name"]
+                for c in ["revenue", "gross_profit", "cogs", "income", "expenses",
+                          "net_profit", "transactions", "insights_count"]:
                     if c in history_df.columns:
                         display_cols.append(c)
 
@@ -1990,48 +2063,34 @@ def automated_insights_dashboard():
                         "income": st.column_config.NumberColumn("Income", format="$%.2f"),
                         "expenses": st.column_config.NumberColumn("Expenses", format="$%.2f"),
                         "net_profit": st.column_config.NumberColumn("Net Profit", format="$%.2f"),
-                    }
+                    },
                 )
 
                 if len(history_df) > 1:
                     fig = go.Figure()
-
                     if "revenue" in history_df.columns:
-                        fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"], y=history_df["revenue"],
-                            mode="lines+markers", name="Revenue",
-                            line=dict(color="#6366F1", width=2)
-                        ))
+                        fig.add_trace(go.Scatter(x=history_df["timestamp"], y=history_df["revenue"],
+                                                 mode="lines+markers", name="Revenue",
+                                                 line=dict(color="#6366F1", width=2)))
                     if "gross_profit" in history_df.columns:
-                        fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"], y=history_df["gross_profit"],
-                            mode="lines+markers", name="Gross Profit",
-                            line=dict(color="#0EA5E9", width=2)
-                        ))
+                        fig.add_trace(go.Scatter(x=history_df["timestamp"], y=history_df["gross_profit"],
+                                                 mode="lines+markers", name="Gross Profit",
+                                                 line=dict(color="#0EA5E9", width=2)))
                     if "income" in history_df.columns:
-                        fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"], y=history_df["income"],
-                            mode="lines+markers", name="Income",
-                            line=dict(color="#10B981", width=2)
-                        ))
+                        fig.add_trace(go.Scatter(x=history_df["timestamp"], y=history_df["income"],
+                                                 mode="lines+markers", name="Income",
+                                                 line=dict(color="#10B981", width=2)))
                     if "expenses" in history_df.columns:
-                        fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"], y=history_df["expenses"],
-                            mode="lines+markers", name="Expenses",
-                            line=dict(color="#EF4444", width=2)
-                        ))
+                        fig.add_trace(go.Scatter(x=history_df["timestamp"], y=history_df["expenses"],
+                                                 mode="lines+markers", name="Expenses",
+                                                 line=dict(color="#EF4444", width=2)))
                     if "net_profit" in history_df.columns:
-                        fig.add_trace(go.Scatter(
-                            x=history_df["timestamp"], y=history_df["net_profit"],
-                            mode="lines+markers", name="Net Profit",
-                            line=dict(color="#F59E0B", width=2)
-                        ))
-
+                        fig.add_trace(go.Scatter(x=history_df["timestamp"], y=history_df["net_profit"],
+                                                 mode="lines+markers", name="Net Profit",
+                                                 line=dict(color="#F59E0B", width=2)))
                     fig.update_layout(
                         title="Revenue, Gross Profit, Income, Expenses & Net Profit Trend",
-                        xaxis_title="Date",
-                        yaxis_title="Amount ($)",
-                        height=320
+                        xaxis_title="Date", yaxis_title="Amount ($)", height=320,
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
@@ -2040,7 +2099,7 @@ def automated_insights_dashboard():
                     label="Download History (CSV)",
                     data=csv,
                     file_name=f"insights_history_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
                 )
             else:
                 st.info("No history data available")

@@ -1,5 +1,10 @@
 # backend/analytics/reports_engine.py
-# Reports Engine - FIXED: Correct data sources for expenses, income, and debtors
+# Branch-aware reports engine.
+#
+# Branch scoping rules (identical to pl_engine.py):
+#   branch_id = None            -> resolve from session (current user's branch)
+#   branch_id = "HO" / "NAT"..  -> that single branch
+#   branch_id = "__ALL__"       -> aggregate across ALL branches (owner only)
 
 import pandas as pd
 import numpy as np
@@ -9,22 +14,22 @@ import io
 import base64
 
 from backend.core.db_adapter import (
-    load_sales, 
-    load_products, 
-    load_customers, 
-    load_branches, 
-    load_purchases, 
+    load_sales,
+    load_products,
+    load_customers,
+    load_branches,
+    load_purchases,
     load_debtors,
-    to_float
+    to_float,
 )
 
-# Import from the correct modules
 from backend.modules.expenses import load_expenses
 from backend.modules.income import load_income
+
 from backend.core.floating_financials import (
     get_credit_records,
     get_credit_summary,
-    get_overdue_credits
+    get_overdue_credits,
 )
 
 
@@ -35,16 +40,95 @@ COMPANY_NAME = "Aziel Investments"
 COMPANY_ADDRESS = "Retreat Park, Harare"
 COMPANY_PHONE = "+263 78 290 5853"
 
+ALL_BRANCHES = "__ALL__"
+
 
 # ==============================
-# HELPER FUNCTIONS
+# BRANCH RESOLUTION
 # ==============================
+def _resolve_branch(branch_id=None):
+    if branch_id is not None:
+        return branch_id
+    try:
+        import streamlit as st
+        return (
+            st.session_state.get("user_branch")
+            or st.session_state.get("current_branch_code")
+            or "HO"
+        )
+    except Exception:
+        return "HO"
 
+
+def _is_all_branches(branch_id):
+    return isinstance(branch_id, str) and branch_id.upper() == ALL_BRANCHES
+
+
+def _branch_display_name(branch_id):
+    """Human-readable branch label for PDFs/CSVs."""
+    if _is_all_branches(branch_id):
+        return "All Branches"
+    if branch_id is None:
+        return "Current Branch"
+    try:
+        bdf = load_branches()
+        if bdf is None or bdf.empty or "branch_id" not in bdf.columns:
+            return str(branch_id)
+        match = bdf[bdf["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+        if match.empty:
+            return str(branch_id)
+        row = match.iloc[0]
+        name = str(row.get("branch_name", "")).strip()
+        code = str(row.get("branch_id", "")).strip()
+        return f"{name} ({code})" if name else code
+    except Exception:
+        return str(branch_id)
+
+
+def _load_scoped(loader, branch_id, **kwargs):
+    """
+    Call a loader with the correct branch scope.
+    - __ALL__: iterate all branches, concat.
+    - Otherwise: pass branch_id through.
+    """
+    if _is_all_branches(branch_id):
+        try:
+            bdf = load_branches()
+        except Exception:
+            bdf = pd.DataFrame()
+        if bdf is None or bdf.empty or "branch_id" not in bdf.columns:
+            try:
+                return loader(**kwargs)
+            except Exception:
+                return pd.DataFrame()
+
+        frames = []
+        for bid in bdf["branch_id"].astype(str).tolist():
+            try:
+                df = loader(branch_id=bid, **kwargs)
+                if df is not None and not df.empty:
+                    frames.append(df)
+            except Exception:
+                continue
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    try:
+        return loader(branch_id=branch_id, **kwargs)
+    except TypeError:
+        try:
+            return loader(**kwargs)
+        except Exception:
+            return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+# ==============================
+# HELPERS
+# ==============================
 def convert_decimal_to_float(df):
-    """Convert all Decimal columns to float for compatibility"""
     if df is None or df.empty:
         return df
-    
     for col in df.columns:
         if df[col].dtype == object:
             sample = df[col].iloc[0] if len(df) > 0 else None
@@ -54,7 +138,6 @@ def convert_decimal_to_float(df):
 
 
 def safe_float(value, default=0.0):
-    """Safely convert value to float"""
     if value is None:
         return default
     try:
@@ -64,7 +147,6 @@ def safe_float(value, default=0.0):
 
 
 def safe_int(value, default=0):
-    """Safely convert value to int"""
     if value is None:
         return default
     try:
@@ -74,7 +156,6 @@ def safe_int(value, default=0):
 
 
 def find_column(df, possible_names, default=None):
-    """Find the first column that matches any of the possible names"""
     if df is None or df.empty:
         return default
     for name in possible_names:
@@ -84,7 +165,6 @@ def find_column(df, possible_names, default=None):
 
 
 def get_receipt_column(df):
-    """Find receipt column in dataframe"""
     if df is None or df.empty:
         return None
     for col in ["receipt_no", "receipt", "transaction_id", "order_id", "invoice"]:
@@ -94,567 +174,543 @@ def get_receipt_column(df):
 
 
 def get_unduplicated_sales(sales_df):
-    """Get unduplicated sales by receipt_no"""
+    """Deduplicate by receipt_no. Returns a DataFrame with branch_id intact."""
     if sales_df is None or sales_df.empty:
         return pd.DataFrame()
-    
     sales_df = sales_df.copy()
     receipt_col = get_receipt_column(sales_df)
-    
     if receipt_col and receipt_col in sales_df.columns:
         return sales_df.drop_duplicates(subset=[receipt_col])
-    
     return sales_df
 
 
-def get_sales_report_data(start_date, end_date):
-    """Get sales data for reporting with proper column handling"""
-    sales_df = load_sales()
-    
-    if sales_df.empty:
+def _reinsert_branch_id(df, branch_id):
+    if df is None or df.empty:
+        return df
+    if "branch_id" not in df.columns and not _is_all_branches(branch_id):
+        df = df.copy()
+        df["branch_id"] = branch_id
+    return df
+
+
+# ==============================
+# REPORT DATA LOADERS
+# ==============================
+def get_sales_report_data(branch_id=None, start_date=None, end_date=None):
+    """
+    Sales data for reporting, scoped to a branch.
+
+    NOTE: signature now takes branch_id first. Callers must pass
+    branch_id keyword or update positional arguments.
+    """
+    branch_id = _resolve_branch(branch_id)
+
+    sales_df = _load_scoped(
+        load_sales, branch_id,
+        date_from=start_date, date_to=end_date,
+    )
+
+    if sales_df is None or sales_df.empty:
         return pd.DataFrame()
-    
-    # Get unduplicated sales
+
     sales_df = get_unduplicated_sales(sales_df)
-    
     sales_df = convert_decimal_to_float(sales_df)
-    
+
     date_col = find_column(sales_df, ['sale_date', 'date', 'transaction_date', 'created_at', 'datetime'])
     if date_col is None:
         return pd.DataFrame()
-    
+
     sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
     sales_df = sales_df.dropna(subset=[date_col])
-    
     if sales_df.empty:
         return pd.DataFrame()
-    
+
     if date_col != "date":
         sales_df["date"] = sales_df[date_col]
-    
+
     total_col = find_column(sales_df, ['total', 'final_total', 'amount', 'sale_amount', 'revenue'])
-    if total_col is None:
-        sales_df["total"] = 0
-    else:
-        sales_df["total"] = pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
-    
+    sales_df["total"] = (
+        pd.to_numeric(sales_df[total_col], errors="coerce").fillna(0)
+        if total_col else 0
+    )
     sales_df["total"] = sales_df["total"].astype(float)
-    
+
     profit_col = find_column(sales_df, ['profit', 'profit_margin', 'gross_profit', 'net_profit'])
-    if profit_col is None:
-        sales_df["profit"] = sales_df["total"] * 0.3
-    else:
-        sales_df["profit"] = pd.to_numeric(sales_df[profit_col], errors="coerce").fillna(0)
-    
+    sales_df["profit"] = (
+        pd.to_numeric(sales_df[profit_col], errors="coerce").fillna(0)
+        if profit_col else sales_df["total"] * 0.3
+    )
     sales_df["profit"] = sales_df["profit"].astype(float)
-    
+
     items_col = find_column(sales_df, ['items', 'quantity', 'qty', 'units', 'count'])
-    if items_col is None:
-        sales_df["items"] = 1
-    else:
-        sales_df["items"] = pd.to_numeric(sales_df[items_col], errors="coerce").fillna(1)
-    
-    sales_df["items"] = sales_df["items"].astype(int)
-    
+    sales_df["items"] = (
+        pd.to_numeric(sales_df[items_col], errors="coerce").fillna(1).astype(int)
+        if items_col else 1
+    )
+
     product_col = find_column(sales_df, ['product_name', 'name', 'Product', 'item_name', 'description'])
-    if product_col is None:
-        sales_df["name"] = "Unknown"
-    else:
-        sales_df["name"] = sales_df[product_col].fillna("Unknown").astype(str)
-    
+    sales_df["name"] = (
+        sales_df[product_col].fillna("Unknown").astype(str)
+        if product_col else "Unknown"
+    )
+
     payment_col = find_column(sales_df, ['payment_method', 'payment_type', 'payment', 'method'])
-    if payment_col is None:
-        sales_df["payment_method"] = "CASH"
-    else:
-        sales_df["payment_method"] = sales_df[payment_col].fillna("CASH").astype(str)
-    
+    sales_df["payment_method"] = (
+        sales_df[payment_col].fillna("CASH").astype(str)
+        if payment_col else "CASH"
+    )
+
     customer_col = find_column(sales_df, ['customer_name', 'customer', 'client', 'buyer'])
-    if customer_col is None:
-        sales_df["customer"] = "Walk-in"
-    else:
-        sales_df["customer"] = sales_df[customer_col].fillna("Walk-in").astype(str)
-    
+    sales_df["customer"] = (
+        sales_df[customer_col].fillna("Walk-in").astype(str)
+        if customer_col else "Walk-in"
+    )
+
+    # Date range belt-and-braces (loader may already have filtered)
     if start_date and end_date:
         try:
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            sales_df = sales_df[(sales_df["date"] >= start_dt) & (sales_df["date"] <= end_dt)]
-        except:
+            s = pd.to_datetime(start_date)
+            e = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            sales_df = sales_df[(sales_df["date"] >= s) & (sales_df["date"] <= e)]
+        except Exception:
             pass
-    
-    return sales_df
+
+    return _reinsert_branch_id(sales_df, branch_id)
 
 
-# ==============================
-# EXPENSES REPORT DATA - FIXED: Using expenses.py module
-# ==============================
+def get_expenses_report_data(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
 
-def get_expenses_report_data(start_date, end_date):
-    """Get expenses data from expenses.py module - FIXED"""
-    expenses_df = load_expenses()
-    
-    if expenses_df.empty:
+    try:
+        if _is_all_branches(branch_id):
+            expenses_df = _load_scoped(
+                load_expenses, branch_id,
+                date_from=start_date, date_to=end_date,
+            )
+        else:
+            expenses_df = load_expenses(
+                branch_id=branch_id,
+                date_from=start_date, date_to=end_date,
+            )
+    except Exception as e:
+        print(f"[reports_engine] load_expenses failed: {e}")
         return pd.DataFrame()
-    
+
+    if expenses_df is None or expenses_df.empty:
+        return pd.DataFrame()
+
     expenses_df = convert_decimal_to_float(expenses_df)
-    
-    # Find date column - expenses.py uses "date"
+
     date_col = find_column(expenses_df, ['date', 'expense_date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
-    
+
     expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
     expenses_df = expenses_df.dropna(subset=[date_col])
-    
     if expenses_df.empty:
         return pd.DataFrame()
-    
+
     if date_col != "date":
         expenses_df["date"] = expenses_df[date_col]
-    
-    # Find amount column - expenses.py uses "amount"
+
     amount_col = find_column(expenses_df, ['amount'])
-    if amount_col is None:
-        expenses_df["amount"] = 0
-    else:
-        expenses_df["amount"] = pd.to_numeric(expenses_df[amount_col], errors="coerce").fillna(0)
-    
+    expenses_df["amount"] = (
+        pd.to_numeric(expenses_df[amount_col], errors="coerce").fillna(0)
+        if amount_col else 0
+    )
     expenses_df["amount"] = expenses_df["amount"].astype(float)
-    
-    # Find category column - expenses.py uses "category"
+
     category_col = find_column(expenses_df, ['category'])
-    if category_col is None:
-        expenses_df["category"] = "Other"
-    else:
-        expenses_df["category"] = expenses_df[category_col].fillna("Other").astype(str)
-    
-    # Description column
+    expenses_df["category"] = (
+        expenses_df[category_col].fillna("Other").astype(str)
+        if category_col else "Other"
+    )
+
     desc_col = find_column(expenses_df, ['description'])
-    if desc_col:
-        expenses_df["description"] = expenses_df[desc_col].fillna("").astype(str)
-    else:
-        expenses_df["description"] = ""
-    
-    # Vendor column
+    expenses_df["description"] = (
+        expenses_df[desc_col].fillna("").astype(str)
+        if desc_col else ""
+    )
+
     vendor_col = find_column(expenses_df, ['vendor'])
-    if vendor_col:
-        expenses_df["vendor"] = expenses_df[vendor_col].fillna("").astype(str)
-    else:
-        expenses_df["vendor"] = ""
-    
+    expenses_df["vendor"] = (
+        expenses_df[vendor_col].fillna("").astype(str)
+        if vendor_col else ""
+    )
+
     if start_date and end_date:
         try:
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            expenses_df = expenses_df[(expenses_df["date"] >= start_dt) & (expenses_df["date"] <= end_dt)]
-        except:
+            s = pd.to_datetime(start_date)
+            e = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            expenses_df = expenses_df[(expenses_df["date"] >= s) & (expenses_df["date"] <= e)]
+        except Exception:
             pass
-    
-    return expenses_df
+
+    return _reinsert_branch_id(expenses_df, branch_id)
 
 
-# ==============================
-# INCOME REPORT DATA - FIXED: Using income.py module
-# ==============================
+def get_income_report_data(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
 
-def get_income_report_data(start_date, end_date):
-    """Get income data from income.py module - FIXED"""
-    income_df = load_income()
-    
-    if income_df.empty:
+    try:
+        if _is_all_branches(branch_id):
+            income_df = _load_scoped(
+                load_income, branch_id,
+                date_from=start_date, date_to=end_date,
+            )
+        else:
+            income_df = load_income(
+                branch_id=branch_id,
+                date_from=start_date, date_to=end_date,
+            )
+    except Exception as e:
+        print(f"[reports_engine] load_income failed: {e}")
         return pd.DataFrame()
-    
+
+    if income_df is None or income_df.empty:
+        return pd.DataFrame()
+
     income_df = convert_decimal_to_float(income_df)
-    
-    # Find date column - income.py uses "date"
+
     date_col = find_column(income_df, ['date', 'income_date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
-    
+
     income_df[date_col] = pd.to_datetime(income_df[date_col], errors="coerce")
     income_df = income_df.dropna(subset=[date_col])
-    
     if income_df.empty:
         return pd.DataFrame()
-    
+
     if date_col != "date":
         income_df["date"] = income_df[date_col]
-    
-    # Find amount column - income.py uses "amount"
+
     amount_col = find_column(income_df, ['amount'])
-    if amount_col is None:
-        income_df["amount"] = 0
-    else:
-        income_df["amount"] = pd.to_numeric(income_df[amount_col], errors="coerce").fillna(0)
-    
+    income_df["amount"] = (
+        pd.to_numeric(income_df[amount_col], errors="coerce").fillna(0)
+        if amount_col else 0
+    )
     income_df["amount"] = income_df["amount"].astype(float)
-    
-    # Find source column - income.py uses "income_source"
+
     source_col = find_column(income_df, ['income_source', 'source', 'type'])
-    if source_col is None:
-        income_df["source"] = "Other"
-    else:
-        income_df["source"] = income_df[source_col].fillna("Other").astype(str)
-    
-    # Description column
+    income_df["source"] = (
+        income_df[source_col].fillna("Other").astype(str)
+        if source_col else "Other"
+    )
+
     desc_col = find_column(income_df, ['description'])
-    if desc_col:
-        income_df["description"] = income_df[desc_col].fillna("").astype(str)
-    else:
-        income_df["description"] = ""
-    
+    income_df["description"] = (
+        income_df[desc_col].fillna("").astype(str)
+        if desc_col else ""
+    )
+
     if start_date and end_date:
         try:
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            income_df = income_df[(income_df["date"] >= start_dt) & (income_df["date"] <= end_dt)]
-        except:
+            s = pd.to_datetime(start_date)
+            e = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            income_df = income_df[(income_df["date"] >= s) & (income_df["date"] <= e)]
+        except Exception:
             pass
-    
-    return income_df
+
+    return _reinsert_branch_id(income_df, branch_id)
 
 
-# ==============================
-# DEBTORS REPORT DATA - FIXED: Using floating financials credit management
-# ==============================
+def get_debtors_report_data(branch_id=None):
+    """
+    Debtors from floating_financials, scoped to branch when possible.
+    floating_financials.get_credit_records() may or may not accept branch_id;
+    we try/except so both work.
+    """
+    branch_id = _resolve_branch(branch_id)
 
-def get_debtors_report_data():
-    """Get debtors data from floating financials credit management - FIXED"""
     try:
-        # Get credit records from floating financials
-        credit_df = get_credit_records()
-        
-        if credit_df.empty:
-            return pd.DataFrame()
-        
-        credit_df = convert_decimal_to_float(credit_df)
-        
-        # Map columns to expected names
-        # Customer name
-        if "customer_name" in credit_df.columns:
-            credit_df["customer_name"] = credit_df["customer_name"].fillna("Unknown").astype(str)
+        # Try branch-scoped first
+        if _is_all_branches(branch_id):
+            credit_df = get_credit_records()
         else:
-            credit_df["customer_name"] = "Unknown"
-        
-        # Phone
-        if "phone" in credit_df.columns:
-            credit_df["phone"] = credit_df["phone"].fillna("").astype(str)
-        else:
-            credit_df["phone"] = ""
-        
-        # Total amount
-        if "amount" in credit_df.columns:
-            credit_df["total_amount"] = pd.to_numeric(credit_df["amount"], errors="coerce").fillna(0).astype(float)
-        else:
-            credit_df["total_amount"] = 0
-        
-        # Amount paid
-        if "amount_paid" in credit_df.columns:
-            credit_df["amount_paid"] = pd.to_numeric(credit_df["amount_paid"], errors="coerce").fillna(0).astype(float)
-        else:
-            credit_df["amount_paid"] = 0
-        
-        # Balance
-        if "balance" in credit_df.columns:
-            credit_df["balance"] = pd.to_numeric(credit_df["balance"], errors="coerce").fillna(0).astype(float)
-        else:
-            credit_df["balance"] = credit_df["total_amount"] - credit_df["amount_paid"]
-        
-        # Status
-        if "status" in credit_df.columns:
-            credit_df["status"] = credit_df["status"].fillna("PENDING").astype(str)
-        else:
-            credit_df["status"] = "PENDING"
-        
-        # Credit type
-        if "credit_type" in credit_df.columns:
-            credit_df["credit_type"] = credit_df["credit_type"].fillna("OTHER").astype(str)
-        else:
-            credit_df["credit_type"] = "OTHER"
-        
-        # Expected repayment date
-        if "expected_repayment_date" in credit_df.columns:
-            credit_df["expected_repayment_date"] = pd.to_datetime(credit_df["expected_repayment_date"], errors="coerce")
-        
-        return credit_df
-        
+            try:
+                credit_df = get_credit_records(branch_id=branch_id)
+            except TypeError:
+                # floating_financials doesn't support branch_id yet
+                credit_df = get_credit_records()
+                if credit_df is not None and not credit_df.empty and "branch_id" in credit_df.columns:
+                    credit_df = credit_df[
+                        credit_df["branch_id"].astype(str).str.upper() == str(branch_id).upper()
+                    ]
     except Exception as e:
-        print(f"Error getting debtors data: {e}")
+        print(f"[reports_engine] get_credit_records failed: {e}")
         return pd.DataFrame()
 
-
-# ==============================
-# OTHER REPORT FUNCTIONS
-# ==============================
-
-def get_purchases_report_data(start_date, end_date):
-    """Get purchases data for reporting"""
-    purchases_df = load_purchases()
-    
-    if purchases_df.empty:
+    if credit_df is None or credit_df.empty:
         return pd.DataFrame()
-    
+
+    credit_df = convert_decimal_to_float(credit_df)
+
+    if "customer_name" in credit_df.columns:
+        credit_df["customer_name"] = credit_df["customer_name"].fillna("Unknown").astype(str)
+    else:
+        credit_df["customer_name"] = "Unknown"
+
+    if "phone" in credit_df.columns:
+        credit_df["phone"] = credit_df["phone"].fillna("").astype(str)
+    else:
+        credit_df["phone"] = ""
+
+    if "amount" in credit_df.columns:
+        credit_df["total_amount"] = pd.to_numeric(credit_df["amount"], errors="coerce").fillna(0).astype(float)
+    else:
+        credit_df["total_amount"] = 0
+
+    if "amount_paid" in credit_df.columns:
+        credit_df["amount_paid"] = pd.to_numeric(credit_df["amount_paid"], errors="coerce").fillna(0).astype(float)
+    else:
+        credit_df["amount_paid"] = 0
+
+    if "balance" in credit_df.columns:
+        credit_df["balance"] = pd.to_numeric(credit_df["balance"], errors="coerce").fillna(0).astype(float)
+    else:
+        credit_df["balance"] = credit_df["total_amount"] - credit_df["amount_paid"]
+
+    if "status" in credit_df.columns:
+        credit_df["status"] = credit_df["status"].fillna("PENDING").astype(str)
+    else:
+        credit_df["status"] = "PENDING"
+
+    if "credit_type" in credit_df.columns:
+        credit_df["credit_type"] = credit_df["credit_type"].fillna("OTHER").astype(str)
+    else:
+        credit_df["credit_type"] = "OTHER"
+
+    if "expected_repayment_date" in credit_df.columns:
+        credit_df["expected_repayment_date"] = pd.to_datetime(
+            credit_df["expected_repayment_date"], errors="coerce"
+        )
+
+    return _reinsert_branch_id(credit_df, branch_id)
+
+
+def get_purchases_report_data(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+
+    purchases_df = _load_scoped(load_purchases, branch_id)
+    if purchases_df is None or purchases_df.empty:
+        return pd.DataFrame()
+
     purchases_df = convert_decimal_to_float(purchases_df)
-    
+
     date_col = find_column(purchases_df, ['date_ordered', 'date', 'order_date', 'purchase_date', 'created_at'])
     if date_col is None:
         return pd.DataFrame()
-    
+
     purchases_df[date_col] = pd.to_datetime(purchases_df[date_col], errors="coerce")
     purchases_df = purchases_df.dropna(subset=[date_col])
-    
     if purchases_df.empty:
         return pd.DataFrame()
-    
+
     if date_col != "date":
         purchases_df["date"] = purchases_df[date_col]
-    
+
     total_col = find_column(purchases_df, ['total_cost', 'total', 'amount', 'cost', 'purchase_total'])
-    if total_col is None:
-        purchases_df["total_cost"] = 0
-    else:
-        purchases_df["total_cost"] = pd.to_numeric(purchases_df[total_col], errors="coerce").fillna(0)
-    
+    purchases_df["total_cost"] = (
+        pd.to_numeric(purchases_df[total_col], errors="coerce").fillna(0)
+        if total_col else 0
+    )
     purchases_df["total_cost"] = purchases_df["total_cost"].astype(float)
-    
+
     supplier_col = find_column(purchases_df, ['supplier', 'vendor', 'provider', 'supplier_name'])
-    if supplier_col is None:
-        purchases_df["supplier"] = "Unknown"
-    else:
-        purchases_df["supplier"] = purchases_df[supplier_col].fillna("Unknown").astype(str)
-    
+    purchases_df["supplier"] = (
+        purchases_df[supplier_col].fillna("Unknown").astype(str)
+        if supplier_col else "Unknown"
+    )
+
     status_col = find_column(purchases_df, ['status', 'state', 'order_status'])
-    if status_col is None:
-        purchases_df["status"] = "PENDING"
-    else:
-        purchases_df["status"] = purchases_df[status_col].fillna("PENDING").astype(str)
-    
+    purchases_df["status"] = (
+        purchases_df[status_col].fillna("PENDING").astype(str)
+        if status_col else "PENDING"
+    )
+
     if start_date and end_date:
         try:
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-            purchases_df = purchases_df[(purchases_df["date"] >= start_dt) & (purchases_df["date"] <= end_dt)]
-        except:
+            s = pd.to_datetime(start_date)
+            e = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            purchases_df = purchases_df[(purchases_df["date"] >= s) & (purchases_df["date"] <= e)]
+        except Exception:
             pass
-    
-    return purchases_df
+
+    return _reinsert_branch_id(purchases_df, branch_id)
 
 
-def get_products_report_data():
-    """Get products data for reporting"""
-    products_df = load_products()
-    
-    if products_df.empty:
+def get_products_report_data(branch_id=None):
+    branch_id = _resolve_branch(branch_id)
+    products_df = _load_scoped(load_products, branch_id)
+
+    if products_df is None or products_df.empty:
         return pd.DataFrame()
-    
+
     products_df = convert_decimal_to_float(products_df)
-    
+
     name_col = find_column(products_df, ['name', 'product_name', 'Product', 'item_name'])
-    if name_col is None:
-        products_df["name"] = "Unknown"
-    elif name_col != "name":
-        products_df["name"] = products_df[name_col].fillna("Unknown").astype(str)
-    else:
-        products_df["name"] = products_df["name"].fillna("Unknown").astype(str)
-    
+    products_df["name"] = (
+        products_df[name_col].fillna("Unknown").astype(str)
+        if name_col else "Unknown"
+    )
+
     price_col = find_column(products_df, ['price', 'selling_price', 'unit_price', 'retail_price'])
-    if price_col is None:
-        products_df["price"] = 0
-    elif price_col != "price":
-        products_df["price"] = pd.to_numeric(products_df[price_col], errors="coerce").fillna(0)
-    else:
-        products_df["price"] = pd.to_numeric(products_df["price"], errors="coerce").fillna(0)
-    
-    products_df["price"] = products_df["price"].astype(float)
-    
+    products_df["price"] = (
+        pd.to_numeric(products_df[price_col], errors="coerce").fillna(0).astype(float)
+        if price_col else 0.0
+    )
+
     cost_col = find_column(products_df, ['cost', 'cost_price', 'purchase_price', 'buy_price'])
-    if cost_col is None:
-        products_df["cost"] = 0
-    elif cost_col != "cost":
-        products_df["cost"] = pd.to_numeric(products_df[cost_col], errors="coerce").fillna(0)
-    else:
-        products_df["cost"] = pd.to_numeric(products_df["cost"], errors="coerce").fillna(0)
-    
-    products_df["cost"] = products_df["cost"].astype(float)
-    
+    products_df["cost"] = (
+        pd.to_numeric(products_df[cost_col], errors="coerce").fillna(0).astype(float)
+        if cost_col else 0.0
+    )
+
     stock_col = find_column(products_df, ['stock', 'quantity', 'inventory', 'qty', 'current_stock'])
-    if stock_col is None:
-        products_df["stock"] = 0
-    elif stock_col != "stock":
-        products_df["stock"] = pd.to_numeric(products_df[stock_col], errors="coerce").fillna(0)
-    else:
-        products_df["stock"] = pd.to_numeric(products_df["stock"], errors="coerce").fillna(0)
-    
-    products_df["stock"] = products_df["stock"].astype(int)
-    
+    products_df["stock"] = (
+        pd.to_numeric(products_df[stock_col], errors="coerce").fillna(0).astype(int)
+        if stock_col else 0
+    )
+
     category_col = find_column(products_df, ['category', 'cat', 'type', 'group', 'department'])
-    if category_col is None:
-        products_df["category"] = "Uncategorized"
-    elif category_col != "category":
-        products_df["category"] = products_df[category_col].fillna("Uncategorized").astype(str)
-    else:
-        products_df["category"] = products_df["category"].fillna("Uncategorized").astype(str)
-    
-    return products_df
+    products_df["category"] = (
+        products_df[category_col].fillna("Uncategorized").astype(str)
+        if category_col else "Uncategorized"
+    )
+
+    return _reinsert_branch_id(products_df, branch_id)
 
 
-def get_customers_report_data():
-    """Get customers data for reporting"""
-    customers_df = load_customers()
-    
-    if customers_df.empty:
+def get_customers_report_data(branch_id=None):
+    branch_id = _resolve_branch(branch_id)
+    customers_df = _load_scoped(load_customers, branch_id)
+
+    if customers_df is None or customers_df.empty:
         return pd.DataFrame()
-    
+
     customers_df = convert_decimal_to_float(customers_df)
-    
+
     name_col = find_column(customers_df, ['customer_name', 'name', 'client_name', 'full_name'])
-    if name_col is None:
-        customers_df["customer_name"] = "Unknown"
-    elif name_col != "customer_name":
-        customers_df["customer_name"] = customers_df[name_col].fillna("Unknown").astype(str)
-    else:
-        customers_df["customer_name"] = customers_df["customer_name"].fillna("Unknown").astype(str)
-    
+    customers_df["customer_name"] = (
+        customers_df[name_col].fillna("Unknown").astype(str)
+        if name_col else "Unknown"
+    )
+
     phone_col = find_column(customers_df, ['phone', 'mobile', 'telephone', 'contact', 'phone_number'])
-    if phone_col is None:
-        customers_df["phone"] = ""
-    elif phone_col != "phone":
-        customers_df["phone"] = customers_df[phone_col].fillna("").astype(str)
-    else:
-        customers_df["phone"] = customers_df["phone"].fillna("").astype(str)
-    
+    customers_df["phone"] = (
+        customers_df[phone_col].fillna("").astype(str)
+        if phone_col else ""
+    )
+
     spent_col = find_column(customers_df, ['total_spent', 'spent', 'total', 'amount_spent'])
-    if spent_col is None:
-        customers_df["total_spent"] = 0
-    elif spent_col != "total_spent":
-        customers_df["total_spent"] = pd.to_numeric(customers_df[spent_col], errors="coerce").fillna(0)
-    else:
-        customers_df["total_spent"] = pd.to_numeric(customers_df["total_spent"], errors="coerce").fillna(0)
-    
-    customers_df["total_spent"] = customers_df["total_spent"].astype(float)
-    
+    customers_df["total_spent"] = (
+        pd.to_numeric(customers_df[spent_col], errors="coerce").fillna(0).astype(float)
+        if spent_col else 0.0
+    )
+
     orders_col = find_column(customers_df, ['total_orders', 'orders', 'order_count', 'purchases'])
-    if orders_col is None:
-        customers_df["total_orders"] = 0
-    elif orders_col != "total_orders":
-        customers_df["total_orders"] = pd.to_numeric(customers_df[orders_col], errors="coerce").fillna(0)
-    else:
-        customers_df["total_orders"] = pd.to_numeric(customers_df["total_orders"], errors="coerce").fillna(0)
-    
-    customers_df["total_orders"] = customers_df["total_orders"].astype(int)
-    
-    return customers_df
+    customers_df["total_orders"] = (
+        pd.to_numeric(customers_df[orders_col], errors="coerce").fillna(0).astype(int)
+        if orders_col else 0
+    )
+
+    return _reinsert_branch_id(customers_df, branch_id)
 
 
 def get_branches_report_data():
-    """Get branches data for reporting"""
+    """Branch catalogue — not scoped. Owner-only view by convention."""
     branches_df = load_branches()
-    
-    if branches_df.empty:
+    if branches_df is None or branches_df.empty:
         return pd.DataFrame()
-    
+
     name_col = find_column(branches_df, ['branch_name', 'name', 'location', 'title'])
-    if name_col is None:
-        branches_df["branch_name"] = "Unknown"
-    elif name_col != "branch_name":
-        branches_df["branch_name"] = branches_df[name_col].fillna("Unknown").astype(str)
-    else:
-        branches_df["branch_name"] = branches_df["branch_name"].fillna("Unknown").astype(str)
-    
+    branches_df["branch_name"] = (
+        branches_df[name_col].fillna("Unknown").astype(str)
+        if name_col else "Unknown"
+    )
+
     loc_col = find_column(branches_df, ['location', 'address', 'city', 'area'])
-    if loc_col is None:
-        branches_df["location"] = ""
-    elif loc_col != "location":
-        branches_df["location"] = branches_df[loc_col].fillna("").astype(str)
-    else:
-        branches_df["location"] = branches_df["location"].fillna("").astype(str)
-    
+    branches_df["location"] = (
+        branches_df[loc_col].fillna("").astype(str)
+        if loc_col else ""
+    )
+
     return branches_df
 
 
-def get_inventory_report_data():
-    """Get inventory report data"""
-    products_df = get_products_report_data()
-    
+def get_inventory_report_data(branch_id=None):
+    branch_id = _resolve_branch(branch_id)
+    products_df = get_products_report_data(branch_id)
     if products_df.empty:
         return pd.DataFrame()
-    
+
     inventory_data = products_df.copy()
     inventory_data["stock_value"] = inventory_data["stock"] * inventory_data["cost"]
     inventory_data["selling_value"] = inventory_data["stock"] * inventory_data["price"]
     inventory_data["potential_profit"] = inventory_data["selling_value"] - inventory_data["stock_value"]
     inventory_data = inventory_data.sort_values("stock_value", ascending=False)
-    
     return inventory_data
 
 
 # ==============================
-# GENERATE REPORT FUNCTIONS
+# REPORT GENERATORS
 # ==============================
+def generate_sales_report(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    sales_df = get_sales_report_data(branch_id, start_date, end_date)
 
-def generate_sales_report(start_date, end_date):
-    """Generate comprehensive sales report"""
-    sales_df = get_sales_report_data(start_date, end_date)
-    
     if sales_df.empty:
         return {
-            "total_sales": 0,
-            "total_profit": 0,
-            "total_items": 0,
-            "total_transactions": 0,
-            "average_transaction": 0,
+            "total_sales": 0, "total_profit": 0, "total_items": 0,
+            "total_transactions": 0, "average_transaction": 0,
             "profit_margin": 0,
             "daily_sales": pd.DataFrame(),
             "product_sales": pd.DataFrame(),
             "payment_methods": pd.DataFrame(),
-            "customer_sales": pd.DataFrame()
+            "customer_sales": pd.DataFrame(),
+            "branch_id": branch_id,
+            "branch_name": _branch_display_name(branch_id),
         }
-    
+
     total_sales = float(sales_df["total"].sum())
     total_profit = float(sales_df["profit"].sum())
     total_items = int(sales_df["items"].sum())
     total_transactions = len(sales_df)
     avg_transaction = total_sales / total_transactions if total_transactions > 0 else 0
     profit_margin = (total_profit / total_sales * 100) if total_sales > 0 else 0
-    
+
     daily_sales = sales_df.groupby(sales_df["date"].dt.date).agg({
-        "total": "sum",
-        "profit": "sum",
-        "items": "sum"
+        "total": "sum", "profit": "sum", "items": "sum",
     }).reset_index()
     daily_sales.columns = ["date", "total", "profit", "items"]
     daily_sales["total"] = daily_sales["total"].astype(float)
     daily_sales["profit"] = daily_sales["profit"].astype(float)
     daily_sales["items"] = daily_sales["items"].astype(int)
-    
+
     product_sales = sales_df.groupby("name").agg({
-        "total": "sum",
-        "profit": "sum",
-        "items": "sum"
+        "total": "sum", "profit": "sum", "items": "sum",
     }).reset_index()
     product_sales = product_sales.sort_values("total", ascending=False)
     product_sales["total"] = product_sales["total"].astype(float)
     product_sales["profit"] = product_sales["profit"].astype(float)
     product_sales["items"] = product_sales["items"].astype(int)
     product_sales["margin"] = (product_sales["profit"] / product_sales["total"] * 100).fillna(0)
-    
+
     payment_methods = sales_df.groupby("payment_method").agg({
-        "total": "sum",
-        "profit": "sum"
+        "total": "sum", "profit": "sum",
     }).reset_index()
     payment_methods.columns = ["payment_method", "total", "profit"]
     payment_methods["total"] = payment_methods["total"].astype(float)
     payment_methods["profit"] = payment_methods["profit"].astype(float)
-    
+
     customer_sales = sales_df.groupby("customer").agg({
-        "total": "sum",
-        "profit": "sum"
+        "total": "sum", "profit": "sum",
     }).reset_index()
     customer_sales.columns = ["customer", "total", "profit"]
     customer_sales = customer_sales.sort_values("total", ascending=False)
     customer_sales["total"] = customer_sales["total"].astype(float)
     customer_sales["profit"] = customer_sales["profit"].astype(float)
-    
+
     return {
         "total_sales": total_sales,
         "total_profit": total_profit,
@@ -665,207 +721,218 @@ def generate_sales_report(start_date, end_date):
         "daily_sales": daily_sales,
         "product_sales": product_sales,
         "payment_methods": payment_methods,
-        "customer_sales": customer_sales
+        "customer_sales": customer_sales,
+        "branch_id": branch_id,
+        "branch_name": _branch_display_name(branch_id),
     }
 
 
-def generate_expense_report(start_date, end_date):
-    """Generate expense report - FIXED: Using expenses.py data"""
-    expenses_df = get_expenses_report_data(start_date, end_date)
-    
+def generate_expense_report(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    expenses_df = get_expenses_report_data(branch_id, start_date, end_date)
+
     if expenses_df.empty:
         return {
             "total_expenses": 0,
             "by_category": pd.DataFrame(),
             "daily_expenses": pd.DataFrame(),
-            "by_vendor": pd.DataFrame()
+            "by_vendor": pd.DataFrame(),
+            "branch_id": branch_id,
+            "branch_name": _branch_display_name(branch_id),
         }
-    
+
     total_expenses = float(expenses_df["amount"].sum())
-    
+
     by_category = expenses_df.groupby("category")["amount"].sum().reset_index()
     by_category.columns = ["category", "amount"]
     by_category = by_category.sort_values("amount", ascending=False)
     by_category["amount"] = by_category["amount"].astype(float)
-    
+
     daily_expenses = expenses_df.groupby(expenses_df["date"].dt.date)["amount"].sum().reset_index()
     daily_expenses.columns = ["date", "amount"]
     daily_expenses["date"] = pd.to_datetime(daily_expenses["date"])
     daily_expenses["amount"] = daily_expenses["amount"].astype(float)
     daily_expenses = daily_expenses.sort_values("date")
-    
+
     by_vendor = pd.DataFrame()
     if "vendor" in expenses_df.columns:
         by_vendor = expenses_df.groupby("vendor")["amount"].sum().reset_index()
         by_vendor.columns = ["vendor", "amount"]
         by_vendor = by_vendor.sort_values("amount", ascending=False)
         by_vendor["amount"] = by_vendor["amount"].astype(float)
-    
+
     return {
         "total_expenses": total_expenses,
         "by_category": by_category,
         "daily_expenses": daily_expenses,
-        "by_vendor": by_vendor
+        "by_vendor": by_vendor,
+        "branch_id": branch_id,
+        "branch_name": _branch_display_name(branch_id),
     }
 
 
-def generate_income_report(start_date, end_date):
-    """Generate income report - FIXED: Using income.py data"""
-    income_df = get_income_report_data(start_date, end_date)
-    
+def generate_income_report(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    income_df = get_income_report_data(branch_id, start_date, end_date)
+
     if income_df.empty:
         return {
             "total_income": 0,
             "by_source": pd.DataFrame(),
             "daily_income": pd.DataFrame(),
-            "total_sources": 0
+            "total_sources": 0,
+            "branch_id": branch_id,
+            "branch_name": _branch_display_name(branch_id),
         }
-    
+
     total_income = float(income_df["amount"].sum())
-    
+
     by_source = income_df.groupby("source")["amount"].sum().reset_index()
     by_source.columns = ["source", "amount"]
     by_source = by_source.sort_values("amount", ascending=False)
     by_source["amount"] = by_source["amount"].astype(float)
-    
+
     daily_income = income_df.groupby(income_df["date"].dt.date)["amount"].sum().reset_index()
     daily_income.columns = ["date", "amount"]
     daily_income["date"] = pd.to_datetime(daily_income["date"])
     daily_income["amount"] = daily_income["amount"].astype(float)
     daily_income = daily_income.sort_values("date")
-    
+
     return {
         "total_income": total_income,
         "by_source": by_source,
         "daily_income": daily_income,
-        "total_sources": len(by_source)
+        "total_sources": len(by_source),
+        "branch_id": branch_id,
+        "branch_name": _branch_display_name(branch_id),
     }
 
 
-def generate_purchase_report(start_date, end_date):
-    """Generate purchase report"""
-    purchases_df = get_purchases_report_data(start_date, end_date)
-    
+def generate_purchase_report(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    purchases_df = get_purchases_report_data(branch_id, start_date, end_date)
+
     if purchases_df.empty:
         return {
             "total_purchases": 0,
             "by_supplier": pd.DataFrame(),
             "by_status": pd.DataFrame(),
-            "daily_purchases": pd.DataFrame()
+            "daily_purchases": pd.DataFrame(),
+            "branch_id": branch_id,
+            "branch_name": _branch_display_name(branch_id),
         }
-    
+
     total_purchases = float(purchases_df["total_cost"].sum())
-    
+
     by_supplier = purchases_df.groupby("supplier")["total_cost"].sum().reset_index()
     by_supplier.columns = ["supplier", "amount"]
     by_supplier = by_supplier.sort_values("amount", ascending=False)
     by_supplier["amount"] = by_supplier["amount"].astype(float)
-    
+
     by_status = purchases_df.groupby("status").size().reset_index()
     by_status.columns = ["status", "count"]
-    
+
     daily_purchases = purchases_df.groupby(purchases_df["date"].dt.date)["total_cost"].sum().reset_index()
     daily_purchases.columns = ["date", "amount"]
     daily_purchases["date"] = pd.to_datetime(daily_purchases["date"])
     daily_purchases["amount"] = daily_purchases["amount"].astype(float)
     daily_purchases = daily_purchases.sort_values("date")
-    
+
     return {
         "total_purchases": total_purchases,
         "by_supplier": by_supplier,
         "by_status": by_status,
-        "daily_purchases": daily_purchases
+        "daily_purchases": daily_purchases,
+        "branch_id": branch_id,
+        "branch_name": _branch_display_name(branch_id),
     }
 
 
-def generate_customer_report(start_date, end_date):
-    """Generate customer report"""
-    sales_df = get_sales_report_data(start_date, end_date)
-    
+def generate_customer_report(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    sales_df = get_sales_report_data(branch_id, start_date, end_date)
+
     if sales_df.empty:
         return {
-            "total_customers": 0,
-            "new_customers": 0,
-            "repeat_customers": 0,
-            "top_customers": pd.DataFrame(),
-            "customer_retention": 0
+            "total_customers": 0, "new_customers": 0, "repeat_customers": 0,
+            "top_customers": pd.DataFrame(), "customer_retention": 0,
+            "branch_id": branch_id,
+            "branch_name": _branch_display_name(branch_id),
         }
-    
+
     total_customers = sales_df["customer"].nunique()
     customer_counts = sales_df.groupby("customer")["date"].count()
     new_customers = len(customer_counts[customer_counts == 1])
     repeat_customers = len(customer_counts[customer_counts > 1])
-    
+
     top_customers = sales_df.groupby("customer").agg({
-        "total": "sum",
-        "profit": "sum"
+        "total": "sum", "profit": "sum",
     }).reset_index()
     top_customers.columns = ["customer", "total", "profit"]
     top_customers = top_customers.sort_values("total", ascending=False).head(10)
     top_customers["total"] = top_customers["total"].astype(float)
     top_customers["profit"] = top_customers["profit"].astype(float)
-    
+
     customer_retention = (repeat_customers / total_customers * 100) if total_customers > 0 else 0
-    
+
     return {
         "total_customers": total_customers,
         "new_customers": new_customers,
         "repeat_customers": repeat_customers,
         "top_customers": top_customers,
-        "customer_retention": customer_retention
+        "customer_retention": customer_retention,
+        "branch_id": branch_id,
+        "branch_name": _branch_display_name(branch_id),
     }
 
 
-def generate_debtors_report():
-    """Generate debtors report - FIXED: Using floating financials credit management"""
+def generate_debtors_report(branch_id=None):
+    branch_id = _resolve_branch(branch_id)
+
     try:
-        debtors_df = get_debtors_report_data()
-        
+        debtors_df = get_debtors_report_data(branch_id)
         if debtors_df.empty:
             return {
-                "total_debt": 0,
-                "total_paid": 0,
-                "outstanding_balance": 0,
-                "debtors_count": 0,
-                "overdue_count": 0,
+                "total_debt": 0, "total_paid": 0, "outstanding_balance": 0,
+                "debtors_count": 0, "overdue_count": 0,
                 "by_status": pd.DataFrame(),
                 "by_type": pd.DataFrame(),
-                "top_debtors": pd.DataFrame()
+                "top_debtors": pd.DataFrame(),
+                "branch_id": branch_id,
+                "branch_name": _branch_display_name(branch_id),
             }
-        
+
         total_debt = float(debtors_df["total_amount"].sum())
         total_paid = float(debtors_df["amount_paid"].sum())
         outstanding_balance = float(debtors_df["balance"].sum())
         debtors_count = len(debtors_df)
-        
-        # Calculate overdue
+
         overdue_count = 0
         if "expected_repayment_date" in debtors_df.columns:
             now = pd.Timestamp.now()
-            debtors_df["expected_repayment_date"] = pd.to_datetime(debtors_df["expected_repayment_date"], errors="coerce")
             overdue_count = len(debtors_df[
-                (debtors_df["expected_repayment_date"] < now) & 
+                (debtors_df["expected_repayment_date"] < now) &
                 (debtors_df["balance"] > 0)
             ])
-        
+
         by_status = debtors_df.groupby("status").agg({
-            "balance": "sum",
-            "total_amount": "sum"
+            "balance": "sum", "total_amount": "sum",
         }).reset_index()
         by_status["balance"] = by_status["balance"].astype(float)
         by_status["total_amount"] = by_status["total_amount"].astype(float)
-        
+
         by_type = debtors_df.groupby("credit_type").agg({
-            "balance": "sum",
-            "total_amount": "sum"
+            "balance": "sum", "total_amount": "sum",
         }).reset_index()
         by_type["balance"] = by_type["balance"].astype(float)
         by_type["total_amount"] = by_type["total_amount"].astype(float)
-        
-        top_debtors = debtors_df.nlargest(10, "balance")[["customer_name", "phone", "balance", "total_amount", "status"]]
+
+        top_debtors = debtors_df.nlargest(10, "balance")[
+            ["customer_name", "phone", "balance", "total_amount", "status"]
+        ]
         top_debtors["balance"] = top_debtors["balance"].astype(float)
         top_debtors["total_amount"] = top_debtors["total_amount"].astype(float)
-        
+
         return {
             "total_debt": total_debt,
             "total_paid": total_paid,
@@ -874,29 +941,27 @@ def generate_debtors_report():
             "overdue_count": overdue_count,
             "by_status": by_status,
             "by_type": by_type,
-            "top_debtors": top_debtors
+            "top_debtors": top_debtors,
+            "branch_id": branch_id,
+            "branch_name": _branch_display_name(branch_id),
         }
-        
     except Exception as e:
-        print(f"Error generating debtors report: {e}")
+        print(f"[reports_engine] generate_debtors_report error: {e}")
         return {
-            "total_debt": 0,
-            "total_paid": 0,
-            "outstanding_balance": 0,
-            "debtors_count": 0,
-            "overdue_count": 0,
+            "total_debt": 0, "total_paid": 0, "outstanding_balance": 0,
+            "debtors_count": 0, "overdue_count": 0,
             "by_status": pd.DataFrame(),
             "by_type": pd.DataFrame(),
-            "top_debtors": pd.DataFrame()
+            "top_debtors": pd.DataFrame(),
+            "branch_id": branch_id,
+            "branch_name": _branch_display_name(branch_id),
         }
 
 
 # ==============================
-# HTML REPORT GENERATORS (Keep existing functions)
+# HTML / PDF BUILDERS
 # ==============================
-
-def get_report_header(title, start_date=None, end_date=None):
-    """Generate standard report header with company name"""
+def get_report_header(title, branch_name=None, start_date=None, end_date=None):
     header = f"""
     <div style="text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px;">
         <h1 style="color: #1a237e; margin: 0; font-size: 28px;">{COMPANY_NAME}</h1>
@@ -904,6 +969,12 @@ def get_report_header(title, start_date=None, end_date=None):
         <p style="margin: 5px 0; color: #555; font-size: 14px;">📞 {COMPANY_PHONE}</p>
         <h2 style="color: #2c3e50; margin-top: 10px; font-size: 22px;">{title}</h2>
     """
+    if branch_name:
+        header += f"""
+        <p style="color: #2c3e50; font-size: 14px; margin: 5px 0; font-weight: bold;">
+            Branch: {branch_name}
+        </p>
+        """
     if start_date and end_date:
         header += f"""
         <p style="color: #7f8c8d; font-size: 14px; margin: 5px 0;">
@@ -920,7 +991,6 @@ def get_report_header(title, start_date=None, end_date=None):
 
 
 def get_report_footer():
-    """Generate standard report footer"""
     return f"""
     <div style="text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px;">
         <p>{COMPANY_NAME} - {COMPANY_ADDRESS}</p>
@@ -930,23 +1000,15 @@ def get_report_footer():
     """
 
 
-# ==============================
-# PDF GENERATORS - FIXED
-# ==============================
+def generate_sales_report_pdf(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    report_data = generate_sales_report(branch_id, start_date, end_date)
+    branch_name = report_data.get("branch_name", _branch_display_name(branch_id))
 
-def generate_sales_report_pdf(start_date, end_date):
-    """Generate sales report PDF"""
-    report_data = generate_sales_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Sales Report - {COMPANY_NAME}</title>
+    html = f"""<!DOCTYPE html>
+    <html><head><meta charset="UTF-8"><title>Sales Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
@@ -955,56 +1017,34 @@ def generate_sales_report_pdf(start_date, end_date):
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #2ecc71; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        <div class="company-header">
-            <h1>{COMPANY_NAME}</h1>
-            <p>{COMPANY_ADDRESS}</p>
-            <p>📞 {COMPANY_PHONE}</p>
-            <h2>Sales Report</h2>
-            <p>Period: {start_date} to {end_date}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        </div>
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_sales']:,.2f}</div><div class="metric-label">Total Sales</div></div>
-            <div class="metric-card"><div class="metric-value">${report_data['total_profit']:,.2f}</div><div class="metric-label">Total Profit</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['profit_margin']:.1f}%</div><div class="metric-label">Profit Margin</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['total_transactions']:,}</div><div class="metric-label">Transactions</div></div>
-        </div>
+    </style></head><body>
+    {get_report_header('Sales Report', branch_name, start_date, end_date)}
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">${report_data['total_sales']:,.2f}</div><div class="metric-label">Total Sales</div></div>
+        <div class="metric-card"><div class="metric-value">${report_data['total_profit']:,.2f}</div><div class="metric-label">Total Profit</div></div>
+        <div class="metric-card"><div class="metric-value">{report_data['profit_margin']:.1f}%</div><div class="metric-label">Profit Margin</div></div>
+        <div class="metric-card"><div class="metric-value">{report_data['total_transactions']:,}</div><div class="metric-label">Transactions</div></div>
+    </div>
     """
-    
     if not report_data['product_sales'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Top Products</h2>
-            <table><tr><th>Product</th><th>Revenue</th><th>Profit</th><th>Units</th><th>Margin</th></tr>
-        """
+        html += '<div><h2 class="section-title">Top Products</h2><table><tr><th>Product</th><th>Revenue</th><th>Profit</th><th>Units</th><th>Margin</th></tr>'
         for _, row in report_data['product_sales'].head(10).iterrows():
             html += f"<tr><td>{row['name'][:30]}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td><td>{row['items']}</td><td>{row['margin']:.1f}%</td></tr>"
         html += "</table></div>"
-    
-    html += get_report_footer()
-    html += "</body></html>"
+    html += get_report_footer() + "</body></html>"
     return html.encode('utf-8')
 
 
-def generate_income_report_pdf(start_date, end_date):
-    """Generate income report PDF - FIXED"""
-    report_data = generate_income_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Income Report - {COMPANY_NAME}</title>
+def generate_income_report_pdf(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    report_data = generate_income_report(branch_id, start_date, end_date)
+    branch_name = report_data.get("branch_name", _branch_display_name(branch_id))
+
+    html = f"""<!DOCTYPE html>
+    <html><head><meta charset="UTF-8"><title>Income Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
@@ -1013,50 +1053,35 @@ def generate_income_report_pdf(start_date, end_date):
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #2ecc71; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        {get_report_header('Income Report', start_date, end_date)}
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_income']:,.2f}</div><div class="metric-label">Total Income</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['total_sources']}</div><div class="metric-label">Income Sources</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['daily_income'])}</div><div class="metric-label">Days with Income</div></div>
-        </div>
+    </style></head><body>
+    {get_report_header('Income Report', branch_name, start_date, end_date)}
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">${report_data['total_income']:,.2f}</div><div class="metric-label">Total Income</div></div>
+        <div class="metric-card"><div class="metric-value">{report_data['total_sources']}</div><div class="metric-label">Income Sources</div></div>
+        <div class="metric-card"><div class="metric-value">{len(report_data['daily_income'])}</div><div class="metric-label">Days with Income</div></div>
+    </div>
     """
-    
     if not report_data['by_source'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Income by Source</h2>
-            <table><tr><th>Source</th><th>Amount</th><th>Percentage</th></tr>
-        """
+        html += '<div><h2 class="section-title">Income by Source</h2><table><tr><th>Source</th><th>Amount</th><th>Percentage</th></tr>'
         total = report_data['total_income']
         for _, row in report_data['by_source'].iterrows():
-            percentage = (row['amount'] / total * 100) if total > 0 else 0
-            html += f"<tr><td>{row['source']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
+            pct = (row['amount'] / total * 100) if total > 0 else 0
+            html += f"<tr><td>{row['source']}</td><td>${row['amount']:,.2f}</td><td>{pct:.1f}%</td></tr>"
         html += "</table></div>"
-    
-    html += get_report_footer()
-    html += "</body></html>"
+    html += get_report_footer() + "</body></html>"
     return html.encode('utf-8')
 
 
-def generate_expenses_report_pdf(start_date, end_date):
-    """Generate expenses report PDF - FIXED"""
-    report_data = generate_expense_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Expenses Report - {COMPANY_NAME}</title>
+def generate_expenses_report_pdf(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    report_data = generate_expense_report(branch_id, start_date, end_date)
+    branch_name = report_data.get("branch_name", _branch_display_name(branch_id))
+
+    html = f"""<!DOCTYPE html>
+    <html><head><meta charset="UTF-8"><title>Expenses Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
@@ -1065,71 +1090,41 @@ def generate_expenses_report_pdf(start_date, end_date):
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
         .section-title {{ color: #2c3e50; border-bottom: 2px solid #e74c3c; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        {get_report_header('Expenses Report', start_date, end_date)}
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_expenses']:,.2f}</div><div class="metric-label">Total Expenses</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['by_category'])}</div><div class="metric-label">Categories</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['daily_expenses'])}</div><div class="metric-label">Days with Expenses</div></div>
-        </div>
+    </style></head><body>
+    {get_report_header('Expenses Report', branch_name, start_date, end_date)}
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">${report_data['total_expenses']:,.2f}</div><div class="metric-label">Total Expenses</div></div>
+        <div class="metric-card"><div class="metric-value">{len(report_data['by_category'])}</div><div class="metric-label">Categories</div></div>
+        <div class="metric-card"><div class="metric-value">{len(report_data['daily_expenses'])}</div><div class="metric-label">Days with Expenses</div></div>
+    </div>
     """
-    
     if not report_data['by_category'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Expenses by Category</h2>
-            <table><tr><th>Category</th><th>Amount</th><th>Percentage</th></tr>
-        """
+        html += '<div><h2 class="section-title">Expenses by Category</h2><table><tr><th>Category</th><th>Amount</th><th>Percentage</th></tr>'
         total = report_data['total_expenses']
         for _, row in report_data['by_category'].iterrows():
-            percentage = (row['amount'] / total * 100) if total > 0 else 0
-            html += f"<tr><td>{row['category']}</td><td>${row['amount']:,.2f}</td><td>{percentage:.1f}%</td></tr>"
+            pct = (row['amount'] / total * 100) if total > 0 else 0
+            html += f"<tr><td>{row['category']}</td><td>${row['amount']:,.2f}</td><td>{pct:.1f}%</td></tr>"
         html += "</table></div>"
-    
-    html += get_report_footer()
-    html += "</body></html>"
+    html += get_report_footer() + "</body></html>"
     return html.encode('utf-8')
 
 
-def generate_inventory_report_pdf():
-    """Generate inventory report PDF"""
-    inventory_data = get_inventory_report_data()
-    
+def generate_inventory_report_pdf(branch_id=None):
+    branch_id = _resolve_branch(branch_id)
+    inventory_data = get_inventory_report_data(branch_id)
+    branch_name = _branch_display_name(branch_id)
+
     if inventory_data.empty:
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="UTF-8"><title>Inventory Report - {COMPANY_NAME}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; text-align: center; }}
-            .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-            .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-            .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
-        </style>
-        </head>
-        <body>
-            {get_report_header('Inventory Report')}
-            <p>No inventory data available</p>
-            {get_report_footer()}
-        </body>
-        </html>
-        """
+        html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Inventory Report</title></head><body>
+        {get_report_header('Inventory Report', branch_name)}
+        <p>No inventory data available for {branch_name}.</p>
+        {get_report_footer()}</body></html>"""
         return html.encode('utf-8')
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Inventory Report - {COMPANY_NAME}</title>
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Inventory Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
@@ -1138,58 +1133,37 @@ def generate_inventory_report_pdf():
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        {get_report_header('Inventory Report')}
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">{len(inventory_data):,}</div><div class="metric-label">Total Products</div></div>
-            <div class="metric-card"><div class="metric-value">${inventory_data['stock_value'].sum():,.2f}</div><div class="metric-label">Total Stock Value</div></div>
-            <div class="metric-card"><div class="metric-value">{inventory_data['stock'].sum():,}</div><div class="metric-label">Total Units</div></div>
-            <div class="metric-card"><div class="metric-value">${inventory_data['potential_profit'].sum():,.2f}</div><div class="metric-label">Potential Profit</div></div>
-        </div>
-        <div class="section">
-            <h2 class="section-title">Inventory Details</h2>
-            <table><tr><th>Product</th><th>Category</th><th>Stock</th><th>Price</th><th>Cost</th><th>Stock Value</th></tr>
-    """
-    
+    </style></head><body>
+    {get_report_header('Inventory Report', branch_name)}
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">{len(inventory_data):,}</div><div class="metric-label">Total Products</div></div>
+        <div class="metric-card"><div class="metric-value">${inventory_data['stock_value'].sum():,.2f}</div><div class="metric-label">Total Stock Value</div></div>
+        <div class="metric-card"><div class="metric-value">{inventory_data['stock'].sum():,}</div><div class="metric-label">Total Units</div></div>
+        <div class="metric-card"><div class="metric-value">${inventory_data['potential_profit'].sum():,.2f}</div><div class="metric-label">Potential Profit</div></div>
+    </div>
+    <h2>Inventory Details</h2>
+    <table><tr><th>Product</th><th>Category</th><th>Stock</th><th>Price</th><th>Cost</th><th>Stock Value</th></tr>"""
     for _, row in inventory_data.head(20).iterrows():
-        html += f"""
-            <tr>
-                <td>{row.get('name', 'Unknown')[:30]}</td>
-                <td>{row.get('category', 'Uncategorized')}</td>
-                <td>{row.get('stock', 0)}</td>
-                <td>${row.get('price', 0):.2f}</td>
-                <td>${row.get('cost', 0):.2f}</td>
-                <td>${row.get('stock_value', 0):.2f}</td>
-            </tr>
-        """
-    
-    html += f"""
-        </table></div>
-        {get_report_footer()}
-    </body>
-    </html>
-    """
+        html += f"""<tr>
+            <td>{row.get('name', 'Unknown')[:30]}</td>
+            <td>{row.get('category', 'Uncategorized')}</td>
+            <td>{row.get('stock', 0)}</td>
+            <td>${row.get('price', 0):.2f}</td>
+            <td>${row.get('cost', 0):.2f}</td>
+            <td>${row.get('stock_value', 0):.2f}</td>
+        </tr>"""
+    html += f"</table>{get_report_footer()}</body></html>"
     return html.encode('utf-8')
 
 
-def generate_debtors_report_pdf():
-    """Generate debtors report PDF - FIXED: Using floating financials"""
-    report_data = generate_debtors_report()
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Debtors Report - {COMPANY_NAME}</title>
+def generate_debtors_report_pdf(branch_id=None):
+    branch_id = _resolve_branch(branch_id)
+    report_data = generate_debtors_report(branch_id)
+    branch_name = report_data.get("branch_name", _branch_display_name(branch_id))
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Debtors Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
@@ -1198,58 +1172,38 @@ def generate_debtors_report_pdf():
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        {get_report_header('Debtors Report')}
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_debt']:,.2f}</div><div class="metric-label">Total Debt</div></div>
-            <div class="metric-card"><div class="metric-value">${report_data['total_paid']:,.2f}</div><div class="metric-label">Total Paid</div></div>
-            <div class="metric-card"><div class="metric-value">${report_data['outstanding_balance']:,.2f}</div><div class="metric-label">Outstanding Balance</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['debtors_count']}</div><div class="metric-label">Total Debtors</div></div>
-        </div>
-    """
-    
+    </style></head><body>
+    {get_report_header('Debtors Report', branch_name)}
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">${report_data['total_debt']:,.2f}</div><div class="metric-label">Total Debt</div></div>
+        <div class="metric-card"><div class="metric-value">${report_data['total_paid']:,.2f}</div><div class="metric-label">Total Paid</div></div>
+        <div class="metric-card"><div class="metric-value">${report_data['outstanding_balance']:,.2f}</div><div class="metric-label">Outstanding</div></div>
+        <div class="metric-card"><div class="metric-value">{report_data['debtors_count']}</div><div class="metric-label">Total Debtors</div></div>
+    </div>"""
     if not report_data['top_debtors'].empty:
-        html += """
-        <div class="section">
-            <h2 class="section-title">Top Debtors</h2>
-            <table><tr><th>Customer</th><th>Phone</th><th>Total Amount</th><th>Balance</th><th>Status</th></tr>
-        """
+        html += '<h2>Top Debtors</h2><table><tr><th>Customer</th><th>Phone</th><th>Total Amount</th><th>Balance</th><th>Status</th></tr>'
         for _, row in report_data['top_debtors'].iterrows():
-            status_color = "#e74c3c" if row['status'] == "OVERDUE" else "#27ae60" if row['status'] == "PAID" else "#f39c12"
-            html += f"""
-                <tr>
-                    <td>{row.get('customer_name', 'Unknown')}</td>
-                    <td>{row.get('phone', 'N/A')}</td>
-                    <td>${row.get('total_amount', 0):,.2f}</td>
-                    <td>${row.get('balance', 0):,.2f}</td>
-                    <td style="color:{status_color};font-weight:bold;">{row.get('status', 'PENDING')}</td>
-                </tr>
-            """
-        html += "</table></div>"
-    
-    html += get_report_footer()
-    html += "</body></html>"
+            color = "#e74c3c" if row['status'] == "OVERDUE" else "#27ae60" if row['status'] == "PAID" else "#f39c12"
+            html += f"""<tr>
+                <td>{row.get('customer_name', 'Unknown')}</td>
+                <td>{row.get('phone', 'N/A')}</td>
+                <td>${row.get('total_amount', 0):,.2f}</td>
+                <td>${row.get('balance', 0):,.2f}</td>
+                <td style="color:{color};font-weight:bold;">{row.get('status', 'PENDING')}</td>
+            </tr>"""
+        html += "</table>"
+    html += get_report_footer() + "</body></html>"
     return html.encode('utf-8')
 
 
-def generate_purchases_report_pdf(start_date, end_date):
-    """Generate purchases report PDF"""
-    report_data = generate_purchase_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Purchases Report - {COMPANY_NAME}</title>
+def generate_purchases_report_pdf(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    report_data = generate_purchase_report(branch_id, start_date, end_date)
+    branch_name = report_data.get("branch_name", _branch_display_name(branch_id))
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Purchases Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
@@ -1258,48 +1212,30 @@ def generate_purchases_report_pdf(start_date, end_date):
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        {get_report_header('Purchases Report', start_date, end_date)}
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${report_data['total_purchases']:,.2f}</div><div class="metric-label">Total Purchases</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['by_supplier'])}</div><div class="metric-label">Suppliers</div></div>
-            <div class="metric-card"><div class="metric-value">{len(report_data['by_status'])}</div><div class="metric-label">Statuses</div></div>
-        </div>
-    """
-    
+    </style></head><body>
+    {get_report_header('Purchases Report', branch_name, start_date, end_date)}
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">${report_data['total_purchases']:,.2f}</div><div class="metric-label">Total Purchases</div></div>
+        <div class="metric-card"><div class="metric-value">{len(report_data['by_supplier'])}</div><div class="metric-label">Suppliers</div></div>
+        <div class="metric-card"><div class="metric-value">{len(report_data['by_status'])}</div><div class="metric-label">Statuses</div></div>
+    </div>"""
     if not report_data['by_supplier'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Top Suppliers</h2>
-            <table><tr><th>Supplier</th><th>Amount</th></tr>
-        """
+        html += '<h2>Top Suppliers</h2><table><tr><th>Supplier</th><th>Amount</th></tr>'
         for _, row in report_data['by_supplier'].head(10).iterrows():
             html += f"<tr><td>{row['supplier']}</td><td>${row['amount']:,.2f}</td></tr>"
-        html += "</table></div>"
-    
-    html += get_report_footer()
-    html += "</body></html>"
+        html += "</table>"
+    html += get_report_footer() + "</body></html>"
     return html.encode('utf-8')
 
 
-def generate_customers_report_pdf(start_date, end_date):
-    """Generate customers report PDF"""
-    report_data = generate_customer_report(start_date, end_date)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Customers Report - {COMPANY_NAME}</title>
+def generate_customers_report_pdf(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    report_data = generate_customer_report(branch_id, start_date, end_date)
+    branch_name = report_data.get("branch_name", _branch_display_name(branch_id))
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Customers Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
@@ -1308,62 +1244,44 @@ def generate_customers_report_pdf(start_date, end_date):
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .section-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        {get_report_header('Customers Report', start_date, end_date)}
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">{report_data['total_customers']:,}</div><div class="metric-label">Total Customers</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['new_customers']:,}</div><div class="metric-label">New Customers</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['repeat_customers']:,}</div><div class="metric-label">Repeat Customers</div></div>
-            <div class="metric-card"><div class="metric-value">{report_data['customer_retention']:.1f}%</div><div class="metric-label">Retention Rate</div></div>
-        </div>
-    """
-    
+    </style></head><body>
+    {get_report_header('Customers Report', branch_name, start_date, end_date)}
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">{report_data['total_customers']:,}</div><div class="metric-label">Total Customers</div></div>
+        <div class="metric-card"><div class="metric-value">{report_data['new_customers']:,}</div><div class="metric-label">New Customers</div></div>
+        <div class="metric-card"><div class="metric-value">{report_data['repeat_customers']:,}</div><div class="metric-label">Repeat Customers</div></div>
+        <div class="metric-card"><div class="metric-value">{report_data['customer_retention']:.1f}%</div><div class="metric-label">Retention Rate</div></div>
+    </div>"""
     if not report_data['top_customers'].empty:
-        html += f"""
-        <div class="section">
-            <h2 class="section-title">Top Customers</h2>
-            <table><tr><th>Customer</th><th>Total Spent</th><th>Profit</th></tr>
-        """
+        html += '<h2>Top Customers</h2><table><tr><th>Customer</th><th>Total Spent</th><th>Profit</th></tr>'
         for _, row in report_data['top_customers'].iterrows():
             html += f"<tr><td>{row['customer']}</td><td>${row['total']:,.2f}</td><td>${row['profit']:,.2f}</td></tr>"
-        html += "</table></div>"
-    
-    html += get_report_footer()
-    html += "</body></html>"
+        html += "</table>"
+    html += get_report_footer() + "</body></html>"
     return html.encode('utf-8')
 
 
-def generate_sales_report_html(start_date, end_date):
-    """Generate HTML sales report"""
-    return generate_sales_report_pdf(start_date, end_date)
+def generate_sales_report_html(branch_id=None, start_date=None, end_date=None):
+    return generate_sales_report_pdf(branch_id, start_date, end_date)
 
 
-def generate_combined_report_pdf(start_date, end_date):
-    """Generate combined report PDF"""
-    sales_report = generate_sales_report(start_date, end_date)
-    expense_report = generate_expense_report(start_date, end_date)
-    income_report = generate_income_report(start_date, end_date)
-    purchase_report = generate_purchase_report(start_date, end_date)
-    customer_report = generate_customer_report(start_date, end_date)
-    debtors_report = generate_debtors_report()
-    
+def generate_combined_report_pdf(branch_id=None, start_date=None, end_date=None):
+    branch_id = _resolve_branch(branch_id)
+    branch_name = _branch_display_name(branch_id)
+
+    sales_report = generate_sales_report(branch_id, start_date, end_date)
+    expense_report = generate_expense_report(branch_id, start_date, end_date)
+    income_report = generate_income_report(branch_id, start_date, end_date)
+    purchase_report = generate_purchase_report(branch_id, start_date, end_date)
+    customer_report = generate_customer_report(branch_id, start_date, end_date)
+    debtors_report = generate_debtors_report(branch_id)
+
     net_profit = sales_report['total_sales'] - expense_report['total_expenses'] + income_report['total_income']
     net_margin = (net_profit / sales_report['total_sales'] * 100) if sales_report['total_sales'] > 0 else 0
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Combined Business Report - {COMPANY_NAME}</title>
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Combined Business Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .company-header {{ text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 15px; margin-bottom: 25px; }}
-        .company-header h1 {{ color: #1a237e; margin: 0; font-size: 28px; }}
-        .company-header p {{ margin: 5px 0; color: #555; font-size: 14px; }}
         h2 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; margin-top: 30px; }}
         .metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }}
@@ -1373,101 +1291,85 @@ def generate_combined_report_pdf(start_date, end_date):
         th {{ background: #1a237e; color: white; padding: 10px; text-align: left; }}
         td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
         tr:nth-child(even) {{ background: #f8f9fa; }}
-        .section {{ margin-top: 30px; }}
-        .footer {{ text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 30px; color: #95a5a6; font-size: 11px; }}
-    </style>
-    </head>
-    <body>
-        {get_report_header('Combined Business Report', start_date, end_date)}
-        
-        <h2>Executive Summary</h2>
-        <div class="metrics">
-            <div class="metric-card"><div class="metric-value">${sales_report['total_sales']:,.2f}</div><div class="metric-label">Total Revenue</div></div>
-            <div class="metric-card"><div class="metric-value">${expense_report['total_expenses']:,.2f}</div><div class="metric-label">Total Expenses</div></div>
-            <div class="metric-card"><div class="metric-value">${net_profit:,.2f}</div><div class="metric-label">Net Profit</div></div>
-            <div class="metric-card"><div class="metric-value">{net_margin:.1f}%</div><div class="metric-label">Net Margin</div></div>
-        </div>
-        
-        <h2>Sales Summary</h2>
-        <table>
-            <tr><th>Metric</th><th>Value</th></tr>
-            <tr><td>Total Sales</td><td>${sales_report['total_sales']:,.2f}</td></tr>
-            <tr><td>Total Profit</td><td>${sales_report['total_profit']:,.2f}</td></tr>
-            <tr><td>Profit Margin</td><td>{sales_report['profit_margin']:.1f}%</td></tr>
-            <tr><td>Total Transactions</td><td>{sales_report['total_transactions']:,}</td></tr>
-            <tr><td>Average Transaction</td><td>${sales_report['average_transaction']:.2f}</td></tr>
-        </table>
-        
-        <h2>Income Summary</h2>
-        <table>
-            <tr><th>Metric</th><th>Value</th></tr>
-            <tr><td>Total Income</td><td>${income_report['total_income']:,.2f}</td></tr>
-            <tr><td>Income Sources</td><td>{income_report['total_sources']}</td></tr>
-        </table>
-        
-        <h2>Expenses Summary</h2>
-        <table>
-            <tr><th>Metric</th><th>Value</th></tr>
-            <tr><td>Total Expenses</td><td>${expense_report['total_expenses']:,.2f}</td></tr>
-            <tr><td>Number of Categories</td><td>{len(expense_report['by_category'])}</td></tr>
-        </table>
-    """
-    
+    </style></head><body>
+    {get_report_header('Combined Business Report', branch_name, start_date, end_date)}
+
+    <h2>Executive Summary</h2>
+    <div class="metrics">
+        <div class="metric-card"><div class="metric-value">${sales_report['total_sales']:,.2f}</div><div class="metric-label">Total Revenue</div></div>
+        <div class="metric-card"><div class="metric-value">${expense_report['total_expenses']:,.2f}</div><div class="metric-label">Total Expenses</div></div>
+        <div class="metric-card"><div class="metric-value">${net_profit:,.2f}</div><div class="metric-label">Net Profit</div></div>
+        <div class="metric-card"><div class="metric-value">{net_margin:.1f}%</div><div class="metric-label">Net Margin</div></div>
+    </div>
+
+    <h2>Sales Summary</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Sales</td><td>${sales_report['total_sales']:,.2f}</td></tr>
+        <tr><td>Total Profit</td><td>${sales_report['total_profit']:,.2f}</td></tr>
+        <tr><td>Profit Margin</td><td>{sales_report['profit_margin']:.1f}%</td></tr>
+        <tr><td>Total Transactions</td><td>{sales_report['total_transactions']:,}</td></tr>
+        <tr><td>Average Transaction</td><td>${sales_report['average_transaction']:.2f}</td></tr>
+    </table>
+
+    <h2>Income Summary</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Income</td><td>${income_report['total_income']:,.2f}</td></tr>
+        <tr><td>Income Sources</td><td>{income_report['total_sources']}</td></tr>
+    </table>
+
+    <h2>Expenses Summary</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Expenses</td><td>${expense_report['total_expenses']:,.2f}</td></tr>
+        <tr><td>Number of Categories</td><td>{len(expense_report['by_category'])}</td></tr>
+    </table>"""
+
     if not expense_report['by_category'].empty:
-        html += """
-        <h3>Expenses by Category</h3>
-        <table><tr><th>Category</th><th>Amount</th></tr>
-        """
+        html += '<h3>Expenses by Category</h3><table><tr><th>Category</th><th>Amount</th></tr>'
         for _, row in expense_report['by_category'].head(10).iterrows():
             html += f"<tr><td>{row['category']}</td><td>${row['amount']:,.2f}</td></tr>"
         html += "</table>"
-    
+
     html += f"""
-        <h2>Purchases Summary</h2>
-        <table>
-            <tr><th>Metric</th><th>Value</th></tr>
-            <tr><td>Total Purchases</td><td>${purchase_report['total_purchases']:,.2f}</td></tr>
-            <tr><td>Number of Suppliers</td><td>{len(purchase_report['by_supplier'])}</td></tr>
-        </table>
-        
-        <h2>Customers Summary</h2>
-        <table>
-            <tr><th>Metric</th><th>Value</th></tr>
-            <tr><td>Total Customers</td><td>{customer_report['total_customers']:,}</td></tr>
-            <tr><td>New Customers</td><td>{customer_report['new_customers']:,}</td></tr>
-            <tr><td>Repeat Customers</td><td>{customer_report['repeat_customers']:,}</td></tr>
-            <tr><td>Retention Rate</td><td>{customer_report['customer_retention']:.1f}%</td></tr>
-        </table>
-        
-        <h2>Debtors Summary</h2>
-        <table>
-            <tr><th>Metric</th><th>Value</th></tr>
-            <tr><td>Total Debt</td><td>${debtors_report['total_debt']:,.2f}</td></tr>
-            <tr><td>Total Paid</td><td>${debtors_report['total_paid']:,.2f}</td></tr>
-            <tr><td>Outstanding Balance</td><td>${debtors_report['outstanding_balance']:,.2f}</td></tr>
-            <tr><td>Total Debtors</td><td>{debtors_report['debtors_count']}</td></tr>
-            <tr><td>Overdue Debtors</td><td>{debtors_report['overdue_count']}</td></tr>
-        </table>
-        
-        {get_report_footer()}
-    </body>
-    </html>
-    """
-    
+    <h2>Purchases Summary</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Purchases</td><td>${purchase_report['total_purchases']:,.2f}</td></tr>
+        <tr><td>Number of Suppliers</td><td>{len(purchase_report['by_supplier'])}</td></tr>
+    </table>
+
+    <h2>Customers Summary</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Customers</td><td>{customer_report['total_customers']:,}</td></tr>
+        <tr><td>New Customers</td><td>{customer_report['new_customers']:,}</td></tr>
+        <tr><td>Repeat Customers</td><td>{customer_report['repeat_customers']:,}</td></tr>
+        <tr><td>Retention Rate</td><td>{customer_report['customer_retention']:.1f}%</td></tr>
+    </table>
+
+    <h2>Debtors Summary</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Total Debt</td><td>${debtors_report['total_debt']:,.2f}</td></tr>
+        <tr><td>Total Paid</td><td>${debtors_report['total_paid']:,.2f}</td></tr>
+        <tr><td>Outstanding Balance</td><td>${debtors_report['outstanding_balance']:,.2f}</td></tr>
+        <tr><td>Total Debtors</td><td>{debtors_report['debtors_count']}</td></tr>
+        <tr><td>Overdue Debtors</td><td>{debtors_report['overdue_count']}</td></tr>
+    </table>
+    {get_report_footer()}</body></html>"""
     return html.encode('utf-8')
 
 
 def get_pdf_download_link(pdf_bytes, filename):
-    """Generate a download link for PDF"""
     b64 = base64.b64encode(pdf_bytes).decode()
-    href = f'<a href="data:application/pdf;base64,{b64}" download="{filename}">Download {filename}</a>'
-    return href
+    return f'<a href="data:application/pdf;base64,{b64}" download="{filename}">Download {filename}</a>'
 
 
 # ==============================
 # EXPORTS
 # ==============================
-
 __all__ = [
     'get_sales_report_data',
     'get_products_report_data',
@@ -1493,5 +1395,5 @@ __all__ = [
     'generate_purchases_report_pdf',
     'generate_customers_report_pdf',
     'generate_combined_report_pdf',
-    'get_pdf_download_link'
+    'get_pdf_download_link',
 ]
