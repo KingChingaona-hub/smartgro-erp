@@ -6,6 +6,9 @@ Customers sourced from sales table as first priority
 
 DEBT SOURCE: Floating Financials (floating_credits + floating_changes),
 NOT the legacy debtors table.
+
+INCOME: Revenue - Expenses (net income). Also exposes Gross Income (= revenue)
+        and Total Expenses as separate metrics.
 """
 
 import streamlit as st
@@ -34,7 +37,7 @@ from backend.core.db_adapter import (
 from backend.integrations.email_reports import get_email_config, send_email
 from backend.modules.expenses import load_expenses as load_expenses_direct
 
-# ---- NEW: debt comes from floating financials ----
+# ---- Debt comes from floating financials ----
 from backend.core.floating_financials import (
     get_credit_summary,
     get_credit_records,
@@ -203,43 +206,15 @@ def get_customers_from_sales(sales_df):
 
 
 # ==============================
-# FLOATING FINANCIALS DEBT HELPERS  (NEW)
+# FLOATING FINANCIALS DEBT HELPERS
 # ==============================
 
 def fetch_floating_debt_snapshot():
     """
     Pull debt metrics from Floating Financials.
 
-    Returns a dict:
-        {
-            # Credits (money owed TO us)
-            "total_credit_balance": float,
-            "active_credit_count": int,
-            "partial_credit_count": int,
-            "total_credit_amount": float,
-            "total_credit_paid": float,
-
-            # Changes (money we owe / uncollected)
-            "total_change_balance": float,
-            "uncollected_change_count": int,
-            "partial_change_count": int,
-            "total_change_amount": float,
-            "total_change_collected": float,
-
-            # Bad debt / written off
-            "bad_debt_count": int,
-            "bad_debt_outstanding": float,
-            "bad_debt_original": float,
-            "written_off_changes_count": int,
-            "written_off_changes_outstanding": float,
-            "written_off_changes_original": float,
-
-            # Overdue
-            "overdue_credit_count": int,
-            "overdue_credit_balance": float,
-            "overdue_change_count": int,
-            "overdue_change_balance": float,
-        }
+    Returns a dict with credits, changes, bad debt, written-off changes,
+    and overdue metrics.
     """
     snapshot = {
         "total_credit_balance": 0.0,
@@ -297,7 +272,6 @@ def fetch_floating_debt_snapshot():
             bd["amount"] = pd.to_numeric(bd.get("amount"), errors="coerce").fillna(0)
             bd["amount_paid"] = pd.to_numeric(bd.get("amount_paid"), errors="coerce").fillna(0)
             bd["outstanding"] = (bd["amount"] - bd["amount_paid"]).clip(lower=0)
-            # Only count rows that still have an outstanding balance
             open_bd = bd[bd["outstanding"] > 0]
             snapshot["bad_debt_count"] = int(len(open_bd))
             snapshot["bad_debt_original"] = safe_float(bd["amount"].sum())
@@ -365,7 +339,7 @@ class InsightsGenerator:
         products_df = load_products()
         expenses_df = load_expenses_direct()
         
-        # NEW: debt comes from floating financials
+        # Debt comes from floating financials
         debt_snapshot = fetch_floating_debt_snapshot()
         
         customers_df = get_customers_from_sales(sales_df)
@@ -382,7 +356,7 @@ class InsightsGenerator:
         self.recommendations = []
         self.alerts = []
         
-        # 1. Sales Insights - WITH DEDUPLICATION
+        # 1. Sales Insights
         sales_insights = self._analyze_sales(sales_df, today, yesterday, week_ago, month_ago)
         self.insights.extend(sales_insights)
         
@@ -394,15 +368,15 @@ class InsightsGenerator:
         customer_insights = self._analyze_customers(customers_df, sales_df)
         self.insights.extend(customer_insights)
         
-        # 4. Financial Insights (expenses + revenue) - no more debtors
+        # 4. Financial Insights (expenses + revenue + income)
         financial_insights = self._analyze_financials(expenses_df, sales_df)
         self.insights.extend(financial_insights)
         
-        # 5. NEW: Floating Financials debt insights
+        # 5. Floating Financials debt insights
         debt_insights = self._analyze_floating_debt(debt_snapshot)
         self.insights.extend(debt_insights)
         
-        # 6. Alerts (now driven by floating financials for debt)
+        # 6. Alerts
         self.alerts = self._generate_alerts(products_df, sales_df, debt_snapshot)
         
         return self._format_report()
@@ -651,10 +625,13 @@ class InsightsGenerator:
         return insights
     
     def _analyze_financials(self, expenses_df, sales_df):
-        """Analyze financial data (expenses + revenue). Debt is handled separately."""
+        """
+        Analyze financial data: expenses, revenue, and NET INCOME.
+        Debt is handled separately in _analyze_floating_debt().
+        """
         insights = []
         
-        # Expenses
+        # ---------- Expenses ----------
         total_expenses = 0
         if expenses_df is not None and not expenses_df.empty:
             expenses_clean = deduplicate_dataframe(expenses_df)
@@ -726,7 +703,7 @@ class InsightsGenerator:
                 "detail": "Start recording expenses in the Expenses module"
             })
         
-        # Revenue
+        # ---------- Revenue (Gross Income) ----------
         total_revenue = 0
         sales_undup = pd.DataFrame()
         
@@ -744,11 +721,13 @@ class InsightsGenerator:
                 total_revenue = safe_float(sales_undup[amount_col].sum())
         
         self.metrics["total_revenue"] = total_revenue
+        self.metrics["gross_income"] = total_revenue  # NEW alias
+        self.metrics["gross_income_unique_receipts"] = len(sales_undup) if not sales_undup.empty else 0
         
         if total_revenue > 0:
             insights.append({
                 "type": "financial",
-                "message": f"Total revenue: ${total_revenue:,.2f}",
+                "message": f"Gross income (revenue): ${total_revenue:,.2f}",
                 "priority": "info",
                 "detail": f"Based on {len(sales_undup)} unique receipts"
             })
@@ -760,11 +739,36 @@ class InsightsGenerator:
                 "detail": "Complete some sales to see financial metrics"
             })
         
+        # ---------- NEW: Net Income = Revenue - Expenses ----------
+        net_income = total_revenue - total_expenses
+        self.metrics["net_income"] = net_income
+        self.metrics["income"] = net_income  # short alias
+        
+        if total_revenue > 0 or total_expenses > 0:
+            if net_income > 0:
+                insights.append({
+                    "type": "financial",
+                    "message": f"Net income (profit): ${net_income:,.2f}",
+                    "priority": "success",
+                    "detail": f"Revenue ${total_revenue:,.2f} minus Expenses ${total_expenses:,.2f}"
+                })
+            elif net_income < 0:
+                insights.append({
+                    "type": "financial",
+                    "message": f"Net loss: ${abs(net_income):,.2f}",
+                    "priority": "high",
+                    "detail": f"Revenue ${total_revenue:,.2f} minus Expenses ${total_expenses:,.2f}"
+                })
+            else:
+                insights.append({
+                    "type": "financial",
+                    "message": "Net income is $0 (break-even)",
+                    "priority": "info",
+                    "detail": f"Revenue ${total_revenue:,.2f} = Expenses ${total_expenses:,.2f}"
+                })
+        
         return insights
     
-    # ============================================================
-    # NEW: Debt analysis pulled from Floating Financials
-    # ============================================================
     def _analyze_floating_debt(self, snapshot):
         """Analyze debt data coming from Floating Financials."""
         insights = []
@@ -788,8 +792,7 @@ class InsightsGenerator:
         self.metrics["overdue_change_count"] = snapshot.get("overdue_change_count", 0)
         self.metrics["overdue_change_balance"] = snapshot.get("overdue_change_balance", 0.0)
 
-        # Keep a legacy-compatible "total_debt" so other code / emails that
-        # reference that key still work — now sourced from floating credits.
+        # Legacy-compatible keys
         self.metrics["total_debt"] = snapshot.get("total_credit_balance", 0.0)
         self.metrics["debtors_count"] = (
             int(snapshot.get("active_credit_count", 0) or 0)
@@ -920,6 +923,18 @@ class InsightsGenerator:
                     "severity": "warning"
                 })
         
+        # Income alert — from the metrics produced in _analyze_financials
+        try:
+            net_income = self.metrics.get("net_income", None)
+            if net_income is not None and net_income < 0:
+                alerts.append({
+                    "type": "income",
+                    "message": f"Negative net income: ${net_income:,.2f} (expenses exceed revenue)",
+                    "severity": "warning"
+                })
+        except Exception:
+            pass
+        
         # Sales alerts
         if not sales_df.empty:
             date_col = get_date_column(sales_df)
@@ -972,6 +987,14 @@ class InsightsGenerator:
                 summary.append(f"Today's revenue: ${revenue:,.2f}")
             else:
                 summary.append("No sales recorded today")
+
+            # NEW: Income line
+            net_income = self.metrics.get("net_income", None)
+            if net_income is not None:
+                if net_income >= 0:
+                    summary.append(f"Net income: ${net_income:,.2f}")
+                else:
+                    summary.append(f"Net loss: ${abs(net_income):,.2f}")
 
             # Debt line from floating financials
             credit_balance = self.metrics.get("total_credit_balance", 0.0)
@@ -1028,7 +1051,8 @@ def log_insights_history(insights_data):
     
     if not INSIGHTS_HISTORY_FILE.exists():
         df = pd.DataFrame(columns=[
-            "timestamp", "period", "revenue", "transactions", "insights_count"
+            "timestamp", "period", "revenue", "income",
+            "transactions", "insights_count"
         ])
     else:
         df = pd.read_csv(INSIGHTS_HISTORY_FILE)
@@ -1038,6 +1062,7 @@ def log_insights_history(insights_data):
         "timestamp": insights_data.get("generated_at", datetime.now().isoformat()),
         "period": insights_data.get("period", "daily"),
         "revenue": metrics.get("today_revenue", 0),
+        "income": metrics.get("net_income", 0),
         "transactions": metrics.get("today_transactions", 0),
         "insights_count": len(insights_data.get("insights", []))
     }])
@@ -1200,13 +1225,16 @@ def generate_insights_email_html(insights_data):
             <div class="metric-grid">
         """
         
+        # NEW: Income card added after Total Expenses
         metric_display = [
             ("Today's Revenue", f"${metrics.get('today_revenue', 0):,.2f}"),
             ("Transactions", f"{metrics.get('today_transactions', 0)}"),
             ("Products", f"{metrics.get('total_products', 0)}"),
             ("Customers", f"{metrics.get('total_customers', 0)}"),
             ("Low Stock", f"{metrics.get('low_stock', 0)}"),
+            ("Gross Income", f"${metrics.get('gross_income', 0):,.2f}"),
             ("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}"),
+            ("Net Income", f"${metrics.get('net_income', 0):,.2f}"),
             ("Outstanding Credit", f"${metrics.get('total_credit_balance', 0):,.2f}"),
             ("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}"),
         ]
@@ -1346,7 +1374,7 @@ def automated_insights_dashboard():
     # ==============================
     with tab1:
         st.markdown("## Generate Business Insights")
-        st.caption("Debt data is sourced from Floating Financials (credits + changes).")
+        st.caption("Debt data is sourced from Floating Financials (credits + changes). Income = Revenue − Expenses.")
         
         if st.button("Generate Today's Insights", type="primary", use_container_width=True):
             with st.spinner("Generating insights..."):
@@ -1383,25 +1411,32 @@ def automated_insights_dashboard():
                 with col4:
                     st.metric("Customers", metrics.get('total_customers', 0))
                 
+                # NEW row: Gross Income, Expenses, Net Income, Low Stock
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Low Stock", metrics.get('low_stock', 0))
+                    st.metric("Gross Income", f"${metrics.get('gross_income', 0):,.2f}")
                 with col2:
                     st.metric("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}")
                 with col3:
-                    st.metric("Outstanding Credit", f"${metrics.get('total_credit_balance', 0):,.2f}")
+                    st.metric("Net Income", f"${metrics.get('net_income', 0):,.2f}")
                 with col4:
-                    st.metric("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}")
+                    st.metric("Low Stock", metrics.get('low_stock', 0))
                 
-                # NEW: additional debt line from floating financials
+                # Debt row
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Open Credits", metrics.get('active_credit_count', 0) + metrics.get('partial_credit_count', 0))
+                    st.metric("Outstanding Credit", f"${metrics.get('total_credit_balance', 0):,.2f}")
                 with col2:
-                    st.metric("Uncollected Changes", f"${metrics.get('total_change_balance', 0):,.2f}")
+                    st.metric("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}")
                 with col3:
-                    st.metric("Overdue Credits", metrics.get('overdue_credit_count', 0))
+                    st.metric("Open Credits", metrics.get('active_credit_count', 0) + metrics.get('partial_credit_count', 0))
                 with col4:
+                    st.metric("Uncollected Changes", f"${metrics.get('total_change_balance', 0):,.2f}")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Overdue Credits", metrics.get('overdue_credit_count', 0))
+                with col2:
                     st.metric("Overdue Changes", metrics.get('overdue_change_count', 0))
             
             insights = insights_data.get("insights", [])
@@ -1530,12 +1565,18 @@ def automated_insights_dashboard():
                 history_df["timestamp"] = pd.to_datetime(history_df["timestamp"])
                 history_df["date"] = history_df["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
                 
+                display_cols = ["date", "period", "revenue"]
+                if "income" in history_df.columns:
+                    display_cols.append("income")
+                display_cols.extend(["transactions", "insights_count"])
+                
                 st.dataframe(
-                    history_df[["date", "period", "revenue", "transactions", "insights_count"]].tail(30),
+                    history_df[display_cols].tail(30),
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "revenue": st.column_config.NumberColumn("Revenue", format="$%.2f")
+                        "revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
+                        "income": st.column_config.NumberColumn("Net Income", format="$%.2f"),
                     }
                 )
                 
@@ -1550,10 +1591,19 @@ def automated_insights_dashboard():
                         line=dict(color="#6366F1", width=2)
                     ))
                     
+                    if "income" in history_df.columns:
+                        fig.add_trace(go.Scatter(
+                            x=history_df["timestamp"],
+                            y=history_df["income"],
+                            mode="lines+markers",
+                            name="Net Income",
+                            line=dict(color="#10B981", width=2)
+                        ))
+                    
                     fig.update_layout(
-                        title="Revenue Trend (Last 30 Days)",
+                        title="Revenue & Income Trend (Last 30 Days)",
                         xaxis_title="Date",
-                        yaxis_title="Revenue ($)",
+                        yaxis_title="Amount ($)",
                         height=300
                     )
                     st.plotly_chart(fig, use_container_width=True)
