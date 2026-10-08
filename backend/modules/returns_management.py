@@ -10,7 +10,8 @@ from backend.core.db_adapter import (
     load_products,
     save_products,
     get_current_branch,
-    save_sales
+    save_sales,
+    load_branches,
 )
 from backend.modules.cash_register import record_cash_movement
 
@@ -61,44 +62,99 @@ WRITE_OFF_COLUMNS = [
 
 
 # ==============================
+# SESSION BRANCH HELPERS
+# ==============================
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
+    return (
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
+        or "HO"
+    )
+
+
+def _branch_display_name(branch_id):
+    try:
+        df = load_branches()
+        if df is not None and not df.empty and "branch_id" in df.columns:
+            match = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+            if not match.empty:
+                name = match.iloc[0].get("branch_name", "")
+                if name:
+                    return f"{name} ({branch_id})"
+    except Exception:
+        pass
+    return str(branch_id)
+
+
+def _scoped(df, branch_id):
+    """
+    Filter a returns-family DataFrame to a single branch. Back-fills
+    missing/empty branch_id values with the given branch_id when the column
+    is absent so legacy rows are treated as belonging to the session branch.
+    """
+    if df is None:
+        return pd.DataFrame()
+    if df.empty:
+        return df
+    if "branch_id" not in df.columns:
+        df = df.copy()
+        df["branch_id"] = str(branch_id)
+        return df
+    mask = df["branch_id"].astype(str).str.upper() == str(branch_id).upper()
+    return df[mask].copy()
+
+
+# ==============================
 # FILE OPERATIONS
 # ==============================
 def init_files():
     """Initialize all required CSV files"""
     try:
         DATA_DIR.mkdir(exist_ok=True)
-        
+
         if not RETURNS_FILE.exists():
             pd.DataFrame(columns=RETURN_COLUMNS).to_csv(RETURNS_FILE, index=False)
-        
+
         if not REFUNDS_FILE.exists():
             pd.DataFrame(columns=REFUND_COLUMNS).to_csv(REFUNDS_FILE, index=False)
-        
+
         if not STORE_CREDIT_FILE.exists():
             pd.DataFrame(columns=STORE_CREDIT_COLUMNS).to_csv(STORE_CREDIT_FILE, index=False)
-        
+
         if not STOCK_MOVEMENT_FILE.exists():
             pd.DataFrame(columns=STOCK_MOVEMENT_COLUMNS).to_csv(STOCK_MOVEMENT_FILE, index=False)
-        
+
         if not WRITE_OFF_FILE.exists():
             pd.DataFrame(columns=WRITE_OFF_COLUMNS).to_csv(WRITE_OFF_FILE, index=False)
-            
+
     except Exception as e:
         logger.error(f"Error initializing files: {e}")
         raise
 
 
-def load_returns():
-    """Load returns data"""
+def load_returns(branch_id=None):
+    """Load returns data for a branch (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     init_files()
     try:
-        return pd.read_csv(RETURNS_FILE)
+        df = pd.read_csv(RETURNS_FILE)
+        return _scoped(df, branch_id)
     except:
         return pd.DataFrame(columns=RETURN_COLUMNS)
 
 
 def save_returns(df):
-    """Save returns data"""
+    """
+    Save returns data.
+    NOTE: This writes the FULL CSV. Callers must pass the full frame
+    (existing + newly appended rows), which is how the original code worked.
+    """
     try:
         df.to_csv(RETURNS_FILE, index=False)
         return True
@@ -107,17 +163,20 @@ def save_returns(df):
         return False
 
 
-def load_refunds():
-    """Load refunds data"""
+def load_refunds(branch_id=None):
+    """Load refunds data for a branch (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     init_files()
     try:
-        return pd.read_csv(REFUNDS_FILE)
+        df = pd.read_csv(REFUNDS_FILE)
+        return _scoped(df, branch_id)
     except:
         return pd.DataFrame(columns=REFUND_COLUMNS)
 
 
 def save_refunds(df):
-    """Save refunds data"""
+    """Save refunds data (full frame)."""
     try:
         df.to_csv(REFUNDS_FILE, index=False)
         return True
@@ -126,20 +185,22 @@ def save_refunds(df):
         return False
 
 
-def load_store_credit():
-    """Load store credit data"""
+def load_store_credit(branch_id=None):
+    """Load store credit data for a branch (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     init_files()
     try:
         df = pd.read_csv(STORE_CREDIT_FILE)
         if "notes" not in df.columns:
             df["notes"] = ""
-        return df
+        return _scoped(df, branch_id)
     except:
         return pd.DataFrame(columns=STORE_CREDIT_COLUMNS)
 
 
 def save_store_credit(df):
-    """Save store credit data"""
+    """Save store credit data (full frame)."""
     try:
         df.to_csv(STORE_CREDIT_FILE, index=False)
         return True
@@ -148,17 +209,20 @@ def save_store_credit(df):
         return False
 
 
-def load_stock_movements():
-    """Load stock movements data"""
+def load_stock_movements(branch_id=None):
+    """Load stock movements data for a branch (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     init_files()
     try:
-        return pd.read_csv(STOCK_MOVEMENT_FILE)
+        df = pd.read_csv(STOCK_MOVEMENT_FILE)
+        return _scoped(df, branch_id)
     except:
         return pd.DataFrame(columns=STOCK_MOVEMENT_COLUMNS)
 
 
 def save_stock_movements(df):
-    """Save stock movements data"""
+    """Save stock movements data (full frame)."""
     try:
         df.to_csv(STOCK_MOVEMENT_FILE, index=False)
         return True
@@ -167,17 +231,20 @@ def save_stock_movements(df):
         return False
 
 
-def load_write_offs():
-    """Load write-offs data"""
+def load_write_offs(branch_id=None):
+    """Load write-offs data for a branch (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     init_files()
     try:
-        return pd.read_csv(WRITE_OFF_FILE)
+        df = pd.read_csv(WRITE_OFF_FILE)
+        return _scoped(df, branch_id)
     except:
         return pd.DataFrame(columns=WRITE_OFF_COLUMNS)
 
 
 def save_write_offs(df):
-    """Save write-offs data"""
+    """Save write-offs data (full frame)."""
     try:
         df.to_csv(WRITE_OFF_FILE, index=False)
         return True
@@ -189,61 +256,67 @@ def save_write_offs(df):
 # ==============================
 # CORE BUSINESS LOGIC
 # ==============================
-def get_already_returned_quantity(receipt_no, barcode):
-    """Get total already returned quantity for a product"""
+def get_already_returned_quantity(receipt_no, barcode, branch_id=None):
+    """Get total already returned quantity for a product (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        returns_df = load_returns()
+        returns_df = load_returns(branch_id=branch_id)
         if returns_df.empty:
             return 0
-        
+
         filtered = returns_df[
             (returns_df["receipt_no"].astype(str) == str(receipt_no)) &
             (returns_df["product_barcode"].astype(str) == str(barcode))
         ]
-        
+
         return filtered["quantity_returned"].sum() if not filtered.empty else 0
     except:
         return 0
 
 
-def find_sale_by_receipt(receipt_no):
-    """Find a sale by receipt number"""
+def find_sale_by_receipt(receipt_no, branch_id=None):
+    """Find a sale by receipt number (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        sales_df = load_sales()
+        sales_df = load_sales(branch_id=branch_id)
         if sales_df.empty:
             return None
-        
+
         receipt_no = str(receipt_no).strip()
-        
+
         if "receipt_no" not in sales_df.columns:
             return None
-        
+
         matches = sales_df[sales_df["receipt_no"] == receipt_no]
         if not matches.empty:
             return matches
-        
+
         matches = sales_df[sales_df["receipt_no"].astype(str).str.strip() == receipt_no]
         if not matches.empty:
             return matches
-        
+
         return None
     except:
         return None
 
 
-def get_sale_items(receipt_no):
-    """Get all items from a sale grouped by product with return history"""
+def get_sale_items(receipt_no, branch_id=None):
+    """Get all items from a sale grouped by product with return history (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        sales_df = load_sales()
+        sales_df = load_sales(branch_id=branch_id)
         receipt_no = str(receipt_no).strip()
-        
+
         sale_rows = sales_df[sales_df["receipt_no"] == receipt_no]
         if sale_rows.empty:
             sale_rows = sales_df[sales_df["receipt_no"].astype(str).str.strip() == receipt_no]
-        
+
         if sale_rows.empty:
             return []
-        
+
         grouped = {}
         for _, row in sale_rows.iterrows():
             barcode = str(row.get("barcode", ""))
@@ -251,10 +324,10 @@ def get_sale_items(receipt_no):
             qty = int(row.get("items", 1))
             total = float(row.get("total", 0))
             price = total / qty if qty > 0 else 0
-            
-            already_returned = get_already_returned_quantity(receipt_no, barcode)
+
+            already_returned = get_already_returned_quantity(receipt_no, barcode, branch_id=branch_id)
             available_qty = qty - already_returned
-            
+
             key = barcode if barcode else name
             if key in grouped:
                 grouped[key]["quantity"] += qty
@@ -270,7 +343,7 @@ def get_sale_items(receipt_no):
                     "total": total,
                     "already_returned": already_returned
                 }
-        
+
         return list(grouped.values())
     except:
         return []
@@ -281,25 +354,27 @@ def check_return_period(sale_date_str):
     try:
         if not sale_date_str:
             return True, "No sale date found"
-        
+
         sale_date = pd.to_datetime(sale_date_str)
         days_diff = (datetime.now() - sale_date).days
-        
+
         if days_diff > RETURN_PERIOD_DAYS:
             return False, f"Return period expired ({days_diff} days, limit {RETURN_PERIOD_DAYS} days)"
-        
+
         return True, f"Within return period ({days_diff} days)"
     except:
         return True, "Could not verify return period"
 
 
 def record_stock_movement(barcode, name, quantity, movement_type, reference, reason, branch_id):
-    """Record stock movement for audit trail"""
+    """Record stock movement for audit trail (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        movements_df = load_stock_movements()
-        
+        movements_df = load_stock_movements(branch_id=branch_id)
+
         movement_id = f"MOV{len(movements_df)+1:08d}"
-        
+
         new_movement = pd.DataFrame([{
             "movement_id": movement_id,
             "product_barcode": str(barcode),
@@ -312,21 +387,30 @@ def record_stock_movement(barcode, name, quantity, movement_type, reference, rea
             "created_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "branch_id": str(branch_id)
         }])
-        
-        movements_df = pd.concat([movements_df, new_movement], ignore_index=True)
-        save_stock_movements(movements_df)
+
+        # Re-load full frame (all branches) and append, then save full frame.
+        init_files()
+        try:
+            full_df = pd.read_csv(STOCK_MOVEMENT_FILE)
+        except Exception:
+            full_df = pd.DataFrame(columns=STOCK_MOVEMENT_COLUMNS)
+
+        full_df = pd.concat([full_df, new_movement], ignore_index=True)
+        save_stock_movements(full_df)
         return True
     except:
         return False
 
 
 def record_write_off(barcode, name, quantity, reason, reference, branch_id, notes=""):
-    """Record a write-off for damaged/expired items"""
+    """Record a write-off for damaged/expired items (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        write_offs_df = load_write_offs()
-        
+        write_offs_df = load_write_offs(branch_id=branch_id)
+
         write_off_id = f"WO{len(write_offs_df)+1:08d}"
-        
+
         new_write_off = pd.DataFrame([{
             "write_off_id": write_off_id,
             "product_barcode": str(barcode),
@@ -339,9 +423,16 @@ def record_write_off(barcode, name, quantity, reason, reference, branch_id, note
             "branch_id": str(branch_id),
             "notes": notes
         }])
-        
-        write_offs_df = pd.concat([write_offs_df, new_write_off], ignore_index=True)
-        save_write_offs(write_offs_df)
+
+        # Append to full frame so other branches' write-offs are preserved.
+        init_files()
+        try:
+            full_df = pd.read_csv(WRITE_OFF_FILE)
+        except Exception:
+            full_df = pd.DataFrame(columns=WRITE_OFF_COLUMNS)
+
+        full_df = pd.concat([full_df, new_write_off], ignore_index=True)
+        save_write_offs(full_df)
         return True
     except:
         return False
@@ -352,66 +443,68 @@ def generate_return_id():
     return f"RET-{uuid.uuid4().hex[:8].upper()}"
 
 
-def process_return(receipt_no, items, reason, condition, refund_method, notes=""):
-    """Process a return - main business logic"""
+def process_return(receipt_no, items, reason, condition, refund_method, notes="", branch_id=None):
+    """Process a return - main business logic (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         init_files()
-        
+
         role = st.session_state.get("role", "cashier")
         if role not in ALLOWED_RETURN_ROLES:
             return False, "Unauthorized: Only managers and owners can process returns", [], 0
-        
-        sales_df = load_sales()
-        products_df = load_products()
-        returns_df = load_returns()
-        refunds_df = load_refunds()
-        current_branch = get_current_branch()
+
+        sales_df = load_sales(branch_id=branch_id)
+        products_df = load_products(branch_id=branch_id)
+        returns_df = load_returns(branch_id=branch_id)
+        refunds_df = load_refunds(branch_id=branch_id)
+        current_branch = branch_id
         shift_id = st.session_state.get("shift_id", "")
-        
+
         receipt_no = str(receipt_no).strip()
-        
-        original_sale = find_sale_by_receipt(receipt_no)
+
+        original_sale = find_sale_by_receipt(receipt_no, branch_id=branch_id)
         if original_sale is None or original_sale.empty:
             return False, "Receipt not found", [], 0
-        
+
         sale_row = original_sale.iloc[0]
         customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
         customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
         sale_date = sale_row.get("date", sale_row.get("sale_date", ""))
-        
+
         is_valid, period_msg = check_return_period(sale_date)
         if not is_valid:
             return False, period_msg, [], 0
-        
+
         total_refund = 0
         return_ids = []
         returned_products = []
-        
+
         for item in items:
             qty = int(item["quantity"])
             price = float(item["price"])
             refund_amount = qty * price
             total_refund += refund_amount
-            
+
             barcode = str(item.get("barcode", ""))
             name = str(item.get("name", ""))
-            
-            already_returned = get_already_returned_quantity(receipt_no, barcode)
+
+            already_returned = get_already_returned_quantity(receipt_no, barcode, branch_id=branch_id)
             available_qty = int(item.get("available", qty))
-            
+
             if qty > available_qty:
                 return False, f"Only {available_qty} units of {name} available for return", [], 0
-            
+
             returned_products.append({
                 "barcode": barcode,
                 "name": name,
                 "quantity": qty,
                 "price": price
             })
-            
+
             return_id = generate_return_id()
             return_ids.append(return_id)
-            
+
             new_return = pd.DataFrame([{
                 "return_id": return_id,
                 "receipt_no": receipt_no,
@@ -433,17 +526,17 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
                 "shift_id": str(shift_id),
                 "notes": notes
             }])
-            
+
             returns_df = pd.concat([returns_df, new_return], ignore_index=True)
-            
+
             # ============================================================
             # STOCK HANDLING BASED ON CONDITION
             # ============================================================
             product_idx = products_df[products_df["barcode"].astype(str) == barcode].index
-            
+
             if len(product_idx) > 0:
                 current_stock = float(products_df.loc[product_idx[0], "stock"])
-                
+
                 # WRITE-OFF: For expired or damaged items - DO NOT add back to stock
                 if condition.lower() in ["expired", "damaged", "broken", "faulty", "write-off"]:
                     # Record as write-off, stock remains unchanged
@@ -458,17 +551,17 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
                     )
                     movement_type = "WRITE_OFF"
                     stock_reason = f"Write-off: {condition} from receipt {receipt_no}"
-                    
+
                 elif condition.lower() in ["new", "unused", "like new"]:
                     products_df.loc[product_idx[0], "stock"] = current_stock + qty
                     movement_type = "RETURN_STOCK"
                     stock_reason = f"Returned from receipt {receipt_no} - Condition: {condition}"
-                    
+
                 else:
                     products_df.loc[product_idx[0], "stock"] = current_stock + qty
                     movement_type = "RETURN_STOCK"
                     stock_reason = f"Returned from receipt {receipt_no} - Condition: {condition}"
-                
+
                 # Record stock movement
                 record_stock_movement(
                     barcode=barcode,
@@ -479,7 +572,7 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
                     reason=stock_reason,
                     branch_id=current_branch
                 )
-        
+
         # Create negative sale entry
         if returned_products:
             return_receipt = f"RET-{receipt_no}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
@@ -502,23 +595,23 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
                     "return_id": ",".join(return_ids)
                 }])
                 sales_df = pd.concat([sales_df, return_sale], ignore_index=True)
-        
+
         # Handle refund
         if refund_method == "STORE_CREDIT":
-            existing_credit = check_existing_store_credit(customer_phone, customer_name)
-            
+            existing_credit = check_existing_store_credit(customer_phone, customer_name, branch_id=branch_id)
+
             if existing_credit:
-                credit_id = update_store_credit(existing_credit, total_refund)
+                credit_id = update_store_credit(existing_credit, total_refund, branch_id=branch_id)
                 credit_msg = f"Updated existing credit {credit_id} (+${total_refund:.2f})"
             else:
-                credit_id = create_store_credit(customer_name, customer_phone, total_refund)
+                credit_id = create_store_credit(customer_name, customer_phone, total_refund, branch_id=branch_id)
                 credit_msg = f"Created new credit {credit_id} for ${total_refund:.2f}"
-            
+
             for rid in return_ids:
                 returns_df.loc[returns_df["return_id"] == rid, "store_credit_id"] = credit_id
-            
+
             st.info(f"{credit_msg}")
-            
+
         else:
             refund_id = f"REF{len(refunds_df)+1:08d}"
             new_refund = pd.DataFrame([{
@@ -535,75 +628,172 @@ def process_return(receipt_no, items, reason, condition, refund_method, notes=""
                 "notes": notes
             }])
             refunds_df = pd.concat([refunds_df, new_refund], ignore_index=True)
-            
+
             if refund_method == "CASH":
                 try:
                     record_cash_movement(-total_refund, f"REFUND-{receipt_no}", "REFUND", shift_id)
                 except:
                     pass
-        
-        save_products(products_df)
-        save_sales(sales_df)
-        save_returns(returns_df)
-        save_refunds(refunds_df)
-        
+
+        # Save: products/sales are already branch-scoped via db_adapter.
+        save_products(products_df, branch_id=branch_id)
+        save_sales(sales_df, branch_id=branch_id)
+
+        # Returns/refunds CSVs are shared files; save the FULL frame (all branches)
+        # so other branches' rows aren't lost.
+        _save_full_returns(returns_df)
+        _save_full_refunds(refunds_df)
+
         summary = "Return processed successfully!\n\n"
         summary += f"Receipt: {receipt_no}\n"
         summary += f"Customer: {customer_name}\n"
         summary += f"Total Refund: ${total_refund:.2f}\n"
         summary += f"Refund Method: {refund_method}\n\n"
-        
+
         written_off = [p for p in returned_products if any(
             item.get("condition", "").lower() in ["expired", "damaged", "broken", "faulty", "write-off"]
             for item in items if item.get("barcode") == p["barcode"]
         )]
-        
+
         if written_off:
             summary += "WRITE-OFF ITEMS (Not returned to stock):\n"
             for p in written_off:
                 summary += f"   • {p['name']}: {p['quantity']} units - {condition}\n"
-        
+
         return True, summary, returned_products, total_refund
-        
+
     except Exception as e:
         logger.error(f"Error processing return: {e}")
         return False, f"Error processing return: {str(e)}", [], 0
 
 
+def _save_full_returns(branch_scoped_df):
+    """Merge a branch-scoped returns frame back into the shared CSV."""
+    try:
+        init_files()
+        try:
+            full_df = pd.read_csv(RETURNS_FILE)
+        except Exception:
+            full_df = pd.DataFrame(columns=RETURN_COLUMNS)
+
+        if branch_scoped_df is None or branch_scoped_df.empty:
+            return
+        # Drop any rows in full_df that belong to the same branch as the incoming
+        # frame, then append the incoming frame's rows (dedup by return_id).
+        incoming_branch = None
+        if "branch_id" in branch_scoped_df.columns and not branch_scoped_df["branch_id"].isna().all():
+            incoming_branch = str(branch_scoped_df["branch_id"].iloc[0])
+
+        if incoming_branch is not None and "branch_id" in full_df.columns:
+            full_df = full_df[
+                full_df["branch_id"].astype(str).str.upper() != str(incoming_branch).upper()
+            ]
+
+        full_df = pd.concat([full_df, branch_scoped_df], ignore_index=True)
+        # Dedup by return_id when possible
+        if "return_id" in full_df.columns:
+            full_df = full_df.drop_duplicates(subset=["return_id"], keep="last")
+        save_returns(full_df)
+    except Exception as e:
+        logger.error(f"Error merging returns: {e}")
+
+
+def _save_full_refunds(branch_scoped_df):
+    """Merge a branch-scoped refunds frame back into the shared CSV."""
+    try:
+        init_files()
+        try:
+            full_df = pd.read_csv(REFUNDS_FILE)
+        except Exception:
+            full_df = pd.DataFrame(columns=REFUND_COLUMNS)
+
+        if branch_scoped_df is None or branch_scoped_df.empty:
+            return
+
+        incoming_branch = None
+        if "branch_id" in branch_scoped_df.columns and not branch_scoped_df["branch_id"].isna().all():
+            incoming_branch = str(branch_scoped_df["branch_id"].iloc[0])
+
+        if incoming_branch is not None and "branch_id" in full_df.columns:
+            full_df = full_df[
+                full_df["branch_id"].astype(str).str.upper() != str(incoming_branch).upper()
+            ]
+
+        full_df = pd.concat([full_df, branch_scoped_df], ignore_index=True)
+        if "refund_id" in full_df.columns:
+            full_df = full_df.drop_duplicates(subset=["refund_id"], keep="last")
+        save_refunds(full_df)
+    except Exception as e:
+        logger.error(f"Error merging refunds: {e}")
+
+
+def _save_full_store_credit(branch_scoped_df):
+    """Merge a branch-scoped store-credit frame back into the shared CSV."""
+    try:
+        init_files()
+        try:
+            full_df = pd.read_csv(STORE_CREDIT_FILE)
+        except Exception:
+            full_df = pd.DataFrame(columns=STORE_CREDIT_COLUMNS)
+
+        if branch_scoped_df is None or branch_scoped_df.empty:
+            return
+
+        incoming_branch = None
+        if "branch_id" in branch_scoped_df.columns and not branch_scoped_df["branch_id"].isna().all():
+            incoming_branch = str(branch_scoped_df["branch_id"].iloc[0])
+
+        if incoming_branch is not None and "branch_id" in full_df.columns:
+            full_df = full_df[
+                full_df["branch_id"].astype(str).str.upper() != str(incoming_branch).upper()
+            ]
+
+        full_df = pd.concat([full_df, branch_scoped_df], ignore_index=True)
+        if "credit_id" in full_df.columns:
+            full_df = full_df.drop_duplicates(subset=["credit_id"], keep="last")
+        save_store_credit(full_df)
+    except Exception as e:
+        logger.error(f"Error merging store credit: {e}")
+
+
 # ==============================
 # STORE CREDIT FUNCTIONS
 # ==============================
-def check_existing_store_credit(phone, name):
-    """Check if customer already has active store credit"""
+def check_existing_store_credit(phone, name, branch_id=None):
+    """Check if customer already has active store credit in this branch (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        credits_df = load_store_credit()
+        credits_df = load_store_credit(branch_id=branch_id)
         if credits_df.empty:
             return None
-        
+
         today = datetime.now().strftime("%Y-%m-%d")
-        
+
         active = credits_df[
             (credits_df["customer_phone"].astype(str) == str(phone)) &
             (credits_df["status"] == "ACTIVE") &
             (credits_df["expiry_date"] >= today)
         ]
-        
+
         if not active.empty:
             return active.iloc[0]["credit_id"]
-        
+
         return None
     except:
         return None
 
 
-def create_store_credit(customer_name, customer_phone, amount, expiry_days=365, notes=""):
-    """Create store credit for customer"""
+def create_store_credit(customer_name, customer_phone, amount, expiry_days=365, notes="", branch_id=None):
+    """Create store credit for customer (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        credits_df = load_store_credit()
-        current_branch = get_current_branch()
-        
+        credits_df = load_store_credit(branch_id=branch_id)
+        current_branch = branch_id
+
         credit_id = f"SC{len(credits_df)+1:06d}"
-        
+
         new_credit = pd.DataFrame([{
             "credit_id": credit_id,
             "customer_name": str(customer_name),
@@ -618,87 +808,93 @@ def create_store_credit(customer_name, customer_phone, amount, expiry_days=365, 
             "used_transactions": "",
             "notes": notes
         }])
-        
-        credits_df = pd.concat([credits_df, new_credit], ignore_index=True)
-        save_store_credit(credits_df)
-        
+
+        merged = pd.concat([credits_df, new_credit], ignore_index=True)
+        _save_full_store_credit(merged)
+
         return credit_id
     except:
         return None
 
 
-def update_store_credit(credit_id, additional_amount):
-    """Update existing store credit with additional amount"""
+def update_store_credit(credit_id, additional_amount, branch_id=None):
+    """Update existing store credit with additional amount (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        credits_df = load_store_credit()
+        credits_df = load_store_credit(branch_id=branch_id)
         idx = credits_df[credits_df["credit_id"] == credit_id].index
-        
+
         if len(idx) > 0:
             current_balance = float(credits_df.loc[idx[0], "remaining_balance"])
             current_amount = float(credits_df.loc[idx[0], "amount"])
-            
+
             credits_df.loc[idx[0], "amount"] = current_amount + float(additional_amount)
             credits_df.loc[idx[0], "remaining_balance"] = current_balance + float(additional_amount)
             credits_df.loc[idx[0], "issued_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            save_store_credit(credits_df)
+
+            _save_full_store_credit(credits_df)
             return credit_id
-        
+
         return None
     except:
         return None
 
 
-def get_customer_store_credit(phone):
-    """Get available store credit for a customer (checks expiry)"""
+def get_customer_store_credit(phone, branch_id=None):
+    """Get available store credit for a customer (branch-scoped; checks expiry)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        credits_df = load_store_credit()
+        credits_df = load_store_credit(branch_id=branch_id)
         if credits_df.empty:
             return 0
-        
+
         today = datetime.now().strftime("%Y-%m-%d")
-        
+
         active = credits_df[
             (credits_df["customer_phone"].astype(str) == str(phone)) &
             (credits_df["status"] == "ACTIVE") &
             (credits_df["remaining_balance"] > 0) &
             (credits_df["expiry_date"] >= today)
         ]
-        
+
         return active["remaining_balance"].sum() if not active.empty else 0
     except:
         return 0
 
 
-def use_store_credit(phone, amount, receipt_no, notes=""):
-    """Use store credit for a purchase"""
+def use_store_credit(phone, amount, receipt_no, notes="", branch_id=None):
+    """Use store credit for a purchase (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        credits_df = load_store_credit()
-        
+        credits_df = load_store_credit(branch_id=branch_id)
+
         active_credits = credits_df[
             (credits_df["customer_phone"].astype(str) == str(phone)) &
             (credits_df["status"] == "ACTIVE") &
             (credits_df["remaining_balance"] > 0)
         ].sort_values("expiry_date")
-        
+
         if active_credits.empty:
             return False, 0, "No active store credit found"
-        
+
         total_used = 0
         remaining_to_use = float(amount)
-        
+
         for idx, credit in active_credits.iterrows():
             if remaining_to_use <= 0:
                 break
-            
+
             current_balance = float(credit["remaining_balance"])
-            
+
             if remaining_to_use >= current_balance:
                 credits_df.loc[idx, "remaining_balance"] = 0
                 credits_df.loc[idx, "status"] = "USED"
                 total_used += current_balance
                 remaining_to_use -= current_balance
-                
+
                 used_trans = str(credit["used_transactions"])
                 if used_trans and used_trans != "nan":
                     credits_df.loc[idx, "used_transactions"] = f"{used_trans}, {receipt_no}"
@@ -709,69 +905,75 @@ def use_store_credit(phone, amount, receipt_no, notes=""):
                 credits_df.loc[idx, "remaining_balance"] = new_balance
                 total_used += remaining_to_use
                 remaining_to_use = 0
-                
+
                 used_trans = str(credit["used_transactions"])
                 if used_trans and used_trans != "nan":
                     credits_df.loc[idx, "used_transactions"] = f"{used_trans}, {receipt_no}"
                 else:
                     credits_df.loc[idx, "used_transactions"] = receipt_no
-        
+
         if total_used > 0:
-            save_store_credit(credits_df)
+            _save_full_store_credit(credits_df)
             return True, total_used, f"Used ${total_used:.2f} from store credit"
         else:
             return False, 0, "Could not use store credit"
-            
+
     except Exception as e:
         logger.error(f"Error using store credit: {e}")
         return False, 0, f"Error: {str(e)}"
 
 
-def edit_store_credit(credit_id, amount, balance, expiry_date, status, notes):
-    """Edit store credit details"""
+def edit_store_credit(credit_id, amount, balance, expiry_date, status, notes, branch_id=None):
+    """Edit store credit details (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        credits_df = load_store_credit()
+        credits_df = load_store_credit(branch_id=branch_id)
         idx = credits_df[credits_df["credit_id"] == credit_id].index
-        
+
         if len(idx) > 0:
             credits_df.loc[idx[0], "amount"] = float(amount)
             credits_df.loc[idx[0], "remaining_balance"] = float(balance)
             credits_df.loc[idx[0], "expiry_date"] = expiry_date
             credits_df.loc[idx[0], "status"] = status
             credits_df.loc[idx[0], "notes"] = notes
-            
-            save_store_credit(credits_df)
+
+            _save_full_store_credit(credits_df)
             return True, "Credit updated successfully"
-        
+
         return False, "Credit not found"
     except Exception as e:
         logger.error(f"Error editing store credit: {e}")
         return False, f"Error: {str(e)}"
 
 
-def delete_store_credit(credit_id):
-    """Delete store credit"""
+def delete_store_credit(credit_id, branch_id=None):
+    """Delete store credit (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        credits_df = load_store_credit()
+        credits_df = load_store_credit(branch_id=branch_id)
         credits_df = credits_df[credits_df["credit_id"] != credit_id]
-        save_store_credit(credits_df)
+        _save_full_store_credit(credits_df)
         return True, "Credit deleted successfully"
     except Exception as e:
         logger.error(f"Error deleting store credit: {e}")
         return False, f"Error: {str(e)}"
 
 
-def get_return_stats():
-    """Get return statistics"""
+def get_return_stats(branch_id=None):
+    """Get return statistics (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        returns_df = load_returns()
-        
+        returns_df = load_returns(branch_id=branch_id)
+
         if returns_df.empty:
             return {"total": 0, "refund_amount": 0, "completed": 0, "pending": 0, "avg_value": 0}
-        
+
         total = len(returns_df)
         refund = returns_df["refund_amount"].sum() if "refund_amount" in returns_df.columns else 0
-        
+
         return {
             "total": total,
             "refund_amount": refund,
@@ -783,14 +985,16 @@ def get_return_stats():
         return {"total": 0, "refund_amount": 0, "completed": 0, "pending": 0, "avg_value": 0}
 
 
-def get_write_off_stats():
-    """Get write-off statistics"""
+def get_write_off_stats(branch_id=None):
+    """Get write-off statistics (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        write_offs_df = load_write_offs()
-        
+        write_offs_df = load_write_offs(branch_id=branch_id)
+
         if write_offs_df.empty:
             return {"total": 0, "items": 0}
-        
+
         return {
             "total": len(write_offs_df),
             "items": write_offs_df["quantity"].sum() if "quantity" in write_offs_df.columns else 0
@@ -799,10 +1003,12 @@ def get_write_off_stats():
         return {"total": 0, "items": 0}
 
 
-def get_sample_receipts():
-    """Get sample receipt numbers for testing"""
+def get_sample_receipts(branch_id=None):
+    """Get sample receipt numbers for testing (branch-scoped)."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        sales_df = load_sales()
+        sales_df = load_sales(branch_id=branch_id)
         if sales_df.empty:
             return []
         if "receipt_no" in sales_df.columns:
@@ -815,12 +1021,12 @@ def get_sample_receipts():
 # ==============================
 # UI COMPONENTS
 # ==============================
-def render_process_return_tab():
-    """Render the Process Return tab with 3-step workflow"""
-    
-    st.markdown("## Process Customer Return")
+def render_process_return_tab(branch_id, branch_label):
+    """Render the Process Return tab with 3-step workflow (branch-scoped)."""
+
+    st.markdown(f"## Process Customer Return — {branch_label}")
     st.caption(f"Return period: {RETURN_PERIOD_DAYS} days from purchase date")
-    
+
     # Initialize session state
     if "return_step" not in st.session_state:
         st.session_state.return_step = "search"
@@ -838,41 +1044,41 @@ def render_process_return_tab():
         st.session_state.return_processed = False
     if "return_result" not in st.session_state:
         st.session_state.return_result = None
-    
+
     # ============================================================
     # STEP 1: SEARCH RECEIPT
     # ============================================================
     if st.session_state.return_step == "search":
-        
-        with st.form(key="search_receipt_form"):
+
+        with st.form(key=f"search_receipt_form_{branch_id}"):
             receipt_no = st.text_input(
                 "Receipt Number",
                 placeholder="Enter receipt number from original sale",
-                key="return_receipt_input",
+                key=f"return_receipt_input_{branch_id}",
                 value=st.session_state.return_receipt
             )
-            
+
             col1, col2 = st.columns([3, 1])
             with col2:
                 search_clicked = st.form_submit_button("Search Receipt", use_container_width=True)
-            
+
             if search_clicked and receipt_no:
-                original_sale = find_sale_by_receipt(receipt_no)
-                
+                original_sale = find_sale_by_receipt(receipt_no, branch_id=branch_id)
+
                 if original_sale is None or original_sale.empty:
-                    st.error(f"Receipt '{receipt_no}' not found.")
-                    
-                    sales_df = load_sales()
+                    st.error(f"Receipt '{receipt_no}' not found in {branch_label}.")
+
+                    sales_df = load_sales(branch_id=branch_id)
                     if not sales_df.empty and "receipt_no" in sales_df.columns:
-                        st.info("Available receipt numbers in system:")
+                        st.info(f"Available receipt numbers in {branch_label}:")
                         for r in sales_df["receipt_no"].tail(5).tolist():
                             st.code(f"• {r}")
                 else:
                     sale_row = original_sale.iloc[0]
-                    
+
                     sale_date = sale_row.get("date", sale_row.get("sale_date", ""))
                     is_valid, period_msg = check_return_period(sale_date)
-                    
+
                     if not is_valid:
                         st.error(f"{period_msg}")
                     else:
@@ -881,30 +1087,30 @@ def render_process_return_tab():
                         st.session_state.return_step = "select"
                         st.session_state.return_search_triggered = True
                         st.rerun()
-            
+
             elif not receipt_no:
                 st.info("Enter a receipt number and click 'Search Receipt'")
-    
+
     # ============================================================
     # STEP 2: SELECT ITEMS
     # ============================================================
     elif st.session_state.return_step == "select":
-        
+
         sale_row = st.session_state.return_sale_data
         receipt_no = st.session_state.return_receipt
-        
+
         if sale_row is None:
             st.error("No sale data found. Please search again.")
             st.session_state.return_step = "search"
             st.rerun()
             return
-        
+
         customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
         customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
         sale_date = sale_row.get("date", sale_row.get("sale_date", "Unknown"))
-        
+
         st.success(f"Sale found for receipt: {receipt_no}")
-        
+
         col1, col2, col3 = st.columns(3)
         with col1:
             st.info(f"**Customer:** {customer_name}")
@@ -912,18 +1118,18 @@ def render_process_return_tab():
             st.info(f"**Phone:** {customer_phone}")
         with col3:
             st.info(f"**Date:** {str(sale_date)[:16] if sale_date != 'Unknown' else 'Unknown'}")
-        
+
         st.markdown("---")
         st.markdown("### Items from Original Sale")
-        
-        sale_items = get_sale_items(receipt_no)
-        
+
+        sale_items = get_sale_items(receipt_no, branch_id=branch_id)
+
         if not sale_items:
             st.error("Could not parse items from this sale.")
             st.session_state.return_step = "search"
             st.rerun()
             return
-        
+
         # Show items with availability
         display_data = []
         for item in sale_items:
@@ -935,31 +1141,31 @@ def render_process_return_tab():
                 "Available": available,
                 "Price": f"${item['price']:.2f}"
             })
-        
+
         st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
-        
+
         st.markdown("---")
         st.markdown("### Select Items to Return")
         st.info(f"Enter quantities (max: available quantity)")
-        
+
         # Show condition options with write-off explanation
         st.markdown("**Condition Guidelines:**")
         st.caption("• **New/Unused** - Returns to stock (full refund)")
         st.caption("• **Used - Good** - Returns to stock (full refund)")
         st.caption("• **Damaged/Broken** - Written off (stock not affected, full refund)")
         st.caption("• **Expired** - Written off (stock not affected, full refund)")
-        
+
         # Quantity selection
         selected_items = []
         has_selection = False
-        
+
         for idx, item in enumerate(sale_items):
             available = item.get('available', item['quantity'])
-            
+
             if available <= 0:
                 st.info(f"{item['name']} - Fully returned")
                 continue
-            
+
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
             with col1:
                 st.write(f"**{item['name']}**")
@@ -968,9 +1174,9 @@ def render_process_return_tab():
             with col3:
                 st.write(f"Price: ${item['price']:.2f}")
             with col4:
-                qty_key = f"qty_{idx}_{item['barcode']}"
+                qty_key = f"qty_{branch_id}_{idx}_{item['barcode']}"
                 current_qty = st.session_state.return_quantities.get(qty_key, 0)
-                
+
                 return_qty = st.number_input(
                     "Qty",
                     min_value=0,
@@ -980,9 +1186,9 @@ def render_process_return_tab():
                     step=1,
                     label_visibility="collapsed"
                 )
-                
+
                 st.session_state.return_quantities[qty_key] = return_qty
-                
+
                 if return_qty > 0:
                     has_selection = True
                     st.write(f"Refund: ${return_qty * item['price']:.2f}")
@@ -993,45 +1199,45 @@ def render_process_return_tab():
                         "price": item['price'],
                         "available": available
                     })
-        
+
         # Navigation buttons - OUTSIDE any form
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            if st.button("Back to Search", use_container_width=True):
+            if st.button("Back to Search", use_container_width=True, key=f"back_to_search_{branch_id}"):
                 st.session_state.return_step = "search"
                 st.session_state.return_quantities = {}
                 st.rerun()
-        
+
         with col2:
             if has_selection:
-                if st.button("Continue to Confirm", type="primary", use_container_width=True):
+                if st.button("Continue to Confirm", type="primary", use_container_width=True, key=f"continue_confirm_{branch_id}"):
                     st.session_state.return_items = selected_items
                     st.session_state.return_step = "confirm"
                     st.rerun()
             else:
                 st.warning("Please select at least one item to return")
-    
+
     # ============================================================
     # STEP 3: CONFIRM & PROCESS
     # ============================================================
     elif st.session_state.return_step == "confirm":
-        
+
         receipt_no = st.session_state.return_receipt
         sale_row = st.session_state.return_sale_data
         selected_items = st.session_state.return_items
-        
+
         if not selected_items:
             st.error("No items selected. Please go back and select items.")
             st.session_state.return_step = "select"
             st.rerun()
             return
-        
+
         customer_name = sale_row.get("customer", sale_row.get("customer_name", "Walk-in Customer"))
         customer_phone = sale_row.get("customer_phone", sale_row.get("phone", ""))
-        
+
         st.success(f"Confirming return for receipt: {receipt_no}")
-        
+
         # Show selected items
         st.markdown("### Items to Return")
         items_data = []
@@ -1045,57 +1251,57 @@ def render_process_return_tab():
                 "Price": f"${item['price']:.2f}",
                 "Refund": f"${refund:.2f}"
             })
-        
+
         st.dataframe(pd.DataFrame(items_data), use_container_width=True, hide_index=True)
         st.info(f"**Total Refund Amount: ${total_refund:.2f}**")
-        
+
         st.markdown("---")
         st.markdown("### Return Details")
-        
+
         # Create the form
-        with st.form(key="process_return_form"):
+        with st.form(key=f"process_return_form_{branch_id}"):
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 reason = st.selectbox(
                     "Return Reason",
                     ["Damaged Product", "Wrong Item", "Changed Mind", "Defective", "Expired", "Other"],
-                    key="return_reason_confirm"
+                    key=f"return_reason_confirm_{branch_id}"
                 )
                 condition = st.selectbox(
                     "Product Condition",
                     ["New/Unused", "Like New", "Used - Good", "Used - Fair", "Damaged", "Expired"],
-                    key="return_condition_confirm"
+                    key=f"return_condition_confirm_{branch_id}"
                 )
-            
+
             with col2:
                 refund_method = st.selectbox(
                     "Refund Method",
                     ["CASH", "STORE_CREDIT", "CARD", "ECOCASH"],
-                    key="return_method_confirm"
+                    key=f"return_method_confirm_{branch_id}"
                 )
-                notes = st.text_area("Notes", placeholder="Additional information...", key="return_notes_confirm")
-            
+                notes = st.text_area("Notes", placeholder="Additional information...", key=f"return_notes_confirm_{branch_id}")
+
             # Show write-off warning if applicable
             if condition.lower() in ["damaged", "expired", "broken", "faulty"]:
                 st.warning(f"**Write-Off Notice:** Items marked as '{condition}' will be written off and will NOT be added back to stock.")
-            
+
             if refund_method == "STORE_CREDIT":
                 st.info("Store credit will be issued to customer")
-                
+
                 # Check existing credit
-                existing = check_existing_store_credit(customer_phone, customer_name)
+                existing = check_existing_store_credit(customer_phone, customer_name, branch_id=branch_id)
                 if existing:
                     st.info(f"Customer already has store credit {existing}. This return will be added to existing credit.")
-            
+
             # ONLY submit button inside the form
             submitted = st.form_submit_button("CONFIRM & PROCESS RETURN", type="primary", use_container_width=True)
-        
+
         # Back button - OUTSIDE the form
-        if st.button("Back to Selection", use_container_width=True):
+        if st.button("Back to Selection", use_container_width=True, key=f"back_to_selection_{branch_id}"):
             st.session_state.return_step = "select"
             st.rerun()
-        
+
         # Process the submission - OUTSIDE the form
         if submitted:
             with st.spinner("Processing return..."):
@@ -1105,12 +1311,13 @@ def render_process_return_tab():
                     reason=reason,
                     condition=condition,
                     refund_method=refund_method,
-                    notes=notes
+                    notes=notes,
+                    branch_id=branch_id
                 )
-                
+
                 if success:
                     st.success(f"{message}")
-                    
+
                     if returned_products:
                         st.markdown("### Stock Update Summary")
                         for p in returned_products:
@@ -1119,14 +1326,14 @@ def render_process_return_tab():
                                 if item.get("barcode") == p["barcode"] and condition.lower() in ["damaged", "expired", "broken", "faulty"]:
                                     is_write_off = True
                                     break
-                            
+
                             if is_write_off:
                                 st.warning(f"{p['name']}: {p['quantity']} units - WRITTEN OFF (not added to stock)")
                             else:
                                 st.success(f"{p['name']}: +{p['quantity']} units returned to stock")
-                    
+
                     st.balloons()
-                    
+
                     # Reset for next return
                     st.session_state.return_step = "search"
                     st.session_state.return_receipt = ""
@@ -1134,23 +1341,23 @@ def render_process_return_tab():
                     st.session_state.return_items = []
                     st.session_state.return_quantities = {}
                     st.session_state.return_processed = True
-                    
+
                     st.rerun()
                 else:
                     st.error(f"{message}")
 
 
-def render_store_credit_tab():
-    """Render the Store Credit tab with full CRUD - Issue, Use, Edit, Delete, History"""
-    
-    st.markdown("## Store Credit Management")
-    
+def render_store_credit_tab(branch_id, branch_label):
+    """Render the Store Credit tab with full CRUD - Issue, Use, Edit, Delete, History (branch-scoped)."""
+
+    st.markdown(f"## Store Credit Management — {branch_label}")
+
     # Initialize session state for edit/delete
     if "edit_credit_id" not in st.session_state:
         st.session_state.edit_credit_id = None
     if "delete_credit_id" not in st.session_state:
         st.session_state.delete_credit_id = None
-    
+
     # ============================================================
     # TABS FOR STORE CREDIT OPERATIONS
     # ============================================================
@@ -1160,121 +1367,121 @@ def render_store_credit_tab():
         "Manage Credits",
         "Credit History"
     ])
-    
+
     # ============================================================
     # TAB 1: ISSUE CREDIT
     # ============================================================
     with credit_tab1:
         st.markdown("### Issue New Store Credit")
-        
-        with st.form(key="issue_store_credit_form"):
+
+        with st.form(key=f"issue_store_credit_form_{branch_id}"):
             col1, col2 = st.columns(2)
-            
+
             with col1:
-                customer = st.text_input("Customer Name", key="isc_name")
-                phone = st.text_input("Customer Phone", key="isc_phone")
-            
+                customer = st.text_input("Customer Name", key=f"isc_name_{branch_id}")
+                phone = st.text_input("Customer Phone", key=f"isc_phone_{branch_id}")
+
             with col2:
-                amount = st.number_input("Credit Amount ($)", min_value=0.01, step=10.0, key="isc_amount")
-                expiry = st.number_input("Expiry (days)", min_value=1, max_value=730, value=365, key="isc_expiry")
-            
-            notes = st.text_area("Notes", key="isc_notes")
-            
+                amount = st.number_input("Credit Amount ($)", min_value=0.01, step=10.0, key=f"isc_amount_{branch_id}")
+                expiry = st.number_input("Expiry (days)", min_value=1, max_value=730, value=365, key=f"isc_expiry_{branch_id}")
+
+            notes = st.text_area("Notes", key=f"isc_notes_{branch_id}")
+
             # Check if customer already has credit
             if phone:
-                existing = check_existing_store_credit(phone, customer)
+                existing = check_existing_store_credit(phone, customer, branch_id=branch_id)
                 if existing:
                     st.info(f"Customer already has active store credit. New credit will be added separately.")
-            
+
             submitted = st.form_submit_button("Issue Store Credit", type="primary", use_container_width=True)
-            
+
             if submitted:
                 if customer and phone and amount > 0:
-                    credit_id = create_store_credit(customer, phone, amount, expiry, notes)
+                    credit_id = create_store_credit(customer, phone, amount, expiry, notes, branch_id=branch_id)
                     if credit_id:
                         st.success(f"Store credit issued! ID: {credit_id} (${amount:.2f})")
                     else:
                         st.error("Failed to issue store credit")
                 else:
                     st.error("Please fill all required fields")
-    
+
     # ============================================================
     # TAB 2: USE CREDIT
     # ============================================================
     with credit_tab2:
         st.markdown("### Use Store Credit")
         st.caption("Deduct store credit when customer makes a purchase")
-        
-        with st.form(key="use_store_credit_form"):
+
+        with st.form(key=f"use_store_credit_form_{branch_id}"):
             col1, col2 = st.columns(2)
-            
+
             with col1:
-                use_phone = st.text_input("Customer Phone", key="usc_phone")
-                use_receipt = st.text_input("Receipt Number", key="usc_receipt", placeholder="Current sale receipt")
-            
+                use_phone = st.text_input("Customer Phone", key=f"usc_phone_{branch_id}")
+                use_receipt = st.text_input("Receipt Number", key=f"usc_receipt_{branch_id}", placeholder="Current sale receipt")
+
             with col2:
-                use_amount = st.number_input("Amount to Use ($)", min_value=0.01, step=5.0, key="usc_amount")
-                use_notes = st.text_area("Notes", key="usc_notes", placeholder="e.g., Used for purchase of items")
-            
+                use_amount = st.number_input("Amount to Use ($)", min_value=0.01, step=5.0, key=f"usc_amount_{branch_id}")
+                use_notes = st.text_area("Notes", key=f"usc_notes_{branch_id}", placeholder="e.g., Used for purchase of items")
+
             # Show available balance
             if use_phone:
-                balance = get_customer_store_credit(use_phone)
+                balance = get_customer_store_credit(use_phone, branch_id=branch_id)
                 if balance > 0:
                     st.success(f"Available Store Credit: **${balance:.2f}**")
                 else:
                     st.info("No active store credit found for this customer")
-            
+
             submitted = st.form_submit_button("Use Store Credit", type="primary", use_container_width=True)
-            
+
             if submitted:
                 if use_phone and use_amount > 0:
-                    available = get_customer_store_credit(use_phone)
-                    
+                    available = get_customer_store_credit(use_phone, branch_id=branch_id)
+
                     if available <= 0:
                         st.error("No store credit available for this customer")
                     elif use_amount > available:
                         st.error(f"Insufficient credit. Available: ${available:.2f}")
                     else:
-                        success, used_amount, message = use_store_credit(use_phone, use_amount, use_receipt, use_notes)
+                        success, used_amount, message = use_store_credit(use_phone, use_amount, use_receipt, use_notes, branch_id=branch_id)
                         if success:
                             st.success(f"{message}")
-                            new_balance = get_customer_store_credit(use_phone)
+                            new_balance = get_customer_store_credit(use_phone, branch_id=branch_id)
                             st.info(f"Remaining balance: ${new_balance:.2f}")
                         else:
                             st.error(f"{message}")
                 else:
                     st.error("Please enter customer phone and amount")
-    
+
     # ============================================================
     # TAB 3: MANAGE CREDITS (Edit/Delete)
     # ============================================================
     with credit_tab3:
         st.markdown("### Manage Store Credits")
-        
-        credits_df = load_store_credit()
-        
+
+        credits_df = load_store_credit(branch_id=branch_id)
+
         if credits_df.empty:
             st.info("No store credit records found")
         else:
-            search_phone = st.text_input("Search by Customer Phone", key="mng_phone", placeholder="Enter phone to filter...")
-            
+            search_phone = st.text_input("Search by Customer Phone", key=f"mng_phone_{branch_id}", placeholder="Enter phone to filter...")
+
             filtered_df = credits_df.copy()
             if search_phone:
                 filtered_df = filtered_df[filtered_df["customer_phone"].astype(str).str.contains(search_phone, na=False)]
-            
+
             if filtered_df.empty:
                 st.info("No credits found for this customer")
             else:
                 active_df = filtered_df[filtered_df["status"] == "ACTIVE"]
                 used_df = filtered_df[filtered_df["status"] == "USED"]
                 expired_df = filtered_df[filtered_df["status"] == "EXPIRED"]
-                
+
                 if not active_df.empty:
                     st.markdown("#### Active Credits")
                     for idx, credit in active_df.iterrows():
                         with st.expander(f"{credit['credit_id']} - {credit['customer_name']} - ${credit['remaining_balance']:.2f}"):
                             col1, col2, col3 = st.columns([2, 1, 1])
-                            
+
                             with col1:
                                 st.write(f"**Phone:** {credit['customer_phone']}")
                                 st.write(f"**Amount:** ${credit['amount']:.2f}")
@@ -1283,17 +1490,17 @@ def render_store_credit_tab():
                                 st.write(f"**Issued:** {credit['issued_date']}")
                                 if credit.get("notes"):
                                     st.write(f"**Notes:** {credit['notes']}")
-                            
+
                             with col2:
-                                if st.button(f"Edit", key=f"edit_{credit['credit_id']}"):
+                                if st.button(f"Edit", key=f"edit_{branch_id}_{credit['credit_id']}"):
                                     st.session_state.edit_credit_id = credit['credit_id']
                                     st.rerun()
-                            
+
                             with col3:
-                                if st.button(f"Delete", key=f"del_{credit['credit_id']}"):
+                                if st.button(f"Delete", key=f"del_{branch_id}_{credit['credit_id']}"):
                                     st.session_state.delete_credit_id = credit['credit_id']
                                     st.rerun()
-                
+
                 if not used_df.empty:
                     st.markdown("#### Used Credits")
                     for _, credit in used_df.iterrows():
@@ -1302,7 +1509,7 @@ def render_store_credit_tab():
                             st.write(f"**Used:** {credit['used_transactions']}")
                             if credit.get("notes"):
                                 st.write(f"**Notes:** {credit['notes']}")
-                
+
                 if not expired_df.empty:
                     st.markdown("#### Expired Credits")
                     for _, credit in expired_df.iterrows():
@@ -1312,57 +1519,57 @@ def render_store_credit_tab():
                             st.write(f"**Expired:** {credit['expiry_date']}")
                             if credit.get("notes"):
                                 st.write(f"**Notes:** {credit['notes']}")
-        
+
         # ============================================================
         # EDIT CREDIT MODAL
         # ============================================================
         if st.session_state.get("edit_credit_id"):
             credit_id = st.session_state.edit_credit_id
-            credits_df = load_store_credit()
+            credits_df = load_store_credit(branch_id=branch_id)
             credit = credits_df[credits_df["credit_id"] == credit_id]
-            
+
             if not credit.empty:
                 credit_data = credit.iloc[0]
-                
+
                 st.markdown("---")
                 st.markdown(f"### Edit Credit: {credit_id}")
-                
-                with st.form(key="edit_credit_form"):
+
+                with st.form(key=f"edit_credit_form_{branch_id}"):
                     col1, col2 = st.columns(2)
-                    
+
                     with col1:
                         edit_amount = st.number_input(
                             "Total Amount ($)",
                             value=float(credit_data["amount"]),
                             min_value=0.01,
                             step=10.0,
-                            key="edit_amount"
+                            key=f"edit_amount_{branch_id}"
                         )
                         edit_balance = st.number_input(
                             "Remaining Balance ($)",
                             value=float(credit_data["remaining_balance"]),
                             min_value=0.0,
                             step=5.0,
-                            key="edit_balance"
+                            key=f"edit_balance_{branch_id}"
                         )
-                    
+
                     with col2:
                         edit_expiry = st.date_input(
                             "Expiry Date",
                             value=pd.to_datetime(credit_data["expiry_date"]).date(),
-                            key="edit_expiry"
+                            key=f"edit_expiry_{branch_id}"
                         )
                         edit_status = st.selectbox(
                             "Status",
                             ["ACTIVE", "USED", "EXPIRED"],
                             index=["ACTIVE", "USED", "EXPIRED"].index(credit_data["status"]),
-                            key="edit_status"
+                            key=f"edit_status_{branch_id}"
                         )
-                    
-                    edit_notes = st.text_area("Notes", value=credit_data.get("notes", ""), key="edit_notes")
-                    
+
+                    edit_notes = st.text_area("Notes", value=credit_data.get("notes", ""), key=f"edit_notes_{branch_id}")
+
                     col1, col2 = st.columns(2)
-                    
+
                     with col1:
                         if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
                             success, message = edit_store_credit(
@@ -1371,7 +1578,8 @@ def render_store_credit_tab():
                                 balance=edit_balance,
                                 expiry_date=edit_expiry.strftime("%Y-%m-%d"),
                                 status=edit_status,
-                                notes=edit_notes
+                                notes=edit_notes,
+                                branch_id=branch_id
                             )
                             if success:
                                 st.success(f"{message}")
@@ -1379,54 +1587,54 @@ def render_store_credit_tab():
                                 st.rerun()
                             else:
                                 st.error(f"{message}")
-                    
+
                     with col2:
                         if st.form_submit_button("Cancel", use_container_width=True):
                             st.session_state.edit_credit_id = None
                             st.rerun()
-        
+
         # ============================================================
         # DELETE CREDIT CONFIRMATION
         # ============================================================
         if st.session_state.get("delete_credit_id"):
             credit_id = st.session_state.delete_credit_id
-            
+
             st.markdown("---")
             st.warning(f"Are you sure you want to delete credit: {credit_id}?")
             st.caption("This action cannot be undone.")
-            
+
             col1, col2 = st.columns(2)
-            
+
             with col1:
-                if st.button("Yes, Delete", type="primary", use_container_width=True):
-                    success, message = delete_store_credit(credit_id)
+                if st.button("Yes, Delete", type="primary", use_container_width=True, key=f"yes_delete_credit_{branch_id}"):
+                    success, message = delete_store_credit(credit_id, branch_id=branch_id)
                     if success:
                         st.success(f"{message}")
                         st.session_state.delete_credit_id = None
                         st.rerun()
                     else:
                         st.error(f"{message}")
-            
+
             with col2:
-                if st.button("Cancel", use_container_width=True):
+                if st.button("Cancel", use_container_width=True, key=f"cancel_delete_credit_{branch_id}"):
                     st.session_state.delete_credit_id = None
                     st.rerun()
-    
+
     # ============================================================
     # TAB 4: CREDIT HISTORY
     # ============================================================
     with credit_tab4:
         st.markdown("### Store Credit History")
-        
-        credits_df = load_store_credit()
-        
+
+        credits_df = load_store_credit(branch_id=branch_id)
+
         if credits_df.empty:
             st.info("No store credit records found")
         else:
             total_issued = credits_df["amount"].sum()
             total_remaining = credits_df["remaining_balance"].sum()
             active_count = len(credits_df[credits_df["status"] == "ACTIVE"])
-            
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Issued", f"${total_issued:,.2f}")
@@ -1434,9 +1642,9 @@ def render_store_credit_tab():
                 st.metric("Available", f"${total_remaining:,.2f}")
             with col3:
                 st.metric("Active Credits", active_count)
-            
+
             st.markdown("---")
-            
+
             display_df = credits_df[["credit_id", "customer_name", "customer_phone", "amount", "remaining_balance", "status", "issued_date", "expiry_date", "notes"]]
             st.dataframe(
                 display_df.sort_values("issued_date", ascending=False),
@@ -1447,24 +1655,24 @@ def render_store_credit_tab():
                     "remaining_balance": st.column_config.NumberColumn("Balance", format="$%.2f")
                 }
             )
-            
+
             csv = credits_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Store Credit Data (CSV)",
                 data=csv,
-                file_name=f"store_credit_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"store_credit_{branch_id}_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
 
 
-def render_return_analytics_tab():
-    """Render the Return Analytics tab"""
-    
-    st.markdown("## Return Analytics")
-    
-    stats = get_return_stats()
-    write_off_stats = get_write_off_stats()
-    
+def render_return_analytics_tab(branch_id, branch_label):
+    """Render the Return Analytics tab (branch-scoped)."""
+
+    st.markdown(f"## Return Analytics — {branch_label}")
+
+    stats = get_return_stats(branch_id=branch_id)
+    write_off_stats = get_write_off_stats(branch_id=branch_id)
+
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Total Returns", stats["total"])
@@ -1476,10 +1684,10 @@ def render_return_analytics_tab():
         st.metric("Avg Return", f"${stats['avg_value']:.2f}")
     with col5:
         st.metric("Write-Offs", write_off_stats["total"])
-    
+
     st.markdown("---")
-    
-    returns_df = load_returns()
+
+    returns_df = load_returns(branch_id=branch_id)
     if not returns_df.empty:
         st.markdown("### Recent Returns")
         st.dataframe(
@@ -1489,8 +1697,8 @@ def render_return_analytics_tab():
         )
     else:
         st.info("No return data available")
-    
-    write_offs_df = load_write_offs()
+
+    write_offs_df = load_write_offs(branch_id=branch_id)
     if not write_offs_df.empty:
         st.markdown("### Write-Off Summary")
         st.dataframe(
@@ -1502,46 +1710,46 @@ def render_return_analytics_tab():
         st.info("No write-offs recorded")
 
 
-def render_return_history_tab():
-    """Render the Return History tab"""
-    
-    st.markdown("## Return History")
-    
-    returns_df = load_returns()
-    
+def render_return_history_tab(branch_id, branch_label):
+    """Render the Return History tab (branch-scoped)."""
+
+    st.markdown(f"## Return History — {branch_label}")
+
+    returns_df = load_returns(branch_id=branch_id)
+
     if not returns_df.empty:
         st.dataframe(
             returns_df[["return_id", "receipt_no", "return_date", "customer_name", "product_name", "quantity_returned", "refund_amount", "status", "condition"]],
             use_container_width=True,
             hide_index=True
         )
-        
+
         csv = returns_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download Returns Data (CSV)",
             data=csv,
-            file_name=f"returns_data_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"returns_data_{branch_id}_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
     else:
         st.info("No return records found")
-    
+
     st.markdown("---")
     st.markdown("### Write-Off History")
-    
-    write_offs_df = load_write_offs()
+
+    write_offs_df = load_write_offs(branch_id=branch_id)
     if not write_offs_df.empty:
         st.dataframe(
             write_offs_df[["write_off_id", "product_name", "quantity", "reason", "created_date"]],
             use_container_width=True,
             hide_index=True
         )
-        
+
         csv = write_offs_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download Write-Off Data (CSV)",
             data=csv,
-            file_name=f"write_offs_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"write_offs_{branch_id}_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
     else:
@@ -1552,46 +1760,49 @@ def render_return_history_tab():
 # MAIN DASHBOARD
 # ==============================
 def returns_management_dashboard():
-    """Main Returns and Refunds Management Dashboard"""
-    
-    st.title("Returns & Refunds Management")
+    """Main Returns and Refunds Management Dashboard (branch-scoped)."""
+
+    branch_id = _get_session_branch()
+    branch_label = _branch_display_name(branch_id)
+
+    st.title(f"Returns & Refunds Management - {branch_label}")
     st.caption("Process customer returns, manage store credit, and track warranties")
-    
+
     role = st.session_state.get("role", "cashier")
     if role not in ALLOWED_RETURN_ROLES:
         st.error("Access Denied. Only managers and owners can process returns.")
         return
-    
+
     try:
         init_files()
     except Exception as e:
         st.error(f"Error initializing system: {e}")
         return
-    
-    sample_receipts = get_sample_receipts()
+
+    sample_receipts = get_sample_receipts(branch_id=branch_id)
     if sample_receipts:
-        with st.expander("Recent Receipt Numbers (for testing)"):
+        with st.expander(f"Recent Receipt Numbers (for testing) — {branch_label}"):
             for r in sample_receipts[:5]:
                 st.code(f"• {r}")
-    
+
     tab1, tab2, tab3, tab4 = st.tabs([
         "Process Return",
         "Store Credit",
         "Return Analytics",
         "Return History"
     ])
-    
+
     with tab1:
-        render_process_return_tab()
-    
+        render_process_return_tab(branch_id, branch_label)
+
     with tab2:
-        render_store_credit_tab()
-    
+        render_store_credit_tab(branch_id, branch_label)
+
     with tab3:
-        render_return_analytics_tab()
-    
+        render_return_analytics_tab(branch_id, branch_label)
+
     with tab4:
-        render_return_history_tab()
+        render_return_history_tab(branch_id, branch_label)
 
 
 # ==============================

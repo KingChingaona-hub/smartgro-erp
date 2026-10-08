@@ -933,11 +933,7 @@ def pos_page():
                 }
                 
                 # ----- Branch authority: prefer current_branch_code -----
-                checkout_branch = (
-                    st.session_state.get("current_branch_code")
-                    or st.session_state.get("user_branch")
-                    or "HO"
-                )
+                checkout_branch = _get_session_branch()
                 
                 success, message = process_checkout_batch(
                     branch_id=checkout_branch,

@@ -38,6 +38,22 @@ from backend.analytics.debtors_engine import load_debtors as load_debtors_data
 
 
 # ==============================
+# SESSION BRANCH HELPER
+# ==============================
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
+    return (
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
+        or "HO"
+    )
+
+
+# ==============================
 # HELPER FUNCTIONS
 # ==============================
 
@@ -186,16 +202,16 @@ def cash_dashboard():
     
     # Get current user and branch info
     username = st.session_state.get("username", "system")
-    user_branch = st.session_state.get("user_branch", "HO")
+    user_branch = _get_session_branch()
     user_role = st.session_state.get("role", "cashier")
     full_name = st.session_state.get("user_full_name", username)
     
     # Check if user can manage shifts (manager, admin, owner)
     can_manage_shifts = user_role in ["owner", "manager", "admin"]
     
-    # Load data once for all tabs
-    sales_df = load_sales()
-    debtors_df = load_debtors_data()
+    # Load data once for all tabs (branch-scoped)
+    sales_df = load_sales(branch_id=user_branch)
+    debtors_df = load_debtors_data(branch_id=user_branch)
     
     # Get unduplicated data
     sales_undup = get_unduplicated_sales(sales_df)
@@ -365,7 +381,7 @@ def cash_dashboard():
         st.markdown("---")
         st.markdown("### Shift History (This Branch)")
         
-        shifts_df = load_shifts()
+        shifts_df = load_shifts(branch_id=user_branch)
         if not shifts_df.empty:
             branch_shifts = shifts_df[shifts_df["branch_id"] == user_branch]
             

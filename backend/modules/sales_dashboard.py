@@ -10,6 +10,22 @@ from backend.core.db_adapter import load_sales, load_products, load_customers
 
 
 # ==============================
+# SESSION BRANCH HELPER
+# ==============================
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
+    return (
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
+        or "HO"
+    )
+
+
+# ==============================
 # HELPER FUNCTIONS
 # ==============================
 
@@ -44,8 +60,9 @@ def find_column(df, possible_names, default=None):
 
 
 def get_sales_data():
-    """Load sales data with proper deduplication"""
-    sales_df = load_sales()
+    """Load sales data with proper deduplication (branch-scoped)"""
+    branch_id = _get_session_branch()
+    sales_df = load_sales(branch_id=branch_id)
     
     if sales_df.empty:
         return pd.DataFrame()
@@ -113,10 +130,11 @@ def sales_dashboard():
     st.title("Sales Intelligence Dashboard")
     st.caption("Advanced analytics and insights for business growth")
     
-    # Load data with deduplication
+    # Load data with deduplication (branch-scoped)
+    branch_id = _get_session_branch()
     sales_df = get_sales_data()
-    products_df = load_products()
-    customers_df = load_customers()
+    products_df = load_products(branch_id=branch_id)
+    customers_df = load_customers(branch_id=branch_id)
     
     if sales_df.empty:
         st.warning("No sales data available. Complete some transactions first.")

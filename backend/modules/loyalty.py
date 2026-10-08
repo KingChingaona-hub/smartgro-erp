@@ -1,22 +1,68 @@
+# backend/modules/loyalty.py
+# Branch-aware loyalty points, one CSV file per branch.
+#
+# Files (per branch):
+#   data/loyalty_points_<branch>.csv
+#   data/loyalty_redemptions_<branch>.csv
+#
+# Every public function takes an optional branch_id; when omitted,
+# it resolves to the authoritative session branch (current_branch_code
+# preferred over user_branch).
+
 import pandas as pd
+import streamlit as st
 from pathlib import Path
 from datetime import datetime, timedelta
 
+
 # ==============================
-# FILE SETUP
+# SESSION BRANCH HELPER
+# ==============================
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
+    try:
+        return (
+            st.session_state.get("current_branch_code")
+            or st.session_state.get("user_branch")
+            or "HO"
+        )
+    except Exception:
+        return "HO"
+
+
+# ==============================
+# FILE PATHS (per branch)
 # ==============================
 DATA_DIR = Path("data")
-LOYALTY_FILE = DATA_DIR / "loyalty_points.csv"
-LOYALTY_REDEMPTIONS_FILE = DATA_DIR / "loyalty_redemptions.csv"
+
+
+def _loyalty_file(branch_id):
+    branch_id = str(branch_id).strip().upper() or "HO"
+    return DATA_DIR / f"loyalty_points_{branch_id.lower()}.csv"
+
+
+def _redemptions_file(branch_id):
+    branch_id = str(branch_id).strip().upper() or "HO"
+    return DATA_DIR / f"loyalty_redemptions_{branch_id.lower()}.csv"
 
 
 # ==============================
 # INIT LOYALTY FILES
 # ==============================
-def init_loyalty_files():
-    """Initialize loyalty points files"""
-    
-    if not LOYALTY_FILE.exists():
+def init_loyalty_files(branch_id=None):
+    """Initialize loyalty points files for the given branch."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    DATA_DIR.mkdir(exist_ok=True)
+
+    loyalty_file = _loyalty_file(branch_id)
+    redemptions_file = _redemptions_file(branch_id)
+
+    if not loyalty_file.exists():
         df = pd.DataFrame(columns=[
             "customer_name",
             "phone",
@@ -26,36 +72,48 @@ def init_loyalty_files():
             "total_orders",
             "last_visit",
             "birthday",
-            "joined_date"
+            "joined_date",
         ])
-        df.to_csv(LOYALTY_FILE, index=False)
-    
-    if not LOYALTY_REDEMPTIONS_FILE.exists():
+        df.to_csv(loyalty_file, index=False)
+
+    if not redemptions_file.exists():
         df = pd.DataFrame(columns=[
             "date",
             "customer_name",
             "points_used",
             "discount_amount",
-            "receipt_no"
+            "receipt_no",
         ])
-        df.to_csv(LOYALTY_REDEMPTIONS_FILE, index=False)
+        df.to_csv(redemptions_file, index=False)
 
 
 # ==============================
 # LOAD/SAVE FUNCTIONS
 # ==============================
-def load_loyalty():
-    init_loyalty_files()
-    return pd.read_csv(LOYALTY_FILE)
+def load_loyalty(branch_id=None):
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    init_loyalty_files(branch_id)
+    return pd.read_csv(_loyalty_file(branch_id))
 
 
-def save_loyalty(df):
-    df.to_csv(LOYALTY_FILE, index=False)
+def save_loyalty(df, branch_id=None):
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    df.to_csv(_loyalty_file(branch_id), index=False)
 
 
-def load_redemptions():
-    init_loyalty_files()
-    return pd.read_csv(LOYALTY_REDEMPTIONS_FILE)
+def load_redemptions(branch_id=None):
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    init_loyalty_files(branch_id)
+    return pd.read_csv(_redemptions_file(branch_id))
+
+
+def save_redemptions(df, branch_id=None):
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    df.to_csv(_redemptions_file(branch_id), index=False)
 
 
 # ==============================
@@ -83,26 +141,26 @@ def get_tier_benefits(tier):
             "points_multiplier": 1,
             "discount": 0,
             "birthday_bonus": 50,
-            "free_delivery": False
+            "free_delivery": False,
         },
         "SILVER": {
             "points_multiplier": 1.2,
             "discount": 5,
             "birthday_bonus": 100,
-            "free_delivery": False
+            "free_delivery": False,
         },
         "GOLD": {
             "points_multiplier": 1.5,
             "discount": 10,
             "birthday_bonus": 200,
-            "free_delivery": True
+            "free_delivery": True,
         },
         "PLATINUM": {
             "points_multiplier": 2,
             "discount": 15,
             "birthday_bonus": 500,
-            "free_delivery": True
-        }
+            "free_delivery": True,
+        },
     }
     return benefits.get(tier, benefits["BRONZE"])
 
@@ -110,112 +168,118 @@ def get_tier_benefits(tier):
 # ==============================
 # ADD LOYALTY POINTS
 # ==============================
-def add_loyalty_points(customer_name, phone, amount_spent, receipt_no):
-    """Add loyalty points to customer account"""
-    
-    df = load_loyalty()
-    
+def add_loyalty_points(customer_name, phone, amount_spent, receipt_no, branch_id=None):
+    """Add loyalty points to customer account (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
+
+    df = load_loyalty(branch_id=branch_id)
+
     # Check if customer exists
     customer = df[df["phone"] == phone]
-    
+
     if not customer.empty:
         idx = customer.index[0]
         current_points = df.at[idx, "points"]
         current_spent = df.at[idx, "total_spent"]
         current_orders = df.at[idx, "total_orders"]
         current_tier = df.at[idx, "tier"]
-        
+
         # Calculate points earned (1 point per $1 spent, multiplied by tier)
         tier_benefits = get_tier_benefits(current_tier)
         points_earned = int(amount_spent * tier_benefits["points_multiplier"])
-        
+
         # Update customer
         df.at[idx, "points"] = current_points + points_earned
         df.at[idx, "total_spent"] = current_spent + amount_spent
         df.at[idx, "total_orders"] = current_orders + 1
         df.at[idx, "last_visit"] = datetime.now().strftime("%Y-%m-%d")
-        
+
         # Update tier based on new spending
         new_tier = get_tier(df.at[idx, "total_spent"])
         df.at[idx, "tier"] = new_tier
-        
+
     else:
         # New customer
         points_earned = int(amount_spent)  # Base points for new customer
-        
+
         new_customer = pd.DataFrame([{
             "customer_name": customer_name,
             "phone": phone,
             "points": points_earned + 50,  # Signup bonus
-            "tier": "🥉 BRONZE",
+            "tier": "BRONZE",
             "total_spent": amount_spent,
             "total_orders": 1,
             "last_visit": datetime.now().strftime("%Y-%m-%d"),
             "birthday": "",
-            "joined_date": datetime.now().strftime("%Y-%m-%d")
+            "joined_date": datetime.now().strftime("%Y-%m-%d"),
         }])
         df = pd.concat([df, new_customer], ignore_index=True)
-    
-    save_loyalty(df)
+
+    save_loyalty(df, branch_id=branch_id)
     return points_earned
 
 
 # ==============================
 # REDEEM LOYALTY POINTS
 # ==============================
-def redeem_points(customer_phone, points_to_redeem, receipt_no):
-    """Redeem loyalty points for discount"""
-    
-    df = load_loyalty()
-    redemptions = load_redemptions()
-    
+def redeem_points(customer_phone, points_to_redeem, receipt_no, branch_id=None):
+    """Redeem loyalty points for discount (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
+
+    df = load_loyalty(branch_id=branch_id)
+    redemptions = load_redemptions(branch_id=branch_id)
+
     customer = df[df["phone"] == customer_phone]
-    
+
     if customer.empty:
         return False, 0, "Customer not found"
-    
+
     idx = customer.index[0]
     current_points = df.at[idx, "points"]
-    
+
     if points_to_redeem > current_points:
         return False, 0, f"Insufficient points. You have {current_points} points"
-    
+
     # Calculate discount (100 points = $1 discount)
     discount = points_to_redeem / 100
-    
+
     # Deduct points
     df.at[idx, "points"] = current_points - points_to_redeem
-    save_loyalty(df)
-    
+    save_loyalty(df, branch_id=branch_id)
+
     # Record redemption
     new_redemption = pd.DataFrame([{
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "customer_name": df.at[idx, "customer_name"],
         "points_used": points_to_redeem,
         "discount_amount": discount,
-        "receipt_no": receipt_no
+        "receipt_no": receipt_no,
     }])
     redemptions = pd.concat([redemptions, new_redemption], ignore_index=True)
-    redemptions.to_csv(LOYALTY_REDEMPTIONS_FILE, index=False)
-    
+    save_redemptions(redemptions, branch_id=branch_id)
+
     return True, discount, f"Successfully redeemed {points_to_redeem} points for ${discount:.2f} discount"
 
 
 # ==============================
 # GET CUSTOMER LOYALTY INFO
 # ==============================
-def get_customer_loyalty_info(phone):
-    """Get loyalty information for a customer"""
-    
-    df = load_loyalty()
+def get_customer_loyalty_info(phone, branch_id=None):
+    """Get loyalty information for a customer (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
+
+    df = load_loyalty(branch_id=branch_id)
     customer = df[df["phone"] == phone]
-    
+
     if customer.empty:
         return None
-    
+
     row = customer.iloc[0]
     tier_benefits = get_tier_benefits(row["tier"])
-    
+
     return {
         "customer_name": row["customer_name"],
         "phone": row["phone"],
@@ -226,7 +290,7 @@ def get_customer_loyalty_info(phone):
         "last_visit": row["last_visit"],
         "joined_date": row["joined_date"],
         "benefits": tier_benefits,
-        "points_to_next_tier": get_points_to_next_tier(row["total_spent"])
+        "points_to_next_tier": get_points_to_next_tier(row["total_spent"]),
     }
 
 
@@ -245,8 +309,11 @@ def get_points_to_next_tier(total_spent):
 # ==============================
 # GET TOP LOYALTY CUSTOMERS
 # ==============================
-def get_top_loyalty_customers(n=10):
-    df = load_loyalty()
+def get_top_loyalty_customers(n=10, branch_id=None):
+    """Get top loyalty customers for the branch."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    df = load_loyalty(branch_id=branch_id)
     if df.empty:
         return df
     return df.nlargest(n, "points")[["customer_name", "phone", "points", "tier", "total_spent"]]
@@ -255,13 +322,16 @@ def get_top_loyalty_customers(n=10):
 # ==============================
 # BIRTHDAY CUSTOMERS THIS MONTH
 # ==============================
-def get_birthday_customers():
-    df = load_loyalty()
+def get_birthday_customers(branch_id=None):
+    """Get customers with birthdays this month for the branch."""
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    df = load_loyalty(branch_id=branch_id)
     if df.empty or "birthday" not in df.columns:
         return pd.DataFrame()
-    
+
     current_month = datetime.now().month
     df["birthday_month"] = pd.to_datetime(df["birthday"], errors="coerce").dt.month
     birthday_customers = df[df["birthday_month"] == current_month]
-    
+
     return birthday_customers[["customer_name", "phone", "points", "tier"]]

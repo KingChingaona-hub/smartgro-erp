@@ -1,5 +1,6 @@
 # backend/modules/expenses.py - UPDATED: Now uses PostgreSQL database via db_adapter
 # FIXED: Removed circular import by using lazy imports
+# Branch-aware: every db_adapter call is scoped to the session branch.
 
 import pandas as pd
 from datetime import datetime
@@ -8,6 +9,26 @@ import logging
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ==============================
+# SESSION BRANCH HELPER
+# ==============================
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
+    try:
+        import streamlit as st
+        return (
+            st.session_state.get("current_branch_code")
+            or st.session_state.get("user_branch")
+            or "HO"
+        )
+    except Exception:
+        return "HO"
 
 
 # ==============================
@@ -81,12 +102,14 @@ DEFAULT_CATEGORIES = [
 # LOAD FUNCTIONS - USING DATABASE
 # ==============================
 
-def load_expenses():
-    """Load expenses from database - delegates to db_adapter"""
+def load_expenses(branch_id=None):
+    """Load expenses from database - delegates to db_adapter (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        df = db['load_expenses']()
-        logger.info(f"Loaded {len(df)} expense records from database")
+        df = db['load_expenses'](branch_id=branch_id)
+        logger.info(f"Loaded {len(df)} expense records from database for branch {branch_id}")
         return df
     except Exception as e:
         logger.error(f"Error loading expenses: {e}")
@@ -98,23 +121,25 @@ def load_expenses():
         ])
 
 
-def save_expenses(df):
-    """Save expenses to database - delegates to db_adapter"""
+def save_expenses(df, branch_id=None):
+    """Save expenses to database - delegates to db_adapter (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         if df is None:
             logger.warning("Attempted to save None dataframe")
             return False
-        
+
         if df.empty:
             logger.warning("Attempted to save empty dataframe - skipping to prevent data loss")
             return False
-        
+
         db = _get_db_functions()
-        success = db['save_expenses'](df)
+        success = db['save_expenses'](df, branch_id=branch_id)
         if success:
-            logger.info(f"Saved {len(df)} expense records to database")
+            logger.info(f"Saved {len(df)} expense records to database for branch {branch_id}")
         return success
-        
+
     except Exception as e:
         logger.error(f"Error saving expenses: {e}")
         import traceback
@@ -122,11 +147,13 @@ def save_expenses(df):
         return False
 
 
-def load_expense_categories():
-    """Load expense categories from database"""
+def load_expense_categories(branch_id=None):
+    """Load expense categories from database (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        categories = db['load_expense_categories']()
+        categories = db['load_expense_categories'](branch_id=branch_id)
         if categories:
             return categories
         return DEFAULT_CATEGORIES
@@ -135,13 +162,14 @@ def load_expense_categories():
         return DEFAULT_CATEGORIES
 
 
-def add_expense_category(category):
-    """Add new expense category - stores in database"""
+def add_expense_category(category, branch_id=None):
+    """Add new expense category - stores in database (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        categories = load_expense_categories()
+        categories = load_expense_categories(branch_id=branch_id)
         if category not in categories:
-            # We need to save categories - use db_adapter
-            # For now, just return True as categories are derived from existing data
+            # Categories are derived from existing expense data; no separate table.
             return True
         return False
     except Exception as e:
@@ -149,32 +177,38 @@ def add_expense_category(category):
         return False
 
 
-def load_budget(year=None, month=None):
-    """Load budget data from database"""
+def load_budget(year=None, month=None, branch_id=None):
+    """Load budget data from database (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        df = db['load_expense_budget'](year=year, month=month)
+        df = db['load_expense_budget'](branch_id=branch_id, year=year, month=month)
         return df if df is not None else pd.DataFrame()
     except Exception as e:
         logger.error(f"Error loading budget: {e}")
         return pd.DataFrame()
 
 
-def save_budget(df):
-    """Save budget data to database"""
+def save_budget(df, branch_id=None):
+    """Save budget data to database (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        return db['save_expense_budget'](df)
+        return db['save_expense_budget'](df, branch_id=branch_id)
     except Exception as e:
         logger.error(f"Error saving budget: {e}")
         return False
 
 
-def load_recurring_expenses():
-    """Load recurring expenses from database"""
+def load_recurring_expenses(branch_id=None):
+    """Load recurring expenses from database (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        df = db['load_recurring_expenses']()
+        df = db['load_recurring_expenses'](branch_id=branch_id)
         return df if df is not None else pd.DataFrame(columns=[
             "recurring_id", "description", "category", "amount",
             "frequency", "day_of_month", "vendor", "payment_method",
@@ -189,11 +223,13 @@ def load_recurring_expenses():
         ])
 
 
-def save_recurring_expenses(df):
-    """Save recurring expenses to database"""
+def save_recurring_expenses(df, branch_id=None):
+    """Save recurring expenses to database (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        return db['save_recurring_expenses'](df)
+        return db['save_recurring_expenses'](df, branch_id=branch_id)
     except Exception as e:
         logger.error(f"Error saving recurring expenses: {e}")
         return False
@@ -203,19 +239,24 @@ def save_recurring_expenses(df):
 # RECORD EXPENSE - USING DATABASE
 # ==============================
 
-def record_expense(expense_type, category, description, amount, vendor="", 
-                   payment_method="CASH", user="System", notes=""):
-    """Record a new expense - delegates to db_adapter"""
+def record_expense(expense_type, category, description, amount, vendor="",
+                   payment_method="CASH", user="System", notes="", branch_id=None):
+    """Record a new expense - delegates to db_adapter (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        success = db['record_expense'](expense_type, category, description, amount, 
-                                      vendor, payment_method, user, notes)
+        success = db['record_expense'](
+            expense_type, category, description, amount,
+            vendor, payment_method, user, notes,
+            branch_id=branch_id,
+        )
         if success:
-            logger.info(f"Expense recorded: ${amount:.2f} - {description}")
+            logger.info(f"Expense recorded: ${amount:.2f} - {description} (branch {branch_id})")
             return True, f"Expense recorded: ${amount:.2f} - {description}"
         else:
             return False, "Failed to save expense"
-            
+
     except Exception as e:
         logger.error(f"Error recording expense: {e}")
         import traceback
@@ -227,73 +268,82 @@ def record_expense(expense_type, category, description, amount, vendor="",
 # DELETE EXPENSE - SAFE
 # ==============================
 
-def delete_expense(index):
-    """Delete an expense record by index - SAFE with validation"""
+def delete_expense(index, branch_id=None):
+    """Delete an expense record by index - SAFE with validation (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
-        
+        df = load_expenses(branch_id=branch_id)
+
         if df.empty:
             return False
-        
+
         if index not in df.index:
             logger.warning(f"Index {index} not found in expenses")
             return False
-        
+
         record = df.loc[index]
-        logger.info(f"Deleting expense: {record.get('date', 'Unknown')} - {record.get('category', 'Unknown')} - ${record.get('amount', 0)}")
-        
+        logger.info(f"Deleting expense: {record.get('date', 'Unknown')} - "
+                    f"{record.get('category', 'Unknown')} - ${record.get('amount', 0)}")
+
         df = df.drop(index)
         df = df.reset_index(drop=True)
-        return save_expenses(df)
-        
+        return save_expenses(df, branch_id=branch_id)
+
     except Exception as e:
         logger.error(f"Error deleting expense: {e}")
         return False
 
 
-def delete_expense_by_id(date_str, category, amount, description="", expense_type="", vendor=""):
-    """Delete an expense record by its fields - SAFE with validation"""
+def delete_expense_by_id(date_str, category, amount, description="", expense_type="", vendor="", branch_id=None):
+    """Delete an expense record by its fields - SAFE with validation (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
-        
+        df = load_expenses(branch_id=branch_id)
+
         if df.empty:
             return False
-        
+
         mask = (
-            (df["category"] == category) & 
+            (df["category"] == category) &
             (abs(df["amount"] - float(amount)) < 0.01)
         )
-        
+
         if date_str:
             try:
                 date_obj = pd.to_datetime(date_str)
-                df["date_short"] = df["date"].dt.strftime("%Y-%m-%d") if hasattr(df["date"], 'dt') else pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+                df["date_short"] = (
+                    df["date"].dt.strftime("%Y-%m-%d")
+                    if hasattr(df["date"], "dt")
+                    else pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+                )
                 mask = mask & (df["date_short"] == date_obj.strftime("%Y-%m-%d"))
             except:
                 pass
-        
+
         if description:
             mask = mask & (df["description"].str.contains(description[:20], case=False, na=False))
-        
+
         if expense_type:
             mask = mask & (df["expense_type"] == expense_type)
-        
+
         if vendor:
             mask = mask & (df["vendor"].str.contains(vendor[:20], case=False, na=False))
-        
+
         matching_indices = df[mask].index.tolist()
-        
+
         if not matching_indices:
             logger.warning(f"No matching expense found for {date_str} - {category} - ${amount}")
             return False
-        
+
         df = df.drop(matching_indices[0])
         df = df.reset_index(drop=True)
-        save_expenses(df)
-        
+        save_expenses(df, branch_id=branch_id)
+
         logger.info(f"Deleted expense: {date_str} - {category} - ${amount}")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error deleting expense: {e}")
         return False
@@ -303,8 +353,10 @@ def delete_expense_by_id(date_str, category, amount, description="", expense_typ
 # UPDATE BUDGET ACTUALS
 # ==============================
 
-def update_budget_actuals(category, amount):
-    """Update actual expenses in budget table"""
+def update_budget_actuals(category, amount, branch_id=None):
+    """Update actual expenses in budget table (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         pass
     except Exception as e:
@@ -315,18 +367,20 @@ def update_budget_actuals(category, amount):
 # SET BUDGET
 # ==============================
 
-def set_budget(year, month, category, amount):
-    """Set budget for a specific category and period"""
+def set_budget(year, month, category, amount, branch_id=None):
+    """Set budget for a specific category and period (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        budget_df = load_budget()
-        
+        budget_df = load_budget(branch_id=branch_id)
+
         if budget_df.empty:
             budget_df = pd.DataFrame(columns=["year", "month", "category", "budget_amount", "actual_amount"])
-        
+
         mask = (budget_df["year"] == year) & \
                (budget_df["month"] == month) & \
                (budget_df["category"] == category)
-        
+
         idx = budget_df[mask].index
         if len(idx) > 0:
             budget_df.loc[idx[0], "budget_amount"] = float(amount)
@@ -339,9 +393,9 @@ def set_budget(year, month, category, amount):
                 "actual_amount": 0
             }
             budget_df = pd.concat([budget_df, pd.DataFrame([new_row])], ignore_index=True)
-        
-        return save_budget(budget_df)
-        
+
+        return save_budget(budget_df, branch_id=branch_id)
+
     except Exception as e:
         logger.error(f"Error setting budget: {e}")
         return False
@@ -351,11 +405,13 @@ def set_budget(year, month, category, amount):
 # GET BUDGET VS ACTUAL
 # ==============================
 
-def get_budget_vs_actual(year=None, month=None):
-    """Get budget vs actual comparison"""
+def get_budget_vs_actual(year=None, month=None, branch_id=None):
+    """Get budget vs actual comparison (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        return db['get_budget_vs_actual'](year=year, month=month)
+        return db['get_budget_vs_actual'](year=year, month=month, branch_id=branch_id)
     except Exception as e:
         logger.error(f"Error getting budget vs actual: {e}")
         return pd.DataFrame()
@@ -367,16 +423,18 @@ def get_budget_vs_actual(year=None, month=None):
 
 def add_recurring_expense(description, category, amount, frequency, day_of_month,
                           vendor="", payment_method="CASH", start_date=None,
-                          end_date=None, notes=""):
-    """Add a recurring expense"""
+                          end_date=None, notes="", branch_id=None):
+    """Add a recurring expense (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_recurring_expenses()
-        
+        df = load_recurring_expenses(branch_id=branch_id)
+
         recurring_id = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
+
         if start_date is None:
             start_date = datetime.now().strftime("%Y-%m-%d")
-        
+
         new_row = {
             "recurring_id": recurring_id,
             "description": description,
@@ -391,12 +449,12 @@ def add_recurring_expense(description, category, amount, frequency, day_of_month
             "active": True,
             "notes": notes
         }
-        
+
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        save_recurring_expenses(df)
-        
+        save_recurring_expenses(df, branch_id=branch_id)
+
         return recurring_id
-        
+
     except Exception as e:
         logger.error(f"Error adding recurring expense: {e}")
         return None
@@ -406,23 +464,25 @@ def add_recurring_expense(description, category, amount, frequency, day_of_month
 # PROCESS RECURRING EXPENSES
 # ==============================
 
-def process_recurring_expenses():
-    """Process and auto-record recurring expenses that are due"""
+def process_recurring_expenses(branch_id=None):
+    """Process and auto-record recurring expenses that are due (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        recurring_df = load_recurring_expenses()
-        
+        recurring_df = load_recurring_expenses(branch_id=branch_id)
+
         if recurring_df.empty:
             return []
-        
+
         today = datetime.now()
         current_day = today.day
-        
+
         processed = []
-        
+
         for _, expense in recurring_df.iterrows():
             if not expense.get("active", True):
                 continue
-            
+
             if expense.get("frequency") == "Monthly":
                 if current_day == expense.get("day_of_month", 1):
                     record_expense(
@@ -432,12 +492,13 @@ def process_recurring_expenses():
                         amount=expense.get("amount", 0),
                         vendor=expense.get("vendor", ""),
                         payment_method=expense.get("payment_method", "CASH"),
-                        notes=f"Auto-recorded recurring expense: {expense.get('description', '')}"
+                        notes=f"Auto-recorded recurring expense: {expense.get('description', '')}",
+                        branch_id=branch_id,
                     )
                     processed.append(expense.get("description", ""))
-        
+
         return processed
-        
+
     except Exception as e:
         logger.error(f"Error processing recurring expenses: {e}")
         return []
@@ -447,11 +508,13 @@ def process_recurring_expenses():
 # MONTHLY EXPENSES
 # ==============================
 
-def get_monthly_expenses(month=None, year=None):
-    """Get total expenses for a specific month and year"""
+def get_monthly_expenses(month=None, year=None, branch_id=None):
+    """Get total expenses for a specific month and year (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        return db['get_monthly_expenses'](month=month, year=year)
+        return db['get_monthly_expenses'](month=month, year=year, branch_id=branch_id)
     except Exception as e:
         logger.error(f"Error getting monthly expenses: {e}")
         return 0
@@ -461,11 +524,13 @@ def get_monthly_expenses(month=None, year=None):
 # GET TOTAL EXPENSES
 # ==============================
 
-def get_total_expenses():
-    """Get total expenses"""
+def get_total_expenses(branch_id=None):
+    """Get total expenses (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        return db['get_total_expenses']()
+        return db['get_total_expenses'](branch_id=branch_id)
     except Exception as e:
         logger.error(f"Error getting total expenses: {e}")
         return 0
@@ -475,11 +540,13 @@ def get_total_expenses():
 # GET EXPENSES BY CATEGORY
 # ==============================
 
-def get_expenses_by_category(month=None, year=None):
-    """Get expenses grouped by category for a period"""
+def get_expenses_by_category(month=None, year=None, branch_id=None):
+    """Get expenses grouped by category for a period (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
         db = _get_db_functions()
-        return db['get_expenses_by_category'](month=month, year=year)
+        return db['get_expenses_by_category'](month=month, year=year, branch_id=branch_id)
     except Exception as e:
         logger.error(f"Error getting expenses by category: {e}")
         return pd.DataFrame()
@@ -489,28 +556,30 @@ def get_expenses_by_category(month=None, year=None):
 # GET EXPENSES BY VENDOR
 # ==============================
 
-def get_expenses_by_vendor(month=None, year=None):
-    """Get expenses grouped by vendor"""
+def get_expenses_by_vendor(month=None, year=None, branch_id=None):
+    """Get expenses grouped by vendor (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
+        df = load_expenses(branch_id=branch_id)
         if df.empty:
             return pd.DataFrame()
-        
+
         if not pd.api.types.is_datetime64_any_dtype(df["date"]):
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df = df.dropna(subset=["date"])
-        
+
         if month:
             df = df[df["date"].dt.month == month]
         if year:
             df = df[df["date"].dt.year == year]
-        
+
         if df.empty:
             return pd.DataFrame()
-        
+
         vendor_summary = df.groupby("vendor")["amount"].sum().reset_index()
         vendor_summary = vendor_summary.sort_values("amount", ascending=False)
-        
+
         return vendor_summary
     except Exception as e:
         logger.error(f"Error getting expenses by vendor: {e}")
@@ -521,27 +590,29 @@ def get_expenses_by_vendor(month=None, year=None):
 # GET MONTHLY EXPENSE TREND
 # ==============================
 
-def get_monthly_trend(months=12):
-    """Get monthly expense trend for last N months"""
+def get_monthly_trend(months=12, branch_id=None):
+    """Get monthly expense trend for last N months (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
+        df = load_expenses(branch_id=branch_id)
         if df.empty:
             return pd.DataFrame()
-        
+
         if not pd.api.types.is_datetime64_any_dtype(df["date"]):
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df = df.dropna(subset=["date"])
-        
+
         cutoff = datetime.now() - pd.DateOffset(months=months)
         df = df[df["date"] >= cutoff]
-        
+
         if df.empty:
             return pd.DataFrame()
-        
+
         df["year_month"] = df["date"].dt.strftime("%Y-%m")
         monthly_trend = df.groupby("year_month")["amount"].sum().reset_index()
         monthly_trend.columns = ["Month", "Total Expenses"]
-        
+
         return monthly_trend
     except Exception as e:
         logger.error(f"Error getting monthly trend: {e}")
@@ -552,25 +623,27 @@ def get_monthly_trend(months=12):
 # GET LARGEST EXPENSES
 # ==============================
 
-def get_largest_expenses(n=10, month=None, year=None):
-    """Get the largest expense transactions"""
+def get_largest_expenses(n=10, month=None, year=None, branch_id=None):
+    """Get the largest expense transactions (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
+        df = load_expenses(branch_id=branch_id)
         if df.empty:
             return pd.DataFrame()
-        
+
         if not pd.api.types.is_datetime64_any_dtype(df["date"]):
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df = df.dropna(subset=["date"])
-        
+
         if month:
             df = df[df["date"].dt.month == month]
         if year:
             df = df[df["date"].dt.year == year]
-        
+
         if df.empty:
             return pd.DataFrame()
-        
+
         return df.nlargest(n, "amount")[["date", "description", "category", "amount", "vendor"]]
     except Exception as e:
         logger.error(f"Error getting largest expenses: {e}")
@@ -581,27 +654,29 @@ def get_largest_expenses(n=10, month=None, year=None):
 # GET EXPENSE SUMMARY BY MONTH
 # ==============================
 
-def get_expense_summary_by_month(year=None):
-    """Get monthly expense summary for a year"""
+def get_expense_summary_by_month(year=None, branch_id=None):
+    """Get monthly expense summary for a year (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
+        df = load_expenses(branch_id=branch_id)
         if df.empty:
             return pd.DataFrame()
-        
+
         if not pd.api.types.is_datetime64_any_dtype(df["date"]):
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df = df.dropna(subset=["date"])
-        
+
         if year:
             df = df[df["date"].dt.year == year]
-        
+
         if df.empty:
             return pd.DataFrame()
-        
+
         df["month"] = df["date"].dt.month
         monthly_summary = df.groupby("month")["amount"].sum().reset_index()
         monthly_summary.columns = ["Month", "Total Expenses"]
-        
+
         return monthly_summary
     except Exception as e:
         logger.error(f"Error getting expense summary by month: {e}")
@@ -612,33 +687,35 @@ def get_expense_summary_by_month(year=None):
 # GET EXPENSE SUMMARY BY CATEGORY (for dashboard)
 # ==============================
 
-def get_expense_summary_by_category(year=None, month=None):
-    """Get expense summary grouped by category (dashboard version)"""
+def get_expense_summary_by_category(year=None, month=None, branch_id=None):
+    """Get expense summary grouped by category (dashboard version, branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
+        df = load_expenses(branch_id=branch_id)
         if df.empty:
             return pd.DataFrame()
-        
+
         if not pd.api.types.is_datetime64_any_dtype(df["date"]):
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df = df.dropna(subset=["date"])
-        
+
         if year:
             df = df[df["date"].dt.year == year]
         if month:
             df = df[df["date"].dt.month == month]
-        
+
         if df.empty:
             return pd.DataFrame()
-        
+
         summary = df.groupby("category").agg({
             "amount": "sum",
             "description": "count"
         }).reset_index()
-        
+
         summary.columns = ["Category", "Total Amount", "Number of Transactions"]
         summary = summary.sort_values("Total Amount", ascending=False)
-        
+
         return summary
     except Exception as e:
         logger.error(f"Error getting expense summary by category: {e}")
@@ -649,39 +726,35 @@ def get_expense_summary_by_category(year=None, month=None):
 # GET EXPENSE TREND (for dashboard)
 # ==============================
 
-def get_expense_trend(months=12):
-    """Get monthly expense trend for dashboard"""
-    return get_monthly_trend(months)
+def get_expense_trend(months=12, branch_id=None):
+    """Get monthly expense trend for dashboard (branch-scoped)"""
+    return get_monthly_trend(months, branch_id=branch_id)
 
 
 # ==============================
 # GET TOP EXPENSES (for dashboard)
 # ==============================
 
-def get_top_expenses(n=10, year=None, month=None):
-    """Get top expenses for dashboard"""
-    return get_largest_expenses(n, year, month)
+def get_top_expenses(n=10, year=None, month=None, branch_id=None):
+    """Get top expenses for dashboard (branch-scoped)"""
+    return get_largest_expenses(n, year, month, branch_id=branch_id)
 
 
 # ==============================
 # DEBUG FUNCTION
 # ==============================
 
-def debug_expenses():
-    """Debug function to check expenses data"""
+def debug_expenses(branch_id=None):
+    """Debug function to check expenses data (branch-scoped)"""
+    if branch_id is None:
+        branch_id = _get_session_branch()
     try:
-        df = load_expenses()
-        print(f"Total expenses: {len(df)}")
+        df = load_expenses(branch_id=branch_id)
+        print(f"Total expenses for branch {branch_id}: {len(df)}")
         if not df.empty:
             print(f"Columns: {df.columns.tolist()}")
             print(f"First 5 rows:\n{df.head(5)}")
             print(f"Total amount: ${df['amount'].sum():,.2f}")
-            try:
-                db = _get_db_functions()
-                current_branch = db['get_current_branch']()
-                print(f"Branch: {current_branch}")
-            except:
-                pass
         else:
             print("No expenses found")
     except Exception as e:

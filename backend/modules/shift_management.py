@@ -42,7 +42,10 @@ EMAIL_NOTIFICATION = "kingtimothy495@gmail.com"
 # SESSION CONTEXT HELPERS
 # ==============================
 def _get_session_branch():
-    """Authoritative branch for the current session."""
+    """
+    Authoritative branch for the current session.
+    Prefers `current_branch_code` over `user_branch`.
+    """
     return (
         st.session_state.get("current_branch_code")
         or st.session_state.get("user_branch")
@@ -224,6 +227,8 @@ def shift_management_page():
             st.caption(f"You are viewing shifts for branch **{branch_names[chosen_id]}** ({chosen_id}).")
 
             # Ensure this branch has its default shift definitions seeded.
+            # This is what makes the CRUD tab usable for branches that
+            # currently have NO shifts at all.
             ensure_branch_has_defaults(chosen_id)
     else:
         st.caption(
@@ -291,7 +296,7 @@ def shift_management_page():
                 "Add shifts in the **Manage Shifts** tab first."
             )
         else:
-            with st.sidebar.form("start_shift_form"):
+            with st.sidebar.form(f"start_shift_form_{page_branch_id}"):
                 shift_name = st.selectbox("Select Shift", branch_shift_names)
 
                 cashier_username = st.text_input(
@@ -393,7 +398,7 @@ def _active_shifts_tab(active_shifts, page_branch_id, page_branch_name, role):
     selected_option = st.selectbox(
         "Select Active Shift",
         options=shift_options,
-        key="active_shift_select",
+        key=f"active_shift_select_{page_branch_id}",
     )
 
     if not selected_option:
@@ -418,7 +423,7 @@ def _active_shifts_tab(active_shifts, page_branch_id, page_branch_name, role):
         st.metric("Status", f"{shift_data.get('status', 'N/A')}")
 
         if role in ("owner", "manager"):
-            if st.button("End This Shift", type="primary", use_container_width=True):
+            if st.button("End This Shift", type="primary", use_container_width=True, key=f"end_shift_btn_{page_branch_id}"):
                 st.session_state.end_shift_id = shift_id
                 st.session_state.show_end_shift = True
                 st.rerun()
@@ -489,10 +494,15 @@ def _end_shift_dialog(shift_data, shift_id, page_branch_id):
                 min_value=0.0,
                 value=float(shift_data.get("opening_cash", 0) or 0),
                 step=10.0,
+                key=f"closing_cash_{page_branch_id}",
             )
-            notes = st.text_area("Shift Notes", placeholder="Any issues or comments about this shift...")
+            notes = st.text_area(
+                "Shift Notes",
+                placeholder="Any issues or comments about this shift...",
+                key=f"shift_notes_{page_branch_id}",
+            )
 
-            if st.button("Confirm End Shift", type="primary", use_container_width=True):
+            if st.button("Confirm End Shift", type="primary", use_container_width=True, key=f"confirm_end_shift_{page_branch_id}"):
                 success, message = end_shift(
                     shift_id,
                     closing_cash,
@@ -500,6 +510,7 @@ def _end_shift_dialog(shift_data, shift_id, page_branch_id):
                     total_profit,
                     total_transactions,
                     notes,
+                    branch_id=page_branch_id,
                 )
                 if success:
                     shift_summary = {
@@ -530,6 +541,7 @@ SHIFT ENDED - {COMPANY_NAME}
 
 Shift: {shift_data.get('shift_id')}
 Cashier: {shift_data.get('cashier_name')}
+Branch: {shift_data.get('branch_name', page_branch_id)}
 Revenue: ${total_sales:,.2f}
 Profit: ${total_profit:,.2f}
 Transactions: {total_transactions}
@@ -543,7 +555,7 @@ Full report attached.
 
                     send_email_notification(
                         EMAIL_NOTIFICATION,
-                        f"Shift Report - {shift_data.get('shift_id')}",
+                        f"Shift Report - {shift_data.get('shift_id')} ({page_branch_id})",
                         report,
                     )
 
@@ -574,6 +586,7 @@ def _shift_history_tab(shifts_df, page_branch_id, page_branch_name):
         date_range = st.date_input(
             "Date Range",
             value=(datetime.now() - timedelta(days=7), datetime.now()),
+            key=f"shift_hist_date_range_{page_branch_id}",
         )
 
     with col2:
@@ -581,10 +594,10 @@ def _shift_history_tab(shifts_df, page_branch_id, page_branch_name):
             cashiers = ["All"] + sorted(shifts_df["cashier_name"].dropna().unique().tolist())
         else:
             cashiers = ["All"]
-        selected_cashier = st.selectbox("Cashier", cashiers)
+        selected_cashier = st.selectbox("Cashier", cashiers, key=f"shift_hist_cashier_{page_branch_id}")
 
     with col3:
-        selected_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"])
+        selected_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"], key=f"shift_hist_status_{page_branch_id}")
 
     filtered = shifts_df.copy()
 
@@ -661,8 +674,14 @@ def _shift_history_tab(shifts_df, page_branch_id, page_branch_name):
 
 def _shift_summary_tab(shifts_df, page_branch_id, page_branch_name):
     st.markdown(f"## Shift Summary — {page_branch_name}")
+    st.caption(f"All figures below are for branch **{page_branch_name}** ({page_branch_id})")
 
-    cash_summary = get_cash_summary()
+    # Branch-scoped cash summary — this was previously global.
+    try:
+        cash_summary = get_cash_summary(branch_id=page_branch_id)
+    except TypeError:
+        # Fallback for older db_adapter signatures that don't accept branch_id
+        cash_summary = get_cash_summary()
 
     if cash_summary:
         col1, col2, col3, col4 = st.columns(4)
@@ -777,6 +796,18 @@ def _shift_performance_tab(shifts_df, page_branch_id, page_branch_name):
 # TAB 5: MANAGE SHIFTS (owner / manager only)
 # ==========================================================
 def _manage_shifts_tab(page_branch_id, page_branch_name):
+    """
+    Full CRUD for shift definitions in the selected branch.
+
+    - View all shifts (including inactive) for the branch.
+    - Add a new shift (name, display name, start, end, sort order).
+    - Edit an existing shift.
+    - Soft-delete a shift.
+
+    Branches with no shifts at all are seeded with defaults by
+    `ensure_branch_has_defaults(page_branch_id)` in the page header,
+    so the Add form is always usable.
+    """
     st.markdown("## Manage Shifts")
     st.caption(
         "Add, edit, or remove shift definitions for the branch shown above. "
@@ -794,7 +825,10 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
     # ---------- VIEW (everyone who can reach this tab) ----------
     st.markdown(f"### Current Shifts — {page_branch_name}")
     if defs_df.empty:
-        st.info("No shift definitions yet for this branch.")
+        st.info(
+            f"No shift definitions yet for {page_branch_name}. "
+            "Use the **➕ Add New Shift** form below to create one."
+        )
     else:
         view = defs_df.copy()
         view["active"] = view["active"].apply(lambda x: "Active" if x else "Inactive")
@@ -817,16 +851,36 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
     st.markdown("---")
 
     # -------- ADD --------
-    with st.expander("➕ Add New Shift", expanded=False):
-        with st.form("add_shift_def_form", clear_on_submit=True):
+    with st.expander("➕ Add New Shift", expanded=defs_df.empty):
+        with st.form(f"add_shift_def_form_{page_branch_id}", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
-                new_shift_name = st.text_input("Shift Name *", placeholder="e.g., FOXTROT").strip().upper()
-                new_display = st.text_input("Display Name", placeholder="e.g., Foxtrot Shift (16:00 - 22:00)")
-                new_sort = st.number_input("Sort Order", min_value=0, max_value=999, value=99, step=1)
+                new_shift_name = st.text_input(
+                    "Shift Name *",
+                    placeholder="e.g., FOXTROT",
+                    key=f"new_shift_name_{page_branch_id}",
+                ).strip().upper()
+                new_display = st.text_input(
+                    "Display Name",
+                    placeholder="e.g., Foxtrot Shift (16:00 - 22:00)",
+                    key=f"new_display_{page_branch_id}",
+                )
+                new_sort = st.number_input(
+                    "Sort Order",
+                    min_value=0, max_value=999, value=99, step=1,
+                    key=f"new_sort_{page_branch_id}",
+                )
             with col2:
-                new_start = st.text_input("Start Time (HH:MM)", placeholder="16:00")
-                new_end = st.text_input("End Time (HH:MM)", placeholder="22:00")
+                new_start = st.text_input(
+                    "Start Time (HH:MM)",
+                    placeholder="16:00",
+                    key=f"new_start_{page_branch_id}",
+                )
+                new_end = st.text_input(
+                    "End Time (HH:MM)",
+                    placeholder="22:00",
+                    key=f"new_end_{page_branch_id}",
+                )
 
             add_btn = st.form_submit_button("Add Shift", type="primary", use_container_width=True)
 
@@ -862,23 +916,37 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
             if not options:
                 st.info("No active shifts to edit.")
             else:
-                selected_label = st.selectbox("Select Shift to Edit", options, key="sm_edit_select")
+                selected_label = st.selectbox(
+                    "Select Shift to Edit", options,
+                    key=f"sm_edit_select_{page_branch_id}",
+                )
                 idx = options.index(selected_label)
                 row = active_defs.iloc[idx]
 
-                with st.form("edit_shift_def_form"):
+                with st.form(f"edit_shift_def_form_{page_branch_id}"):
                     col1, col2 = st.columns(2)
                     with col1:
-                        new_disp = st.text_input("Display Name", value=row["display_name"] or "")
+                        new_disp = st.text_input(
+                            "Display Name",
+                            value=row["display_name"] or "",
+                            key=f"edit_disp_{page_branch_id}_{row['id']}",
+                        )
                         new_sort_order = st.number_input(
                             "Sort Order", min_value=0, max_value=999,
                             value=int(row["sort_order"] or 0), step=1,
+                            key=f"edit_sort_{page_branch_id}_{row['id']}",
                         )
                     with col2:
                         new_start_str = str(row["start_time"])[:5] if row["start_time"] else "06:00"
                         new_end_str = str(row["end_time"])[:5] if row["end_time"] else "12:00"
-                        new_start = st.text_input("Start Time (HH:MM)", value=new_start_str)
-                        new_end = st.text_input("End Time (HH:MM)", value=new_end_str)
+                        new_start = st.text_input(
+                            "Start Time (HH:MM)", value=new_start_str,
+                            key=f"edit_start_{page_branch_id}_{row['id']}",
+                        )
+                        new_end = st.text_input(
+                            "End Time (HH:MM)", value=new_end_str,
+                            key=f"edit_end_{page_branch_id}_{row['id']}",
+                        )
 
                     update_btn = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
 
@@ -902,7 +970,10 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
             if not options:
                 st.info("No active shifts to delete.")
             else:
-                del_label = st.selectbox("Select Shift to Delete", options, key="sm_del_select")
+                del_label = st.selectbox(
+                    "Select Shift to Delete", options,
+                    key=f"sm_del_select_{page_branch_id}",
+                )
                 del_idx = options.index(del_label)
                 del_row = active_defs.iloc[del_idx]
 
@@ -910,9 +981,12 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
                     f"You are about to remove **{del_row['shift_name']}** from "
                     f"**{page_branch_name}**. Existing shift history is not affected."
                 )
-                confirm = st.checkbox("I understand this will hide the shift from new shift starts")
+                confirm = st.checkbox(
+                    "I understand this will hide the shift from new shift starts",
+                    key=f"sm_delete_confirm_{page_branch_id}",
+                )
 
-                if st.button("Confirm Delete", use_container_width=True, key="sm_delete_btn"):
+                if st.button("Confirm Delete", use_container_width=True, key=f"sm_delete_btn_{page_branch_id}"):
                     if not confirm:
                         st.error("Please tick the confirmation checkbox.")
                     else:

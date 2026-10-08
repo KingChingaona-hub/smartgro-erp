@@ -15,6 +15,76 @@ except:
 
 
 # ==============================
+# BRANCH HEADER RESOLVER
+# ==============================
+_DEFAULT_BRANCH_NAME = "Aziel Investments - Retreat Park"
+_DEFAULT_BRANCH_ADDR = "Retreat Park, Harare"
+_DEFAULT_BRANCH_PHONE = "0782 905 853"
+_DEFAULT_BRANCH_EMAIL = "info@azielinvestments.co.zw"
+
+
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` over `user_branch`.
+    """
+    try:
+        return (
+            st.session_state.get("current_branch_code")
+            or st.session_state.get("user_branch")
+            or "HO"
+        )
+    except Exception:
+        return "HO"
+
+
+def _resolve_branch_header(branch_id=None):
+    """
+    Return (name, address, phone, email) for receipt headers/footers.
+
+    - Prefers values from the branches table when the row exposes them.
+    - Falls back to the hardcoded Aziel defaults so existing callers
+      keep working with no changes.
+    """
+    if branch_id is None:
+        branch_id = _get_session_branch()
+
+    name = _DEFAULT_BRANCH_NAME
+    address = _DEFAULT_BRANCH_ADDR
+    phone = _DEFAULT_BRANCH_PHONE
+    email = _DEFAULT_BRANCH_EMAIL
+
+    try:
+        from backend.core.db_adapter import load_branches
+        df = load_branches()
+        if df is not None and not df.empty and "branch_id" in df.columns:
+            match = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+            if not match.empty:
+                row = match.iloc[0]
+                for src, key in (
+                    ("branch_name", "name"),
+                    ("address", "address"),
+                    ("phone", "phone"),
+                    ("email", "email"),
+                ):
+                    if src in row and row[src]:
+                        val = str(row[src]).strip()
+                        if val:
+                            if key == "name":
+                                name = val if "aziel" in val.lower() else f"Aziel Investments - {val}"
+                            elif key == "address":
+                                address = val
+                            elif key == "phone":
+                                phone = val
+                            elif key == "email":
+                                email = val
+    except Exception:
+        pass
+
+    return name, address, phone, email
+
+
+# ==============================
 # PROFESSIONAL RECEIPT GENERATOR
 # ==============================
 def generate_receipt(
@@ -27,12 +97,15 @@ def generate_receipt(
     tax_amount=0,
     cash_received=0,
     change=0,
-    final_total=0
+    final_total=0,
+    branch_id=None,
 ):
     """Generate professional receipt with proper alignment and decimal support"""
-    
+
+    branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
+
     receipt = []
-    
+
     # ==============================
     # HEADER SECTION
     # ==============================
@@ -46,14 +119,14 @@ def generate_receipt(
     receipt.append(f"Customer: {customer_name}")
     receipt.append(f"Payment: {payment_method}")
     receipt.append("=" * 48)
-    
+
     # ==============================
     # TABLE HEADER (Aligned columns)
     # ==============================
     receipt.append("")
     receipt.append("QTY  ITEM                         PRICE     TOTAL")
     receipt.append("-" * 48)
-    
+
     # ==============================
     # ITEMS SECTION (Proper alignment with decimal support)
     # ==============================
@@ -62,47 +135,47 @@ def generate_receipt(
         qty = float(item['qty'])  # Support decimal quantities
         price = float(item['price'])
         total = float(item['total'])
-        
+
         # Format quantity with 2 decimal places if it's a decimal
         if qty % 1 == 0:
             qty_str = f"{int(qty):<4}"
         else:
             qty_str = f"{qty:<4.2f}"
-        
+
         # Format with proper spacing
         receipt.append(f"{qty_str} {name:<28} ${price:>7.2f} ${total:>7.2f}")
-    
+
     receipt.append("-" * 48)
-    
+
     # ==============================
     # SUMMARY SECTION
     # ==============================
     receipt.append(f"{'SUBTOTAL:':>40} ${total_amount:>7.2f}")
-    
+
     if discount_amount > 0:
         receipt.append(f"{'DISCOUNT:':>40} -${discount_amount:>7.2f}")
-    
+
     if tax_amount > 0:
         receipt.append(f"{'TAX:':>40} +${tax_amount:>7.2f}")
-    
+
     receipt.append("-" * 48)
     receipt.append(f"{'FINAL TOTAL:':>40} ${final_total:>7.2f}")
-    
+
     if payment_method == "CASH":
         receipt.append(f"{'AMOUNT TENDERED:':>40} ${cash_received:>7.2f}")
         receipt.append(f"{'CHANGE:':>40} ${change:>7.2f}")
-    
+
     # ==============================
-    # FOOTER SECTION
+    # FOOTER SECTION (branch-aware)
     # ==============================
     receipt.append("=" * 48)
     receipt.append("        THANK YOU FOR SHOPPING!")
     receipt.append("-" * 48)
-    receipt.append("     Aziel Investments - Retreat Park")
-    receipt.append("         Contact: 0782 905 853")
-    receipt.append("     Email: info@azielinvestments.co.zw")
+    receipt.append(f"     {branch_name}")
+    receipt.append(f"         Contact: {branch_phone}")
+    receipt.append(f"     Email: {branch_email}")
     receipt.append("=" * 48)
-    
+
     return "\n".join(receipt)
 
 
@@ -124,12 +197,15 @@ def generate_premium_receipt(
     change=0,
     final_total=0,
     loyalty_points_earned=0,
-    loyalty_points_used=0
+    loyalty_points_used=0,
+    branch_id=None,
 ):
     """Generate premium receipt with loyalty, branding, and decimal support"""
-    
+
+    branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
+
     receipt = []
-    
+
     # ==============================
     # HEADER WITH BRANDING
     # ==============================
@@ -151,81 +227,81 @@ def generate_premium_receipt(
         receipt.append(f"║ Phone: {customer_phone:<40}║")
     receipt.append(f"║ Payment: {payment_method:<38}║")
     receipt.append("╠════════════════════════════════════════════════════╣")
-    
+
     # ==============================
     # ITEMS TABLE WITH DECIMAL SUPPORT
     # ==============================
     receipt.append("║                                                    ║")
     receipt.append("║  QTY  ITEM                     PRICE      TOTAL   ║")
     receipt.append("║  ──────────────────────────────────────────────── ║")
-    
+
     for item in cart:
         name = item['name'][:24]
         qty = float(item['qty'])  # Support decimal quantities
         price = float(item['price'])
         total = float(item['total'])
-        
+
         # Format quantity with 2 decimal places if it's a decimal
         if qty % 1 == 0:
             qty_str = f"{int(qty):<3}"
         else:
             qty_str = f"{qty:<5.2f}"
-        
+
         receipt.append(f"║  {qty_str} {name:<24} ${price:>6.2f}   ${total:>7.2f} ║")
-    
+
     receipt.append("║  ──────────────────────────────────────────────── ║")
-    
+
     # ==============================
     # TOTALS
     # ==============================
     receipt.append(f"║  {'SUBTOTAL:':<37} ${total_amount:>7.2f} ║")
-    
+
     if discount_amount > 0:
         if discount_percent > 0:
             receipt.append(f"║  {'DISCOUNT (' + str(discount_percent) + '%):':<37} -${discount_amount:>6.2f} ║")
         else:
             receipt.append(f"║  {'DISCOUNT:':<37} -${discount_amount:>6.2f} ║")
-    
+
     if tax_amount > 0:
         if tax_percent > 0:
             receipt.append(f"║  {'TAX (' + str(tax_percent) + '%):':<37} +${tax_amount:>6.2f} ║")
         else:
             receipt.append(f"║  {'TAX:':<37} +${tax_amount:>6.2f} ║")
-    
+
     receipt.append("║  ──────────────────────────────────────────────── ║")
     receipt.append(f"║  {'FINAL TOTAL:':<37} ${final_total:>7.2f} ║")
-    
+
     if payment_method == "CASH":
         receipt.append(f"║  {'AMOUNT TENDERED:':<37} ${cash_received:>7.2f} ║")
         receipt.append(f"║  {'CHANGE:':<37} ${change:>7.2f} ║")
-    
+
     # ==============================
     # LOYALTY POINTS
     # ==============================
     if loyalty_points_earned > 0:
         receipt.append("╠════════════════════════════════════════════════════╣")
         receipt.append(f"║  ⭐ LOYALTY POINTS EARNED: {loyalty_points_earned:<21}║")
-    
+
     if loyalty_points_used > 0:
         receipt.append(f"║  🎁 POINTS REDEEMED: {loyalty_points_used:<26}║")
-    
+
     # ==============================
-    # FOOTER
+    # FOOTER (branch-aware)
     # ==============================
     receipt.append("╠════════════════════════════════════════════════════╣")
     receipt.append("║                                                    ║")
     receipt.append("║         THANK YOU FOR SHOPPING WITH US!            ║")
     receipt.append("║                                                    ║")
-    receipt.append("║  🏪 Aziel Investments - Retreat Park, Harare       ║")
-    receipt.append("║  📞 Contact: 0782 905 853                          ║")
-    receipt.append("║  📧 Email: info@azielinvestments.co.zw             ║")
+    receipt.append(f"║  🏪 {branch_name[:48]:<48}║")
+    receipt.append(f"║  📞 Contact: {branch_phone[:37]:<37}║")
+    receipt.append(f"║  📧 Email: {branch_email[:39]:<39}║")
     receipt.append("║  🌐 Web: www.azielinvestments.co.zw                ║")
     receipt.append("║                                                    ║")
     receipt.append("║     Follow us on social media for updates!         ║")
     receipt.append("║                                                    ║")
     receipt.append("╚════════════════════════════════════════════════════╝")
     receipt.append("")
-    
+
     return "\n".join(receipt)
 
 
@@ -238,12 +314,15 @@ def generate_thermal_receipt(
     receipt_no,
     payment_method="CASH",
     customer_name="Walk-in",
-    final_total=0
+    final_total=0,
+    branch_id=None,
 ):
     """Generate receipt optimized for 58mm thermal printers with decimal support"""
-    
+
+    branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
+
     receipt = []
-    
+
     # Header
     receipt.append("")
     receipt.append(" AZIEL INVESTMENTS")
@@ -254,7 +333,7 @@ def generate_thermal_receipt(
     receipt.append(f" Cashier: {st.session_state.get('username', 'System')[:12]}")
     receipt.append(f" Customer: {customer_name[:20]}")
     receipt.append("-" * 32)
-    
+
     # Items with decimal support
     receipt.append(" QTY ITEM          PRICE")
     for item in cart:
@@ -262,39 +341,51 @@ def generate_thermal_receipt(
         qty = float(item['qty'])  # Support decimal quantities
         price = float(item['price'])
         total = float(item['total'])
-        
+
         # Format quantity
         if qty % 1 == 0:
             qty_str = f"{int(qty):>2}"
         else:
             qty_str = f"{qty:>4.1f}"
-        
+
         receipt.append(f" {qty_str}  {name:<12} ${price:>5.2f}")
         receipt.append(f"                   ${total:>7.2f}")
-    
+
     receipt.append("-" * 32)
     receipt.append(f" TOTAL: ${final_total:>8.2f}")
-    
+
     if payment_method == "CASH":
         receipt.append("-" * 32)
-    
+
     receipt.append("")
     receipt.append(" THANK YOU!")
-    receipt.append(" Aziel Investments")
+    receipt.append(f" {branch_name[:28]}")
     receipt.append("=" * 32)
     receipt.append("")
-    
+
     return "\n".join(receipt)
 
 
 # ==============================
 # DEBT PAYMENT RECEIPT
 # ==============================
-def generate_debt_payment_receipt(customer_name, receipt_no, amount_paid, previous_balance, new_balance, cash_tendered=0, change=0, note=""):
-    """Generate receipt for debt payment"""
-    
+def generate_debt_payment_receipt(
+    customer_name,
+    receipt_no,
+    amount_paid,
+    previous_balance,
+    new_balance,
+    cash_tendered=0,
+    change=0,
+    note="",
+    branch_id=None,
+):
+    """Generate receipt for debt payment (branch-aware footer)"""
+
+    branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
+
     receipt = []
-    
+
     # Header
     receipt.append("=" * 48)
     receipt.append("         AZIEL INVESTMENTS")
@@ -308,28 +399,28 @@ def generate_debt_payment_receipt(customer_name, receipt_no, amount_paid, previo
     receipt.append("-" * 48)
     receipt.append(f"{'Previous Balance:':<30} ${previous_balance:>10,.2f}")
     receipt.append(f"{'Amount Paid:':<30} ${amount_paid:>10,.2f}")
-    
+
     if cash_tendered > 0 and cash_tendered >= amount_paid:
         receipt.append(f"{'Cash Tendered:':<30} ${cash_tendered:>10,.2f}")
         receipt.append(f"{'Change:':<30} ${change:>10,.2f}")
-    
+
     receipt.append("-" * 48)
     receipt.append(f"{'New Balance:':<30} ${new_balance:>10,.2f}")
     receipt.append("=" * 48)
-    
+
     if new_balance <= 0:
         receipt.append("      ✓ FULLY PAID - THANK YOU!")
     else:
         receipt.append(f"   Remaining balance: ${new_balance:,.2f}")
-    
+
     receipt.append("=" * 48)
     if note:
         receipt.append(f"Note: {note}")
     receipt.append("Thank you for your payment!")
-    receipt.append("Aziel Investments - Retreat Park, Harare")
-    receipt.append("Contact: 0782 905 853")
+    receipt.append(f"{branch_name}")
+    receipt.append(f"Contact: {branch_phone}")
     receipt.append("=" * 48)
-    
+
     return "\n".join(receipt)
 
 
@@ -338,13 +429,13 @@ def generate_debt_payment_receipt(customer_name, receipt_no, amount_paid, previo
 # ==============================
 def generate_receipt_pdf(receipt_text):
     """Generate PDF from receipt text"""
-    
+
     if not PDF_AVAILABLE:
         return None
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=(80*mm, 200*mm))  # Thermal receipt size
-    
+
     y = 260
     for line in receipt_text.split("\n"):
         if y < 20:
@@ -352,10 +443,10 @@ def generate_receipt_pdf(receipt_text):
             y = 260
         c.drawString(5*mm, y, line[:42])
         y -= 5
-    
+
     c.save()
     buffer.seek(0)
-    
+
     return buffer
 
 
@@ -372,10 +463,13 @@ def generate_html_receipt(
     tax_amount=0,
     final_total=0,
     cash_received=0,
-    change=0
+    change=0,
+    branch_id=None,
 ):
     """Generate HTML receipt for browser printing with decimal support"""
-    
+
+    branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
+
     items_html = ""
     for item in cart:
         qty = float(item['qty'])  # Support decimal quantities
@@ -384,7 +478,7 @@ def generate_html_receipt(
             qty_str = f"{int(qty)}"
         else:
             qty_str = f"{qty:.2f}"
-            
+
         items_html += f"""
         <tr>
             <td style="text-align:center">{qty_str}</td>
@@ -393,7 +487,7 @@ def generate_html_receipt(
             <td style="text-align:right">${item['total']:.2f}</td>
         </tr>
         """
-    
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -476,7 +570,7 @@ def generate_html_receipt(
                 Payment: {payment_method}</p>
                 <div class="divider"></div>
             </div>
-            
+
             <table class="items-table">
                 <thead>
                     <tr>
@@ -490,9 +584,9 @@ def generate_html_receipt(
                     {items_html}
                 </tbody>
             </table>
-            
+
             <div class="divider"></div>
-            
+
             <div class="totals">
                 <p>Subtotal: ${total_amount:.2f}</p>
                 {f'<p>Discount: -${discount_amount:.2f}</p>' if discount_amount > 0 else ''}
@@ -501,24 +595,24 @@ def generate_html_receipt(
                 {f'<p>Cash Tendered: ${cash_received:.2f}</p>' if cash_received > 0 else ''}
                 {f'<p>Change: ${change:.2f}</p>' if change > 0 else ''}
             </div>
-            
+
             <div class="divider"></div>
-            
+
             <div class="footer">
                 <p>THANK YOU FOR SHOPPING!</p>
-                <p>Aziel Investments - Retreat Park, Harare<br>
-                Contact: 0782 905 853<br>
-                Email: info@azielinvestments.co.zw</p>
+                <p>{branch_name}<br>
+                Contact: {branch_phone}<br>
+                Email: {branch_email}</p>
             </div>
         </div>
-        
+
         <div class="no-print" style="text-align:center; margin-top:20px;">
             <button onclick="window.print()">🖨️ Print Receipt</button>
         </div>
     </body>
     </html>
     """
-    
+
     return html
 
 

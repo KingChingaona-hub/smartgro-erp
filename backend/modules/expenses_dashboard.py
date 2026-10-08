@@ -19,15 +19,48 @@ from backend.modules.expenses import (
     add_expense_category,
     load_recurring_expenses
 )
-from backend.core.db_adapter import get_current_branch
+
+
+# ==============================
+# SESSION BRANCH HELPER
+# ==============================
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
+    return (
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
+        or "HO"
+    )
+
+
+def _branch_display_name(branch_id):
+    try:
+        from backend.core.db_adapter import load_branches
+        df = load_branches()
+        if df is not None and not df.empty and "branch_id" in df.columns:
+            match = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+            if not match.empty:
+                name = match.iloc[0].get("branch_name", "")
+                if name:
+                    return f"{name} ({branch_id})"
+    except Exception:
+        pass
+    return str(branch_id)
 
 
 def expenses_dashboard():
-    """Enhanced Expenses Dashboard with Budgeting and Analytics"""
-    
-    st.title("Expenses Management Dashboard")
+    """Enhanced Expenses Dashboard with Budgeting and Analytics (branch-scoped)"""
+
+    branch_id = _get_session_branch()
+    branch_label = _branch_display_name(branch_id)
+
+    st.title(f"Expenses Management Dashboard - {branch_label}")
     st.caption("Track spending, manage budgets, and control costs")
-    
+
     # ==============================
     # SESSION STATE INIT
     # ==============================
@@ -52,7 +85,7 @@ def expenses_dashboard():
         st.balloons()
         st.session_state.dashboard_expense_success = False
         st.session_state.dashboard_expense_message = ""
-    
+
     if st.session_state.dashboard_category_added and st.session_state.dashboard_category_message:
         st.success(f"{st.session_state.dashboard_category_message}")
         st.session_state.dashboard_category_added = False
@@ -60,20 +93,15 @@ def expenses_dashboard():
 
     # Show current branch in sidebar
     with st.sidebar.expander("Expenses Info"):
-        try:
-            current_branch = get_current_branch()
-            st.write(f"**Branch:** {current_branch}")
-        except:
-            pass
-        
-        df = load_expenses()
+        st.write(f"**Branch:** {branch_label}")
+        df = load_expenses(branch_id=branch_id)
         st.write(f"**Records loaded:** {len(df)}")
         if not df.empty:
             st.write(f"**Total amount:** ${df['amount'].sum():,.2f}")
 
-    # Load categories
-    categories = load_expense_categories()
-    
+    # Load categories (branch-scoped)
+    categories = load_expense_categories(branch_id=branch_id)
+
     # ==============================
     # EXPENSE TABS
     # ==============================
@@ -84,30 +112,44 @@ def expenses_dashboard():
         "Recurring Expenses",
         "All Expenses"
     ])
-    
+
     # ==============================
     # TAB 1: RECORD EXPENSE
     # ==============================
     with tab1:
-        st.markdown("## Record New Expense")
-        
-        with st.form(key="dashboard_expense_form", clear_on_submit=True):
+        st.markdown(f"## Record New Expense — {branch_label}")
+
+        with st.form(key=f"dashboard_expense_form_{branch_id}", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            
+
             with col1:
-                expense_type = st.selectbox("Expense Type", ["Operational", "Capital", "Recurring", "One-time"], key="dash_exp_type")
-                category = st.selectbox("Category", categories, key="dash_exp_category")
-                description = st.text_input("Description *", key="dash_exp_desc")
-            
+                expense_type = st.selectbox(
+                    "Expense Type",
+                    ["Operational", "Capital", "Recurring", "One-time"],
+                    key=f"dash_exp_type_{branch_id}",
+                )
+                category = st.selectbox("Category", categories, key=f"dash_exp_category_{branch_id}")
+                description = st.text_input("Description *", key=f"dash_exp_desc_{branch_id}")
+
             with col2:
-                amount = st.number_input("Amount ($) *", min_value=0.01, step=10.0, value=0.01, key="dash_exp_amount")
-                vendor = st.text_input("Vendor/Supplier", key="dash_exp_vendor", placeholder="e.g., Econet, ZESA...")
-                payment_method = st.selectbox("Payment Method", ["CASH", "BANK TRANSFER", "CARD", "ECOCASH"], key="dash_exp_payment")
-            
-            notes = st.text_area("Notes", key="dash_exp_notes", placeholder="Additional details...")
-            
+                amount = st.number_input(
+                    "Amount ($) *", min_value=0.01, step=10.0, value=0.01,
+                    key=f"dash_exp_amount_{branch_id}",
+                )
+                vendor = st.text_input(
+                    "Vendor/Supplier", key=f"dash_exp_vendor_{branch_id}",
+                    placeholder="e.g., Econet, ZESA...",
+                )
+                payment_method = st.selectbox(
+                    "Payment Method",
+                    ["CASH", "BANK TRANSFER", "CARD", "ECOCASH"],
+                    key=f"dash_exp_payment_{branch_id}",
+                )
+
+            notes = st.text_area("Notes", key=f"dash_exp_notes_{branch_id}", placeholder="Additional details...")
+
             submitted = st.form_submit_button("Record Expense", type="primary", use_container_width=True)
-            
+
             if submitted:
                 if description and amount > 0:
                     success, message = record_expense(
@@ -118,7 +160,8 @@ def expenses_dashboard():
                         vendor=vendor,
                         payment_method=payment_method,
                         user=st.session_state.get("username", "System"),
-                        notes=notes
+                        notes=notes,
+                        branch_id=branch_id,
                     )
                     if success:
                         st.session_state.dashboard_expense_success = True
@@ -130,31 +173,31 @@ def expenses_dashboard():
                         st.error(f"Failed to record expense: {message}")
                 else:
                     st.error("Please enter description and amount")
-        
+
         # ==============================
         # ADD NEW CATEGORY
         # ==============================
         with st.expander("Add New Category"):
-            with st.form(key="dashboard_add_category_form", clear_on_submit=True):
+            with st.form(key=f"dashboard_add_category_form_{branch_id}", clear_on_submit=True):
                 new_category = st.text_input(
-                    "New Category Name", 
-                    key="dash_new_category_input",
-                    placeholder="Enter new category name..."
+                    "New Category Name",
+                    key=f"dash_new_category_input_{branch_id}",
+                    placeholder="Enter new category name...",
                 )
-                
+
                 add_category_submitted = st.form_submit_button(
-                    "Add Category", 
-                    type="primary",
-                    use_container_width=True
+                    "Add Category", type="primary", use_container_width=True
                 )
-                
+
                 if add_category_submitted:
                     if new_category and new_category.strip():
                         if new_category.strip() not in categories:
-                            success = add_expense_category(new_category.strip())
+                            success = add_expense_category(new_category.strip(), branch_id=branch_id)
                             if success:
                                 st.session_state.dashboard_category_added = True
-                                st.session_state.dashboard_category_message = f"Category '{new_category.strip()}' added successfully!"
+                                st.session_state.dashboard_category_message = (
+                                    f"Category '{new_category.strip()}' added successfully!"
+                                )
                                 st.rerun()
                             else:
                                 st.error("Failed to add category. Please try again.")
@@ -162,46 +205,57 @@ def expenses_dashboard():
                             st.warning(f"Category '{new_category.strip()}' already exists!")
                     else:
                         st.error("Please enter a category name")
-    
+
     # ==============================
     # TAB 2: BUDGET VS ACTUAL
     # ==============================
     with tab2:
-        st.markdown("## Budget vs Actual Analysis")
-        
+        st.markdown(f"## Budget vs Actual Analysis — {branch_label}")
+
         col1, col2 = st.columns(2)
         with col1:
-            budget_year = st.number_input("Year", min_value=2020, max_value=2030, value=datetime.now().year, key="budget_year")
+            budget_year = st.number_input(
+                "Year", min_value=2020, max_value=2030,
+                value=datetime.now().year, key=f"budget_year_{branch_id}",
+            )
         with col2:
-            budget_month = st.selectbox("Month", range(1, 13), index=datetime.now().month - 1, key="budget_month")
-        
+            budget_month = st.selectbox(
+                "Month", range(1, 13), index=datetime.now().month - 1,
+                key=f"budget_month_{branch_id}",
+            )
+
         st.markdown("### Set Budget")
-        
-        with st.form(key="set_budget_form", clear_on_submit=True):
-            selected_cat = st.selectbox("Select Category", categories, key="budget_cat")
-            budget_amount = st.number_input("Budget Amount ($)", min_value=0.0, step=100.0, key="budget_amount_input")
-            
-            set_budget_submitted = st.form_submit_button("Set Budget", type="primary", use_container_width=True)
-            
+
+        with st.form(key=f"set_budget_form_{branch_id}", clear_on_submit=True):
+            selected_cat = st.selectbox("Select Category", categories, key=f"budget_cat_{branch_id}")
+            budget_amount = st.number_input(
+                "Budget Amount ($)", min_value=0.0, step=100.0,
+                key=f"budget_amount_input_{branch_id}",
+            )
+
+            set_budget_submitted = st.form_submit_button(
+                "Set Budget", type="primary", use_container_width=True
+            )
+
             if set_budget_submitted:
                 if budget_amount > 0:
-                    set_budget(budget_year, budget_month, selected_cat, budget_amount)
+                    set_budget(budget_year, budget_month, selected_cat, budget_amount, branch_id=branch_id)
                     st.success(f"Budget set for {selected_cat}: ${budget_amount:.2f}")
                     st.rerun()
                 else:
                     st.error("Please enter a budget amount greater than 0")
-        
+
         st.markdown("---")
         st.markdown("### Budget Performance")
-        
-        budget_df = get_budget_vs_actual(budget_year, budget_month)
-        
+
+        budget_df = get_budget_vs_actual(budget_year, budget_month, branch_id=branch_id)
+
         if not budget_df.empty:
             total_budget = budget_df["budget_amount"].sum()
             total_actual = budget_df["actual_amount"].sum()
             total_variance = total_budget - total_actual
             variance_percent = (total_variance / total_budget * 100) if total_budget > 0 else 0
-            
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Budget", f"${total_budget:,.2f}")
@@ -209,45 +263,45 @@ def expenses_dashboard():
                 st.metric("Total Actual", f"${total_actual:,.2f}")
             with col3:
                 delta_color = "normal" if total_variance >= 0 else "inverse"
-                st.metric("Variance", f"${total_variance:,.2f}", 
-                         delta=f"{variance_percent:+.1f}%", 
-                         delta_color=delta_color)
-            
+                st.metric("Variance", f"${total_variance:,.2f}",
+                          delta=f"{variance_percent:+.1f}%",
+                          delta_color=delta_color)
+
             chart_df = budget_df[budget_df["budget_amount"] > 0].copy()
-            
+
             if not chart_df.empty:
                 fig = go.Figure()
-                
+
                 fig.add_trace(go.Bar(
                     x=chart_df["category"],
                     y=chart_df["budget_amount"],
                     name="Budget",
-                    marker_color="#2ecc71"
+                    marker_color="#2ecc71",
                 ))
-                
+
                 fig.add_trace(go.Bar(
                     x=chart_df["category"],
                     y=chart_df["actual_amount"],
                     name="Actual",
-                    marker_color="#e74c3c"
+                    marker_color="#e74c3c",
                 ))
-                
+
                 fig.update_layout(
-                    title="Budget vs Actual by Category",
+                    title=f"Budget vs Actual by Category — {branch_label}",
                     xaxis_title="Category",
                     yaxis_title="Amount ($)",
                     barmode="group",
-                    height=400
+                    height=400,
                 )
-                
+
                 st.plotly_chart(fig, use_container_width=True)
-            
+
             display_df = budget_df[["category", "budget_amount", "actual_amount", "variance", "variance_percent", "status"]]
             display_df = display_df[display_df["budget_amount"] > 0]
             display_df = display_df.sort_values("variance_percent", ascending=True)
-            
+
             st.dataframe(display_df, use_container_width=True, hide_index=True)
-            
+
             over_budget = budget_df[budget_df["variance"] < 0]
             if not over_budget.empty:
                 st.warning(f"{len(over_budget)} categories are over budget!")
@@ -255,109 +309,125 @@ def expenses_dashboard():
                     st.write(f"• {row['category']}: ${abs(row['variance']):.2f} over budget")
         else:
             st.info("No budget data available. Set budgets above.")
-    
+
     # ==============================
     # TAB 3: EXPENSE ANALYTICS
     # ==============================
     with tab3:
-        st.markdown("## Expense Analytics")
-        
+        st.markdown(f"## Expense Analytics — {branch_label}")
+
         col1, col2 = st.columns(2)
         with col1:
-            filter_year = st.selectbox("Year", list(range(2020, datetime.now().year + 2)), index=datetime.now().year - 2020, key="analytics_year")
+            filter_year = st.selectbox(
+                "Year", list(range(2020, datetime.now().year + 2)),
+                index=datetime.now().year - 2020,
+                key=f"analytics_year_{branch_id}",
+            )
         with col2:
             month_options = ["All"] + list(range(1, 13))
-            filter_month = st.selectbox("Month", month_options, key="analytics_month")
-        
+            filter_month = st.selectbox("Month", month_options, key=f"analytics_month_{branch_id}")
+
         month_filter = None if filter_month == "All" else filter_month
-        
+
         st.markdown("### Expenses by Category")
-        
-        category_summary = get_expense_summary_by_category(filter_year, month_filter)
-        
+
+        category_summary = get_expense_summary_by_category(filter_year, month_filter, branch_id=branch_id)
+
         if not category_summary.empty:
             fig_pie = px.pie(
                 category_summary,
                 values="Total Amount",
                 names="Category",
-                title="Expense Distribution by Category",
+                title=f"Expense Distribution by Category — {branch_label}",
                 hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Set2
+                color_discrete_sequence=px.colors.qualitative.Set2,
             )
             fig_pie.update_layout(height=400)
             st.plotly_chart(fig_pie, use_container_width=True)
-            
+
             fig_bar = px.bar(
                 category_summary.head(10),
                 x="Total Amount",
                 y="Category",
                 orientation="h",
-                title="Top 10 Expense Categories",
+                title=f"Top 10 Expense Categories — {branch_label}",
                 color="Total Amount",
                 color_continuous_scale="Reds",
-                text="Total Amount"
+                text="Total Amount",
             )
             fig_bar.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
             fig_bar.update_layout(height=400)
             st.plotly_chart(fig_bar, use_container_width=True)
         else:
             st.info("No expense data for the selected period")
-        
+
         st.markdown("### Expense Trend")
-        
-        trend_df = get_expense_trend(12)
-        
+
+        trend_df = get_expense_trend(12, branch_id=branch_id)
+
         if not trend_df.empty:
             fig_trend = px.line(
                 trend_df,
                 x="Month",
                 y="Total Expenses",
-                title="Monthly Expense Trend (Last 12 Months)",
+                title=f"Monthly Expense Trend (Last 12 Months) — {branch_label}",
                 markers=True,
-                line_shape="spline"
+                line_shape="spline",
             )
             fig_trend.update_layout(height=350)
             st.plotly_chart(fig_trend, use_container_width=True)
         else:
             st.info("No trend data available")
-        
+
         st.markdown("### Largest Expenses")
-        
-        top_expenses = get_top_expenses(10, filter_year, month_filter)
-        
+
+        top_expenses = get_top_expenses(10, filter_year, month_filter, branch_id=branch_id)
+
         if not top_expenses.empty:
             st.dataframe(
                 top_expenses[["date", "description", "category", "amount", "vendor"]],
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
             )
         else:
             st.info("No expenses found for the selected period")
-    
+
     # ==============================
     # TAB 4: RECURRING EXPENSES
     # ==============================
     with tab4:
-        st.markdown("## Recurring Expenses")
+        st.markdown(f"## Recurring Expenses — {branch_label}")
         st.caption("Set up automatic recurring expenses (rent, subscriptions, salaries)")
-        
+
         with st.expander("Add Recurring Expense", expanded=True):
-            with st.form(key="add_recurring_form", clear_on_submit=True):
+            with st.form(key=f"add_recurring_form_{branch_id}", clear_on_submit=True):
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
-                    rec_description = st.text_input("Description", key="rec_desc")
-                    rec_category = st.selectbox("Category", categories, key="rec_cat")
-                    rec_amount = st.number_input("Amount ($)", min_value=0.01, step=10.0, value=0.01, key="rec_amount")
-                
+                    rec_description = st.text_input("Description", key=f"rec_desc_{branch_id}")
+                    rec_category = st.selectbox("Category", categories, key=f"rec_cat_{branch_id}")
+                    rec_amount = st.number_input(
+                        "Amount ($)", min_value=0.01, step=10.0, value=0.01,
+                        key=f"rec_amount_{branch_id}",
+                    )
+
                 with col2:
-                    rec_frequency = st.selectbox("Frequency", ["Monthly", "Weekly", "Quarterly", "Yearly"], key="rec_freq")
-                    rec_day = st.number_input("Day of Month", min_value=1, max_value=28, value=1, key="rec_day")
-                    rec_vendor = st.text_input("Vendor", key="rec_vendor")
-                    rec_notes = st.text_area("Notes", key="rec_notes")
-                
-                submitted_recurring = st.form_submit_button("Save Recurring Expense", type="primary", use_container_width=True)
-                
+                    rec_frequency = st.selectbox(
+                        "Frequency",
+                        ["Monthly", "Weekly", "Quarterly", "Yearly"],
+                        key=f"rec_freq_{branch_id}",
+                    )
+                    rec_day = st.number_input(
+                        "Day of Month", min_value=1, max_value=28, value=1,
+                        key=f"rec_day_{branch_id}",
+                    )
+                    rec_vendor = st.text_input("Vendor", key=f"rec_vendor_{branch_id}")
+                    rec_notes = st.text_area("Notes", key=f"rec_notes_{branch_id}")
+
+                submitted_recurring = st.form_submit_button(
+                    "Save Recurring Expense", type="primary", use_container_width=True
+                )
+
                 if submitted_recurring:
                     if rec_description and rec_amount > 0:
                         add_recurring_expense(
@@ -367,66 +437,76 @@ def expenses_dashboard():
                             frequency=rec_frequency,
                             day_of_month=rec_day,
                             vendor=rec_vendor,
-                            notes=rec_notes
+                            notes=rec_notes,
+                            branch_id=branch_id,
                         )
                         st.success(f"Recurring expense '{rec_description}' added!")
                         st.rerun()
                     else:
                         st.error("Please enter description and amount")
-        
+
         st.markdown("---")
-        
-        if st.button("Process Due Recurring Expenses", key="process_recurring_btn"):
-            processed = process_recurring_expenses()
+
+        if st.button("Process Due Recurring Expenses", key=f"process_recurring_btn_{branch_id}"):
+            processed = process_recurring_expenses(branch_id=branch_id)
             if processed:
                 st.success(f"Processed {len(processed)} recurring expenses: {', '.join(processed)}")
                 st.rerun()
             else:
                 st.info("No recurring expenses due today")
-        
-        recurring_df = load_recurring_expenses()
-        
+
+        recurring_df = load_recurring_expenses(branch_id=branch_id)
+
         if not recurring_df.empty:
             st.markdown("### Active Recurring Expenses")
             st.dataframe(
                 recurring_df[["description", "category", "amount", "frequency", "day_of_month", "vendor", "active"]],
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
             )
         else:
             st.info("No recurring expenses set up")
-    
+
     # ==============================
     # TAB 5: ALL EXPENSES
     # ==============================
     with tab5:
-        st.markdown("## All Expense Records")
-        
-        expenses_df = load_expenses()
-        
+        st.markdown(f"## All Expense Records — {branch_label}")
+
+        expenses_df = load_expenses(branch_id=branch_id)
+
         if not expenses_df.empty:
             col1, col2, col3 = st.columns(3)
-            
+
             with col1:
-                search_term = st.text_input("Search", placeholder="Description, vendor...", key="search_expenses_dash")
-            
+                search_term = st.text_input(
+                    "Search", placeholder="Description, vendor...",
+                    key=f"search_expenses_dash_{branch_id}",
+                )
+
             with col2:
-                cat_filter = st.selectbox("Category", ["All"] + categories, key="cat_filter_dash")
-            
+                cat_filter = st.selectbox(
+                    "Category", ["All"] + categories, key=f"cat_filter_dash_{branch_id}"
+                )
+
             with col3:
-                sort_by = st.selectbox("Sort By", ["Date (Newest)", "Date (Oldest)", "Amount (Highest)", "Amount (Lowest)"], key="sort_expenses_dash")
-            
+                sort_by = st.selectbox(
+                    "Sort By",
+                    ["Date (Newest)", "Date (Oldest)", "Amount (Highest)", "Amount (Lowest)"],
+                    key=f"sort_expenses_dash_{branch_id}",
+                )
+
             filtered_df = expenses_df.copy()
-            
+
             if search_term:
                 filtered_df = filtered_df[
                     filtered_df["description"].str.contains(search_term, case=False) |
                     filtered_df["vendor"].str.contains(search_term, case=False)
                 ]
-            
+
             if cat_filter != "All":
                 filtered_df = filtered_df[filtered_df["category"] == cat_filter]
-            
+
             if sort_by == "Amount (Highest)":
                 filtered_df = filtered_df.sort_values("amount", ascending=False)
             elif sort_by == "Amount (Lowest)":
@@ -435,24 +515,24 @@ def expenses_dashboard():
                 filtered_df = filtered_df.sort_values("date", ascending=True)
             else:
                 filtered_df = filtered_df.sort_values("date", ascending=False)
-            
+
             total_expenses = filtered_df["amount"].sum()
-            st.metric("Total Expenses (Filtered)", f"${total_expenses:,.2f}")
-            
+            st.metric(f"Total Expenses (Filtered) — {branch_label}", f"${total_expenses:,.2f}")
+
             display_cols = ["date", "description", "category", "amount", "vendor", "payment_method"]
             available_cols = [col for col in display_cols if col in filtered_df.columns]
-            
+
             st.dataframe(filtered_df[available_cols], use_container_width=True, hide_index=True)
-            
+
             csv = filtered_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="Download Expenses (CSV)",
+                label=f"Download Expenses (CSV) — {branch_id}",
                 data=csv,
-                file_name=f"expenses_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"expenses_{branch_id}_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
-                key="download_expenses_dash"
+                key=f"download_expenses_dash_{branch_id}",
             )
-            
+
             st.caption(f"Showing {len(filtered_df)} records")
         else:
             st.info("No expenses recorded yet. Use the 'Record Expense' tab to add your first expense.")

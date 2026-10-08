@@ -130,9 +130,17 @@ def save_cash(df):
 # GET CURRENT BRANCH INFO
 # ==============================
 def get_current_branch_info():
-    """Get current branch info from session state"""
+    """
+    Get current branch info from session state.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
     try:
-        branch_id = st.session_state.get("user_branch", "HO")
+        branch_id = (
+            st.session_state.get("current_branch_code")
+            or st.session_state.get("user_branch")
+            or "HO"
+        )
         branch_name = st.session_state.get("branch_name", "Head Office")
         return branch_id, branch_name
     except:

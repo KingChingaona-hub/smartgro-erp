@@ -8,6 +8,22 @@ from backend.core.db_adapter import load_sales
 
 
 # ==============================
+# SESSION BRANCH HELPER
+# ==============================
+def _get_session_branch():
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (set by the branch-selection screen)
+    over `user_branch` (which may be a stale default).
+    """
+    return (
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
+        or "HO"
+    )
+
+
+# ==============================
 # HELPER FUNCTIONS
 # ==============================
 
@@ -50,7 +66,9 @@ def sales_history_page():
     st.title("Sales History")
     st.caption("View all sales transactions with product details")
 
-    df = load_sales()
+    # Branch-scoped load
+    branch_id = _get_session_branch()
+    df = load_sales(branch_id=branch_id)
 
     if df.empty:
         st.warning("No sales recorded yet.")
