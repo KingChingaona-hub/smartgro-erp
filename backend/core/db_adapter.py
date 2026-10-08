@@ -4,6 +4,9 @@
 # - Session branch resolution prefers `current_branch_code` over `user_branch`
 # - save_shifts re-tags the row's branch_id on conflict so a PK collision can
 #   never silently leave a row on the wrong branch
+# - save_purchases re-tags the row's branch_id on conflict AND returns False
+#   when nothing was actually written, so the UI can no longer show a fake
+#   success for an empty write
 # - start_shift / end_shift / update_shift_stats all pass branch_id through
 
 import psycopg2
@@ -437,7 +440,6 @@ def save_branches(df):
                     VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (branch_id) DO UPDATE SET
                         branch_name = EXCLUDED.branch_name,
-                        branch_id = EXCLUDED.branch_id,
                         location = EXCLUDED.location,
                         level = EXCLUDED.level,
                         active = EXCLUDED.active
@@ -456,10 +458,6 @@ def _enforce_branch(df, branch_id=None):
     """
     Guarantee that a returned DataFrame contains only rows for the current
     branch. If the frame has no 'branch_id' column we don't touch it.
-
-    This is the belt-and-braces layer: even if a page forgets to filter,
-    the loader will never return another branch's rows to a
-    branch-restricted user.
     """
     if df is None or df.empty:
         return df
@@ -2271,18 +2269,41 @@ def load_purchases(branch_id=None):
 
 
 def save_purchases(df, branch_id=None):
+    """
+    Save purchase rows.
+
+    Branch-safety:
+      - branch_id defaults to the session branch.
+      - ON CONFLICT re-tags the row's branch_id so a cross-branch primary
+        key collision can never leave the row on the wrong branch.
+      - If validation rejects every row (or there were no rows), the
+        function returns False so the caller can show a real failure
+        instead of a fake success.
+    """
     if branch_id is None:
         branch_id = get_current_branch()
+
+    # Normalise branch_id for the write so UPPER/LOWER mismatches never split rows.
+    branch_id = str(branch_id).strip()
+
+    rows_in_df = 0 if df is None else len(df)
+    saved_count = 0
+    validation_errors = []
 
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
+                print("[save_purchases] no DB connection")
                 return False
 
-            validation_errors = []
-            saved_count = 0
+            if df is None or df.empty:
+                print("[save_purchases] empty DataFrame, nothing to save")
+                return False
 
             for idx, row in df.iterrows():
+                rows_in_df = idx + 1
+
+                # ---- validation ----
                 if 'supplier' in row:
                     valid, msg = validate_supplier_name(row["supplier"])
                     if not valid:
@@ -2316,12 +2337,21 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
 
+                # ---- insert / update ----
+                #
+                # KEY FIX: `branch_id = EXCLUDED.branch_id` in the update list.
+                # Without it, if the same (po_number, barcode) already exists
+                # on another branch, the insert collides and the row stays
+                # tagged with the *other* branch, leaving this branch with
+                # no visible PO.
+                #
                 cur.execute("""
                     INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
                         product_name, barcode, quantity_ordered, quantity_received,
                         cost_price, total_cost, expected_date, status, payment_status, invoice_no)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (po_number, barcode) DO UPDATE SET
+                        branch_id = EXCLUDED.branch_id,
                         supplier = EXCLUDED.supplier,
                         product_name = EXCLUDED.product_name,
                         quantity_ordered = EXCLUDED.quantity_ordered,
@@ -2351,13 +2381,42 @@ def save_purchases(df, branch_id=None):
                 saved_count += 1
 
             if validation_errors:
-                print(f"Validation errors: {validation_errors}")
+                print(f"[save_purchases] validation errors: {validation_errors}")
 
             conn.commit()
-            print(f"Saved {saved_count} purchase items successfully")
+
+            # ---- verification ----
+            try:
+                cur.execute(
+                    "SELECT COUNT(*) FROM purchases WHERE branch_id = %s",
+                    (branch_id,),
+                )
+                result = cur.fetchone()
+                if isinstance(result, dict):
+                    total_in_branch = result.get("count", 0)
+                else:
+                    total_in_branch = result[0] if result else 0
+            except Exception as e:
+                total_in_branch = "?"
+                print(f"[save_purchases] verification error: {e}")
+
+            print(
+                f"[save_purchases] branch_id={branch_id!r} "
+                f"rows_in_df={rows_in_df} rows_saved={saved_count} "
+                f"total_in_branch={total_in_branch}"
+            )
+
+            # ---- honest return value ----
+            if saved_count == 0:
+                # Nothing was actually written. Do NOT report success.
+                return False
+
             return True
+
     except Exception as e:
-        print(f"Error saving purchases: {e}")
+        print(f"[save_purchases] error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
