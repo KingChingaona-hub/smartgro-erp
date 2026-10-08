@@ -1,15 +1,11 @@
 # backend/modules/shift_management.py
-# Full rewrite: branch-aware shift definitions + owner CRUD per branch
+# Branch-aware shift definitions + owner CRUD per branch.
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import requests
-import json
+import re
 
 from backend.core.db_adapter import (
     load_shifts, save_shifts, start_shift, end_shift,
@@ -68,6 +64,57 @@ def safe_format_time(time_val):
         return time_val.strftime("%Y-%m-%d %H:%M")
     time_str = str(time_val)
     return time_str[:16] if time_str else "N/A"
+
+
+def _normalize_time(value, default="06:00"):
+    """
+    Accept common time formats and return a Postgres-friendly 'HH:MM'.
+
+    Handles: '6.00', '6:00', '06:00', '0600', '6', 6, '6:0', '06:00:00'.
+    Falls back to `default` if it can't parse.
+    """
+    if value is None:
+        return default
+
+    # If already a time object from st.time_input
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime("%H:%M")
+        except Exception:
+            pass
+
+    s = str(value).strip()
+    if not s:
+        return default
+
+    # Drop seconds if present
+    if s.count(":") == 2:
+        s = s.rsplit(":", 1)[0]
+
+    # Convert dots to colons: '6.00' -> '6:00'
+    s = s.replace(".", ":")
+
+    # If no separator at all, assume HHMM: '0600' -> '06:00'
+    if ":" not in s:
+        digits = re.sub(r"\D", "", s)
+        if len(digits) == 3:      # '600' -> 6:00
+            digits = "0" + digits
+        if len(digits) == 4:      # '0600'
+            s = f"{digits[:2]}:{digits[2:]}"
+        else:
+            return default
+
+    try:
+        hh, mm = s.split(":")[:2]
+        hh = int(hh)
+        mm = int(mm)
+    except (ValueError, TypeError):
+        return default
+
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        return default
+
+    return f"{hh:02d}:{mm:02d}"
 
 
 # ==============================
@@ -169,7 +216,6 @@ def _resolve_page_branch():
     if not can_change:
         return session_branch, _branch_name(session_branch), False
 
-    # Owner / manager: read from session state (set by the selector below)
     selected = st.session_state.get("sm_selected_branch", session_branch)
     return selected, _branch_name(selected), True
 
@@ -206,9 +252,7 @@ def shift_management_page():
         branches_df = load_branches()
         if branches_df is not None and not branches_df.empty:
             branch_ids = branches_df["branch_id"].tolist()
-            branch_names = {
-                b_id: _branch_name(b_id) for b_id in branch_ids
-            }
+            branch_names = {b_id: _branch_name(b_id) for b_id in branch_ids}
             display_labels = [f"{branch_names[b]} ({b})" for b in branch_ids]
 
             default_id = st.session_state.get("sm_selected_branch", user_branch)
@@ -287,32 +331,44 @@ def shift_management_page():
     if role in ("owner", "manager"):
         st.sidebar.subheader("Start New Shift")
 
-        # Only show shift names that belong to THIS branch
-        branch_shift_names = get_shift_names_for_branch(page_branch_id)
+        # Only show shift names that belong to THIS branch, and strip
+        # any None / empty values so a bad seed can't render a broken form.
+        branch_shift_names = [
+            n for n in get_shift_names_for_branch(page_branch_id)
+            if n and str(n).strip()
+        ]
 
         if not branch_shift_names:
             st.sidebar.warning(
-                "No shift definitions found for this branch. "
-                "Add shifts in the **Manage Shifts** tab first."
+                f"No shift definitions found for branch **{page_branch_name}** "
+                f"({page_branch_id}). Add shifts in the **Manage Shifts** tab first."
             )
         else:
             with st.sidebar.form(f"start_shift_form_{page_branch_id}"):
-                shift_name = st.selectbox("Select Shift", branch_shift_names)
+                shift_name = st.selectbox(
+                    "Select Shift",
+                    branch_shift_names,
+                    key=f"shift_pick_{page_branch_id}",
+                )
 
                 cashier_username = st.text_input(
                     "Cashier Username",
                     value=st.session_state.get("username", ""),
+                    key=f"cashier_username_{page_branch_id}",
                 )
                 cashier_name = st.text_input(
                     "Cashier Name",
                     value=st.session_state.get("full_name", ""),
+                    key=f"cashier_name_{page_branch_id}",
                 )
                 manager_username = st.text_input(
                     "Manager Username",
                     value=st.session_state.get("username", ""),
+                    key=f"manager_username_{page_branch_id}",
                 )
                 opening_cash = st.number_input(
-                    "Opening Cash ($)", min_value=0.0, value=0.0, step=10.0
+                    "Opening Cash ($)", min_value=0.0, value=0.0, step=10.0,
+                    key=f"opening_cash_{page_branch_id}",
                 )
 
                 submitted = st.form_submit_button("Start Shift", use_container_width=True)
@@ -423,7 +479,12 @@ def _active_shifts_tab(active_shifts, page_branch_id, page_branch_name, role):
         st.metric("Status", f"{shift_data.get('status', 'N/A')}")
 
         if role in ("owner", "manager"):
-            if st.button("End This Shift", type="primary", use_container_width=True, key=f"end_shift_btn_{page_branch_id}"):
+            if st.button(
+                "End This Shift",
+                type="primary",
+                use_container_width=True,
+                key=f"end_shift_btn_{page_branch_id}_{shift_id}",
+            ):
                 st.session_state.end_shift_id = shift_id
                 st.session_state.show_end_shift = True
                 st.rerun()
@@ -494,15 +555,20 @@ def _end_shift_dialog(shift_data, shift_id, page_branch_id):
                 min_value=0.0,
                 value=float(shift_data.get("opening_cash", 0) or 0),
                 step=10.0,
-                key=f"closing_cash_{page_branch_id}",
+                key=f"closing_cash_{page_branch_id}_{shift_id}",
             )
             notes = st.text_area(
                 "Shift Notes",
                 placeholder="Any issues or comments about this shift...",
-                key=f"shift_notes_{page_branch_id}",
+                key=f"shift_notes_{page_branch_id}_{shift_id}",
             )
 
-            if st.button("Confirm End Shift", type="primary", use_container_width=True, key=f"confirm_end_shift_{page_branch_id}"):
+            if st.button(
+                "Confirm End Shift",
+                type="primary",
+                use_container_width=True,
+                key=f"confirm_end_shift_{page_branch_id}_{shift_id}",
+            ):
                 success, message = end_shift(
                     shift_id,
                     closing_cash,
@@ -594,10 +660,14 @@ def _shift_history_tab(shifts_df, page_branch_id, page_branch_name):
             cashiers = ["All"] + sorted(shifts_df["cashier_name"].dropna().unique().tolist())
         else:
             cashiers = ["All"]
-        selected_cashier = st.selectbox("Cashier", cashiers, key=f"shift_hist_cashier_{page_branch_id}")
+        selected_cashier = st.selectbox(
+            "Cashier", cashiers, key=f"shift_hist_cashier_{page_branch_id}"
+        )
 
     with col3:
-        selected_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"], key=f"shift_hist_status_{page_branch_id}")
+        selected_status = st.selectbox(
+            "Status", ["All", "OPEN", "CLOSED"], key=f"shift_hist_status_{page_branch_id}"
+        )
 
     filtered = shifts_df.copy()
 
@@ -676,7 +746,7 @@ def _shift_summary_tab(shifts_df, page_branch_id, page_branch_name):
     st.markdown(f"## Shift Summary — {page_branch_name}")
     st.caption(f"All figures below are for branch **{page_branch_name}** ({page_branch_id})")
 
-    # Branch-scoped cash summary — this was previously global.
+    # Branch-scoped cash summary
     try:
         cash_summary = get_cash_summary(branch_id=page_branch_id)
     except TypeError:
@@ -806,7 +876,8 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
 
     Branches with no shifts at all are seeded with defaults by
     `ensure_branch_has_defaults(page_branch_id)` in the page header,
-    so the Add form is always usable.
+    so the Add form is always usable. A manual "Seed Defaults" button
+    is also shown so owners can recover a branch whose seeding failed.
     """
     st.markdown("## Manage Shifts")
     st.caption(
@@ -826,9 +897,23 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
     st.markdown(f"### Current Shifts — {page_branch_name}")
     if defs_df.empty:
         st.info(
-            f"No shift definitions yet for {page_branch_name}. "
-            "Use the **➕ Add New Shift** form below to create one."
+            f"No shift definitions yet for **{page_branch_name}** ({page_branch_id}). "
+            "Use the **➕ Add New Shift** form below, or click **Seed Default Shifts** "
+            "to create the standard ALPHA–ECHO set."
         )
+        # Owner/manager seed shortcut
+        if role in ("owner", "manager"):
+            if st.button(
+                "➕ Seed Default Shifts (ALPHA–ECHO)",
+                key=f"seed_defaults_{page_branch_id}",
+                use_container_width=True,
+            ):
+                try:
+                    ensure_branch_has_defaults(page_branch_id)
+                    st.success(f"Default shifts seeded for {page_branch_name}.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to seed defaults: {e}")
     else:
         view = defs_df.copy()
         view["active"] = view["active"].apply(lambda x: "Active" if x else "Inactive")
@@ -871,16 +956,18 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
                     key=f"new_sort_{page_branch_id}",
                 )
             with col2:
-                new_start = st.text_input(
-                    "Start Time (HH:MM)",
-                    placeholder="16:00",
+                new_start_time = st.time_input(
+                    "Start Time",
+                    value=datetime.strptime("06:00", "%H:%M").time(),
                     key=f"new_start_{page_branch_id}",
                 )
-                new_end = st.text_input(
-                    "End Time (HH:MM)",
-                    placeholder="22:00",
+                new_end_time = st.time_input(
+                    "End Time",
+                    value=datetime.strptime("18:00", "%H:%M").time(),
                     key=f"new_end_{page_branch_id}",
                 )
+                new_start = _normalize_time(new_start_time, default="06:00")
+                new_end = _normalize_time(new_end_time, default="18:00")
 
             add_btn = st.form_submit_button("Add Shift", type="primary", use_container_width=True)
 
@@ -888,7 +975,7 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
                 if not new_shift_name:
                     st.error("Shift Name is required")
                 elif not new_start or not new_end:
-                    st.error("Start Time and End Time are required (HH:MM format)")
+                    st.error("Start Time and End Time are required")
                 else:
                     ok, msg = add_shift_definition(
                         branch_id=page_branch_id,
@@ -939,14 +1026,27 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
                     with col2:
                         new_start_str = str(row["start_time"])[:5] if row["start_time"] else "06:00"
                         new_end_str = str(row["end_time"])[:5] if row["end_time"] else "12:00"
-                        new_start = st.text_input(
-                            "Start Time (HH:MM)", value=new_start_str,
+                        try:
+                            _start_default = datetime.strptime(new_start_str, "%H:%M").time()
+                        except Exception:
+                            _start_default = datetime.strptime("06:00", "%H:%M").time()
+                        try:
+                            _end_default = datetime.strptime(new_end_str, "%H:%M").time()
+                        except Exception:
+                            _end_default = datetime.strptime("18:00", "%H:%M").time()
+
+                        new_start_time = st.time_input(
+                            "Start Time",
+                            value=_start_default,
                             key=f"edit_start_{page_branch_id}_{row['id']}",
                         )
-                        new_end = st.text_input(
-                            "End Time (HH:MM)", value=new_end_str,
+                        new_end_time = st.time_input(
+                            "End Time",
+                            value=_end_default,
                             key=f"edit_end_{page_branch_id}_{row['id']}",
                         )
+                        new_start = _normalize_time(new_start_time, default=_start_default.strftime("%H:%M"))
+                        new_end = _normalize_time(new_end_time, default=_end_default.strftime("%H:%M"))
 
                     update_btn = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
 
@@ -986,7 +1086,11 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
                     key=f"sm_delete_confirm_{page_branch_id}",
                 )
 
-                if st.button("Confirm Delete", use_container_width=True, key=f"sm_delete_btn_{page_branch_id}"):
+                if st.button(
+                    "Confirm Delete",
+                    use_container_width=True,
+                    key=f"sm_delete_btn_{page_branch_id}",
+                ):
                     if not confirm:
                         st.error("Please tick the confirmation checkbox.")
                     else:

@@ -1,4 +1,6 @@
 # backend/modules/cash_dashboard.py - Fixed version with unduplicated revenue
+# Branch-safe: every loader, shift call, and export is scoped to the session branch.
+# Also fixes: non-HO branches failing to start a shift.
 
 import streamlit as st
 import pandas as pd
@@ -33,12 +35,23 @@ from backend.modules.shift_manager import (
     is_shift_active_in_branch,
     get_shift_stats
 )
-from backend.core.db_adapter import load_sales, load_debtors, to_float
+from backend.core.db_adapter import load_sales, load_debtors, to_float, load_branches
 from backend.analytics.debtors_engine import load_debtors as load_debtors_data
+
+# Try to import the branch-scoped shift name helper. If it isn't available
+# (older deployment), we fall back gracefully below.
+try:
+    from backend.core.shift_definitions import (
+        get_shift_names_for_branch,
+        ensure_branch_has_defaults,
+    )
+    _HAS_SHIFT_DEFS = True
+except Exception:
+    _HAS_SHIFT_DEFS = False
 
 
 # ==============================
-# SESSION BRANCH HELPER
+# SESSION BRANCH HELPERS
 # ==============================
 def _get_session_branch():
     """
@@ -51,6 +64,20 @@ def _get_session_branch():
         or st.session_state.get("user_branch")
         or "HO"
     )
+
+
+def _branch_display_name(branch_id):
+    try:
+        df = load_branches()
+        if df is not None and not df.empty and "branch_id" in df.columns:
+            match = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+            if not match.empty:
+                name = match.iloc[0].get("branch_name", "")
+                if name:
+                    return name
+    except Exception:
+        pass
+    return "Head Office" if str(branch_id).upper() == "HO" else str(branch_id)
 
 
 # ==============================
@@ -115,13 +142,13 @@ def get_unduplicated_sales(sales_df):
     """Get unduplicated sales by receipt_no to avoid revenue duplication"""
     if sales_df is None or sales_df.empty:
         return pd.DataFrame()
-    
+
     sales_df = sales_df.copy()
     receipt_col = get_receipt_column(sales_df)
-    
+
     if receipt_col and receipt_col in sales_df.columns:
         return sales_df.drop_duplicates(subset=[receipt_col])
-    
+
     return sales_df
 
 
@@ -129,18 +156,18 @@ def get_cash_sales_unduplicated(sales_df):
     """Get cash sales from unduplicated receipts"""
     if sales_df is None or sales_df.empty:
         return 0.0
-    
+
     sales_undup = get_unduplicated_sales(sales_df)
     if sales_undup.empty:
         return 0.0
-    
+
     payment_col = get_payment_method_column(sales_undup)
     amount_col = get_amount_column(sales_undup)
-    
+
     if payment_col and amount_col:
         cash_sales = sales_undup[sales_undup[payment_col].str.upper().isin(["CASH", "ECOCASH"])]
         return safe_float(cash_sales[amount_col].sum())
-    
+
     return 0.0
 
 
@@ -148,18 +175,18 @@ def get_credit_sales_unduplicated(sales_df):
     """Get credit sales from unduplicated receipts"""
     if sales_df is None or sales_df.empty:
         return 0.0
-    
+
     sales_undup = get_unduplicated_sales(sales_df)
     if sales_undup.empty:
         return 0.0
-    
+
     payment_col = get_payment_method_column(sales_undup)
     amount_col = get_amount_column(sales_undup)
-    
+
     if payment_col and amount_col:
         credit_sales = sales_undup[sales_undup[payment_col].str.upper() == "CREDIT"]
         return safe_float(credit_sales[amount_col].sum())
-    
+
     return 0.0
 
 
@@ -167,10 +194,10 @@ def get_debt_payments_unduplicated(debtors_df):
     """Get debt payments from debtors data (not from POS)"""
     if debtors_df is None or debtors_df.empty:
         return 0.0
-    
+
     if "amount_paid" in debtors_df.columns:
         return safe_float(debtors_df["amount_paid"].sum())
-    
+
     return 0.0
 
 
@@ -178,15 +205,15 @@ def get_total_revenue_unduplicated(sales_df):
     """Get total revenue from unduplicated sales"""
     if sales_df is None or sales_df.empty:
         return 0.0
-    
+
     sales_undup = get_unduplicated_sales(sales_df)
     if sales_undup.empty:
         return 0.0
-    
+
     amount_col = get_amount_column(sales_undup)
     if amount_col:
         return safe_float(sales_undup[amount_col].sum())
-    
+
     return 0.0
 
 
@@ -195,29 +222,32 @@ def get_total_revenue_unduplicated(sales_df):
 # ==============================
 
 def cash_dashboard():
-    """Enhanced Cash Register Dashboard with comprehensive features"""
-    
+    """Enhanced Cash Register Dashboard with comprehensive features (branch-scoped)"""
+
+    branch_id = _get_session_branch()
+    branch_name = _branch_display_name(branch_id)
+
     st.title("Cash Register Management System")
-    st.caption("Track shifts, manage cash flow, and control expenses")
-    
+    st.caption(f"Track shifts, manage cash flow, and control expenses — {branch_name} ({branch_id})")
+
     # Get current user and branch info
     username = st.session_state.get("username", "system")
-    user_branch = _get_session_branch()
+    user_branch = branch_id
     user_role = st.session_state.get("role", "cashier")
     full_name = st.session_state.get("user_full_name", username)
-    
+
     # Check if user can manage shifts (manager, admin, owner)
     can_manage_shifts = user_role in ["owner", "manager", "admin"]
-    
+
     # Load data once for all tabs (branch-scoped)
     sales_df = load_sales(branch_id=user_branch)
     debtors_df = load_debtors_data(branch_id=user_branch)
-    
+
     # Get unduplicated data
     sales_undup = get_unduplicated_sales(sales_df)
     amount_col = get_amount_column(sales_undup)
     payment_col = get_payment_method_column(sales_undup)
-    
+
     # ==============================
     # TABS
     # ==============================
@@ -228,90 +258,125 @@ def cash_dashboard():
         "Petty Cash",
         "Bank Deposits"
     ])
-    
+
     # ==============================
     # TAB 1: SHIFT MANAGEMENT
     # ==============================
     with tab1:
         st.markdown("## Shift Management")
-        
+
         # Get the active shift for this branch
         active_shift = get_active_shift_for_branch(user_branch)
         is_shift_active = active_shift is not None
         shift_id = active_shift.get("shift_id") if is_shift_active else None
         shift_name = active_shift.get("shift_name", "N/A") if is_shift_active else "N/A"
-        
+
         # Display branch info
-        st.info(f"**Branch:** {user_branch} | **Role:** {user_role.upper()}")
-        
+        st.info(f"**Branch:** {branch_name} ({user_branch}) | **Role:** {user_role.upper()}")
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             if not is_shift_active:
                 if can_manage_shifts:
                     st.markdown("### Start New Shift")
-                    
-                    opening = st.number_input(
-                        "Opening Cash Amount", 
-                        min_value=0.0, 
-                        value=0.0, 
-                        step=50.0, 
-                        key="opening_cash_input"
-                    )
-                    
-                    if st.button("Start Shift", type="primary", use_container_width=True):
-                        with st.spinner("Starting shift..."):
-                            success, result, message = start_shift(
-                                cashier_username=username,
-                                cashier_name=full_name,
-                                branch_id=user_branch,
-                                branch_name=st.session_state.get("branch_name", "Head Office"),
-                                manager_username=username,
-                                opening_cash=opening
-                            )
-                            
-                            if success:
-                                set_opening_cash(opening, result)
-                                st.session_state.shift_id = result
-                                st.session_state.active_shift_id = result
-                                st.session_state.active_shift_branch = user_branch
-                                st.session_state.branch_shift_active = True
-                                
-                                st.success(f"Shift started successfully! Shift ID: {result}")
-                                st.info(f"Opening Cash: ${opening:.2f}")
-                                st.rerun()
-                            else:
-                                st.error(f"Failed to start shift: {message}")
+
+                    # ------------------------------------------------------------
+                    # Resolve the shift names available for THIS branch.
+                    # This is the critical fix: non-HO branches need to pick
+                    # from their own shift_definitions, not a hardcoded list.
+                    # ------------------------------------------------------------
+                    branch_shift_names = []
+                    if _HAS_SHIFT_DEFS:
+                        try:
+                            # Ensure defaults exist so a brand-new branch is usable
+                            ensure_branch_has_defaults(user_branch)
+                            branch_shift_names = [
+                                n for n in get_shift_names_for_branch(user_branch)
+                                if n and str(n).strip()
+                            ]
+                        except Exception:
+                            branch_shift_names = []
+
+                    if not branch_shift_names:
+                        st.warning(
+                            f"No shift definitions found for branch **{branch_name}** ({user_branch}). "
+                            "Add shifts in **Shift Management → Manage Shifts** first."
+                        )
+                    else:
+                        shift_name_choice = st.selectbox(
+                            "Select Shift",
+                            branch_shift_names,
+                            key=f"cash_dash_shift_name_{user_branch}",
+                        )
+
+                        opening = st.number_input(
+                            "Opening Cash Amount",
+                            min_value=0.0,
+                            value=0.0,
+                            step=50.0,
+                            key=f"opening_cash_input_{user_branch}"
+                        )
+
+                        if st.button(
+                            "Start Shift",
+                            type="primary",
+                            use_container_width=True,
+                            key=f"start_shift_btn_{user_branch}",
+                        ):
+                            with st.spinner("Starting shift..."):
+                                success, result, message = start_shift(
+                                    cashier_username=username,
+                                    cashier_name=full_name,
+                                    branch_id=user_branch,
+                                    branch_name=branch_name,          # resolved from branches table
+                                    manager_username=username,
+                                    opening_cash=opening,
+                                    shift_name=shift_name_choice,      # <-- explicit, from this branch
+                                )
+
+                                if success:
+                                    set_opening_cash(opening, result)
+                                    st.session_state.shift_id = result
+                                    st.session_state.active_shift_id = result
+                                    st.session_state.active_shift_branch = user_branch
+                                    st.session_state.branch_shift_active = True
+
+                                    st.success(f"Shift started successfully! Shift ID: {result}")
+                                    st.info(f"Opening Cash: ${opening:.2f}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"Failed to start shift: {message}")
                 else:
                     st.warning("No active shift in your branch. Please ask your manager to start a shift.")
                     st.info("Only managers and owners can start shifts.")
             else:
                 st.markdown("### Active Shift")
-                
+
                 start_time = active_shift.get("start_time")
                 if hasattr(start_time, 'strftime'):
                     start_time_str = start_time.strftime("%Y-%m-%d %H:%M")
                 else:
                     start_time_str = str(start_time) if start_time else "N/A"
-                
+
                 st.markdown(f"""
                 **Shift Name:** `{shift_name}`  
                 **Shift ID:** `{shift_id}`  
                 **Started by:** {active_shift.get('cashier_name', 'Unknown')}  
                 **Start Time:** {start_time_str}  
                 **Opening Cash:** ${safe_float(active_shift.get('opening_cash', 0)):.2f}  
-                **Branch:** {active_shift.get('branch_name', user_branch)}
+                **Branch:** {active_shift.get('branch_name', branch_name)}
                 """)
-                
+
                 # Show shift summary with unduplicated data
                 summary = get_cash_summary(shift_id)
-                
+
                 # Get unduplicated cash and credit sales
                 cash_sales = safe_float(get_cash_sales_unduplicated(sales_undup))
                 credit_sales = safe_float(get_credit_sales_unduplicated(sales_undup))
                 debt_payments = safe_float(get_debt_payments_unduplicated(debtors_df))
                 total_revenue = safe_float(get_total_revenue_unduplicated(sales_undup))
-                
+
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Cash Sales", f"${cash_sales:.2f}")
@@ -319,55 +384,65 @@ def cash_dashboard():
                     st.metric("Credit Sales", f"${credit_sales:.2f}")
                 with col3:
                     st.metric("Debt Payments", f"${debt_payments:.2f}")
-        
+
         with col2:
             if is_shift_active:
                 if can_manage_shifts:
                     st.markdown("### End Shift")
-                    
+
                     actual_cash = st.number_input(
-                        "Actual Cash Counted", 
-                        min_value=0.0, 
-                        value=0.0, 
-                        step=10.0, 
-                        key="actual_cash_input"
+                        "Actual Cash Counted",
+                        min_value=0.0,
+                        value=0.0,
+                        step=10.0,
+                        key=f"actual_cash_input_{user_branch}"
                     )
-                    
-                    notes = st.text_area("Shift Notes", placeholder="Any issues or comments...", key="shift_notes")
-                    
-                    if st.button("Close Shift", type="secondary", use_container_width=True):
+
+                    notes = st.text_area(
+                        "Shift Notes",
+                        placeholder="Any issues or comments...",
+                        key=f"shift_notes_{user_branch}",
+                    )
+
+                    if st.button(
+                        "Close Shift",
+                        type="secondary",
+                        use_container_width=True,
+                        key=f"close_shift_btn_{user_branch}",
+                    ):
                         with st.spinner("Closing shift..."):
                             # Get unduplicated data for closing
                             cash_sales = safe_float(get_cash_sales_unduplicated(sales_undup))
                             debt_payments = safe_float(get_debt_payments_unduplicated(debtors_df))
                             credit_sales = safe_float(get_credit_sales_unduplicated(sales_undup))
-                            
-                            expected_cash = (safe_float(active_shift.get('opening_cash', 0)) + 
-                                           cash_sales + 
+
+                            expected_cash = (safe_float(active_shift.get('opening_cash', 0)) +
+                                           cash_sales +
                                            debt_payments)
-                            
+
                             variance = actual_cash - expected_cash
-                            
+
                             success, result = end_shift(
                                 shift_id=shift_id,
                                 closing_cash=actual_cash,
                                 total_sales=cash_sales + credit_sales,
                                 profit=cash_sales * 0.3,
                                 transactions=len(sales_undup) if not sales_undup.empty else 0,
-                                notes=notes
+                                notes=notes,
+                                branch_id=user_branch,
                             )
-                            
+
                             if success:
                                 record_closing_cash(actual_cash, shift_id)
-                                
+
                                 st.success(f"Shift closed!")
                                 st.info(f"Expected Cash: ${expected_cash:.2f}")
-                                
+
                                 if variance >= 0:
                                     st.success(f"Cash Surplus: ${variance:.2f}")
                                 else:
                                     st.error(f"Cash Shortage: ${abs(variance):.2f}")
-                                
+
                                 st.session_state.shift_id = None
                                 st.session_state.active_shift_id = None
                                 st.session_state.branch_shift_active = False
@@ -376,99 +451,98 @@ def cash_dashboard():
                                 st.error(f"Failed to close shift: {result}")
                 else:
                     st.info("Only managers and owners can close shifts.")
-        
-        # Shift history - FIXED: Use unduplicated sales for total revenue
+
+        # Shift history - branch-scoped
         st.markdown("---")
-        st.markdown("### Shift History (This Branch)")
-        
+        st.markdown(f"### Shift History — {branch_name} ({user_branch})")
+
         shifts_df = load_shifts(branch_id=user_branch)
         if not shifts_df.empty:
             branch_shifts = shifts_df[shifts_df["branch_id"] == user_branch]
-            
+
             if not branch_shifts.empty:
                 display_cols = ["shift_id", "shift_name", "cashier_name", "start_time", "end_time", "opening_cash", "closing_cash", "cash_sales", "variance", "status"]
                 available_cols = [col for col in display_cols if col in branch_shifts.columns]
-                
+
                 display_shifts = branch_shifts[available_cols].sort_values("start_time", ascending=False).head(20)
-                
+
                 for col in ["start_time", "end_time"]:
                     if col in display_shifts.columns:
                         display_shifts[col] = pd.to_datetime(display_shifts[col], errors="coerce")
                         display_shifts[col] = display_shifts[col].dt.strftime("%Y-%m-%d %H:%M")
-                
+
                 st.dataframe(display_shifts, use_container_width=True, hide_index=True)
-                
+
                 total_shifts = len(branch_shifts)
-                
-                # FIXED: Get total revenue from unduplicated sales, not from shift records
+
+                # Total revenue from unduplicated sales
                 total_revenue_undup = safe_float(get_total_revenue_unduplicated(sales_undup))
-                
+
                 # Also get total from shifts for comparison (if available)
                 shifts_total = safe_float(branch_shifts["total_revenue"].sum()) if "total_revenue" in branch_shifts.columns else 0
-                
+
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total Shifts", total_shifts)
                 with col2:
-                    # Use unduplicated revenue
                     st.metric("Total Revenue (Unduplicated)", f"${total_revenue_undup:,.2f}")
                 with col3:
                     active_count = len(branch_shifts[branch_shifts["status"] == "OPEN"])
                     st.metric("Active Shifts", active_count)
-                
+
                 # Show warning if there's a discrepancy
                 if shifts_total > 0 and abs(shifts_total - total_revenue_undup) > 1:
                     st.warning(f"Note: Shift records show ${shifts_total:,.2f} but unduplicated sales show ${total_revenue_undup:,.2f}. Using unduplicated sales for accuracy.")
             else:
-                st.info("No shift history found for this branch")
+                st.info(f"No shift history found for {branch_name} ({user_branch})")
         else:
-            st.info("No shift records found")
-    
+            st.info(f"No shift records found for {branch_name} ({user_branch})")
+
     # ==============================
     # TAB 2: TODAY'S REPORT
     # ==============================
     with tab2:
         st.markdown("## Today's Cash Report")
-        st.caption("All revenue metrics based on unduplicated sales data")
-        
+        st.caption(f"All revenue metrics based on unduplicated sales data — {branch_name} ({user_branch})")
+
         today_report = get_daily_report()
         today = datetime.now().date()
-        
+
         # Get unduplicated data for today
         today_cash_sales = 0
         today_credit_sales = 0
         today_total_revenue = 0
-        
+
         if not sales_undup.empty and amount_col:
             date_col = get_date_column(sales_undup)
-            
+
             if date_col:
                 sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
                 today_sales = sales_undup[sales_undup[date_col].dt.date == today]
-                
+
                 if not today_sales.empty:
                     amount_col_today = get_amount_column(today_sales)
                     payment_col_today = get_payment_method_column(today_sales)
-                    
+
                     if amount_col_today:
                         today_total_revenue = safe_float(today_sales[amount_col_today].sum())
-                        
+
                         if payment_col_today:
                             cash_sales_df = today_sales[today_sales[payment_col_today].str.upper().isin(["CASH", "ECOCASH"])]
                             today_cash_sales = safe_float(cash_sales_df[amount_col_today].sum()) if not cash_sales_df.empty else 0
-                            
+
                             credit_sales_df = today_sales[today_sales[payment_col_today].str.upper() == "CREDIT"]
                             today_credit_sales = safe_float(credit_sales_df[amount_col_today].sum()) if not credit_sales_df.empty else 0
-        
+
         # Today's debt payments from debtors
         today_debt_payments = 0
         if not debtors_df.empty and "amount_paid" in debtors_df.columns and "repayment_date" in debtors_df.columns:
             debtors_df["repayment_date"] = pd.to_datetime(debtors_df["repayment_date"], errors="coerce")
             today_debt_payments = safe_float(debtors_df[debtors_df["repayment_date"].dt.date == today]["amount_paid"].sum())
-        
+
         # Key metrics
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
             st.metric("Cash Sales", f"${safe_float(today_cash_sales):.2f}")
         with col2:
@@ -477,18 +551,18 @@ def cash_dashboard():
             st.metric("Debt Payments", f"${safe_float(today_debt_payments):.2f}")
         with col4:
             st.metric("Total Revenue", f"${safe_float(today_total_revenue):.2f}")
-        
+
         st.markdown("---")
-        
+
         # Show transaction details
         if not sales_undup.empty:
             st.subheader("Today's Transactions")
             date_col = get_date_column(sales_undup)
-            
+
             if date_col:
                 sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
                 today_sales_display = sales_undup[sales_undup[date_col].dt.date == today]
-                
+
                 if not today_sales_display.empty:
                     display_cols = []
                     if "receipt_no" in today_sales_display.columns:
@@ -499,26 +573,26 @@ def cash_dashboard():
                         display_cols.append(amount_col)
                     if payment_col and payment_col in today_sales_display.columns:
                         display_cols.append(payment_col)
-                    
+
                     if display_cols:
                         st.dataframe(today_sales_display[display_cols], use_container_width=True, hide_index=True)
-                    
+
                     st.info(f"Total Transactions: {len(today_sales_display)}")
                 else:
                     st.info("No transactions today")
-        
+
         if today_report:
             # Variance
             st.markdown("---")
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 expected_cash = safe_float(today_report.get('opening_cash', 0)) + safe_float(today_cash_sales) + safe_float(today_debt_payments)
                 st.metric("Expected Cash", f"${expected_cash:.2f}")
             with col2:
                 actual_cash = safe_float(today_report.get('closing_cash', 0))
                 st.metric("Actual Cash", f"${actual_cash:.2f}")
-            
+
             variance = actual_cash - expected_cash
             if abs(variance) > 5:
                 st.error(f"Cash Variance: ${variance:.2f} - Investigate!")
@@ -526,25 +600,25 @@ def cash_dashboard():
                 st.success(f"Cash Variance: ${variance:.2f}")
         else:
             st.info("No cash register data for today.")
-    
+
     # ==============================
     # TAB 3: CASH FLOW
     # ==============================
     with tab3:
         st.markdown("## Cash Flow Analysis")
-        st.caption("Revenue based on unduplicated sales data")
-        
+        st.caption(f"Revenue based on unduplicated sales data — {branch_name} ({user_branch})")
+
         # Cash flow chart
         st.markdown("### Cash Flow Trend (Last 30 Days)")
-        
+
         cash_flow_df = get_cash_flow(30)
-        
+
         if not cash_flow_df.empty:
             fig = px.bar(
                 cash_flow_df,
                 x="Date",
                 y="Net Cash Flow",
-                title="Daily Net Cash Flow",
+                title=f"Daily Net Cash Flow — {branch_name}",
                 color="Net Cash Flow",
                 color_continuous_scale="RdYlGn",
                 text="Net Cash Flow"
@@ -552,23 +626,23 @@ def cash_dashboard():
             fig.update_traces(texttemplate="$%{text:.0f}", textposition="outside")
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
-        
+
         # Cashier performance
         st.markdown("### Cashier Performance")
-        
+
         cashier_perf = get_cashier_performance()
         if not cashier_perf.empty:
             st.dataframe(cashier_perf, use_container_width=True, hide_index=True)
-        
+
         # Summary metrics with unduplicated data
         st.markdown("---")
         st.markdown("### Summary Statistics (Unduplicated)")
-        
+
         total_cash_sales = safe_float(get_cash_sales_unduplicated(sales_undup))
         total_credit_sales = safe_float(get_credit_sales_unduplicated(sales_undup))
         total_debt_payments = safe_float(get_debt_payments_unduplicated(debtors_df))
         total_revenue = safe_float(get_total_revenue_unduplicated(sales_undup))
-        
+
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total Cash Sales", f"${total_cash_sales:,.2f}")
@@ -576,31 +650,31 @@ def cash_dashboard():
             st.metric("Total Credit Sales", f"${total_credit_sales:,.2f}")
         with col3:
             st.metric("Total Debt Collections", f"${total_debt_payments:,.2f}")
-        
+
         st.info(f"**Total Revenue (Unduplicated):** ${total_revenue:,.2f}")
-    
+
     # ==============================
     # TAB 4: PETTY CASH
     # ==============================
     with tab4:
         st.markdown("## Petty Cash Management")
-        
+
         # Record petty cash expense
         st.markdown("### Record Petty Cash Expense")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            petty_desc = st.text_input("Description", key="petty_desc", placeholder="What was purchased?")
-            petty_amount = st.number_input("Amount ($)", min_value=0.01, step=5.0, key="petty_amount")
-        
+            petty_desc = st.text_input("Description", key=f"petty_desc_{user_branch}", placeholder="What was purchased?")
+            petty_amount = st.number_input("Amount ($)", min_value=0.01, step=5.0, key=f"petty_amount_{user_branch}")
+
         with col2:
-            petty_category = st.selectbox("Category", ["Office Supplies", "Transport", "Refreshments", "Cleaning", "Maintenance", "Other"], key="petty_category")
-            petty_notes = st.text_area("Notes", key="petty_notes")
-        
+            petty_category = st.selectbox("Category", ["Office Supplies", "Transport", "Refreshments", "Cleaning", "Maintenance", "Other"], key=f"petty_category_{user_branch}")
+            petty_notes = st.text_area("Notes", key=f"petty_notes_{user_branch}")
+
         shift_to_use = st.session_state.get("shift_id") or st.session_state.get("active_shift_id") or ""
-        
-        if st.button("Record Petty Cash", key="record_petty"):
+
+        if st.button("Record Petty Cash", key=f"record_petty_{user_branch}"):
             if petty_desc and petty_amount > 0:
                 record_petty_cash(
                     description=petty_desc,
@@ -614,40 +688,40 @@ def cash_dashboard():
                 st.rerun()
             else:
                 st.error("Please enter description and amount")
-        
+
         # Petty cash history
         st.markdown("---")
         st.markdown("### Petty Cash History")
-        
+
         petty_df = load_petty_cash()
         if not petty_df.empty:
             st.dataframe(petty_df.sort_values("date", ascending=False), use_container_width=True, hide_index=True)
-            
+
             total_petty = safe_float(petty_df["amount"].sum())
             st.metric("Total Petty Cash Expenses", f"${total_petty:,.2f}")
-    
+
     # ==============================
     # TAB 5: BANK DEPOSITS
     # ==============================
     with tab5:
         st.markdown("## Bank Deposits")
-        
+
         # Record bank deposit
         st.markdown("### Record Bank Deposit")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            deposit_amount = st.number_input("Amount to Deposit ($)", min_value=0.01, step=50.0, key="deposit_amount")
-            deposit_bank = st.selectbox("Bank", ["CABS", "FBC", "POSB", "CBZ", "NMB", "Stanbic", "EcoBank", "Other"], key="deposit_bank")
-        
+            deposit_amount = st.number_input("Amount to Deposit ($)", min_value=0.01, step=50.0, key=f"deposit_amount_{user_branch}")
+            deposit_bank = st.selectbox("Bank", ["CABS", "FBC", "POSB", "CBZ", "NMB", "Stanbic", "EcoBank", "Other"], key=f"deposit_bank_{user_branch}")
+
         with col2:
-            deposit_ref = st.text_input("Reference Number", key="deposit_ref", placeholder="Deposit slip number")
-            deposit_notes = st.text_area("Notes", key="deposit_notes")
-        
+            deposit_ref = st.text_input("Reference Number", key=f"deposit_ref_{user_branch}", placeholder="Deposit slip number")
+            deposit_notes = st.text_area("Notes", key=f"deposit_notes_{user_branch}")
+
         shift_to_use = st.session_state.get("shift_id") or st.session_state.get("active_shift_id") or ""
-        
-        if st.button("Record Bank Deposit", key="record_deposit"):
+
+        if st.button("Record Bank Deposit", key=f"record_deposit_{user_branch}"):
             if deposit_amount > 0:
                 record_bank_deposit(
                     amount=deposit_amount,
@@ -660,61 +734,61 @@ def cash_dashboard():
                 st.rerun()
             else:
                 st.error("Please enter deposit amount")
-        
+
         # Deposit history
         st.markdown("---")
         st.markdown("### Bank Deposit History")
-        
+
         deposits_df = load_bank_deposits()
         if not deposits_df.empty:
             st.dataframe(deposits_df.sort_values("date", ascending=False), use_container_width=True, hide_index=True)
-            
+
             total_deposits = safe_float(deposits_df["amount"].sum())
             st.metric("Total Bank Deposits", f"${total_deposits:,.2f}")
-    
+
     # ==============================
     # EXPORT REPORT
     # ==============================
     st.markdown("---")
-    st.subheader("Export Daily Report")
-    
-    if st.button("Generate Daily Report", use_container_width=True):
+    st.subheader(f"Export Daily Report — {branch_name}")
+
+    if st.button("Generate Daily Report", use_container_width=True, key=f"gen_daily_report_{user_branch}"):
         today = datetime.now().date()
         date_col = get_date_column(sales_undup)
-        
+
         today_cash_sales = 0
         today_credit_sales = 0
         today_total_revenue = 0
-        
+
         if not sales_undup.empty and date_col and amount_col:
             sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
             today_sales = sales_undup[sales_undup[date_col].dt.date == today]
-            
+
             if not today_sales.empty:
                 today_total_revenue = safe_float(today_sales[amount_col].sum())
-                
+
                 if payment_col:
                     cash_sales_df = today_sales[today_sales[payment_col].str.upper().isin(["CASH", "ECOCASH"])]
                     today_cash_sales = safe_float(cash_sales_df[amount_col].sum()) if not cash_sales_df.empty else 0
-                    
+
                     credit_sales_df = today_sales[today_sales[payment_col].str.upper() == "CREDIT"]
                     today_credit_sales = safe_float(credit_sales_df[amount_col].sum()) if not credit_sales_df.empty else 0
-        
+
         # Today's debt payments
         today_debt_payments = 0
         if not debtors_df.empty and "amount_paid" in debtors_df.columns and "repayment_date" in debtors_df.columns:
             debtors_df["repayment_date"] = pd.to_datetime(debtors_df["repayment_date"], errors="coerce")
             today_debt_payments = safe_float(debtors_df[debtors_df["repayment_date"].dt.date == today]["amount_paid"].sum())
-        
+
         report = get_daily_report()
-        
+
         report_text = f"""
 {'='*50}
 AZIEL INVESTMENTS - DAILY CASH REPORT
 {'='*50}
 
 Date: {today.strftime('%Y-%m-%d')}
-Branch: {user_branch}
+Branch: {branch_name} ({user_branch})
 
 {'-'*30}
 CASH SUMMARY (UNDUPLICATED)
@@ -728,18 +802,18 @@ Total Revenue: ${safe_float(today_total_revenue):.2f}
 TRANSACTIONS
 {'-'*30}
 """
-        
+
         if not sales_undup.empty and date_col:
             sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
             today_sales_count = len(sales_undup[sales_undup[date_col].dt.date == today])
             report_text += f"Total Transactions: {today_sales_count}\n"
-        
+
         if report:
             opening_cash = safe_float(report.get('opening_cash', 0))
             closing_cash = safe_float(report.get('closing_cash', 0))
             expected_cash = opening_cash + safe_float(today_cash_sales) + safe_float(today_debt_payments)
             variance = closing_cash - expected_cash
-            
+
             report_text += f"""
 {'-'*30}
 CASH REGISTER
@@ -749,17 +823,17 @@ Expected Cash: ${expected_cash:.2f}
 Actual Cash: ${closing_cash:.2f}
 Variance: ${variance:.2f}
 """
-        
+
         report_text += f"""
 {'-'*50}
 Generated by Aziel Investments ERP
 {'-'*50}
 """
-        
+
         st.download_button(
             label="Download Report (TXT)",
             data=report_text,
-            file_name=f"cash_report_{today.strftime('%Y%m%d')}.txt",
+            file_name=f"cash_report_{user_branch}_{today.strftime('%Y%m%d')}.txt",
             mime="text/plain"
         )
 

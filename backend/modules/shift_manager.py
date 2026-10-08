@@ -139,6 +139,30 @@ def _is_multi_branch_user():
         return False
 
 
+def _lookup_branch_shift_times(branch_id, shift_name):
+    """
+    Best-effort lookup of a shift's configured start/end times from the
+    branch-scoped shift_definitions table. Returns (start, end) or (None, None)
+    if the definition can't be found.
+    """
+    if not branch_id or not shift_name:
+        return None, None
+    try:
+        from backend.core.shift_definitions import load_shift_definitions
+        defs = load_shift_definitions(branch_id=branch_id, include_inactive=True)
+        if defs is None or defs.empty:
+            return None, None
+        match = defs[defs["shift_name"].astype(str).str.upper() == str(shift_name).upper()]
+        if match.empty:
+            return None, None
+        row = match.iloc[0]
+        start = str(row.get("start_time") or "")[:5] or None
+        end = str(row.get("end_time") or "")[:5] or None
+        return start, end
+    except Exception:
+        return None, None
+
+
 # ==============================
 # LOAD SHIFTS (Uses PostgreSQL)
 # ==============================
@@ -229,12 +253,18 @@ def get_user_branch(username, branch_id=None):
 
 
 # ==============================
-# START SHIFT - WITH NAMED SHIFTS (FIXED)
+# START SHIFT - WITH NAMED SHIFTS (BRANCH-SAFE)
 # ==============================
-def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_username, opening_cash=0, shift_name=None):
+def start_shift(cashier_username, cashier_name, branch_id, branch_name,
+                manager_username, opening_cash=0, shift_name=None):
     """
-    Start a shift with a specific name (Alpha, Bravo, Charlie, Delta, Echo).
-    If no shift_name provided, it will suggest the next available shift.
+    Start a shift with a specific name.
+
+    Branch-safety:
+      - `shift_id` is scoped by branch so `AA2` on NAT cannot collide with
+        a row already using the same name on another branch.
+      - Time slot is looked up per-branch from `shift_definitions` first,
+        then from the legacy SHIFT_SLOTS dict, then defaults to 06:00-12:00.
     """
     if branch_id is None:
         branch_id = _get_session_branch()
@@ -262,19 +292,34 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name, manager_
 
     # Check if this shift is already active in the branch
     if "shift_name" in df.columns and "branch_id" in df.columns and "status" in df.columns:
-        active_shift = df[(df["shift_name"] == shift_name) & (df["branch_id"] == branch_id) & (df["status"] == "OPEN")]
+        active_shift = df[
+            (df["shift_name"].astype(str).str.upper() == str(shift_name).upper())
+            & (df["branch_id"].astype(str).str.upper() == str(branch_id).upper())
+            & (df["status"] == "OPEN")
+        ]
         if not active_shift.empty:
             shift_id = active_shift.iloc[0]["shift_id"]
             existing_cashier = active_shift.iloc[0].get("cashier_name", "Unknown")
             return True, shift_id, f"Shift {shift_name} already active in this branch (started by {existing_cashier})"
 
-    # Create a new shift ID (combine date + shift name for uniqueness)
-    shift_id = f"{datetime.now().strftime('%Y%m%d')}-{shift_name}"
+    # ------------------------------------------------------------------
+    # Branch-unique shift_id. Prevents cross-branch PK collisions when
+    # two branches start "ALPHA" on the same day.
+    # ------------------------------------------------------------------
+    shift_id = f"{branch_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{shift_name}"
 
-    # Get shift time slot
-    slot = SHIFT_SLOTS.get(shift_name, {})
-    start_time_slot = slot.get("start_time", "06:00")
-    end_time_slot = slot.get("end_time", "12:00")
+    # ------------------------------------------------------------------
+    # Resolve the time slot for this shift.
+    #   1. Per-branch shift_definitions (this is where custom shifts like
+    #      AA2 for NAT live)
+    #   2. Legacy SHIFT_SLOTS dict (ALPHA–ECHO)
+    #   3. Fallback 06:00-12:00
+    # ------------------------------------------------------------------
+    start_time_slot, end_time_slot = _lookup_branch_shift_times(branch_id, shift_name)
+    if not start_time_slot or not end_time_slot:
+        slot = SHIFT_SLOTS.get(str(shift_name).upper(), {})
+        start_time_slot = slot.get("start_time", "06:00")
+        end_time_slot = slot.get("end_time", "12:00")
 
     new_shift = pd.DataFrame([{
         "shift_id": shift_id,
@@ -349,7 +394,7 @@ def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="
 
 
 # ==============================
-# UPDATE SHIFT STATS - FIXED WITH CORRECT DATA SOURCES
+# UPDATE SHIFT STATS
 # ==============================
 def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, expenses=0, transactions=0, branch_id=None):
     """Update shift statistics during the shift (branch-scoped)."""
@@ -445,7 +490,7 @@ def get_active_shift_for_branch(branch_id, shift_name=None):
 
 
 # ==============================
-# GET ACTIVE SHIFTS FOR BRANCH (All named shifts)
+# GET ACTIVE SHIFTS FOR BRANCH
 # ==============================
 def get_active_shifts_by_branch(branch_id):
     """Get all active shifts for a branch"""
@@ -463,13 +508,7 @@ def get_active_shifts_by_branch(branch_id):
 # GET ALL ACTIVE SHIFTS  (BRANCH-ENFORCED)
 # ==============================
 def get_all_active_shifts(branch_id=None):
-    """
-    Get all active shifts.
-
-    Enforced at the loader level:
-      - owner / manager / admin → all branches (or the branch_id passed in)
-      - everyone else          → only their own branch
-    """
+    """Get all active shifts (branch-enforced for non-multi-branch users)."""
     if branch_id is None:
         branch_id = _get_session_branch()
 
@@ -501,8 +540,6 @@ def get_all_active_shifts(branch_id=None):
 def can_cashier_login(cashier_username, branch_id=None):
     """Check if a cashier can log in - checks if any shift is active in their branch"""
     if branch_id is None:
-        # Use the SESSION branch (set at branch-selection) rather than the user's
-        # recorded branch, so isolation is complete.
         branch_id = (
             _get_session_branch()
             or get_user_branch(cashier_username, branch_id=branch_id)
@@ -609,13 +646,7 @@ def get_shift_cashiers(shift_id, branch_id=None):
 # GET SHIFT STATS  (BRANCH-ENFORCED)
 # ==============================
 def get_shift_stats(branch_id=None):
-    """
-    Get statistics about shifts (branch-scoped).
-
-    Enforced at the loader level:
-      - owner / manager / admin → all branches (or the branch_id passed in)
-      - everyone else          → only their own branch
-    """
+    """Get statistics about shifts (branch-scoped)."""
     if branch_id is None:
         branch_id = _get_session_branch()
 
