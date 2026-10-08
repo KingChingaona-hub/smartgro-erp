@@ -3,6 +3,9 @@
 Automated Insights Digest
 Daily/weekly AI-generated business summaries sent via email
 Customers sourced from sales table as first priority
+
+DEBT SOURCE: Floating Financials (floating_credits + floating_changes),
+NOT the legacy debtors table.
 """
 
 import streamlit as st
@@ -23,13 +26,24 @@ from backend.core.db_adapter import (
     load_sales,
     load_products,
     load_customers,
-    load_expenses,
-    load_debtors,
+    load_expenses,      # kept for backwards compatibility (not used for debt)
+    load_debtors,       # kept for backwards compatibility (not used for debt)
     load_purchases,
     to_float
 )
 from backend.integrations.email_reports import get_email_config, send_email
 from backend.modules.expenses import load_expenses as load_expenses_direct
+
+# ---- NEW: debt comes from floating financials ----
+from backend.core.floating_financials import (
+    get_credit_summary,
+    get_credit_records,
+    get_bad_debt_credits,
+    get_overdue_credits,
+    get_change_summary,
+    get_overdue_changes,
+    get_written_off_changes,
+)
 
 
 # ==============================
@@ -114,13 +128,11 @@ def deduplicate_dataframe(df, subset_cols=None):
     
     df = df.copy()
     
-    # Try to find a unique identifier column
     unique_col = get_unique_id_column(df)
     
     if unique_col:
         return df.drop_duplicates(subset=[unique_col])
     
-    # If no unique column, try deduplicating by combination of fields
     if subset_cols is None:
         subset_cols = []
         for col in ["date", "category", "amount", "description", "vendor"]:
@@ -130,7 +142,6 @@ def deduplicate_dataframe(df, subset_cols=None):
     if len(subset_cols) >= 2:
         return df.drop_duplicates(subset=subset_cols)
     
-    # If all else fails, return original
     return df
 
 
@@ -143,19 +154,16 @@ def get_customers_from_sales(sales_df):
     if customer_col is None:
         return pd.DataFrame()
     
-    # Get unique customers
     customers = sales_df[customer_col].dropna().unique().tolist()
     customers = [str(c).strip() for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
     
     if not customers:
         return pd.DataFrame()
     
-    # Build customer data
     customer_data = []
     for name in customers:
         customer_sales = sales_df[sales_df[customer_col].astype(str).str.contains(name, case=False, na=False)]
         
-        # Get phone
         phone = ""
         phone_col = None
         for col in ["customer_phone", "phone", "Phone"]:
@@ -167,20 +175,17 @@ def get_customers_from_sales(sales_df):
             if not phone_rows.empty:
                 phone = str(phone_rows.iloc[0]).strip()
         
-        # Get total spent
         total_spent = 0
         total_col = get_amount_column(sales_df)
         if total_col and not customer_sales.empty:
             total_spent = to_float(customer_sales[total_col].sum())
         
-        # Get last purchase date
         date_col = get_date_column(sales_df)
         last_purchase = None
         if date_col and not customer_sales.empty:
             customer_sales[date_col] = pd.to_datetime(customer_sales[date_col], errors="coerce")
             last_purchase = customer_sales[date_col].max()
         
-        # Get total orders
         receipt_col = get_receipt_column(sales_df)
         total_orders = 0
         if receipt_col and not customer_sales.empty:
@@ -195,6 +200,149 @@ def get_customers_from_sales(sales_df):
         })
     
     return pd.DataFrame(customer_data)
+
+
+# ==============================
+# FLOATING FINANCIALS DEBT HELPERS  (NEW)
+# ==============================
+
+def fetch_floating_debt_snapshot():
+    """
+    Pull debt metrics from Floating Financials.
+
+    Returns a dict:
+        {
+            # Credits (money owed TO us)
+            "total_credit_balance": float,
+            "active_credit_count": int,
+            "partial_credit_count": int,
+            "total_credit_amount": float,
+            "total_credit_paid": float,
+
+            # Changes (money we owe / uncollected)
+            "total_change_balance": float,
+            "uncollected_change_count": int,
+            "partial_change_count": int,
+            "total_change_amount": float,
+            "total_change_collected": float,
+
+            # Bad debt / written off
+            "bad_debt_count": int,
+            "bad_debt_outstanding": float,
+            "bad_debt_original": float,
+            "written_off_changes_count": int,
+            "written_off_changes_outstanding": float,
+            "written_off_changes_original": float,
+
+            # Overdue
+            "overdue_credit_count": int,
+            "overdue_credit_balance": float,
+            "overdue_change_count": int,
+            "overdue_change_balance": float,
+        }
+    """
+    snapshot = {
+        "total_credit_balance": 0.0,
+        "active_credit_count": 0,
+        "partial_credit_count": 0,
+        "total_credit_amount": 0.0,
+        "total_credit_paid": 0.0,
+
+        "total_change_balance": 0.0,
+        "uncollected_change_count": 0,
+        "partial_change_count": 0,
+        "total_change_amount": 0.0,
+        "total_change_collected": 0.0,
+
+        "bad_debt_count": 0,
+        "bad_debt_outstanding": 0.0,
+        "bad_debt_original": 0.0,
+        "written_off_changes_count": 0,
+        "written_off_changes_outstanding": 0.0,
+        "written_off_changes_original": 0.0,
+
+        "overdue_credit_count": 0,
+        "overdue_credit_balance": 0.0,
+        "overdue_change_count": 0,
+        "overdue_change_balance": 0.0,
+    }
+
+    # ---------- Credit summary ----------
+    try:
+        cs = get_credit_summary() or {}
+        snapshot["total_credit_amount"] = safe_float(cs.get("total_credit", 0))
+        snapshot["total_credit_paid"] = safe_float(cs.get("total_paid", 0))
+        snapshot["total_credit_balance"] = safe_float(cs.get("total_balance", 0))
+        snapshot["active_credit_count"] = int(cs.get("active_count", 0) or 0)
+        snapshot["partial_credit_count"] = int(cs.get("partial_count", 0) or 0)
+    except Exception as e:
+        print(f"[insights] get_credit_summary failed: {e}")
+
+    # ---------- Change summary ----------
+    try:
+        chs = get_change_summary() or {}
+        snapshot["total_change_amount"] = safe_float(chs.get("total_change", 0))
+        snapshot["total_change_collected"] = safe_float(chs.get("total_collected", 0))
+        snapshot["total_change_balance"] = safe_float(chs.get("total_balance", 0))
+        snapshot["uncollected_change_count"] = int(chs.get("uncollected_count", 0) or 0)
+        snapshot["partial_change_count"] = int(chs.get("partial_count", 0) or 0)
+    except Exception as e:
+        print(f"[insights] get_change_summary failed: {e}")
+
+    # ---------- Bad debt credits ----------
+    try:
+        bd_df = get_bad_debt_credits()
+        if bd_df is not None and not bd_df.empty:
+            bd = bd_df.copy()
+            bd["amount"] = pd.to_numeric(bd.get("amount"), errors="coerce").fillna(0)
+            bd["amount_paid"] = pd.to_numeric(bd.get("amount_paid"), errors="coerce").fillna(0)
+            bd["outstanding"] = (bd["amount"] - bd["amount_paid"]).clip(lower=0)
+            # Only count rows that still have an outstanding balance
+            open_bd = bd[bd["outstanding"] > 0]
+            snapshot["bad_debt_count"] = int(len(open_bd))
+            snapshot["bad_debt_original"] = safe_float(bd["amount"].sum())
+            snapshot["bad_debt_outstanding"] = safe_float(open_bd["outstanding"].sum())
+    except Exception as e:
+        print(f"[insights] get_bad_debt_credits failed: {e}")
+
+    # ---------- Written off changes ----------
+    try:
+        wo_df = get_written_off_changes()
+        if wo_df is not None and not wo_df.empty:
+            wo = wo_df.copy()
+            wo["amount"] = pd.to_numeric(wo.get("amount"), errors="coerce").fillna(0)
+            wo["amount_collected"] = pd.to_numeric(wo.get("amount_collected"), errors="coerce").fillna(0)
+            wo["outstanding"] = (wo["amount"] - wo["amount_collected"]).clip(lower=0)
+            open_wo = wo[wo["outstanding"] > 0]
+            snapshot["written_off_changes_count"] = int(len(open_wo))
+            snapshot["written_off_changes_original"] = safe_float(wo["amount"].sum())
+            snapshot["written_off_changes_outstanding"] = safe_float(open_wo["outstanding"].sum())
+    except Exception as e:
+        print(f"[insights] get_written_off_changes failed: {e}")
+
+    # ---------- Overdue credits ----------
+    try:
+        od_cr = get_overdue_credits()
+        if od_cr is not None and not od_cr.empty:
+            od_cr = od_cr.copy()
+            od_cr["balance"] = pd.to_numeric(od_cr.get("balance"), errors="coerce").fillna(0)
+            snapshot["overdue_credit_count"] = int(len(od_cr))
+            snapshot["overdue_credit_balance"] = safe_float(od_cr["balance"].sum())
+    except Exception as e:
+        print(f"[insights] get_overdue_credits failed: {e}")
+
+    # ---------- Overdue changes ----------
+    try:
+        od_ch = get_overdue_changes()
+        if od_ch is not None and not od_ch.empty:
+            od_ch = od_ch.copy()
+            od_ch["balance"] = pd.to_numeric(od_ch.get("balance"), errors="coerce").fillna(0)
+            snapshot["overdue_change_count"] = int(len(od_ch))
+            snapshot["overdue_change_balance"] = safe_float(od_ch["balance"].sum())
+    except Exception as e:
+        print(f"[insights] get_overdue_changes failed: {e}")
+
+    return snapshot
 
 
 # ==============================
@@ -213,16 +361,14 @@ class InsightsGenerator:
     def generate_daily_insights(self):
         """Generate daily business insights"""
         
-        # Load data
         sales_df = load_sales()
         products_df = load_products()
         expenses_df = load_expenses_direct()
-        debtors_df = load_debtors()
         
-        # Get customers from sales (PRIMARY SOURCE)
+        # NEW: debt comes from floating financials
+        debt_snapshot = fetch_floating_debt_snapshot()
+        
         customers_df = get_customers_from_sales(sales_df)
-        
-        # Fallback: if no customers from sales, try customers table
         if customers_df.empty:
             customers_df = load_customers()
         
@@ -244,16 +390,20 @@ class InsightsGenerator:
         product_insights = self._analyze_products(products_df, sales_df)
         self.insights.extend(product_insights)
         
-        # 3. Customer Insights - USING CUSTOMERS FROM SALES
+        # 3. Customer Insights
         customer_insights = self._analyze_customers(customers_df, sales_df)
         self.insights.extend(customer_insights)
         
-        # 4. Financial Insights - FIXED with deduplication
-        financial_insights = self._analyze_financials(expenses_df, sales_df, debtors_df)
+        # 4. Financial Insights (expenses + revenue) - no more debtors
+        financial_insights = self._analyze_financials(expenses_df, sales_df)
         self.insights.extend(financial_insights)
         
-        # 5. Alerts
-        self.alerts = self._generate_alerts(products_df, debtors_df, sales_df)
+        # 5. NEW: Floating Financials debt insights
+        debt_insights = self._analyze_floating_debt(debt_snapshot)
+        self.insights.extend(debt_insights)
+        
+        # 6. Alerts (now driven by floating financials for debt)
+        self.alerts = self._generate_alerts(products_df, sales_df, debt_snapshot)
         
         return self._format_report()
     
@@ -277,37 +427,28 @@ class InsightsGenerator:
         if sales_df.empty:
             return [{"type": "sales", "message": "No valid sales dates", "priority": "info"}]
         
-        # ==============================
-        # FIX: Deduplicate by receipt_no
-        # ==============================
         if receipt_col and receipt_col in sales_df.columns:
             sales_df = sales_df.drop_duplicates(subset=[receipt_col])
         
-        # Today's sales
         today_sales = sales_df[sales_df[date_col].dt.date == today]
         today_revenue = safe_float(today_sales[amount_col].sum()) if amount_col else 0
         today_transactions = len(today_sales)
         
-        # Yesterday's sales
         yesterday_sales = sales_df[sales_df[date_col].dt.date == yesterday]
         yesterday_revenue = safe_float(yesterday_sales[amount_col].sum()) if amount_col else 0
         
-        # Week sales
         week_sales = sales_df[sales_df[date_col] >= pd.Timestamp(week_ago)]
         week_revenue = safe_float(week_sales[amount_col].sum()) if amount_col else 0
         
-        # Month sales
         month_sales = sales_df[sales_df[date_col] >= pd.Timestamp(month_ago)]
         month_revenue = safe_float(month_sales[amount_col].sum()) if amount_col else 0
         
-        # Store metrics
         self.metrics["today_revenue"] = today_revenue
         self.metrics["today_transactions"] = today_transactions
         self.metrics["yesterday_revenue"] = yesterday_revenue
         self.metrics["week_revenue"] = week_revenue
         self.metrics["month_revenue"] = month_revenue
         
-        # Insights
         if today_revenue > 0:
             if yesterday_revenue > 0:
                 growth = ((today_revenue - yesterday_revenue) / yesterday_revenue * 100)
@@ -347,7 +488,6 @@ class InsightsGenerator:
                 "detail": "Check if store is open and POS is working"
             })
         
-        # Weekly summary
         if week_revenue > 0:
             insights.append({
                 "type": "sales",
@@ -365,11 +505,9 @@ class InsightsGenerator:
         if products_df.empty:
             return [{"type": "products", "message": "No products in inventory", "priority": "info"}]
         
-        # Stock levels
         total_products = len(products_df)
         out_of_stock = len(products_df[products_df["stock"] == 0])
         
-        # Find reorder level column
         reorder_col = None
         for col in ["reorder_level", "reorder_point", "min_stock"]:
             if col in products_df.columns:
@@ -379,7 +517,6 @@ class InsightsGenerator:
         if reorder_col:
             low_stock = len(products_df[products_df["stock"] <= products_df[reorder_col]])
         else:
-            # If no reorder level, consider stock < 5 as low
             low_stock = len(products_df[(products_df["stock"] > 0) & (products_df["stock"] < 5)])
         
         self.metrics["total_products"] = total_products
@@ -387,7 +524,6 @@ class InsightsGenerator:
         self.metrics["low_stock"] = low_stock
         
         if out_of_stock > 0:
-            # Get top out of stock products
             out_of_stock_products = products_df[products_df["stock"] == 0]["name"].head(3).tolist()
             names = ", ".join(out_of_stock_products)
             insights.append({
@@ -413,9 +549,7 @@ class InsightsGenerator:
                 "detail": f"{total_products} products available"
             })
         
-        # Top selling products
         if not sales_df.empty and "name" in sales_df.columns:
-            # Deduplicate sales for product analysis
             receipt_col = get_receipt_column(sales_df)
             if receipt_col and receipt_col in sales_df.columns:
                 sales_products = sales_df.drop_duplicates(subset=[receipt_col])
@@ -445,7 +579,6 @@ class InsightsGenerator:
         total_customers = len(customers_df)
         self.metrics["total_customers"] = total_customers
         
-        # New customers (last 30 days) - from sales data
         if not sales_df.empty:
             customer_col = get_customer_column(sales_df)
             date_col = get_date_column(sales_df)
@@ -454,10 +587,8 @@ class InsightsGenerator:
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 month_ago = datetime.now() - timedelta(days=30)
                 
-                # Get unique customers in last 30 days
                 recent_sales = sales_df[sales_df[date_col] >= month_ago].copy()
                 if not recent_sales.empty:
-                    # Deduplicate by receipt
                     receipt_col = get_receipt_column(sales_df)
                     if receipt_col and receipt_col in recent_sales.columns:
                         recent_sales = recent_sales.drop_duplicates(subset=[receipt_col])
@@ -476,19 +607,16 @@ class InsightsGenerator:
                             "detail": f"Total: {total_customers} customers"
                         })
         
-        # Customer retention - from sales data
         if not sales_df.empty:
             customer_col = get_customer_column(sales_df)
             
             if customer_col:
-                # Deduplicate sales for customer analysis
                 receipt_col = get_receipt_column(sales_df)
                 if receipt_col and receipt_col in sales_df.columns:
                     sales_customers = sales_df.drop_duplicates(subset=[receipt_col])
                 else:
                     sales_customers = sales_df
                 
-                # Get unique customers and their purchase counts
                 customer_counts = sales_customers.groupby(customer_col).size()
                 customer_counts = customer_counts[customer_counts.index.str.lower() != "walk-in"]
                 
@@ -522,13 +650,11 @@ class InsightsGenerator:
         
         return insights
     
-    def _analyze_financials(self, expenses_df, sales_df, debtors_df):
-        """Analyze financial data - FIXED with correct unduplicated revenue"""
+    def _analyze_financials(self, expenses_df, sales_df):
+        """Analyze financial data (expenses + revenue). Debt is handled separately."""
         insights = []
         
-        # ==============================
-        # FIX 1: Expenses - Load correctly
-        # ==============================
+        # Expenses
         total_expenses = 0
         if expenses_df is not None and not expenses_df.empty:
             expenses_clean = deduplicate_dataframe(expenses_df)
@@ -540,7 +666,6 @@ class InsightsGenerator:
             if amount_col:
                 total_expenses = safe_float(expenses_clean[amount_col].sum())
         
-        # If still 0, try loading from core
         if total_expenses == 0:
             try:
                 from backend.core.db_adapter import load_expenses as load_expenses_core
@@ -557,10 +682,8 @@ class InsightsGenerator:
             except:
                 pass
         
-        # FORCE SET total_expenses in metrics
         self.metrics["total_expenses"] = total_expenses
         
-        # Monthly expenses (last 30 days)
         monthly_expenses = 0
         if expenses_df is not None and not expenses_df.empty:
             date_col = get_date_column(expenses_df)
@@ -603,27 +726,23 @@ class InsightsGenerator:
                 "detail": "Start recording expenses in the Expenses module"
             })
         
-        # ==============================
-        # FIX 2: Revenue - FORCE CALCULATION with deduplication
-        # ==============================
+        # Revenue
         total_revenue = 0
+        sales_undup = pd.DataFrame()
         
         if not sales_df.empty:
             amount_col = get_amount_column(sales_df)
             receipt_col = get_receipt_column(sales_df)
             
             if amount_col:
-                # STRONG FIX: Deduplicate by receipt_no
                 if receipt_col and receipt_col in sales_df.columns:
                     sales_undup = sales_df.drop_duplicates(subset=[receipt_col])
-                    total_revenue = safe_float(sales_undup[amount_col].sum())
                 else:
                     sales_undup = sales_df.copy()
                     if "date" in sales_undup.columns:
                         sales_undup = sales_undup.drop_duplicates(subset=["date", amount_col])
-                    total_revenue = safe_float(sales_undup[amount_col].sum())
+                total_revenue = safe_float(sales_undup[amount_col].sum())
         
-        # FORCE SET total_revenue in metrics
         self.metrics["total_revenue"] = total_revenue
         
         if total_revenue > 0:
@@ -641,36 +760,124 @@ class InsightsGenerator:
                 "detail": "Complete some sales to see financial metrics"
             })
         
-        # Debtors
-        if not debtors_df.empty:
-            balance_col = None
-            for col in ["balance", "outstanding", "amount_due"]:
-                if col in debtors_df.columns:
-                    balance_col = col
-                    break
-            
-            if balance_col:
-                total_debt = safe_float(debtors_df[balance_col].sum())
-                self.metrics["total_debt"] = total_debt
-                
-                debtors_count = len(debtors_df[debtors_df[balance_col] > 0])
-                self.metrics["debtors_count"] = debtors_count
-                
-                if total_debt > 0:
-                    insights.append({
-                        "type": "financial",
-                        "message": f"Outstanding debt: ${total_debt:,.2f}",
-                        "priority": "medium" if total_debt > 1000 else "info",
-                        "detail": f"{debtors_count} customers with outstanding balance"
-                    })
-            else:
-                self.metrics["total_debt"] = 0
-                self.metrics["debtors_count"] = 0
-        
         return insights
     
-    def _generate_alerts(self, products_df, debtors_df, sales_df):
-        """Generate critical alerts"""
+    # ============================================================
+    # NEW: Debt analysis pulled from Floating Financials
+    # ============================================================
+    def _analyze_floating_debt(self, snapshot):
+        """Analyze debt data coming from Floating Financials."""
+        insights = []
+
+        if not snapshot:
+            return [{"type": "debt", "message": "No floating financials debt data available", "priority": "info"}]
+
+        # Store all metrics for the report
+        self.metrics["total_credit_balance"] = snapshot.get("total_credit_balance", 0.0)
+        self.metrics["active_credit_count"] = snapshot.get("active_credit_count", 0)
+        self.metrics["partial_credit_count"] = snapshot.get("partial_credit_count", 0)
+        self.metrics["total_change_balance"] = snapshot.get("total_change_balance", 0.0)
+        self.metrics["uncollected_change_count"] = snapshot.get("uncollected_change_count", 0)
+        self.metrics["partial_change_count"] = snapshot.get("partial_change_count", 0)
+        self.metrics["bad_debt_count"] = snapshot.get("bad_debt_count", 0)
+        self.metrics["bad_debt_outstanding"] = snapshot.get("bad_debt_outstanding", 0.0)
+        self.metrics["written_off_changes_count"] = snapshot.get("written_off_changes_count", 0)
+        self.metrics["written_off_changes_outstanding"] = snapshot.get("written_off_changes_outstanding", 0.0)
+        self.metrics["overdue_credit_count"] = snapshot.get("overdue_credit_count", 0)
+        self.metrics["overdue_credit_balance"] = snapshot.get("overdue_credit_balance", 0.0)
+        self.metrics["overdue_change_count"] = snapshot.get("overdue_change_count", 0)
+        self.metrics["overdue_change_balance"] = snapshot.get("overdue_change_balance", 0.0)
+
+        # Keep a legacy-compatible "total_debt" so other code / emails that
+        # reference that key still work — now sourced from floating credits.
+        self.metrics["total_debt"] = snapshot.get("total_credit_balance", 0.0)
+        self.metrics["debtors_count"] = (
+            int(snapshot.get("active_credit_count", 0) or 0)
+            + int(snapshot.get("partial_credit_count", 0) or 0)
+        )
+
+        # ---------------- Outstanding credit ----------------
+        credit_balance = snapshot.get("total_credit_balance", 0.0)
+        open_credit_count = (
+            int(snapshot.get("active_credit_count", 0) or 0)
+            + int(snapshot.get("partial_credit_count", 0) or 0)
+        )
+        if credit_balance > 0:
+            insights.append({
+                "type": "debt",
+                "message": f"Outstanding credit: ${credit_balance:,.2f}",
+                "priority": "medium" if credit_balance > 1000 else "info",
+                "detail": f"{open_credit_count} open credit record(s) in Floating Financials"
+            })
+        else:
+            insights.append({
+                "type": "debt",
+                "message": "No outstanding customer credit",
+                "priority": "success",
+                "detail": "All credits fully paid"
+            })
+
+        # ---------------- Outstanding change ----------------
+        change_balance = snapshot.get("total_change_balance", 0.0)
+        open_change_count = (
+            int(snapshot.get("uncollected_change_count", 0) or 0)
+            + int(snapshot.get("partial_change_count", 0) or 0)
+        )
+        if change_balance > 0:
+            insights.append({
+                "type": "debt",
+                "message": f"Uncollected change: ${change_balance:,.2f}",
+                "priority": "info",
+                "detail": f"{open_change_count} open change record(s) in Floating Financials"
+            })
+
+        # ---------------- Bad debt credits ----------------
+        bd_outstanding = snapshot.get("bad_debt_outstanding", 0.0)
+        bd_count = snapshot.get("bad_debt_count", 0)
+        if bd_count > 0:
+            insights.append({
+                "type": "debt",
+                "message": f"{bd_count} bad-debt credit(s) still unrecovered (${bd_outstanding:,.2f})",
+                "priority": "high",
+                "detail": "See Bad Debts section in Floating Financials for recovery"
+            })
+
+        # ---------------- Written-off changes ----------------
+        wo_outstanding = snapshot.get("written_off_changes_outstanding", 0.0)
+        wo_count = snapshot.get("written_off_changes_count", 0)
+        if wo_count > 0:
+            insights.append({
+                "type": "debt",
+                "message": f"{wo_count} written-off change(s) still unrecovered (${wo_outstanding:,.2f})",
+                "priority": "medium",
+                "detail": "See Written Off Changes section in Floating Financials"
+            })
+
+        # ---------------- Overdue ----------------
+        od_cr_count = snapshot.get("overdue_credit_count", 0)
+        od_cr_balance = snapshot.get("overdue_credit_balance", 0.0)
+        if od_cr_count > 0:
+            insights.append({
+                "type": "debt",
+                "message": f"{od_cr_count} overdue credit(s) totalling ${od_cr_balance:,.2f}",
+                "priority": "high",
+                "detail": "Follow up with these customers"
+            })
+
+        od_ch_count = snapshot.get("overdue_change_count", 0)
+        od_ch_balance = snapshot.get("overdue_change_balance", 0.0)
+        if od_ch_count > 0:
+            insights.append({
+                "type": "debt",
+                "message": f"{od_ch_count} overdue change(s) totalling ${od_ch_balance:,.2f}",
+                "priority": "medium",
+                "detail": "Collect or write off per Floating Financials policy"
+            })
+
+        return insights
+    
+    def _generate_alerts(self, products_df, sales_df, debt_snapshot):
+        """Generate critical alerts (debt now comes from floating financials)"""
         alerts = []
         
         # Stock alerts
@@ -683,22 +890,35 @@ class InsightsGenerator:
                     "severity": "critical"
                 })
         
-        # Debt alerts
-        if not debtors_df.empty:
-            balance_col = None
-            for col in ["balance", "outstanding", "amount_due"]:
-                if col in debtors_df.columns:
-                    balance_col = col
-                    break
-            
-            if balance_col:
-                high_debt = debtors_df[debtors_df[balance_col] > 1000]
-                if not high_debt.empty:
-                    alerts.append({
-                        "type": "debt",
-                        "message": f"{len(high_debt)} customers with high debt (>$1000)",
-                        "severity": "warning"
-                    })
+        # Debt alerts — from floating financials
+        if debt_snapshot:
+            credit_balance = debt_snapshot.get("total_credit_balance", 0.0)
+            if credit_balance > 1000:
+                open_count = (
+                    int(debt_snapshot.get("active_credit_count", 0) or 0)
+                    + int(debt_snapshot.get("partial_credit_count", 0) or 0)
+                )
+                alerts.append({
+                    "type": "debt",
+                    "message": f"Outstanding customer credit exceeds $1,000 (${credit_balance:,.2f} across {open_count} record(s))",
+                    "severity": "warning"
+                })
+
+            od_cr_count = debt_snapshot.get("overdue_credit_count", 0)
+            if od_cr_count > 0:
+                alerts.append({
+                    "type": "debt",
+                    "message": f"{od_cr_count} overdue credit(s) need follow-up",
+                    "severity": "warning"
+                })
+
+            bd_count = debt_snapshot.get("bad_debt_count", 0)
+            if bd_count > 0:
+                alerts.append({
+                    "type": "debt",
+                    "message": f"{bd_count} bad-debt credit(s) unrecovered",
+                    "severity": "warning"
+                })
         
         # Sales alerts
         if not sales_df.empty:
@@ -709,7 +929,6 @@ class InsightsGenerator:
                 sales_df[date_col] = pd.to_datetime(sales_df[date_col], errors="coerce")
                 today = datetime.now().date()
                 
-                # Deduplicate for today's sales check
                 if receipt_col and receipt_col in sales_df.columns:
                     today_sales = sales_df[sales_df[date_col].dt.date == today].drop_duplicates(subset=[receipt_col])
                 else:
@@ -739,7 +958,6 @@ class InsightsGenerator:
         """Generate executive summary"""
         summary = []
         
-        # Count insights by priority
         high_count = sum(1 for i in self.insights if i.get("priority") == "high")
         medium_count = sum(1 for i in self.insights if i.get("priority") == "medium")
         
@@ -748,13 +966,21 @@ class InsightsGenerator:
         if medium_count > 0:
             summary.append(f"{medium_count} medium-priority insights to review")
         
-        # Key metrics
         if self.metrics:
             revenue = self.metrics.get("today_revenue", 0)
             if revenue > 0:
                 summary.append(f"Today's revenue: ${revenue:,.2f}")
             else:
                 summary.append("No sales recorded today")
+
+            # Debt line from floating financials
+            credit_balance = self.metrics.get("total_credit_balance", 0.0)
+            if credit_balance > 0:
+                summary.append(f"Outstanding credit: ${credit_balance:,.2f}")
+
+            bd_outstanding = self.metrics.get("bad_debt_outstanding", 0.0)
+            if bd_outstanding > 0:
+                summary.append(f"Bad debt unrecovered: ${bd_outstanding:,.2f}")
         
         if not summary:
             summary.append("All metrics look good")
@@ -777,7 +1003,7 @@ def load_insights_settings():
     
     return {
         "enabled": True,
-        "frequency": "daily",  # daily, weekly
+        "frequency": "daily",
         "send_time": "08:00",
         "last_sent": None,
         "recipients": [],
@@ -938,7 +1164,7 @@ def generate_insights_email_html(insights_data):
                 border: 1px solid #bbf7d0;
                 color: #166534;
             }}
-    </style>
+        </style>
     </head>
     <body>
         <div class="container">
@@ -949,7 +1175,6 @@ def generate_insights_email_html(insights_data):
             </div>
     """
     
-    # Summary
     if insights_data.get("summary"):
         html += f"""
             <div class="summary">
@@ -958,7 +1183,6 @@ def generate_insights_email_html(insights_data):
             </div>
         """
     
-    # Alerts
     if alerts:
         html += """
             <h3 style="color: #991b1b;">Alerts</h3>
@@ -970,7 +1194,6 @@ def generate_insights_email_html(insights_data):
                 </div>
             """
     
-    # Metrics
     if metrics:
         html += """
             <h3>Key Metrics</h3>
@@ -984,7 +1207,8 @@ def generate_insights_email_html(insights_data):
             ("Customers", f"{metrics.get('total_customers', 0)}"),
             ("Low Stock", f"{metrics.get('low_stock', 0)}"),
             ("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}"),
-            ("Debt", f"${metrics.get('total_debt', 0):,.2f}")
+            ("Outstanding Credit", f"${metrics.get('total_credit_balance', 0):,.2f}"),
+            ("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}"),
         ]
         
         for label, value in metric_display:
@@ -999,7 +1223,6 @@ def generate_insights_email_html(insights_data):
             </div>
         """
     
-    # Insights
     if insights:
         html += """
             <h3>Insights</h3>
@@ -1024,7 +1247,6 @@ def generate_insights_email_html(insights_data):
                 </div>
             """
     
-    # Footer
     html += f"""
             <div class="footer">
                 <p>SmartGro ERP System • Aziel Investments</p>
@@ -1058,11 +1280,9 @@ def send_insights_email(insights_data, recipient=None):
     if not recipients:
         return False, "No recipients configured"
     
-    # Generate email
     subject = f"SmartGro Insights - {datetime.now().strftime('%Y-%m-%d')}"
     body = generate_insights_email_html(insights_data)
     
-    # Send to each recipient
     success_count = 0
     for email in recipients:
         if email and email.strip():
@@ -1075,13 +1295,9 @@ def send_insights_email(insights_data, recipient=None):
                 success_count += 1
     
     if success_count > 0:
-        # Update last sent time
         settings["last_sent"] = datetime.now().isoformat()
         save_insights_settings(settings)
-        
-        # Log history
         log_insights_history(insights_data)
-        
         return True, f"Sent to {success_count} recipient(s)"
     
     return False, "Failed to send to any recipient"
@@ -1089,19 +1305,15 @@ def send_insights_email(insights_data, recipient=None):
 
 def send_daily_insights():
     """Send daily insights to all recipients"""
-    
     generator = InsightsGenerator()
     insights_data = generator.generate_daily_insights()
-    
     return send_insights_email(insights_data)
 
 
 def send_test_insights_email(email):
     """Send a test insights email"""
-    
     generator = InsightsGenerator()
     insights_data = generator.generate_daily_insights()
-    
     return send_insights_email(insights_data, email)
 
 
@@ -1121,12 +1333,8 @@ def automated_insights_dashboard():
         st.error("Access Denied. Only owners and managers can access insights digest.")
         return
     
-    # Load settings
     settings = load_insights_settings()
     
-    # ==============================
-    # TABS
-    # ==============================
     tab1, tab2, tab3 = st.tabs([
         "Generate Insights",
         "Settings",
@@ -1138,6 +1346,7 @@ def automated_insights_dashboard():
     # ==============================
     with tab1:
         st.markdown("## Generate Business Insights")
+        st.caption("Debt data is sourced from Floating Financials (credits + changes).")
         
         if st.button("Generate Today's Insights", type="primary", use_container_width=True):
             with st.spinner("Generating insights..."):
@@ -1148,22 +1357,18 @@ def automated_insights_dashboard():
                 st.success("Insights generated!")
                 st.balloons()
         
-        # Display current insights
         if "current_insights" in st.session_state:
             insights_data = st.session_state.current_insights
             
-            # Summary
             if insights_data.get("summary"):
                 st.info(f"{insights_data.get('summary')}")
             
-            # Alerts
             alerts = insights_data.get("alerts", [])
             if alerts:
                 st.markdown("### Alerts")
                 for alert in alerts:
                     st.error(f"**{alert.get('message', 'Alert')}**")
             
-            # Metrics
             metrics = insights_data.get("metrics", {})
             if metrics:
                 st.markdown("### Key Metrics")
@@ -1184,9 +1389,21 @@ def automated_insights_dashboard():
                 with col2:
                     st.metric("Total Expenses", f"${metrics.get('total_expenses', 0):,.2f}")
                 with col3:
-                    st.metric("Debt", f"${metrics.get('total_debt', 0):,.2f}")
+                    st.metric("Outstanding Credit", f"${metrics.get('total_credit_balance', 0):,.2f}")
+                with col4:
+                    st.metric("Bad Debt Unrecovered", f"${metrics.get('bad_debt_outstanding', 0):,.2f}")
+                
+                # NEW: additional debt line from floating financials
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Open Credits", metrics.get('active_credit_count', 0) + metrics.get('partial_credit_count', 0))
+                with col2:
+                    st.metric("Uncollected Changes", f"${metrics.get('total_change_balance', 0):,.2f}")
+                with col3:
+                    st.metric("Overdue Credits", metrics.get('overdue_credit_count', 0))
+                with col4:
+                    st.metric("Overdue Changes", metrics.get('overdue_change_count', 0))
             
-            # Insights
             insights = insights_data.get("insights", [])
             if insights:
                 st.markdown("### Insights")
@@ -1213,7 +1430,6 @@ def automated_insights_dashboard():
                         if insight.get("detail"):
                             st.caption(insight.get("detail"))
             
-            # Send email button
             st.markdown("---")
             st.markdown("### Send Report")
             
@@ -1290,7 +1506,6 @@ def automated_insights_dashboard():
             st.success("Settings saved successfully!")
             st.rerun()
         
-        # Test button
         st.markdown("---")
         if st.button("Send Test Insights Email", use_container_width=True):
             with st.spinner("Generating and sending..."):
@@ -1312,7 +1527,6 @@ def automated_insights_dashboard():
             history_df = pd.read_csv(INSIGHTS_HISTORY_FILE)
             
             if not history_df.empty:
-                # Convert timestamp
                 history_df["timestamp"] = pd.to_datetime(history_df["timestamp"])
                 history_df["date"] = history_df["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
                 
@@ -1325,7 +1539,6 @@ def automated_insights_dashboard():
                     }
                 )
                 
-                # Chart
                 if len(history_df) > 1:
                     fig = go.Figure()
                     
@@ -1345,7 +1558,6 @@ def automated_insights_dashboard():
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # Export
                 csv = history_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="Download History (CSV)",
