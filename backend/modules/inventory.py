@@ -9,8 +9,9 @@ Design rules (post-fix):
     read-modify-write race where stale rows overwrite fresh stock.
   - Batch delete uses delete_products (real SQL DELETE) instead of
     silently re-saving the surviving rows.
-  - Barcodes are validated with the relaxed validate_barcode, so
-    SKUs, EAN-8/12/13, and alphanumeric codes are all accepted.
+  - Batch update sends only the edited rows to save_products.
+  - Barcodes are validated with the relaxed validate_barcode, so SKUs,
+    EAN-8/12/13, and alphanumeric codes are all accepted.
   - Empty barcodes on "Add Product" are auto-generated as 13-digit
     numeric codes that pass validate_barcode.
 """
@@ -28,7 +29,12 @@ from backend.core.db_adapter import (
     load_branches,
 )
 from backend.core.auth import check_login
-from backend.scripts.remove_duplicate_products import duplicate_products_page
+
+try:
+    from backend.scripts.remove_duplicate_products import duplicate_products_page
+except ImportError:
+    def duplicate_products_page():
+        st.warning("Duplicate products cleanup tool is not available in this build.")
 
 
 # ==============================
@@ -62,9 +68,6 @@ def _branch_display_name(branch_id):
 def _generate_numeric_barcode(seed_index=0):
     """
     Generate a 13-digit numeric barcode that passes validate_barcode.
-
-    Mirrors purchases.py's _generate_numeric_barcode so inventory and
-    purchases produce the same shape of generated codes.
     """
     stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")  # 20 digits
     core = stamp[:12]
@@ -264,7 +267,6 @@ def inventory_page():
                         "reorder_level": float(reorder_level),
                     }])
 
-                    # Send ONLY the new row
                     if save_products(new_row, branch_id=branch_id):
                         st.success(f"Product '{name}' added successfully!")
                         st.rerun()
@@ -276,11 +278,15 @@ def inventory_page():
 
     st.markdown("---")
 
-    # ---------- Batch delete ----------
+    # ==========================================================
+    # BATCH DELETE PRODUCTS
+    # ==========================================================
     st.markdown("## Batch Delete Products")
-    st.caption("Select products, confirm, and delete them permanently.")
+    st.caption("Select multiple products and delete them all at once")
 
     if not df.empty:
+        st.markdown("### Select Products to Delete")
+
         with st.form(f"batch_delete_form_{branch_id}", clear_on_submit=False):
             select_all_delete = st.checkbox("Select All", key=f"select_all_delete_{branch_id}")
 
@@ -312,13 +318,18 @@ def inventory_page():
                 key=f"confirm_batch_delete_{branch_id}",
             )
 
-            col1, col2 = st.columns([1, 1])
+            col1, col2, col3 = st.columns([1, 1, 1])
+
             with col1:
                 clear_selected = st.form_submit_button("Clear Selection", use_container_width=True)
                 if clear_selected:
                     st.rerun()
 
             with col2:
+                if delete_selected:
+                    st.info(f"**{len(delete_selected)} products selected**")
+
+            with col3:
                 delete_button = st.form_submit_button(
                     f"Delete {len(delete_selected)} Products",
                     type="secondary",
@@ -328,7 +339,7 @@ def inventory_page():
 
                 if delete_button and delete_selected:
                     if not confirm_delete_batch:
-                        st.error("Please check the confirmation box.")
+                        st.error("Please confirm deletion by checking the box above.")
                     else:
                         barcodes_to_delete = []
                         names_deleted = []
@@ -339,7 +350,7 @@ def inventory_page():
 
                         if delete_products(barcodes_to_delete, branch_id=branch_id):
                             st.success(
-                                f"Deleted {len(barcodes_to_delete)} product(s): "
+                                f"Successfully deleted {len(barcodes_to_delete)} product(s): "
                                 f"{', '.join(names_deleted[:5])}"
                                 f"{'...' if len(names_deleted) > 5 else ''}"
                             )
@@ -347,13 +358,269 @@ def inventory_page():
                             st.rerun()
                         else:
                             st.error("Delete failed. See terminal for details.")
-
     else:
         st.info("No products in inventory to delete.")
 
     st.markdown("---")
 
-    # ---------- Single product update ----------
+    # ==========================================================
+    # BATCH UPDATE PRODUCTS  (RESTORED)
+    # ==========================================================
+    st.markdown("## Batch Update Products")
+    st.caption("Select multiple products, edit their details manually, then save all at once")
+
+    if not df.empty:
+        st.markdown("### Select Products to Edit")
+
+        # ---- selection step (own form so it doesn't collide with the edit form) ----
+        with st.form(f"batch_edit_select_form_{branch_id}", clear_on_submit=False):
+            select_all_edit = st.checkbox("Select All", key=f"select_all_batch_edit_form_{branch_id}")
+
+            cols_per_row = 2
+            product_list = df.to_dict("records")
+            edit_selected = []
+
+            for i, product in enumerate(product_list):
+                col_idx = i % cols_per_row
+                if col_idx == 0:
+                    cols = st.columns(cols_per_row)
+
+                name = str(product.get("name", ""))
+                stock = float(product.get("stock", 0) or 0)
+                price = float(product.get("price", 0) or 0)
+
+                is_selected = select_all_edit or (i in st.session_state.batch_selected)
+
+                with cols[col_idx]:
+                    checked = st.checkbox(
+                        f"{name}\n(Stock: {stock:.2f} | Price: ${price:.2f})",
+                        key=f"edit_check_{i}_{branch_id}",
+                        value=is_selected,
+                    )
+                    if checked:
+                        edit_selected.append(i)
+                        if i not in st.session_state.batch_edit_data:
+                            st.session_state.batch_edit_data[i] = {
+                                "name": str(product.get("name", "")),
+                                "category": str(product.get("category", "")),
+                                "price": float(product.get("price", 0) or 0),
+                                "cost": float(product.get("cost", 0) or 0),
+                                "stock": float(product.get("stock", 0) or 0),
+                                "reorder_level": float(product.get("reorder_level", 0) or 0),
+                            }
+
+            if st.form_submit_button("Update Selection", use_container_width=True):
+                st.session_state.batch_selected = edit_selected
+                st.rerun()
+
+        # ---- edit step ----
+        if st.session_state.batch_selected:
+            st.markdown("---")
+            st.markdown(f"### Editing {len(st.session_state.batch_selected)} Product(s)")
+            st.info(
+                "Edit the fields below for each selected product. Changes will be "
+                "saved together when you click 'Save All Changes'."
+            )
+
+            with st.form(f"batch_edit_form_{branch_id}", clear_on_submit=False):
+                updates = {}
+
+                for idx in st.session_state.batch_selected:
+                    if idx < len(df):
+                        product = df.iloc[idx]
+                        current_name = str(product.get("name", ""))
+                        edit_data = st.session_state.batch_edit_data.get(idx, {})
+
+                        st.markdown(f"**Product {idx + 1}: {current_name}**")
+
+                        col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 1.5, 1.5])
+
+                        with col1:
+                            new_name = st.text_input(
+                                "Name",
+                                value=edit_data.get("name", current_name),
+                                key=f"edit_name_{idx}_{branch_id}",
+                                label_visibility="collapsed",
+                            )
+                            st.caption("Product Name")
+
+                        with col2:
+                            new_category = st.text_input(
+                                "Category",
+                                value=edit_data.get("category", product.get("category", "")),
+                                key=f"edit_category_{idx}_{branch_id}",
+                                label_visibility="collapsed",
+                            )
+                            st.caption("Category")
+
+                        with col3:
+                            new_price = st.number_input(
+                                "Price ($)",
+                                min_value=0.0,
+                                value=float(edit_data.get("price", product.get("price", 0) or 0)),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"edit_price_{idx}_{branch_id}",
+                                label_visibility="collapsed",
+                            )
+                            st.caption("Price ($)")
+
+                        with col4:
+                            new_cost = st.number_input(
+                                "Cost ($)",
+                                min_value=0.0,
+                                value=float(edit_data.get("cost", product.get("cost", 0) or 0)),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"edit_cost_{idx}_{branch_id}",
+                                label_visibility="collapsed",
+                            )
+                            st.caption("Cost ($)")
+
+                        with col5:
+                            new_stock = st.number_input(
+                                "Stock",
+                                min_value=0.0,
+                                value=float(edit_data.get("stock", product.get("stock", 0) or 0)),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"edit_stock_{idx}_{branch_id}",
+                                label_visibility="collapsed",
+                            )
+                            st.caption("Stock")
+
+                        col1b, col2b = st.columns([1, 4])
+                        with col1b:
+                            new_reorder = st.number_input(
+                                "Reorder Level",
+                                min_value=0.0,
+                                value=float(edit_data.get("reorder_level", product.get("reorder_level", 0) or 0)),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"edit_reorder_{idx}_{branch_id}",
+                                label_visibility="collapsed",
+                            )
+                            st.caption("Reorder Level")
+
+                        updates[idx] = {
+                            "name": new_name,
+                            "category": new_category,
+                            "price": new_price,
+                            "cost": new_cost,
+                            "stock": new_stock,
+                            "reorder_level": new_reorder,
+                        }
+
+                        st.divider()
+
+                # persist entered values into session state (survives the Save submit)
+                for idx, data in updates.items():
+                    st.session_state.batch_edit_data[idx] = data
+
+                col1, col2, col3 = st.columns([1, 1, 1])
+
+                with col1:
+                    if st.form_submit_button("Clear All Selections", use_container_width=True):
+                        st.session_state.batch_selected = []
+                        st.session_state.batch_edit_data = {}
+                        st.rerun()
+
+                with col2:
+                    if st.form_submit_button("Reset Changes", use_container_width=True):
+                        for idx in st.session_state.batch_selected:
+                            if idx < len(df):
+                                product = df.iloc[idx]
+                                st.session_state.batch_edit_data[idx] = {
+                                    "name": str(product.get("name", "")),
+                                    "category": str(product.get("category", "")),
+                                    "price": float(product.get("price", 0) or 0),
+                                    "cost": float(product.get("cost", 0) or 0),
+                                    "stock": float(product.get("stock", 0) or 0),
+                                    "reorder_level": float(product.get("reorder_level", 0) or 0),
+                                }
+                        st.rerun()
+
+                with col3:
+                    save_all = st.form_submit_button(
+                        f"Save All {len(st.session_state.batch_selected)} Product(s)",
+                        type="primary",
+                        use_container_width=True,
+                    )
+
+                    if save_all:
+                        # Build ONE DataFrame containing ONLY the edited rows,
+                        # and send that to save_products. This is the fix that
+                        # prevents the whole catalog from being re-saved on
+                        # every batch update.
+                        edited_rows = []
+                        for idx, data in st.session_state.batch_edit_data.items():
+                            if idx < len(df):
+                                original = df.iloc[idx]
+                                edited_rows.append({
+                                    "branch_id": branch_id,
+                                    "barcode": str(original.get("barcode", "")),
+                                    "name": str(data.get("name", original.get("name", ""))),
+                                    "category": str(data.get("category", original.get("category", ""))) or "Uncategorized",
+                                    "price": float(data.get("price", original.get("price", 0) or 0)),
+                                    "cost": float(data.get("cost", original.get("cost", 0) or 0)),
+                                    "stock": float(data.get("stock", original.get("stock", 0) or 0)),
+                                    "reorder_level": float(data.get("reorder_level", original.get("reorder_level", 0) or 0)),
+                                })
+
+                        if not edited_rows:
+                            st.warning("No products selected to save.")
+                        else:
+                            edited_df = pd.DataFrame(edited_rows)
+                            if save_products(edited_df, branch_id=branch_id):
+                                st.success(
+                                    f"Successfully updated {len(edited_rows)} product(s)!"
+                                )
+                                st.balloons()
+                                st.session_state.batch_selected = []
+                                st.session_state.batch_edit_data = {}
+                                st.rerun()
+                            else:
+                                st.error(
+                                    "Failed to save some products. See terminal for the exact "
+                                    "validation error(s)."
+                                )
+                                with st.expander("Debug Info"):
+                                    st.write("Rows being saved:")
+                                    st.dataframe(edited_df)
+
+            # ---- selected products summary ----
+            with st.expander("Selected Products Summary"):
+                summary_data = []
+                for idx in st.session_state.batch_selected:
+                    if idx < len(df):
+                        product = df.iloc[idx]
+                        edit_data = st.session_state.batch_edit_data.get(idx, {})
+                        summary_data.append({
+                            "Product": product.get("name", ""),
+                            "Stock": edit_data.get("stock", product.get("stock", 0)),
+                            "Price": edit_data.get("price", product.get("price", 0)),
+                            "Cost": edit_data.get("cost", product.get("cost", 0)),
+                            "Category": edit_data.get("category", product.get("category", "")),
+                        })
+
+                if summary_data:
+                    summary_df = pd.DataFrame(summary_data)
+                    st.dataframe(
+                        summary_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Stock": st.column_config.NumberColumn("Stock", format="%.2f"),
+                            "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                            "Cost": st.column_config.NumberColumn("Cost", format="$%.2f"),
+                        },
+                    )
+
+    st.markdown("---")
+
+    # ==========================================================
+    # SINGLE PRODUCT UPDATE
+    # ==========================================================
     st.markdown("## Single Product Update")
     st.caption("Update one product at a time. Barcodes cannot be changed here.")
 
@@ -453,7 +720,7 @@ def inventory_page():
                     )
 
                     if save_changes:
-                        # Build a ONE-ROW DataFrame — only this product is written
+                        # Build ONE-ROW DataFrame — only this product is written
                         edited = pd.DataFrame([{
                             "branch_id": branch_id,
                             "barcode": original_barcode,
@@ -475,7 +742,9 @@ def inventory_page():
 
     st.markdown("---")
 
-    # ---------- Danger zone ----------
+    # ==========================================================
+    # DANGER ZONE
+    # ==========================================================
     st.markdown("## Danger Zone")
     st.warning("Administrator actions. Proceed with caution.")
 
