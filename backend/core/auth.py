@@ -527,12 +527,12 @@ def process_login_user(user, df):
 
     BRANCH AUTHORITY RULE
     ---------------------
-    The branch chosen on the branch-selection screen (stored in
-    st.session_state["user_branch"] by branch_auth.set_session_branch)
-    is authoritative. The user record can *narrow* access (e.g. an HO
-    user logging into NAT) but the branch-selection value must never
-    be silently overwritten with a hard-coded "HO" — that was the
-    reason every branch login previously saw HO data.
+    The branch selected on the branch-selection screen is the single source
+    of truth. It is stored in BOTH `current_branch_code` and `user_branch`.
+    We now prefer `current_branch_code` when resolving the branch, because
+    `user_branch` can be a stale default ("HO") left over from a previous
+    session. Reading the freshly-written `current_branch_code` first fixes
+    the scenario where logging in as NAT/VIL still showed HO data.
     """
     try:
         username = user.iloc[0]["username"]
@@ -542,15 +542,18 @@ def process_login_user(user, df):
         whatsapp = user.iloc[0].get("whatsapp", "")
 
         # ---------- BRANCH AUTHORITY ----------
+        # Prefer `current_branch_code` (written by the branch-selection screen)
+        # over `user_branch` (which may be a stale "HO" from a previous session).
         session_branch = (
-            st.session_state.get("user_branch")
-            or st.session_state.get("current_branch_code")
+            st.session_state.get("current_branch_code")
+            or st.session_state.get("user_branch")
             or "HO"
         )
         user_branch = user.iloc[0].get("branch_id") or "HO"
 
-        # If the user record matches the selected branch, use the record.
-        # Otherwise, keep the branch selected at login.
+        # If the user record matches the selected branch, keep the record's
+        # value (this preserves intentional access restrictions). Otherwise,
+        # keep the branch the user actually selected at login.
         if user_branch and user_branch.upper() == session_branch.upper():
             branch_id = user_branch
         else:
@@ -559,6 +562,7 @@ def process_login_user(user, df):
         # Lock it in for the entire session
         st.session_state["user_branch"] = branch_id
         st.session_state["current_branch"] = branch_id
+        st.session_state["current_branch_code"] = branch_id
         # --------------------------------------
 
         # ============================================================
@@ -652,10 +656,10 @@ def check_mobile_login(username, password):
             if not can_use_mobile(role):
                 return False, None, "Mobile access not enabled for this role"
             
-            # Branch authority: keep the branch selected at login if any
+            # Branch authority: prefer the freshly-selected branch code
             session_branch = (
-                st.session_state.get("user_branch")
-                or st.session_state.get("current_branch_code")
+                st.session_state.get("current_branch_code")
+                or st.session_state.get("user_branch")
                 or "HO"
             )
             user_branch = user.iloc[0].get("branch_id") or "HO"
@@ -671,6 +675,7 @@ def check_mobile_login(username, password):
             st.session_state.user_full_name = full_name
             st.session_state.user_branch = branch_id
             st.session_state.current_branch = branch_id
+            st.session_state.current_branch_code = branch_id
             st.session_state.whatsapp_number = whatsapp if whatsapp else None
             st.session_state.mobile_mode = True
             
@@ -690,9 +695,10 @@ def check_mobile_login(username, password):
             if not can_use_mobile(role):
                 return False, None, "Mobile access not enabled for this role"
             
+            # Branch authority: prefer the freshly-selected branch code
             session_branch = (
-                st.session_state.get("user_branch")
-                or st.session_state.get("current_branch_code")
+                st.session_state.get("current_branch_code")
+                or st.session_state.get("user_branch")
                 or "HO"
             )
             user_branch = user.iloc[0].get("branch_id") or "HO"
@@ -708,6 +714,7 @@ def check_mobile_login(username, password):
             st.session_state.user_full_name = full_name
             st.session_state.user_branch = branch_id
             st.session_state.current_branch = branch_id
+            st.session_state.current_branch_code = branch_id
             st.session_state.whatsapp_number = whatsapp if whatsapp else None
             st.session_state.mobile_mode = True
             
@@ -989,8 +996,8 @@ def unlock_account(username):
 def get_current_shift_status():
     """Get current shift status for the logged-in user's branch"""
     branch_id = (
-        st.session_state.get("user_branch")
-        or st.session_state.get("current_branch_code")
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
         or "HO"
     )
     active_shift = get_active_shift_for_branch(branch_id)

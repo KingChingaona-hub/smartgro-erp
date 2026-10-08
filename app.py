@@ -9,38 +9,6 @@ except:
 
 import streamlit as st
 
-import streamlit as st
-
-# ==============================
-# TEMP DIAGNOSTIC — paste at very top of app.py
-# ==============================
-if "logged_in" in st.session_state and st.session_state.get("logged_in"):
-    with st.sidebar.expander("🔍 BRANCH DEBUG", expanded=True):
-        st.write("**Session keys relevant to branch:**")
-        st.write(f"- `user_branch`           = `{st.session_state.get('user_branch')}`")
-        st.write(f"- `current_branch`        = `{st.session_state.get('current_branch')}`")
-        st.write(f"- `current_branch_code`   = `{st.session_state.get('current_branch_code')}`")
-        st.write(f"- `branch_authenticated`  = `{st.session_state.get('branch_authenticated')}`")
-        st.write(f"- `role`                  = `{st.session_state.get('role')}`")
-        st.write(f"- `username`              = `{st.session_state.get('username')}`")
-        st.write("**What the loaders will actually query with:**")
-        try:
-            from backend.core.db_adapter import get_current_branch
-            st.write(f"- `get_current_branch()` = `{get_current_branch()}`")
-        except Exception as e:
-            st.write(f"- error: {e}")
-        st.write("**Row count for this branch:**")
-        try:
-            from backend.core.db_adapter import load_sales
-            df = load_sales()
-            st.write(f"- sales rows = `{len(df)}`")
-            if not df.empty and "branch_id" in df.columns:
-                st.write(f"- distinct branch_ids in returned frame = `{df['branch_id'].unique().tolist()}`")
-        except Exception as e:
-            st.write(f"- error: {e}")
-# ==============================
-# END TEMP DIAGNOSTIC
-
 st.cache_data.clear()
 st.cache_resource.clear()
 
@@ -66,7 +34,8 @@ def check_session_timeout():
             # Clear session without using window.location.href
             for key in list(st.session_state.keys()):
                 if key not in ["branch_selected", "branch_authenticated", "current_branch", 
-                               "user_branch", "stock_monitor_started", "stock_monitor_thread", 
+                               "user_branch", "current_branch_code", "current_branch_name",
+                               "stock_monitor_started", "stock_monitor_thread", 
                                "current_theme", "auto_switch_theme", "welcome_seen"]:
                     try:
                         del st.session_state[key]
@@ -196,7 +165,7 @@ from backend.modules.welcome_page import welcome_page
 from backend.modules.floating_financials import floating_financials_page
 
 # ==============================
-# CUSTOMER IMPORTS - REMOVED customer_app AND customer_insights_page
+# CUSTOMER IMPORTS
 # ==============================
 from backend.customers.customers_dashboard import customers_dashboard
 from backend.customers.retention_dashboard import customers_retention_dashboard
@@ -269,20 +238,6 @@ from backend.developer.multi_tenant import multi_tenant_dashboard
 from backend.developer.api_developer import api_developer_dashboard
 
 # ==============================
-# MOBILE RESPONSIVE IMPORTS
-# ==============================
-# from backend.core.responsive import (
-#     is_mobile_device, 
-#     apply_mobile_css, 
-#     get_device_type, 
-#     show_mobile_banner
-# )
-# from backend.core.mobile_quick_actions import (
-#     show_mobile_quick_actions, 
-#     show_mobile_bottom_nav
-# )
-
-# ==============================
 # DATE/TIME IMPORTS
 # ==============================
 from datetime import datetime, timedelta
@@ -303,12 +258,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# ==============================
-# REMOVED: window.location.href JavaScript
-# ==============================
-# The JavaScript that was causing mobile navigation issues has been removed.
-# Session timeout is now handled by check_session_timeout() function above.
 
 # ==============================
 # AUTO-NOTIFICATION BACKGROUND THREAD
@@ -387,6 +336,8 @@ if "logged_in" not in st.session_state:
     st.session_state.current_branch = "HO"
     st.session_state.user_full_name = ""
     st.session_state.user_branch = "HO"
+    st.session_state.current_branch_code = "HO"
+    st.session_state.current_branch_name = "Head Office"
     st.session_state.active_shift_id = None
     st.session_state.active_shift_branch = None
     st.session_state.active_shift_branch_name = None
@@ -407,7 +358,7 @@ if "auto_switch_theme" not in st.session_state:
     st.session_state.auto_switch_theme = False
 
 # ==============================
-# SESSION TIMEOUT CHECK - FIXED
+# SESSION TIMEOUT CHECK
 # ==============================
 if st.session_state.logged_in:
     check_session_timeout()
@@ -452,6 +403,10 @@ def branch_login_page():
                         branch_code_upper = branch_code.upper()
                         if branch_code_upper in BRANCHES:
                             if BRANCHES[branch_code_upper]["password"] == branch_password:
+                                # Clear any stale branch keys first
+                                for stale_key in ("user_branch", "current_branch", "current_branch_code", "current_branch_name"):
+                                    st.session_state.pop(stale_key, None)
+
                                 st.session_state.branch_selected = True
                                 st.session_state.branch_authenticated = True
                                 st.session_state.current_branch = branch_code_upper
@@ -504,7 +459,7 @@ def login_page():
 
     with col2:
         try:
-            current_branch = st.session_state.get("current_branch", "HO")
+            current_branch = st.session_state.get("current_branch_code", "HO")
             branch_name = BRANCHES.get(current_branch, {}).get("name", "Unknown")
         except Exception as e:
             print(f"Error getting branch info: {e}")
@@ -518,7 +473,8 @@ def login_page():
         )
 
         st.markdown(
-            "<p style='text-align:center;color:rgba(255,255,255,0.9);'>Smart Retail ERP System</p>",
+            f"<p style='text-align:center;color:rgba(255,255,255,0.9);'>"
+            f"Smart Retail ERP System — {branch_name}</p>",
             unsafe_allow_html=True
         )
 
@@ -585,13 +541,12 @@ def main_app():
     # ==============================
     # BRANCH GUARD
     # Every non-owner / non-manager / non-admin user must have a branch
-    # bound to the session. If not, force a re-login rather than risk
-    # leaking another branch's data through un-scoped loaders.
+    # bound to the session.
     # ==============================
     role = st.session_state.get("role", "cashier")
     session_branch = (
-        st.session_state.get("user_branch")
-        or st.session_state.get("current_branch_code")
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
     )
 
     if role not in ("owner", "manager", "admin") and not session_branch:
@@ -599,7 +554,6 @@ def main_app():
             "Your session is not linked to a branch. "
             "Please log in again."
         )
-        # Clear session and send the user back to branch selection
         st.session_state.logged_in = False
         st.session_state.branch_selected = False
         st.session_state.branch_authenticated = False
@@ -616,18 +570,13 @@ def main_app():
     except Exception as e:
         print(f"PWA setup error: {e}")
     
-    # ==============================
-    # MOBILE RESPONSIVENESS - DISABLED
-    # ==============================
-    # try:
-    #     if is_mobile_device():
-    #         apply_mobile_css()
-    #         show_mobile_banner()
-    # except Exception as e:
-    #     print(f"Mobile responsiveness error: {e}")
-    
     username = st.session_state.get("username", "User")
-    current_branch = st.session_state.get("current_branch", session_branch or "HO")
+    current_branch = (
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("current_branch")
+        or session_branch
+        or "HO"
+    )
     try:
         branch_name = BRANCHES.get(current_branch, {}).get("name", "Unknown")
     except:
@@ -671,7 +620,7 @@ def main_app():
         print(f"Animation initialization error: {e}")
     
     # ==============================
-    # SIDEBAR - FLAT ALPHABETICAL NAVIGATION - FIXED
+    # SIDEBAR
     # ==============================
     
     st.sidebar.markdown(f"""
@@ -700,11 +649,9 @@ def main_app():
     try:
         all_items = get_visible_modules(role)
         
-        # Remove any modules you want to hide
         exclude = ["Customer App", "Customer Insights"]
         all_items = [item for item in all_items if item not in exclude]
         
-        # Sort alphabetically
         all_items = sorted(all_items)
         
         st.sidebar.write(f"📊 {len(all_items)} modules loaded")
@@ -743,6 +690,10 @@ def main_app():
             st.session_state.branch_authenticated = False
             st.session_state.logged_in = False
             st.session_state.welcome_seen = False
+            # Clear the stale branch keys so the next branch-selection
+            # screen writes clean values.
+            for key in ("user_branch", "current_branch", "current_branch_code", "current_branch_name"):
+                st.session_state.pop(key, None)
             st.rerun()
         except Exception as e:
             print(f"Branch switch error: {e}")
@@ -753,11 +704,20 @@ def main_app():
     
     if st.sidebar.button("Logout", key="logout_sidebar", use_container_width=True):
         try:
-            keys_to_keep = ["branch_selected", "branch_authenticated", "current_branch", "user_branch", 
-                           "stock_monitor_started", "stock_monitor_thread", "current_theme", "auto_switch_theme"]
+            # Preserve only session-lifetime-independent keys. Do NOT preserve
+            # branch keys — they must be re-set on next login.
+            keys_to_keep = [
+                "stock_monitor_started",
+                "stock_monitor_thread",
+                "current_theme",
+                "auto_switch_theme",
+            ]
             for key in list(st.session_state.keys()):
                 if key not in keys_to_keep:
-                    del st.session_state[key]
+                    try:
+                        del st.session_state[key]
+                    except:
+                        pass
             try:
                 show_toast("Logged out successfully!", "info")
             except:
@@ -774,16 +734,6 @@ def main_app():
             floating_action_button(icon="⚡", label="Quick Action", link="#")
     except Exception as e:
         print(f"Floating action button error: {e}")
-    
-    # ==============================
-    # MOBILE QUICK ACTIONS - DISABLED
-    # ==============================
-    # try:
-    #     if is_mobile_device():
-    #         show_mobile_quick_actions()
-    #         show_mobile_bottom_nav()
-    # except Exception as e:
-    #     print(f"Mobile actions error: {e}")
     
     # ==============================
     # ROUTING ENGINE
