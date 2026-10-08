@@ -407,6 +407,31 @@ def save_branches(df):
         return False
 
 # ==============================
+# BRANCH ENFORCEMENT SAFETY NET
+# ==============================
+def _enforce_branch(df, branch_id=None):
+    """
+    Guarantee that a returned DataFrame contains only rows for the current
+    branch. If the frame has no 'branch_id' column we don't touch it.
+
+    This is the belt-and-braces layer: even if a page forgets to filter,
+    the loader will never return another branch's rows to a
+    branch-restricted user.
+    """
+    if df is None or df.empty:
+        return df
+
+    if branch_id is None:
+        branch_id = get_current_branch()
+
+    if "branch_id" not in df.columns:
+        return df
+
+    return df[
+        df["branch_id"].astype(str).str.upper() == str(branch_id).upper()
+    ].copy()
+
+# ==============================
 # PRODUCT FUNCTIONS
 # ==============================
 def validate_product_data(data):
@@ -503,7 +528,7 @@ def load_products(branch_id=None):
                         df[col] = df[col].fillna("").astype(str)
                 
                 print(f"Loaded {len(df)} products for branch: {branch_id}")
-                return df
+                return _enforce_branch(df, branch_id)
             
             return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category", 
                                          "price", "cost", "stock", "reorder_level"])
@@ -704,7 +729,7 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
                 df = pd.DataFrame(rows)
                 if "receipt_no" in df.columns:
                     df["receipt_no"] = df["receipt_no"].astype(str).str.strip()
-                return df
+                return _enforce_branch(df, branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading sales: {e}")
@@ -842,7 +867,7 @@ def load_customers(branch_id=None):
             cur.execute("SELECT * FROM customers WHERE branch_id = %s ORDER BY customer_name", (branch_id,))
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading customers: {e}")
@@ -988,7 +1013,7 @@ def load_customer_transactions(branch_id=None, customer_phone=None):
             cur.execute(query, params)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame(columns=["id", "branch_id", "transaction_date", "customer_name", 
                                          "phone", "receipt_no", "barcode", "product_name", 
                                          "quantity", "amount"])
@@ -1114,7 +1139,7 @@ def load_debtors(branch_id=None):
             cur.execute("SELECT * FROM debtors WHERE branch_id = %s ORDER BY balance DESC", (branch_id,))
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading debtors: {e}")
@@ -1412,19 +1437,15 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
             if rows:
                 df = pd.DataFrame(rows)
                 
-                # Rename expense_date to date
                 if 'expense_date' in df.columns and 'date' not in df.columns:
                     df = df.rename(columns={'expense_date': 'date'})
                 
-                # Ensure date is datetime
                 if 'date' in df.columns:
                     df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 
-                # Ensure amount is numeric
                 if 'amount' in df.columns:
                     df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
                 
-                # Ensure all required columns exist
                 required_cols = ['date', 'expense_type', 'category', 'description', 'amount', 
                                'vendor', 'payment_method', 'recorded_by', 'notes']
                 for col in required_cols:
@@ -1434,7 +1455,7 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
                         else:
                             df[col] = ''
                 
-                return df
+                return _enforce_branch(df, branch_id)
             return pd.DataFrame(columns=['date', 'expense_type', 'category', 'description', 
                                         'amount', 'vendor', 'payment_method', 'recorded_by', 'notes'])
     except Exception as e:
@@ -1489,12 +1510,10 @@ def save_expenses(df, branch_id=None):
             
             for idx, row in df.iterrows():
                 try:
-                    # Generate unique ID
                     expense_id = row.get('id')
                     if not expense_id or pd.isna(expense_id) or str(expense_id) == 'nan' or str(expense_id) == '':
                         expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
                     
-                    # Plain INSERT - no ON CONFLICT
                     cur.execute("""
                         INSERT INTO expenses (
                             id, branch_id, expense_date, expense_type, category, 
@@ -1524,7 +1543,6 @@ def save_expenses(df, branch_id=None):
             conn.commit()
             print(f"Saved {inserted_count} expenses for branch: {branch_id}")
             
-            # Verify
             try:
                 cur.execute("SELECT COUNT(*) FROM expenses WHERE branch_id = %s", (branch_id,))
                 result = cur.fetchone()
@@ -1552,7 +1570,6 @@ def load_expense_categories():
             if cur is None:
                 return DEFAULT_CATEGORIES
             
-            # First check if expense_categories table exists
             cur.execute("""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
@@ -1569,7 +1586,6 @@ def load_expense_categories():
                     if categories:
                         return categories
             
-            # If no table or no categories, get from expenses
             cur.execute("SELECT DISTINCT category FROM expenses ORDER BY category")
             rows = cur.fetchall()
             if rows:
@@ -1577,7 +1593,6 @@ def load_expense_categories():
                 if categories:
                     return categories
             
-            # Return defaults if nothing found
             return DEFAULT_CATEGORIES
             
     except Exception as e:
@@ -1605,7 +1620,7 @@ def load_expense_budget(branch_id=None, year=None, month=None):
             cur.execute(query, params)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading expense budget: {e}")
@@ -1666,7 +1681,7 @@ def load_recurring_expenses(branch_id=None):
             cur.execute("SELECT * FROM recurring_expenses WHERE branch_id = %s ORDER BY created_at DESC", (branch_id,))
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading recurring expenses: {e}")
@@ -1733,7 +1748,6 @@ def get_expenses_by_category(month=None, year=None):
     if df.empty:
         return pd.DataFrame()
     
-    # Make sure date column exists and is datetime
     if 'date' in df.columns:
         if not pd.api.types.is_datetime64_any_dtype(df['date']):
             df['date'] = pd.to_datetime(df['date'], errors='coerce')
@@ -1764,40 +1778,30 @@ def get_expenses_by_category(month=None, year=None):
     return category_summary
 
 def get_monthly_expenses(month=None, year=None):
-    """
-    Get total expenses for a specific month and year
-    """
-    # Load expenses using the load function which handles column renaming
     df = load_expenses()
     
     if df.empty:
         return 0
     
-    # Ensure 'date' column exists and is datetime
     if 'date' not in df.columns:
         print("No 'date' column found in expenses")
         return 0
     
-    # Convert to datetime if needed
     if not pd.api.types.is_datetime64_any_dtype(df['date']):
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
     
-    # Drop rows with invalid dates
     df = df.dropna(subset=['date'])
     
     if df.empty:
         return 0
     
-    # Use current month/year if not provided
     if month is None:
         month = datetime.now().month
     if year is None:
         year = datetime.now().year
     
-    # Filter by month and year
     df_filtered = df[(df['date'].dt.month == month) & (df['date'].dt.year == year)]
     
-    # Return sum of amount column
     return float(df_filtered['amount'].sum()) if 'amount' in df_filtered.columns else 0
 
 
@@ -1819,7 +1823,6 @@ def record_expense(expense_type, category, description, amount, vendor="", payme
             print(f"Invalid description")
             return False
         
-        # Create unique ID
         expense_id = f"EXP_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
         
         new_row = pd.DataFrame([{
@@ -1897,7 +1900,6 @@ def load_income(branch_id=None, date_from=None, date_to=None):
             if rows:
                 df = pd.DataFrame(rows)
                 
-                # Rename columns to match expected names
                 if 'income_date' in df.columns and 'date' not in df.columns:
                     df = df.rename(columns={'income_date': 'date'})
                 
@@ -1906,11 +1908,9 @@ def load_income(branch_id=None, date_from=None, date_to=None):
                 elif 'user' not in df.columns:
                     df['user'] = 'system'
                 
-                # Ensure amount is numeric
                 if 'amount' in df.columns:
                     df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
                 
-                # Ensure all required columns exist
                 required_cols = ['date', 'income_source', 'description', 'amount', 'user']
                 for col in required_cols:
                     if col not in df.columns:
@@ -1919,7 +1919,7 @@ def load_income(branch_id=None, date_from=None, date_to=None):
                         else:
                             df[col] = ''
                 
-                return df
+                return _enforce_branch(df, branch_id)
             return pd.DataFrame(columns=['date', 'income_source', 'description', 'amount', 'user'])
     except Exception as e:
         print(f"Error loading income: {e}")
@@ -1934,10 +1934,8 @@ def save_income(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
     
-    # Make a copy to avoid modifying original
     df = df.copy()
     
-    # Ensure required columns exist with defaults
     required_cols = ['date', 'income_source', 'description', 'amount', 'recorded_by']
     
     for col in required_cols:
@@ -1947,17 +1945,14 @@ def save_income(df, branch_id=None):
             else:
                 df[col] = ''
     
-    # Convert date column
     if 'date' in df.columns:
         df['date'] = pd.to_datetime(df['date'], errors='coerce').fillna(datetime.now())
     
-    # Convert numeric columns
     numeric_cols = ['amount']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # Fill empty strings
     string_cols = ['income_source', 'description', 'recorded_by']
     for col in string_cols:
         if col in df.columns:
@@ -1977,12 +1972,10 @@ def save_income(df, branch_id=None):
             
             for idx, row in df.iterrows():
                 try:
-                    # Generate unique ID if not exists
                     income_id = row.get('id')
                     if not income_id or pd.isna(income_id) or str(income_id) == 'nan' or str(income_id) == '':
                         income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
                     
-                    # Convert date to string if needed
                     income_date = row.get('date')
                     if isinstance(income_date, pd.Timestamp):
                         income_date = income_date.to_pydatetime()
@@ -1996,7 +1989,6 @@ def save_income(df, branch_id=None):
                     else:
                         income_date = datetime.now()
                     
-                    # Use INSERT - if duplicate ID, skip
                     cur.execute("""
                         INSERT INTO income (
                             id, branch_id, income_date, income_source, 
@@ -2023,7 +2015,6 @@ def save_income(df, branch_id=None):
             conn.commit()
             print(f"Saved {inserted_count} income records for branch: {branch_id}")
             
-            # Verify save
             try:
                 cur.execute("SELECT COUNT(*) FROM income WHERE branch_id = %s", (branch_id,))
                 count = cur.fetchone()[0]
@@ -2046,25 +2037,21 @@ def get_monthly_income(month=None):
     if df.empty:
         return 0
     
-    # Make sure date is datetime
     if 'date' in df.columns:
         if not pd.api.types.is_datetime64_any_dtype(df['date']):
             df['date'] = pd.to_datetime(df['date'], errors='coerce')
     elif 'income_date' in df.columns:
         if not pd.api.types.is_datetime64_any_dtype(df['income_date']):
             df['income_date'] = pd.to_datetime(df['income_date'], errors='coerce')
-        # Rename to date for consistency
         df = df.rename(columns={'income_date': 'date'})
     else:
         return 0
     
-    # Drop rows with invalid dates
     df = df.dropna(subset=['date'])
     
     if df.empty:
         return 0
     
-    # Filter by month
     if month:
         df = df[df['date'].dt.strftime("%Y-%m") == month]
     else:
@@ -2081,7 +2068,6 @@ def get_income_by_source(month=None):
         if df.empty:
             return pd.DataFrame()
         
-        # Make sure date is datetime
         if 'date' in df.columns:
             if not pd.api.types.is_datetime64_any_dtype(df['date']):
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
@@ -2127,7 +2113,6 @@ def record_income(income_source, description, amount, user="System"):
             print(f"Invalid amount: {msg}")
             return False
         
-        # Ensure we have a valid amount
         if amount_clean <= 0:
             print(f"Amount must be greater than 0: {amount_clean}")
             return False
@@ -2136,7 +2121,6 @@ def record_income(income_source, description, amount, user="System"):
             print(f"Invalid income source: {income_source}")
             return False
         
-        # Create a single-row DataFrame with unique ID
         import uuid
         income_id = f"INC_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
         
@@ -2151,7 +2135,6 @@ def record_income(income_source, description, amount, user="System"):
         
         print(f"Recording income: {income_source} - ${amount_clean} - ID: {income_id}")
         
-        # Save only the new row
         success = save_income(new_row)
         
         if success:
@@ -2186,7 +2169,7 @@ def load_purchases(branch_id=None):
             cur.execute("SELECT * FROM purchases WHERE branch_id = %s ORDER BY date_ordered DESC", (branch_id,))
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading purchases: {e}")
@@ -2341,7 +2324,7 @@ def load_cash(branch_id=None, shift_id=None):
             cur.execute(query, params)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading cash: {e}")
@@ -2801,7 +2784,11 @@ def load_shifts(branch_id=None, status=None):
             cur.execute(query, params)
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                df = pd.DataFrame(rows)
+                # Only enforce if branch_id was passed
+                if branch_id:
+                    return _enforce_branch(df, branch_id)
+                return df
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading shifts: {e}")
@@ -3027,6 +3014,11 @@ def get_active_shifts_by_branch(branch_id):
     return active
 
 def get_all_active_shifts():
+    """
+    Get all active shifts.
+    Enforced at the loader level: a branch-restricted user only sees shifts
+    for their own branch; owners/managers see everything.
+    """
     try:
         df = load_shifts()
         
@@ -3040,6 +3032,26 @@ def get_all_active_shifts():
         
         if active.empty:
             return pd.DataFrame()
+        
+        # ---- BRANCH ENFORCEMENT ----
+        try:
+            import streamlit as st
+            role = st.session_state.get("role", "cashier")
+            current_branch = (
+                st.session_state.get("user_branch")
+                or st.session_state.get("current_branch_code")
+            )
+        except Exception:
+            role = "cashier"
+            current_branch = None
+
+        if role not in ("owner", "manager", "admin") and current_branch and "branch_id" in active.columns:
+            active = active[
+                active["branch_id"].astype(str).str.upper() == str(current_branch).upper()
+            ]
+            if active.empty:
+                return pd.DataFrame()
+        # ----------------------------
         
         safe_columns = [
             'shift_id', 'branch_id', 'branch_name', 'cashier_name', 
@@ -3119,7 +3131,7 @@ def load_suppliers(branch_id=None):
             cur.execute("SELECT * FROM suppliers WHERE branch_id = %s AND active = TRUE ORDER BY supplier_name", (branch_id,))
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading suppliers: {e}")
@@ -3139,7 +3151,7 @@ def load_loyalty(branch_id=None):
             cur.execute("SELECT * FROM loyalty_points WHERE branch_id = %s ORDER BY points DESC", (branch_id,))
             rows = cur.fetchall()
             if rows:
-                return pd.DataFrame(rows)
+                return _enforce_branch(pd.DataFrame(rows), branch_id)
             return pd.DataFrame()
     except Exception as e:
         print(f"Error loading loyalty: {e}")
@@ -3523,8 +3535,31 @@ def get_branch_performance_summary(branch_id):
     }
 
 def get_all_branches_performance():
+    """
+    Get performance for all branches.
+    - Owner/manager/admin: returns every branch.
+    - Everyone else: only their own branch.
+    """
     branches_df = load_branches()
     performance = []
+
+    try:
+        import streamlit as st
+        role = st.session_state.get("role", "cashier")
+        current_branch = (
+            st.session_state.get("user_branch")
+            or st.session_state.get("current_branch_code")
+        )
+    except Exception:
+        role = "cashier"
+        current_branch = None
+
+    # ---- BRANCH ENFORCEMENT ----
+    if role not in ("owner", "manager", "admin") and current_branch and "branch_id" in branches_df.columns:
+        branches_df = branches_df[
+            branches_df["branch_id"].astype(str).str.upper() == str(current_branch).upper()
+        ]
+    # ----------------------------
     
     for _, branch in branches_df.iterrows():
         branch_id = branch["branch_id"]
@@ -3918,18 +3953,6 @@ def process_checkout_batch(branch_id, checkout_data):
     """
     Process entire checkout in ONE database transaction - FASTEST
     Returns: (success, message)
-    
-    Args:
-        branch_id: The branch ID
-        checkout_data: Dictionary containing:
-            - cart: List of items with barcode, name, price, cost, qty
-            - receipt_no: Receipt number
-            - payment_method: CASH, ECOCASH, CARD, CREDIT
-            - customer_name: Customer name
-            - customer_phone: Customer phone
-            - final_total: Final total amount
-            - shift_id: Shift ID
-            - cashier: Cashier username
     """
     try:
         with get_db_cursor() as (cur, conn):

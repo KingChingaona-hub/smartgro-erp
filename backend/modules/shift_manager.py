@@ -114,6 +114,28 @@ def to_float(value):
 
 
 # ==============================
+# BRANCH CONTEXT HELPERS
+# ==============================
+def _get_session_branch():
+    """Return the authoritative branch for the current session, or None."""
+    try:
+        return (
+            st.session_state.get("user_branch")
+            or st.session_state.get("current_branch_code")
+        )
+    except Exception:
+        return None
+
+
+def _is_multi_branch_user():
+    """True for owner/manager/admin — they may see all branches."""
+    try:
+        return st.session_state.get("role", "cashier") in ("owner", "manager", "admin")
+    except Exception:
+        return False
+
+
+# ==============================
 # LOAD SHIFTS (Uses PostgreSQL)
 # ==============================
 def load_shifts():
@@ -339,7 +361,7 @@ def get_shift_cash_sales_from_data(shift_id, sales_df):
         shift_sales = sales_df[sales_df["shift_id"] == shift_id]
     else:
         # If no shift_id, try to use date
-        shift = get_active_shift_for_branch(st.session_state.get("user_branch", "HO"))
+        shift = get_active_shift_for_branch(_get_session_branch() or "HO")
         if shift and "start_time" in shift:
             start_time = pd.to_datetime(shift["start_time"])
             # Get sales from start time
@@ -390,15 +412,36 @@ def get_active_shifts_by_branch(branch_id):
 
 
 # ==============================
-# GET ALL ACTIVE SHIFTS
+# GET ALL ACTIVE SHIFTS  (BRANCH-ENFORCED)
 # ==============================
 def get_all_active_shifts():
-    """Get all active shifts across all branches"""
+    """
+    Get all active shifts.
+
+    Enforced at the loader level:
+      - owner / manager / admin → all branches
+      - everyone else          → only their own branch
+    """
     df = load_shifts()
-    if "status" in df.columns:
-        active = df[df["status"] == "OPEN"]
-        return active
-    return pd.DataFrame()
+    if "status" not in df.columns:
+        return pd.DataFrame()
+
+    active = df[df["status"] == "OPEN"]
+
+    if active.empty:
+        return pd.DataFrame()
+
+    # Branch enforcement for non-multi-branch users
+    if not _is_multi_branch_user():
+        current = _get_session_branch()
+        if current and "branch_id" in active.columns:
+            active = active[
+                active["branch_id"].astype(str).str.upper() == str(current).upper()
+            ]
+            if active.empty:
+                return pd.DataFrame()
+
+    return active
 
 
 # ==============================
@@ -406,7 +449,13 @@ def get_all_active_shifts():
 # ==============================
 def can_cashier_login(cashier_username):
     """Check if a cashier can log in - checks if any shift is active in their branch"""
-    branch_id = get_user_branch(cashier_username)
+    # Use the SESSION branch (set at branch-selection) rather than the user's
+    # recorded branch, so isolation is complete.
+    branch_id = (
+        _get_session_branch()
+        or get_user_branch(cashier_username)
+        or "HO"
+    )
     active_shift = get_active_shift_for_branch(branch_id)
     
     if active_shift:
@@ -492,10 +541,16 @@ def get_shift_cashiers(shift_id):
 
 
 # ==============================
-# GET SHIFT STATS
+# GET SHIFT STATS  (BRANCH-ENFORCED)
 # ==============================
 def get_shift_stats():
-    """Get statistics about all shifts"""
+    """
+    Get statistics about shifts.
+
+    Enforced at the loader level:
+      - owner / manager / admin → all branches
+      - everyone else          → only their own branch
+    """
     df = load_shifts()
     
     if df.empty:
@@ -507,6 +562,23 @@ def get_shift_stats():
             "total_profit": 0,
             "total_transactions": 0
         }
+    
+    # Branch enforcement for non-multi-branch users
+    if not _is_multi_branch_user():
+        current = _get_session_branch()
+        if current and "branch_id" in df.columns:
+            df = df[
+                df["branch_id"].astype(str).str.upper() == str(current).upper()
+            ]
+            if df.empty:
+                return {
+                    "total": 0,
+                    "active": 0,
+                    "closed": 0,
+                    "total_revenue": 0,
+                    "total_profit": 0,
+                    "total_transactions": 0
+                }
     
     total = len(df)
     active = len(df[df["status"] == "OPEN"]) if "status" in df.columns else 0
@@ -538,7 +610,7 @@ def init_shift_file():
 def get_current_branch_shift():
     """Get the active shift for the current user's branch"""
     try:
-        branch_id = st.session_state.get("user_branch", "HO")
+        branch_id = _get_session_branch() or "HO"
         return get_active_shift_for_branch(branch_id)
     except:
         return None

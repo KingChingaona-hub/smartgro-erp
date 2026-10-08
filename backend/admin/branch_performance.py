@@ -3,6 +3,11 @@ Branch Performance Dashboard
 Compares performance across all branches with detailed analytics.
 Expenses are sourced from whichever source actually contains them (DB,
 branch CSV, or global CSV with a branch column).
+
+BRANCH ISOLATION:
+- Owners / managers / admins see all branches (or the one they pick).
+- Everyone else is hard-locked to their own branch — no selector,
+  no "All branches" option.
 """
 
 import streamlit as st
@@ -478,7 +483,39 @@ def branch_performance_page():
     st.title("Branch Performance Dashboard")
     st.caption("Compare performance across all branches with detailed analytics")
 
-    # ---------------- Period selector ----------------
+    # --------------------------------------------------
+    # 1) BRANCH ISOLATION GUARD
+    # --------------------------------------------------
+    role = st.session_state.get("role", "cashier")
+    session_branch = (
+        st.session_state.get("user_branch")
+        or st.session_state.get("current_branch_code")
+        or "HO"
+    )
+    multi_branch = role in ("owner", "manager", "admin")
+
+    branches_df = load_branches()
+    if branches_df.empty:
+        st.warning("No branches found. Please add branches first.")
+        return
+
+    forced_branch_id = None
+    if not multi_branch:
+        # Hard-lock to the session branch
+        match = branches_df[
+            branches_df["branch_id"].astype(str).str.upper() == str(session_branch).upper()
+        ]
+        if match.empty:
+            st.error(
+                f"Your account is not linked to a valid branch "
+                f"(**{session_branch}**). Please contact an administrator."
+            )
+            return
+        forced_branch_id = match.iloc[0]["branch_id"]
+
+    # --------------------------------------------------
+    # 2) PERIOD SELECTOR
+    # --------------------------------------------------
     col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
 
     with col1:
@@ -513,28 +550,50 @@ def branch_performance_page():
 
     selected_datetime = datetime.combine(selected_date, datetime.min.time())
 
-    # ---------------- Load data ----------------
-    branches_df = load_branches()
-    if branches_df.empty:
-        st.warning("No branches found. Please add branches first.")
+    # --------------------------------------------------
+    # 3) LOAD SUMMARY
+    # --------------------------------------------------
+    summary_df = get_all_branches_summary(period, selected_datetime)
+
+    # ----- BRANCH ISOLATION GUARD (apply to the DataFrame) -----
+    if forced_branch_id is not None and not summary_df.empty:
+        summary_df = summary_df[
+            summary_df["branch_id"].astype(str).str.upper() == str(forced_branch_id).upper()
+        ].copy()
+
+    if summary_df.empty:
+        if forced_branch_id is not None:
+            st.warning(
+                f"No performance data recorded for branch "
+                f"**{session_branch}** in the selected period yet."
+            )
+        else:
+            st.warning("No data available for selected period")
         return
 
-    summary_df = get_all_branches_summary(period, selected_datetime)
-    if summary_df.empty:
-        st.warning("No data available for selected period")
-        return
+    if forced_branch_id is not None:
+        st.info(f"📍 Showing data for your branch only: **{session_branch}**")
 
     if "period" not in summary_df.columns:
         summary_df["period"] = period.capitalize()
 
-    # ---------------- Diagnostics (collapsed by default) ----------------
+    # --------------------------------------------------
+    # 4) EXPENSE SOURCE DIAGNOSTICS
+    # --------------------------------------------------
     with st.expander("📂 Expense source diagnostics", expanded=False):
         st.caption(
             "Shows where expense data was pulled for each branch. "
-            "Click 🔄 Refresh Expenses above to force a re-read."
+            "If a source returned rows but $0 in the amount column, "
+            "the diagnosis below tells you exactly which column it used "
+            "and what values it saw."
         )
         diag_rows = []
-        for _, b in branches_df.iterrows():
+        diag_branches = branches_df
+        if forced_branch_id is not None:
+            diag_branches = branches_df[
+                branches_df["branch_id"].astype(str).str.upper() == str(forced_branch_id).upper()
+            ]
+        for _, b in diag_branches.iterrows():
             bid = b["branch_id"]
             src, diag = get_branch_expense_diagnostics(bid)
             diag_rows.append({
@@ -552,7 +611,20 @@ def branch_performance_page():
         if diag_rows:
             st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
 
-    # ---------------- Summary Table ----------------
+        if not diag_branches.empty:
+            first_bid = diag_branches.iloc[0]["branch_id"]
+            _df, _src, first_diag = _cached_load_branch_expenses(str(first_bid))
+            sample_vals = first_diag.get("sample_amount_values", [])
+            if sample_vals:
+                st.markdown(
+                    f"**Sample amount values from `{first_bid}` source "
+                    f"(`{first_diag.get('amount_col')}` column):**"
+                )
+                st.code("\n".join(f"- {v}" for v in sample_vals))
+
+    # --------------------------------------------------
+    # 5) SUMMARY TABLE
+    # --------------------------------------------------
     if view_type == "Summary Table":
         st.markdown(f"## {period.capitalize()} Performance Summary")
         period_display = (
@@ -583,7 +655,7 @@ def branch_performance_page():
         st.markdown("### Overall Totals")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Sales (All Branches)", f"${summary_df['total_sales'].sum():,.2f}")
+            st.metric("Total Sales", f"${summary_df['total_sales'].sum():,.2f}")
         with col2:
             st.metric("Total Profit", f"${summary_df['total_profit'].sum():,.2f}")
         with col3:
@@ -591,7 +663,9 @@ def branch_performance_page():
         with col4:
             st.metric("Net Profit", f"${summary_df['net_profit'].sum():,.2f}")
 
-    # ---------------- Comparison Chart ----------------
+    # --------------------------------------------------
+    # 6) COMPARISON CHART
+    # --------------------------------------------------
     elif view_type == "Comparison Chart":
         st.markdown(f"## {period.capitalize()} Performance Comparison")
 
@@ -643,15 +717,22 @@ def branch_performance_page():
         fig_trans.update_layout(height=400)
         st.plotly_chart(fig_trans, use_container_width=True)
 
-    # ---------------- Detailed Analytics ----------------
+    # --------------------------------------------------
+    # 7) DETAILED ANALYTICS
+    # --------------------------------------------------
     else:
         st.markdown(f"## Detailed {period.capitalize()} Analytics")
 
-        selected_branch = st.selectbox(
-            "Select Branch for Detailed Analysis",
-            summary_df["branch_name"].tolist(),
-            key="detail_branch",
-        )
+        # For non-multi-branch users, there is only one branch — auto-select it
+        if forced_branch_id is not None:
+            selected_branch = summary_df.iloc[0]["branch_name"]
+            st.caption(f"Analysing branch: **{selected_branch}**")
+        else:
+            selected_branch = st.selectbox(
+                "Select Branch for Detailed Analysis",
+                summary_df["branch_name"].tolist(),
+                key="detail_branch",
+            )
 
         if selected_branch:
             branch_data = summary_df[summary_df["branch_name"] == selected_branch].iloc[0]
@@ -714,9 +795,13 @@ def branch_performance_page():
                     )
                     st.plotly_chart(fig_payment, use_container_width=True)
             else:
-                st.info(f"No sales data for {selected_branch} in the selected period")
+                st.info(
+                    f"No sales data for {selected_branch} in the selected period"
+                )
 
-    # ---------------- Export ----------------
+    # --------------------------------------------------
+    # 8) EXPORT
+    # --------------------------------------------------
     st.markdown("---")
     st.subheader("Export Data")
 

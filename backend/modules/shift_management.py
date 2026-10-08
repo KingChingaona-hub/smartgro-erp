@@ -39,6 +39,31 @@ def safe_float(value, default=0.0):
         return default
 
 
+def _get_session_branch():
+    """Return the authoritative branch for the current session."""
+    return (
+        st.session_state.get("user_branch")
+        or st.session_state.get("current_branch_code")
+        or "HO"
+    )
+
+
+def _is_multi_branch_user():
+    """True for owner/manager/admin — they see all branches."""
+    return st.session_state.get("role", "cashier") in ("owner", "manager", "admin")
+
+
+def _enforce_branch(df, branch_id=None):
+    """Return only rows for the current branch, if the frame has a branch_id column."""
+    if df is None or df.empty:
+        return df
+    if branch_id is None:
+        branch_id = _get_session_branch()
+    if "branch_id" not in df.columns:
+        return df
+    return df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()].copy()
+
+
 def get_unduplicated_sales(sales_df):
     """Get unduplicated sales by receipt_no to avoid revenue duplication"""
     if sales_df is None or sales_df.empty:
@@ -150,7 +175,6 @@ def get_total_revenue_for_date_range(sales_df, start_date, end_date):
     if sales_undup.empty:
         return 0.0
     
-    # Find date column
     date_col = None
     for col in ["sale_date", "date", "transaction_date", "created_at"]:
         if col in sales_undup.columns:
@@ -160,11 +184,9 @@ def get_total_revenue_for_date_range(sales_df, start_date, end_date):
     if date_col is None:
         return 0.0
     
-    # Convert to datetime
     sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
     sales_undup = sales_undup.dropna(subset=[date_col])
     
-    # Filter by date range
     mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
     filtered = sales_undup[mask]
     
@@ -184,7 +206,6 @@ def get_profit_for_date_range(sales_df, start_date, end_date):
     if sales_undup.empty:
         return 0.0
     
-    # Find date column
     date_col = None
     for col in ["sale_date", "date", "transaction_date", "created_at"]:
         if col in sales_undup.columns:
@@ -194,11 +215,9 @@ def get_profit_for_date_range(sales_df, start_date, end_date):
     if date_col is None:
         return 0.0
     
-    # Convert to datetime
     sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
     sales_undup = sales_undup.dropna(subset=[date_col])
     
-    # Filter by date range
     mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
     filtered = sales_undup[mask]
     
@@ -211,7 +230,6 @@ def get_profit_for_date_range(sales_df, start_date, end_date):
     if profit_col:
         return safe_float(filtered[profit_col].sum())
     
-    # If no profit column, estimate 30% of revenue
     amount_col = get_amount_column(filtered)
     if amount_col:
         return safe_float(filtered[amount_col].sum()) * 0.3
@@ -228,7 +246,6 @@ def get_transactions_for_date_range(sales_df, start_date, end_date):
     if sales_undup.empty:
         return 0
     
-    # Find date column
     date_col = None
     for col in ["sale_date", "date", "transaction_date", "created_at"]:
         if col in sales_undup.columns:
@@ -238,11 +255,9 @@ def get_transactions_for_date_range(sales_df, start_date, end_date):
     if date_col is None:
         return 0
     
-    # Convert to datetime
     sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
     sales_undup = sales_undup.dropna(subset=[date_col])
     
-    # Filter by date range
     mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
     filtered = sales_undup[mask]
     
@@ -250,25 +265,36 @@ def get_transactions_for_date_range(sales_df, start_date, end_date):
 
 
 def shift_management_page():
-    """Main shift management page - Branch Level (FIXED with correct data sources)"""
+    """Main shift management page - Branch Level (BRANCH-ENFORCED)"""
     
     st.title("Shift Management")
     st.caption("Manage branch shifts, track performance, and monitor activity")
     
-    # Get current user and branch info
+    # ==============================
+    # SESSION CONTEXT
+    # ==============================
     username = st.session_state.get("username", "system")
     full_name = st.session_state.get("user_full_name", username)
-    user_branch = st.session_state.get("user_branch", "HO")
+    user_branch = _get_session_branch()
     user_role = st.session_state.get("role", "cashier")
     branch_name = st.session_state.get("branch_name", "Head Office")
+    multi_branch = _is_multi_branch_user()
     
     # Check if user can manage shifts (manager, admin, owner)
     can_manage_shifts = user_role in ["owner", "manager", "admin"]
     
-    # Load shifts data
+    # ==============================
+    # LOAD DATA — BRANCH-ENFORCED
+    # ==============================
+    # db_adapter.load_shifts() is already scoped to the session branch via
+    # get_current_branch(); we still apply a defensive filter for cashiers.
     shifts_df = load_shifts()
+    if not multi_branch and "branch_id" in shifts_df.columns and not shifts_df.empty:
+        shifts_df = shifts_df[
+            shifts_df["branch_id"].astype(str).str.upper() == str(user_branch).upper()
+        ].copy()
     
-    # Load correct data sources
+    # Sales / expenses / income / credit are all branch-scoped through db_adapter
     sales_df = load_sales()
     expenses_df = load_expenses()
     income_df = load_income()
@@ -338,10 +364,14 @@ def shift_management_page():
         st.sidebar.info("Only managers and owners can start shifts.")
         st.sidebar.caption("Please ask your manager to start a shift.")
     
-    # Display active shifts in sidebar (all branches)
+    # Display active shifts in sidebar (all branches for owners, own branch for others)
     all_active_shifts = get_all_active_shifts()
     if not all_active_shifts.empty:
-        st.sidebar.subheader("🟢 Active Shifts (All Branches)")
+        if multi_branch:
+            st.sidebar.subheader("🟢 Active Shifts (All Branches)")
+        else:
+            st.sidebar.subheader("🟢 Active Shifts (Your Branch)")
+        
         for _, shift in all_active_shifts.iterrows():
             start_time = shift.get('start_time')
             if hasattr(start_time, 'strftime'):
@@ -400,13 +430,12 @@ def shift_management_page():
                         
                         with col1:
                             # Get shift metrics from correct sources
-                            shift_sales = sales_undup[sales_undup["shift_id"] == shift_id] if not sales_undup.empty else pd.DataFrame()
+                            shift_sales = sales_undup[sales_undup["shift_id"] == shift_id] if not sales_undup.empty and "shift_id" in sales_undup.columns else pd.DataFrame()
                             
-                            total_sales = safe_float(shift_sales["final_total"].sum()) if not shift_sales.empty else 0
+                            total_sales = safe_float(shift_sales["final_total"].sum()) if not shift_sales.empty and "final_total" in shift_sales.columns else 0
                             total_transactions = len(shift_sales)
-                            total_profit = safe_float(shift_sales["profit"].sum()) if not shift_sales.empty else 0
+                            total_profit = safe_float(shift_sales["profit"].sum()) if not shift_sales.empty and "profit" in shift_sales.columns else 0
                             
-                            # Get cash and credit sales
                             cash_sales = get_cash_sales_unduplicated(shift_sales)
                             credit_sales = get_credit_sales_unduplicated(shift_sales)
                             
@@ -421,24 +450,21 @@ def shift_management_page():
                             shift_expenses = 0
                             if not expenses_df.empty and "shift_id" in expenses_df.columns:
                                 shift_expenses = safe_float(expenses_df[expenses_df["shift_id"] == shift_id]["amount"].sum())
-                            elif not expenses_df.empty:
-                                # If no shift_id, use expenses from today
-                                if "date" in expenses_df.columns:
-                                    expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
-                                    today = datetime.now().date()
-                                    today_expenses = expenses_df[expenses_df["date"].dt.date == today]
-                                    shift_expenses = safe_float(today_expenses["amount"].sum())
+                            elif not expenses_df.empty and "date" in expenses_df.columns:
+                                expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
+                                today = datetime.now().date()
+                                today_expenses = expenses_df[expenses_df["date"].dt.date == today]
+                                shift_expenses = safe_float(today_expenses["amount"].sum())
                             
                             # Get income for this shift from income module
                             shift_income = 0
                             if not income_df.empty and "shift_id" in income_df.columns:
                                 shift_income = safe_float(income_df[income_df["shift_id"] == shift_id]["amount"].sum())
-                            elif not income_df.empty:
-                                if "date" in income_df.columns:
-                                    income_df["date"] = pd.to_datetime(income_df["date"], errors="coerce")
-                                    today = datetime.now().date()
-                                    today_income = income_df[income_df["date"].dt.date == today]
-                                    shift_income = safe_float(today_income["amount"].sum())
+                            elif not income_df.empty and "date" in income_df.columns:
+                                income_df["date"] = pd.to_datetime(income_df["date"], errors="coerce")
+                                today = datetime.now().date()
+                                today_income = income_df[income_df["date"].dt.date == today]
+                                shift_income = safe_float(today_income["amount"].sum())
                             
                             # Get debt payments from credit management
                             debt_payments = 0
@@ -483,10 +509,12 @@ def shift_management_page():
             
             st.markdown("---")
             
-            # Show all active shifts across branches
-            st.markdown("### All Active Shifts (All Branches)")
+            # Show all active shifts (all branches for owners, own branch for others)
+            if multi_branch:
+                st.markdown("### All Active Shifts (All Branches)")
+            else:
+                st.markdown("### Active Shifts (Your Branch)")
             
-            # Convert to display format
             shift_display = []
             shift_ids = []
             
@@ -555,13 +583,15 @@ def shift_management_page():
                     st.metric("Active Branches", total_branches)
     
     # ==============================
-    # TAB 2: SHIFT HISTORY - BRANCH SPECIFIC - FIXED WITH UNDUPLICATED DATA
+    # TAB 2: SHIFT HISTORY - BRANCH SPECIFIC
     # ==============================
     with tab2:
         st.markdown("## Shift History")
-        st.caption(f"Showing shifts for branch: {user_branch}")
+        if multi_branch:
+            st.caption("Showing shifts for all branches")
+        else:
+            st.caption(f"Showing shifts for branch: {user_branch}")
         
-        # Filters
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -571,59 +601,59 @@ def shift_management_page():
             )
         
         with col2:
-            # Get cashiers for this branch
+            # Get cashiers for this branch (owners: all)
             all_cashiers = ["All"]
-            if not shifts_df.empty and "cashier_name" in shifts_df.columns and "branch_id" in shifts_df.columns:
-                branch_cashiers = shifts_df[shifts_df["branch_id"] == user_branch]
-                if not branch_cashiers.empty:
-                    all_cashiers = ["All"] + sorted(branch_cashiers["cashier_name"].unique().tolist())
+            if not shifts_df.empty and "cashier_name" in shifts_df.columns:
+                if multi_branch:
+                    all_cashiers = ["All"] + sorted(shifts_df["cashier_name"].dropna().unique().tolist())
+                else:
+                    branch_cashiers = shifts_df[shifts_df["branch_id"] == user_branch] if "branch_id" in shifts_df.columns else shifts_df
+                    if not branch_cashiers.empty:
+                        all_cashiers = ["All"] + sorted(branch_cashiers["cashier_name"].dropna().unique().tolist())
             selected_cashier = st.selectbox("Cashier", all_cashiers)
         
         with col3:
             statuses = ["All", "OPEN", "CLOSED"]
             selected_status = st.selectbox("Status", statuses)
         
-        # Filter shifts
         filtered_shifts = shifts_df.copy()
         
-        # Get date range
         start_date = None
         end_date = None
         if isinstance(date_range, tuple) and len(date_range) == 2:
             start_date, end_date = date_range
         
         if not filtered_shifts.empty:
-            # Filter by branch
-            if "branch_id" in filtered_shifts.columns:
-                filtered_shifts = filtered_shifts[filtered_shifts["branch_id"] == user_branch]
+            # ----- BRANCH FILTER -----
+            if not multi_branch and "branch_id" in filtered_shifts.columns:
+                filtered_shifts = filtered_shifts[
+                    filtered_shifts["branch_id"].astype(str).str.upper() == str(user_branch).upper()
+                ]
             
-            # Date filter
-            if start_date and end_date:
+            # ----- DATE FILTER -----
+            if start_date and end_date and "start_time" in filtered_shifts.columns:
                 filtered_shifts["start_date"] = pd.to_datetime(filtered_shifts["start_time"]).dt.date
                 filtered_shifts = filtered_shifts[
                     (filtered_shifts["start_date"] >= start_date) & 
                     (filtered_shifts["start_date"] <= end_date)
                 ]
             
-            # Cashier filter
+            # ----- CASHIER FILTER -----
             if selected_cashier != "All" and "cashier_name" in filtered_shifts.columns:
                 filtered_shifts = filtered_shifts[filtered_shifts["cashier_name"] == selected_cashier]
             
-            # Status filter
+            # ----- STATUS FILTER -----
             if selected_status != "All" and "status" in filtered_shifts.columns:
                 filtered_shifts = filtered_shifts[filtered_shifts["status"] == selected_status]
             
             if not filtered_shifts.empty:
-                # Display shifts table
                 display_df = filtered_shifts.copy()
                 
-                # Format datetime columns
                 for col in ["start_time", "end_time"]:
                     if col in display_df.columns:
                         display_df[col] = pd.to_datetime(display_df[col])
                         display_df[col] = display_df[col].dt.strftime("%Y-%m-%d %H:%M")
                 
-                # Rename columns for display
                 display_columns = {
                     "shift_id": "Shift ID",
                     "cashier_name": "Cashier",
@@ -638,7 +668,6 @@ def shift_management_page():
                 
                 display_df = display_df.rename(columns=display_columns)
                 
-                # Select columns to show
                 show_cols = ["Shift ID", "Cashier", "Start Time", "End Time", "Status"]
                 available_cols = [col for col in show_cols if col in display_df.columns]
                 
@@ -660,7 +689,6 @@ def shift_management_page():
                 
                 total_shifts = len(filtered_shifts)
                 
-                # Calculate revenue from unduplicated sales data for the date range
                 if start_date and end_date:
                     total_revenue = get_total_revenue_for_date_range(sales_df, start_date, end_date)
                     total_profit = get_profit_for_date_range(sales_df, start_date, end_date)
@@ -682,7 +710,6 @@ def shift_management_page():
                                 total_profit = safe_float(sales_undup[amount_col].sum()) * 0.3
                     total_transactions = len(sales_undup) if not sales_undup.empty else 0
                 
-                # Show metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Total Shifts", total_shifts)
@@ -693,12 +720,11 @@ def shift_management_page():
                 with col4:
                     st.metric("Transactions", f"{total_transactions:,}")
                 
-                # Add note about data source
-                st.caption("Revenue and profit calculated from unduplicated sales data")
+                st.caption("Revenue and profit calculated from unduplicated sales data for your branch.")
             else:
                 st.info("No shifts found matching the filters")
         else:
-            st.info("No shift history available")
+            st.info("No shift history available for your branch yet.")
     
     # ==============================
     # TAB 3: SHIFT SUMMARY - BRANCH LEVEL
@@ -772,11 +798,13 @@ def shift_management_page():
         st.markdown("### Daily Shift Performance")
         
         if not shifts_df.empty:
-            # Filter by branch
-            branch_shifts = shifts_df[shifts_df["branch_id"] == user_branch] if "branch_id" in shifts_df.columns else shifts_df
+            branch_shifts = shifts_df
+            if not multi_branch and "branch_id" in shifts_df.columns:
+                branch_shifts = shifts_df[
+                    shifts_df["branch_id"].astype(str).str.upper() == str(user_branch).upper()
+                ]
             
             if not branch_shifts.empty:
-                # Create a copy to avoid modifying the original
                 shifts_copy = branch_shifts.copy()
                 shifts_copy["date"] = pd.to_datetime(shifts_copy["start_time"]).dt.date
                 daily_summary = shifts_copy.groupby("date").agg({
@@ -808,11 +836,13 @@ def shift_management_page():
         st.caption(f"Performance for branch: {user_branch}")
         
         if not shifts_df.empty and "cashier_name" in shifts_df.columns:
-            # Filter by branch
-            branch_shifts = shifts_df[shifts_df["branch_id"] == user_branch] if "branch_id" in shifts_df.columns else shifts_df
+            branch_shifts = shifts_df
+            if not multi_branch and "branch_id" in shifts_df.columns:
+                branch_shifts = shifts_df[
+                    shifts_df["branch_id"].astype(str).str.upper() == str(user_branch).upper()
+                ]
             
             if not branch_shifts.empty:
-                # Cashier performance
                 cashier_performance = branch_shifts.groupby("cashier_name").agg({
                     "shift_id": "count",
                     "total_revenue": "sum",
@@ -824,10 +854,8 @@ def shift_management_page():
                 cashier_performance["Avg Revenue/Shift"] = cashier_performance["Total Revenue"] / cashier_performance["Shifts"]
                 cashier_performance["Avg Profit/Shift"] = cashier_performance["Total Profit"] / cashier_performance["Shifts"]
                 
-                # Sort by revenue
                 cashier_performance = cashier_performance.sort_values("Total Revenue", ascending=False)
                 
-                # Display
                 st.markdown("### Cashier Performance Ranking")
                 
                 st.dataframe(
@@ -845,7 +873,6 @@ def shift_management_page():
                     }
                 )
                 
-                # Visualization
                 col1, col2 = st.columns(2)
                 
                 with col1:

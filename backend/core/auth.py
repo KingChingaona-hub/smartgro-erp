@@ -190,9 +190,9 @@ def can_access_feature(role, feature):
         # ==============================
         # DEBTORS - CASHIER NOW HAS ACCESS
         # ==============================
-        "debtors": ["cashier", "manager", "owner"],  # CHANGED: Added cashier
-        "debtors_dashboard": ["cashier", "manager", "owner"],  # CHANGED: Added cashier
-        "record_debt_payment": ["cashier", "manager", "owner"],  # CHANGED: Added cashier
+        "debtors": ["cashier", "manager", "owner"],
+        "debtors_dashboard": ["cashier", "manager", "owner"],
+        "record_debt_payment": ["cashier", "manager", "owner"],
         
         # ==============================
         # ANALYTICS - NEW DATA SCIENCE MODULES
@@ -332,7 +332,7 @@ def create_default_users():
     return pd.DataFrame([
         {
             "username": "admin",
-            "password": "admin123",  # Plain text for testing
+            "password": "admin123",
             "role": "owner",
             "branch_id": "HO",
             "full_name": "System Administrator",
@@ -349,7 +349,7 @@ def create_default_users():
         },
         {
             "username": "manager",
-            "password": "manager123",  # Plain text for testing
+            "password": "manager123",
             "role": "manager",
             "branch_id": "HO",
             "full_name": "Store Manager",
@@ -366,7 +366,7 @@ def create_default_users():
         },
         {
             "username": "cashier",
-            "password": "cash123",  # Plain text for testing
+            "password": "cash123",
             "role": "cashier",
             "branch_id": "HO",
             "full_name": "Cashier",
@@ -387,7 +387,6 @@ def create_default_users():
 def init_users():
     """Initialize default users if none exist - with loop prevention"""
     try:
-        # Check if already initialized
         if st.session_state.get("auth_initialized", False):
             logger.info("Users already initialized in this session, skipping...")
             return load_users()
@@ -434,13 +433,10 @@ def check_login(username, password):
     try:
         logger.info(f"Login attempt for user: {username}")
         
-        # Initialize session state
         init_auth_session_state()
         
-        # Load users
         df = load_users()
         
-        # If no users, initialize them
         if df.empty:
             logger.warning("No users found! Creating default users...")
             if not st.session_state.get("auth_initialized", False):
@@ -453,12 +449,11 @@ def check_login(username, password):
                 logger.error("Failed to create users!")
                 return False, None
         
-        # Ensure required columns exist
         if "active" not in df.columns:
             df["active"] = True
             save_users(df)
         
-        # Try plain text first (for new users or plain text passwords)
+        # Try plain text first
         user = df[
             (df["username"] == username) &
             (df["password"] == password) &
@@ -467,7 +462,6 @@ def check_login(username, password):
         
         if not user.empty:
             logger.info(f"Login successful (plain text) for: {username}")
-            # Convert to hashed password for security
             try:
                 hashed = hash_password(password)
                 idx = user.index[0]
@@ -478,7 +472,7 @@ def check_login(username, password):
                 logger.warning(f"Could not update to hashed password: {e}")
             return process_login_user(user, df)
         
-        # Try hashed password (for existing users)
+        # Try hashed
         hashed = hash_password(password)
         user = df[
             (df["username"] == username) &
@@ -490,7 +484,7 @@ def check_login(username, password):
             logger.info(f"Login successful (hashed) for: {username}")
             return process_login_user(user, df)
         
-        # Check if user exists but inactive
+        # Inactive user
         inactive_user = df[
             (df["username"] == username) &
             (df["active"] == False)
@@ -501,11 +495,10 @@ def check_login(username, password):
             st.error("User account is deactivated. Please contact administrator.")
             return False, None
         
-        # Check if user exists but password doesn't match
+        # Wrong password
         user_exists = df[df["username"] == username]
         if not user_exists.empty:
             logger.warning(f"Invalid password for: {username}")
-            # Increment attempts
             _login_attempts[username] += 1
             attempts_left = _MAX_ATTEMPTS - _login_attempts[username]
             
@@ -517,7 +510,7 @@ def check_login(username, password):
             st.error(f"Invalid credentials. {attempts_left} attempts remaining.")
             return False, None
         
-        # User doesn't exist
+        # User not found
         logger.warning(f"User not found: {username}")
         st.error("User not found. Please check your username.")
         return False, None
@@ -529,76 +522,102 @@ def check_login(username, password):
 
 
 def process_login_user(user, df):
-    """Process a successful login - FIXED: username variable"""
+    """
+    Process a successful login.
+
+    BRANCH AUTHORITY RULE
+    ---------------------
+    The branch chosen on the branch-selection screen (stored in
+    st.session_state["user_branch"] by branch_auth.set_session_branch)
+    is authoritative. The user record can *narrow* access (e.g. an HO
+    user logging into NAT) but the branch-selection value must never
+    be silently overwritten with a hard-coded "HO" — that was the
+    reason every branch login previously saw HO data.
+    """
     try:
-        # FIXED: Get username from the user data
         username = user.iloc[0]["username"]
-        
         role = user.iloc[0]["role"]
-        branch_id = user.iloc[0].get("branch_id", "HO")
         full_name = user.iloc[0].get("full_name", username)
         mobile_enabled = user.iloc[0].get("mobile_enabled", True)
         whatsapp = user.iloc[0].get("whatsapp", "")
-        
+
+        # ---------- BRANCH AUTHORITY ----------
+        session_branch = (
+            st.session_state.get("user_branch")
+            or st.session_state.get("current_branch_code")
+            or "HO"
+        )
+        user_branch = user.iloc[0].get("branch_id") or "HO"
+
+        # If the user record matches the selected branch, use the record.
+        # Otherwise, keep the branch selected at login.
+        if user_branch and user_branch.upper() == session_branch.upper():
+            branch_id = user_branch
+        else:
+            branch_id = session_branch
+
+        # Lock it in for the entire session
+        st.session_state["user_branch"] = branch_id
+        st.session_state["current_branch"] = branch_id
+        # --------------------------------------
+
         # ============================================================
-        # SHIFT CHECK - BRANCH LEVEL (FIXED)
+        # SHIFT CHECK - BRANCH LEVEL (uses SESSION branch)
         # ============================================================
         if role == "cashier":
-            # Check if there's an active shift in the user's branch
             can_login, active_shift = can_cashier_login(username)
-            
+
             if not can_login:
-                st.error("No active shift in your branch. Please ask your manager to start a shift.")
+                st.error(
+                    "No active shift in your branch. "
+                    "Please ask your manager to start a shift."
+                )
                 return False, None
-            
-            # Store shift information in session
+
             st.session_state.active_shift_id = active_shift.get("shift_id")
             st.session_state.active_shift_branch = active_shift.get("branch_id", branch_id)
             st.session_state.active_shift_branch_name = active_shift.get("branch_name", "")
             st.session_state.shift_started_by = active_shift.get("cashier_name", "Unknown")
-            
-            logger.info(f"Cashier {username} logged in under branch shift {active_shift.get('shift_id')}")
-        
-        # For non-cashier roles, check if they can start a shift
+
+            logger.info(
+                f"Cashier {username} logged in under branch shift "
+                f"{active_shift.get('shift_id')} on branch {branch_id}"
+            )
+
         elif can_start_shift(role):
-            # Check if there's an active shift in this branch
             active_shift = get_active_shift_for_branch(branch_id)
-            
+
             if active_shift:
-                # Store the existing shift info
                 st.session_state.active_shift_id = active_shift.get("shift_id")
                 st.session_state.active_shift_branch = active_shift.get("branch_id", branch_id)
                 st.session_state.active_shift_branch_name = active_shift.get("branch_name", "")
                 st.session_state.shift_started_by = active_shift.get("cashier_name", "Unknown")
-                
                 logger.info(f"Manager/Owner {username} logged in - branch shift {active_shift.get('shift_id')} is active")
             else:
-                # No active shift - clear any stale shift data
                 st.session_state.active_shift_id = None
                 st.session_state.active_shift_branch = None
                 st.session_state.active_shift_branch_name = None
                 st.session_state.shift_started_by = None
-                
                 logger.info(f"No active shift in branch {branch_id}")
-        
+
         # Store user info in session
         st.session_state.user_full_name = full_name
-        st.session_state.user_branch = branch_id
+        # NOTE: user_branch is already set above — do NOT overwrite it here.
         st.session_state.mobile_enabled = mobile_enabled
         st.session_state.whatsapp_number = whatsapp if whatsapp else None
         st.session_state.mobile_mode = False
         st.session_state.user_role = role
-        
+
         # Update last login
         idx = user.index[0]
         if "last_login" not in df.columns:
             df["last_login"] = None
         df.loc[idx, "last_login"] = datetime.now().isoformat()
         save_users(df)
-        
-        logger.info(f"Login processed successfully for: {username}")
+
+        logger.info(f"Login processed successfully for: {username} on branch {branch_id}")
         return True, role
-        
+
     except Exception as e:
         logger.error(f"Error processing login: {e}")
         return False, None
@@ -630,11 +649,18 @@ def check_mobile_login(username, password):
         
         if not user.empty:
             role = user.iloc[0]["role"]
-            
             if not can_use_mobile(role):
                 return False, None, "Mobile access not enabled for this role"
             
-            branch_id = user.iloc[0].get("branch_id", "HO")
+            # Branch authority: keep the branch selected at login if any
+            session_branch = (
+                st.session_state.get("user_branch")
+                or st.session_state.get("current_branch_code")
+                or "HO"
+            )
+            user_branch = user.iloc[0].get("branch_id") or "HO"
+            branch_id = user_branch if (user_branch and user_branch.upper() == session_branch.upper()) else session_branch
+
             full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
             whatsapp = user.iloc[0].get("whatsapp", "")
             
@@ -644,12 +670,13 @@ def check_mobile_login(username, password):
             
             st.session_state.user_full_name = full_name
             st.session_state.user_branch = branch_id
+            st.session_state.current_branch = branch_id
             st.session_state.whatsapp_number = whatsapp if whatsapp else None
             st.session_state.mobile_mode = True
             
             return True, role, "Mobile login successful"
         
-        # Try hashed password
+        # Try hashed
         hashed = hash_password(password)
         user = df[
             (df["username"] == username) &
@@ -660,11 +687,17 @@ def check_mobile_login(username, password):
         
         if not user.empty:
             role = user.iloc[0]["role"]
-            
             if not can_use_mobile(role):
                 return False, None, "Mobile access not enabled for this role"
             
-            branch_id = user.iloc[0].get("branch_id", "HO")
+            session_branch = (
+                st.session_state.get("user_branch")
+                or st.session_state.get("current_branch_code")
+                or "HO"
+            )
+            user_branch = user.iloc[0].get("branch_id") or "HO"
+            branch_id = user_branch if (user_branch and user_branch.upper() == session_branch.upper()) else session_branch
+
             full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
             whatsapp = user.iloc[0].get("whatsapp", "")
             
@@ -674,6 +707,7 @@ def check_mobile_login(username, password):
             
             st.session_state.user_full_name = full_name
             st.session_state.user_branch = branch_id
+            st.session_state.current_branch = branch_id
             st.session_state.whatsapp_number = whatsapp if whatsapp else None
             st.session_state.mobile_mode = True
             
@@ -720,7 +754,7 @@ def create_user(username, password, role, branch_id="HO", full_name="", phone=""
         
         new_user = pd.DataFrame([{
             "username": username,
-            "password": hash_password(password),  # Hash new passwords
+            "password": hash_password(password),
             "role": role,
             "branch_id": branch_id,
             "full_name": full_name if full_name else username,
@@ -954,7 +988,11 @@ def unlock_account(username):
 
 def get_current_shift_status():
     """Get current shift status for the logged-in user's branch"""
-    branch_id = st.session_state.get("user_branch", "HO")
+    branch_id = (
+        st.session_state.get("user_branch")
+        or st.session_state.get("current_branch_code")
+        or "HO"
+    )
     active_shift = get_active_shift_for_branch(branch_id)
     
     if active_shift:
@@ -1036,7 +1074,6 @@ def import_users_from_csv(csv_data):
             return False, "CSV must contain password column"
         
         for idx, row in df.iterrows():
-            # Hash passwords if not already hashed
             if len(row["password"]) != 64:
                 df.loc[idx, "password"] = hash_password(row["password"])
         

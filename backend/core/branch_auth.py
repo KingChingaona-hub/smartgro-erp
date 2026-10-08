@@ -1,3 +1,5 @@
+# backend/core/branch_auth.py
+
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -46,6 +48,55 @@ BRANCHES = {
 
 
 # ==============================
+# SESSION BRANCH AUTHORITY  (NEW)
+# ==============================
+def set_session_branch(branch_code: str):
+    """
+    Make this branch code the authoritative branch for the whole session.
+    Called right after the branch-selection login succeeds.
+
+    This sets `st.session_state["user_branch"]` — the key every loader
+    reads via `db_adapter.get_current_branch()` — so every page and every
+    query downstream is scoped to the branch the user chose on the
+    branch-selection screen.
+    """
+    branch_code = str(branch_code).strip().upper()
+
+    # Canonical keys used across the app
+    st.session_state["current_branch_code"] = branch_code
+    st.session_state["current_branch_name"] = get_branch_display_name(branch_code)
+
+    # Authoritative key used by db_adapter.get_current_branch()
+    st.session_state["user_branch"] = branch_code
+
+    # Backwards-compat alias used by older code paths
+    st.session_state["current_branch"] = branch_code
+
+    # Ensure the session is flagged as branch-authenticated
+    st.session_state["branch_authenticated"] = True
+    st.session_state["branch_selected"] = True
+
+
+def get_session_branch() -> str:
+    """
+    Return the authoritative branch code for the session.
+    Defaults to HO if nothing has been set.
+    """
+    return (
+        st.session_state.get("user_branch")
+        or st.session_state.get("current_branch_code")
+        or "HO"
+    )
+
+
+def assert_branch_locked() -> bool:
+    """
+    True once the user has selected a branch and cannot silently change it.
+    """
+    return bool(st.session_state.get("branch_authenticated"))
+
+
+# ==============================
 # BRANCH VALIDATION
 # ==============================
 def validate_branch_code(branch_code):
@@ -83,9 +134,11 @@ def get_branch_display_name(branch_code):
 # BRANCH SESSION MANAGEMENT
 # ==============================
 def set_current_branch(branch_code):
-    """Set current branch in session"""
-    st.session_state.current_branch_code = branch_code
-    st.session_state.current_branch_name = get_branch_display_name(branch_code)
+    """
+    Set current branch in session.
+    Kept for backwards compatibility — delegates to set_session_branch().
+    """
+    set_session_branch(branch_code)
 
 
 def get_current_branch():
@@ -106,6 +159,13 @@ def clear_branch_session():
         del st.session_state.current_branch_name
     if "branch_authenticated" in st.session_state:
         del st.session_state.branch_authenticated
+    if "branch_selected" in st.session_state:
+        del st.session_state.branch_selected
+    # Also clear the authoritative key so the next login starts clean
+    if "user_branch" in st.session_state:
+        del st.session_state.user_branch
+    if "current_branch" in st.session_state:
+        del st.session_state.current_branch
 
 
 # ==============================
@@ -113,15 +173,15 @@ def clear_branch_session():
 # ==============================
 def branch_selection_page():
     """Page for selecting and authenticating branch"""
-    
+
     st.title("Branch Selection")
     st.markdown("---")
-    
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("### Available Branches")
-        
+
         # Display all branches
         for code, info in BRANCHES.items():
             st.markdown(f"""
@@ -131,19 +191,28 @@ def branch_selection_page():
                 Level: {info['level']}
             </div>
             """, unsafe_allow_html=True)
-    
+
     with col2:
         st.markdown("### Login to Branch")
-        
-        branch_code = st.text_input("Branch Code", placeholder="Enter branch code (HO, NAT, PRO, DIS, VIL)", key="branch_code_input")
-        branch_password = st.text_input("Branch Password", type="password", placeholder="Enter branch password", key="branch_password_input")
-        
-        if st.button("🔐 Branch Login", type="primary", use_container_width=True):
+
+        branch_code = st.text_input(
+            "Branch Code",
+            placeholder="Enter branch code (HO, NAT, PRO, DIS, VIL)",
+            key="branch_code_input"
+        )
+        branch_password = st.text_input(
+            "Branch Password",
+            type="password",
+            placeholder="Enter branch password",
+            key="branch_password_input"
+        )
+
+        if st.button("Branch Login", type="primary", use_container_width=True):
             if branch_code and branch_password:
                 if validate_branch_code(branch_code.upper()):
                     if verify_branch_password(branch_code.upper(), branch_password):
-                        set_current_branch(branch_code.upper())
-                        st.session_state.branch_authenticated = True
+                        # ---------- AUTHORITATIVE BRANCH BINDING ----------
+                        set_session_branch(branch_code.upper())
                         st.success(f"Access granted to {get_branch_display_name(branch_code.upper())}")
                         st.rerun()
                     else:
@@ -152,8 +221,8 @@ def branch_selection_page():
                     st.error(f"Invalid branch code. Valid codes: {', '.join(BRANCHES.keys())}")
             else:
                 st.error("Please enter branch code and password")
-        
+
         st.markdown("---")
-        #st.caption("Demo Branch Credentials:")
-        #for code, info in BRANCHES.items():
-        #    st.caption(f"{info['name']} ({code}): {info['password']}")
+        # st.caption("Demo Branch Credentials:")
+        # for code, info in BRANCHES.items():
+        #     st.caption(f"{info['name']} ({code}): {info['password']}")

@@ -68,13 +68,25 @@ def init_session():
 
 
 # ==============================
+# SESSION BRANCH HELPER
+# ==============================
+def _get_session_branch():
+    """Return the authoritative branch for the current session."""
+    return (
+        st.session_state.get("user_branch")
+        or st.session_state.get("current_branch_code")
+        or "HO"
+    )
+
+
+# ==============================
 # GET CUSTOMER SUGGESTIONS
 # ==============================
 @st.cache_data(ttl=60)
-def get_customer_suggestions():
-    """Get unique customer names from sales data for autocomplete"""
+def get_customer_suggestions(branch_id: str):
+    """Get unique customer names from sales data for autocomplete (branch-scoped)."""
     try:
-        sales_df = load_sales()
+        sales_df = load_sales(branch_id=branch_id)
         if sales_df.empty:
             return []
         
@@ -98,10 +110,10 @@ def get_customer_suggestions():
 
 
 @st.cache_data(ttl=60)
-def get_customer_phone_suggestions():
-    """Get customer phone numbers from sales data"""
+def get_customer_phone_suggestions(branch_id: str):
+    """Get customer phone numbers from sales data (branch-scoped)."""
     try:
-        sales_df = load_sales()
+        sales_df = load_sales(branch_id=branch_id)
         if sales_df.empty:
             return {}
         
@@ -136,31 +148,40 @@ def get_customer_phone_suggestions():
 
 
 # ==============================
-# PRODUCTS - CACHED
+# PRODUCTS - CACHED (BRANCH-SCOPED)
 # ==============================
 @st.cache_data(ttl=5)
-def get_cached_products():
-    """Cache products for 5 seconds to reduce DB hits"""
-    return load_products()
+def get_cached_products(branch_id: str):
+    """Cache products for 5 seconds to reduce DB hits — branch-scoped."""
+    return load_products(branch_id=branch_id)
 
 
 def get_products():
-    return get_cached_products()
+    return get_cached_products(_get_session_branch())
 
 
 # ==============================
-# CREDIT CHECK - CACHED
+# CREDIT CHECK - CACHED (BRANCH-SCOPED)
 # ==============================
 @st.cache_data(ttl=60)
-def get_cached_credit_score():
-    return get_credit_score()
+def get_cached_credit_score(branch_id: str):
+    """Credit score dataframe, filtered to the branch if a branch column exists."""
+    try:
+        df = get_credit_score()
+        if df is not None and not df.empty and "branch_id" in df.columns:
+            df = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
 def check_credit_allowed(customer_phone, amount):
+    branch_id = _get_session_branch()
+
     if not customer_phone:
         return False, "No customer phone provided"
     
-    scores_df = get_cached_credit_score()
+    scores_df = get_cached_credit_score(branch_id)
     if scores_df.empty:
         return True, "New customer"
     
@@ -179,15 +200,23 @@ def check_credit_allowed(customer_phone, amount):
 
 
 # ==============================
-# ACTIVE DEBT CHECK - CACHED
+# ACTIVE DEBT CHECK - CACHED (BRANCH-SCOPED)
 # ==============================
 @st.cache_data(ttl=60)
-def get_cached_debtors():
-    return load_debtors()
+def get_cached_debtors(branch_id: str):
+    """Debtors for the current branch only."""
+    try:
+        df = load_debtors(branch_id=branch_id)
+        if df is not None and not df.empty and "branch_id" in df.columns:
+            df = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
 def has_active_credit(phone):
-    debts = get_cached_debtors()
+    branch_id = _get_session_branch()
+    debts = get_cached_debtors(branch_id)
     if debts.empty:
         return False
     match = debts[(debts["phone"] == phone) & (debts["balance"] > 0)]
@@ -329,14 +358,14 @@ def pos_page():
     except:
         pass
     
-    # Load products once with caching
+    # Load products once with caching (branch-scoped)
     products_df = get_products()
     cart = st.session_state.cart
     
     # ==============================
     # SHIFT STATUS - FAST
     # ==============================
-    user_branch = st.session_state.get("user_branch", "HO")
+    user_branch = _get_session_branch()
     branch_shift = get_branch_shift_status(user_branch)
     active_shift_id = branch_shift.get("shift_id") if branch_shift.get("active") else None
     session_shift_id = st.session_state.get("active_shift_id")
@@ -360,7 +389,7 @@ def pos_page():
     # ==============================
     st.markdown("## Quick Action Products")
     
-    sales_df = load_sales()
+    sales_df = load_sales(branch_id=user_branch)
     if not sales_df.empty and "name" in sales_df.columns:
         top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
         quick_products = products_df[products_df["name"].isin(top_products)]
@@ -381,7 +410,6 @@ def pos_page():
                             found = False
                             for item in cart:
                                 if item["barcode"] == product["barcode"]:
-                                    # FIX: Update quantity by adding 1
                                     item["qty"] = float(item["qty"]) + 1.0
                                     item["total"] = float(item["qty"]) * float(item["price"])
                                     found = True
@@ -407,7 +435,10 @@ def pos_page():
     st.markdown("## Search Products")
     
     if products_df.empty:
-        st.warning("No products found. Please add products in Inventory first.")
+        st.warning(
+            f"No products found for branch **{user_branch}**. "
+            f"Please add products in Inventory first."
+        )
         if st.button("Go to Inventory", key="go_to_inventory_btn"):
             st.session_state.current_page = "Inventory"
             st.rerun()
@@ -506,7 +537,6 @@ def pos_page():
                     found = False
                     for item in cart:
                         if item["barcode"] == product["barcode"]:
-                            # FIX: Update quantity by adding the new quantity
                             new_qty = float(item["qty"]) + float(final_qty)
                             if new_qty > product["stock"]:
                                 st.toast(f"Cart exceeds available stock ({product['stock']:.2f})")
@@ -642,9 +672,9 @@ def pos_page():
     # ==============================
     st.markdown("## Customer Details")
     
-    # Get customer suggestions from sales data
-    customer_suggestions = get_customer_suggestions()
-    customer_phones = get_customer_phone_suggestions()
+    # Branch-scoped customer suggestions
+    customer_suggestions = get_customer_suggestions(user_branch)
+    customer_phones = get_customer_phone_suggestions(user_branch)
     
     # Recent customers
     if st.session_state.recent_customers:
@@ -662,27 +692,21 @@ def pos_page():
     with col1:
         st.markdown("**Customer Name**")
         
-        # Create options list with "Walk-in" and existing customers
         all_options = ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
         
-        # Get current value
         current_name = st.session_state.get("customer_name_input", "Walk-in")
         
-        # Check if current name is not in options and not "Walk-in" (new customer being added)
         is_new_customer = current_name not in all_options and current_name != "Walk-in" and current_name.strip()
         
         if is_new_customer:
-            # Add the new customer name to options temporarily
             all_options.append(current_name)
             st.caption(f"New customer: **{current_name}**")
         
-        # Find index
         try:
             current_index = all_options.index(current_name) if current_name in all_options else 0
         except ValueError:
             current_index = 0
         
-        # Customer name input with custom option for new customers
         selected_customer = st.selectbox(
             "Select or type customer name",
             options=all_options,
@@ -691,10 +715,6 @@ def pos_page():
             label_visibility="collapsed"
         )
         
-        # Check if user wants to add a new customer (typing in the select box)
-        # We handle this by allowing the user to type in the search box below
-        
-        # Additional text input for new customer name (for adding new customers)
         new_customer_name = st.text_input(
             "Or type new customer name",
             placeholder="Type new customer name here...",
@@ -702,24 +722,20 @@ def pos_page():
             label_visibility="collapsed"
         )
         
-        # If user typed a new name, use it
         if new_customer_name and new_customer_name.strip():
             selected_customer = new_customer_name.strip()
             st.info(f"New customer: **{selected_customer}** will be added")
         
-        # Update session state
         if selected_customer != st.session_state.customer_name_input:
             st.session_state.customer_name_input = selected_customer
     
     with col2:
         st.markdown("**Phone Number**")
         
-        # Auto-fill phone if customer has one
         auto_phone = ""
         if selected_customer != "Walk-in" and selected_customer in customer_phones:
             auto_phone = customer_phones[selected_customer]
         
-        # Use a different key for the phone input to avoid conflict
         phone_key = "customer_phone_field"
         phone_value = st.session_state.get("customer_phone_input", auto_phone)
         
@@ -731,22 +747,18 @@ def pos_page():
             placeholder="Enter phone number"
         )
         
-        # Update session state
         if customer_phone != st.session_state.customer_phone_input:
             st.session_state.customer_phone_input = customer_phone
     
-    # Update recent customers when new customer entered
     customer_name = selected_customer
     customer_phone = st.session_state.customer_phone_input
     
-    # Add new customer to recent if not Walk-in
     if customer_name and customer_name != "Walk-in" and customer_phone:
         add_recent_customer(customer_name, customer_phone)
     
     customer_display = customer_name.strip().title() if customer_name and customer_name.strip() else "Walk-in"
     customer_phone_clean = customer_phone.strip() if customer_phone else ""
     
-    # Display selected customer
     st.caption(f"Customer: **{customer_display}**" + (f" | Phone: {customer_phone_clean}" if customer_phone_clean else ""))
     
     # ==============================
@@ -917,7 +929,7 @@ def pos_page():
                 }
                 
                 success, message = process_checkout_batch(
-                    branch_id=st.session_state.get("user_branch", "HO"),
+                    branch_id=user_branch,
                     checkout_data=checkout_data
                 )
                 

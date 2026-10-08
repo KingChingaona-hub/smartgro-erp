@@ -425,6 +425,8 @@ def branch_login_page():
                                 st.session_state.current_branch = branch_code_upper
                                 st.session_state.branch_name = BRANCHES[branch_code_upper]["name"]
                                 st.session_state.user_branch = branch_code_upper
+                                st.session_state.current_branch_code = branch_code_upper
+                                st.session_state.current_branch_name = BRANCHES[branch_code_upper]["name"]
                                 set_current_branch(branch_code_upper)
                                 st.success("Access granted")
                                 try:
@@ -549,6 +551,31 @@ def main_app():
     st.session_state.last_activity = datetime.now()
     
     # ==============================
+    # BRANCH GUARD
+    # Every non-owner / non-manager / non-admin user must have a branch
+    # bound to the session. If not, force a re-login rather than risk
+    # leaking another branch's data through un-scoped loaders.
+    # ==============================
+    role = st.session_state.get("role", "cashier")
+    session_branch = (
+        st.session_state.get("user_branch")
+        or st.session_state.get("current_branch_code")
+    )
+
+    if role not in ("owner", "manager", "admin") and not session_branch:
+        st.error(
+            "Your session is not linked to a branch. "
+            "Please log in again."
+        )
+        # Clear session and send the user back to branch selection
+        st.session_state.logged_in = False
+        st.session_state.branch_selected = False
+        st.session_state.branch_authenticated = False
+        st.rerun()
+        return
+    # ------------------------------
+
+    # ==============================
     # PWA META TAGS
     # ==============================
     try:
@@ -567,9 +594,8 @@ def main_app():
     # except Exception as e:
     #     print(f"Mobile responsiveness error: {e}")
     
-    role = st.session_state.get("role", "cashier")
     username = st.session_state.get("username", "User")
-    current_branch = st.session_state.get("current_branch", "HO")
+    current_branch = st.session_state.get("current_branch", session_branch or "HO")
     try:
         branch_name = BRANCHES.get(current_branch, {}).get("name", "Unknown")
     except:
@@ -637,10 +663,9 @@ def main_app():
     st.sidebar.markdown("---")
     
     # ==============================
-    # FLAT ALPHABETICAL NAVIGATION - FIXED: Using get_visible_modules() directly
+    # FLAT ALPHABETICAL NAVIGATION
     # ==============================
     try:
-        # IMPORTANT: Use get_visible_modules() instead of get_navigation_menu()
         all_items = get_visible_modules(role)
         
         # Remove any modules you want to hide
@@ -650,7 +675,6 @@ def main_app():
         # Sort alphabetically
         all_items = sorted(all_items)
         
-        # Display debug info to confirm count (you can remove this later)
         st.sidebar.write(f"📊 {len(all_items)} modules loaded")
         
     except Exception as e:
@@ -730,7 +754,7 @@ def main_app():
     #     print(f"Mobile actions error: {e}")
     
     # ==============================
-    # ROUTING ENGINE - REMOVED Customer App AND Customer Insights routes
+    # ROUTING ENGINE
     # ==============================
     
     if selected_page:
@@ -829,22 +853,11 @@ def main_app():
             else:
                 st.error("You don't have permission to access this page")
 
-        # REMOVED: Customer App
-        # elif page == "Customer App":
-        #     customer_app()
-
         elif page == "Customer Dashboard":
             if can_access_feature(role, "customers"):
                 customers_dashboard()
             else:
                 st.error("You don't have permission to access this page")
-
-        # REMOVED: Customer Insights (redundant)
-        # elif page == "Customer Insights":
-        #     if can_access_feature(role, "customers"):
-        #         customer_insights_page()
-        #     else:
-        #         st.error("You don't have permission to access this page")
 
         elif page == "Customer Insights 360":
             if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
@@ -876,8 +889,6 @@ def main_app():
                 documents_page()
             else:
                 st.error("You don't have permission to access this page")
-                
-        # Add this route in the routing engine section (after the other routes)
 
         elif page == "Duplicate Products":
             if can_access_feature(role, "inventory_view") or role in ["owner", "manager"]:
