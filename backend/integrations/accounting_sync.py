@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import json
 import csv
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 import io
@@ -63,52 +64,216 @@ def save_accounting_export(export_data):
 
 
 # ==============================
-# DIRECT EXPENSES LOADER
+# EXPENSE COLUMN NORMALIZATION
 # ==============================
-def load_expenses_from_csv():
-    """Load expenses directly from CSV file"""
+DATE_ALIASES = [
+    "date", "expense_date", "date_recorded", "created_at", "recorded_at",
+    "transaction_date", "timestamp", "date_created", "entry_date",
+]
+AMOUNT_ALIASES = [
+    "amount", "total", "value", "cost", "total_amount", "expense_amount",
+    "price", "sum", "total_cost",
+]
+CATEGORY_ALIASES = [
+    "category", "type", "expense_type", "expense_category", "description_type",
+    "kind", "group",
+]
+
+
+def _find_first_column(df, aliases):
+    """Return the first column name (case-insensitive) present in the aliases list."""
+    if df is None or df.empty:
+        return None
+    lower_map = {str(c).lower().strip(): c for c in df.columns}
+    for alias in aliases:
+        if alias in lower_map:
+            return lower_map[alias]
+    # Fallback substring match
+    for col_lower, col_orig in lower_map.items():
+        for alias in aliases:
+            if alias in col_lower:
+                return col_orig
+    return None
+
+
+def _normalize_expenses_df(df, source_label=""):
+    """
+    Normalize an expenses DataFrame so it always has:
+      - a datetime column named 'date'
+      - a numeric column named 'amount'
+      - a 'category' column (if available)
+    Returns (normalized_df, source_label, diagnostics_dict)
+    """
+    diagnostics = {
+        "source": source_label,
+        "rows": 0,
+        "date_col": None,
+        "amount_col": None,
+        "category_col": None,
+        "error": None,
+    }
+
+    if df is None or df.empty:
+        return pd.DataFrame(), source_label, diagnostics
+
+    df = df.copy()
+
+    date_col = _find_first_column(df, DATE_ALIASES)
+    amount_col = _find_first_column(df, AMOUNT_ALIASES)
+    category_col = _find_first_column(df, CATEGORY_ALIASES)
+
+    diagnostics["date_col"] = date_col
+    diagnostics["amount_col"] = amount_col
+    diagnostics["category_col"] = category_col
+
+    if date_col is None and amount_col is None:
+        diagnostics["error"] = "No recognizable date or amount column."
+        return pd.DataFrame(), source_label, diagnostics
+
+    # Coerce date
+    if date_col is not None:
+        df["date"] = pd.to_datetime(df[date_col], errors="coerce")
+    else:
+        # Try to derive from index or leave NaT
+        df["date"] = pd.NaT
+
+    # Coerce amount
+    if amount_col is not None:
+        # Remove commas & currency symbols before numeric conversion
+        df["amount"] = (
+            df[amount_col]
+            .astype(str)
+            .str.replace(",", "", regex=False)
+            .str.replace("$", "", regex=False)
+            .str.replace(" ", "", regex=False)
+        )
+        df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+    else:
+        df["amount"] = 0
+
+    # Category
+    if category_col is not None:
+        df["category"] = df[category_col].astype(str)
+    else:
+        df["category"] = "Uncategorized"
+
+    diagnostics["rows"] = len(df)
+
+    return df, source_label, diagnostics
+
+
+# ==============================
+# EXPENSE LOADERS - MULTI-SOURCE
+# ==============================
+def _try_load_expenses_from_db():
+    """Try loading expenses from the database adapter."""
     try:
-        if not EXPENSES_FILE.exists():
-            return pd.DataFrame()
-        
-        if EXPENSES_FILE.stat().st_size == 0:
-            return pd.DataFrame()
-        
-        df = pd.read_csv(EXPENSES_FILE)
-        
-        if df.empty:
-            return df
-        
-        if "date" not in df.columns:
-            for col in df.columns:
-                if 'date' in col.lower():
-                    df.rename(columns={col: 'date'}, inplace=True)
-                    break
-        
-        if "amount" not in df.columns:
-            for col in df.columns:
-                if 'amount' in col.lower() or 'total' in col.lower():
-                    df.rename(columns={col: 'amount'}, inplace=True)
-                    break
-        
-        if "category" not in df.columns:
-            for col in df.columns:
-                if 'category' in col.lower() or 'type' in col.lower():
-                    df.rename(columns={col: 'category'}, inplace=True)
-                    break
-        
-        if "date" in df.columns:
-            df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            df = df.dropna(subset=["date"])
-        
-        if "amount" in df.columns:
-            df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
-        
-        return df
-        
+        df = load_expenses()
+        if df is not None and not df.empty:
+            return df, "database (load_expenses)"
     except Exception as e:
-        print(f"Error loading expenses from CSV: {e}")
-        return pd.DataFrame()
+        print(f"[accounting_sync] load_expenses() failed: {e}")
+    return None, None
+
+
+def _try_load_expenses_from_csv(path: Path):
+    """Try loading expenses from a specific CSV path."""
+    try:
+        if path.exists() and path.stat().st_size > 0:
+            df = pd.read_csv(path)
+            if not df.empty:
+                return df, f"csv ({path})"
+    except Exception as e:
+        print(f"[accounting_sync] CSV read failed at {path}: {e}")
+    return None, None
+
+
+def _discover_expense_csvs():
+    """Search common locations for any expenses*.csv file."""
+    candidates = []
+    search_dirs = [DATA_DIR, Path("."), EXPORT_DIR, Path("backend"), Path("database")]
+    for d in search_dirs:
+        try:
+            if d.exists():
+                for p in d.glob("expenses*.csv"):
+                    candidates.append(p)
+        except Exception:
+            continue
+    return candidates
+
+
+def load_expenses_auto():
+    """
+    Load expenses from the first source that returns non-empty data.
+    Returns:
+        (normalized_df, source_label, diagnostics_dict)
+    """
+    # 1) Database first
+    df, src = _try_load_expenses_from_db()
+    if df is not None:
+        normalized, label, diag = _normalize_expenses_df(df, src)
+        if not normalized.empty:
+            return normalized, label, diag
+
+    # 2) Known CSVs
+    known_paths = [
+        EXPENSES_FILE,
+        Path("expenses.csv"),
+        EXPORT_DIR / "expenses.csv",
+        DATA_DIR / "expenses" / "expenses.csv",
+    ]
+    for p in known_paths:
+        df, src = _try_load_expenses_from_csv(p)
+        if df is not None:
+            normalized, label, diag = _normalize_expenses_df(df, src)
+            if not normalized.empty:
+                return normalized, label, diag
+
+    # 3) Any expenses*.csv discovered
+    for p in _discover_expense_csvs():
+        df, src = _try_load_expenses_from_csv(p)
+        if df is not None:
+            normalized, label, diag = _normalize_expenses_df(df, src)
+            if not normalized.empty:
+                return normalized, label, diag
+
+    # Nothing found
+    return pd.DataFrame(), "not found", {
+        "source": "not found",
+        "rows": 0,
+        "date_col": None,
+        "amount_col": None,
+        "category_col": None,
+        "error": "No expense source returned data.",
+    }
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _cached_load_expenses_auto():
+    """
+    Cached version of the auto-loader. Returns serializable payload:
+        (df, source_label, diagnostics_dict)
+    """
+    df, src, diag = load_expenses_auto()
+    return df, src, diag
+
+
+def get_expenses_source(refresh: bool = False):
+    """Return (df, source_label, diagnostics) using the cache unless refresh=True."""
+    if refresh:
+        try:
+            _cached_load_expenses_auto.clear()
+        except Exception:
+            pass
+    return _cached_load_expenses_auto()
+
+
+def load_expenses_from_csv():
+    """
+    Kept for backwards compatibility. Now delegates to the multi-source loader.
+    """
+    df, _src, _diag = load_expenses_auto()
+    return df
 
 
 # ==============================
@@ -142,49 +307,43 @@ def get_sales_data(date_from, date_to):
     
     filtered = sales_df[(sales_df[date_col] >= start_dt) & (sales_df[date_col] <= end_dt)]
     
-    # ==============================
-    # FIX: DEDUPLICATE BY RECEIPT_NO TO AVOID REVENUE DUPLICATION
-    # ==============================
+    # DEDUPLICATE BY RECEIPT_NO TO AVOID REVENUE DUPLICATION
     if not filtered.empty and "receipt_no" in filtered.columns:
         filtered = filtered.drop_duplicates(subset=["receipt_no"])
     
     return filtered
 
 
-def get_expenses_data(date_from, date_to):
-    """Get expenses data for the period"""
-    
-    expenses_df = load_expenses_from_csv()
-    
+def get_expenses_data(date_from, date_to, expenses_df=None):
+    """
+    Get expenses data for the period.
+
+    If expenses_df is provided (from the multi-source loader), it will be
+    filtered directly. Otherwise, it falls back to the auto loader.
+    """
+    if expenses_df is None or expenses_df.empty:
+        expenses_df, _src, _diag = get_expenses_source()
+
     if expenses_df.empty:
         return pd.DataFrame()
-    
-    date_col = None
-    for col in ["date", "expense_date", "created_at"]:
-        if col in expenses_df.columns:
-            date_col = col
-            break
-    
-    if date_col is None:
+
+    if "date" not in expenses_df.columns or "amount" not in expenses_df.columns:
         return expenses_df
-    
-    amount_col = None
-    for col in ["amount", "total", "value"]:
-        if col in expenses_df.columns:
-            amount_col = col
-            break
-    
-    if amount_col is None:
-        return expenses_df
-    
-    expenses_df[date_col] = pd.to_datetime(expenses_df[date_col], errors="coerce")
-    expenses_df = expenses_df.dropna(subset=[date_col])
-    
+
+    # Ensure date is a datetime (it already is from the normalizer)
+    try:
+        expenses_df = expenses_df.copy()
+        expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
+        expenses_df = expenses_df.dropna(subset=["date"])
+    except Exception:
+        pass
+
     start_dt = pd.to_datetime(date_from)
     end_dt = pd.to_datetime(date_to) + timedelta(days=1) - timedelta(seconds=1)
-    
-    filtered = expenses_df[(expenses_df[date_col] >= start_dt) & (expenses_df[date_col] <= end_dt)]
-    
+
+    filtered = expenses_df[
+        (expenses_df["date"] >= start_dt) & (expenses_df["date"] <= end_dt)
+    ]
     return filtered
 
 
@@ -339,14 +498,13 @@ def export_to_sage(sales_df, expenses_df, date_from, date_to):
 
 
 # ==============================
-# ZIMRA E-FILING EXPORT - FIXED
+# ZIMRA E-FILING EXPORT
 # ==============================
 def export_to_zimra(sales_df, date_from, date_to):
     """Export to ZIMRA e-filing format - Uses unduplicated revenue"""
     
     total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
     
-    # Revenue is already deduplicated from get_sales_data()
     total_sales = to_float(sales_df[total_col].sum()) if total_col and not sales_df.empty else 0
     vat_amount = total_sales * 0.15
     vat_exclusive = total_sales / 1.15 if total_sales > 0 else 0
@@ -406,26 +564,75 @@ def accounting_sync_dashboard():
     # ==============================
     st.markdown("### Select Export Period")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         date_from = st.date_input("From Date", datetime.now() - timedelta(days=30))
     with col2:
         date_to = st.date_input("To Date", datetime.now())
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        refresh_expenses = st.button("🔄 Refresh Expenses", use_container_width=True)
     
     # ==============================
-    # LOAD REAL DATA (Already Deduplicated)
+    # LOAD REAL DATA
     # ==============================
     with st.spinner("Loading data..."):
         sales_df = get_sales_data(date_from, date_to)
-        expenses_df = get_expenses_data(date_from, date_to)
+
+        all_expenses_df, expenses_source, expenses_diag = get_expenses_source(
+            refresh=refresh_expenses
+        )
+        expenses_df = get_expenses_data(date_from, date_to, all_expenses_df)
     
     # ==============================
-    # CALCULATE REAL METRICS - NOW CORRECT
+    # EXPENSES SOURCE DIAGNOSTICS
+    # ==============================
+    with st.expander(f"📂 Expense source: {expenses_source}", expanded=False):
+        if all_expenses_df is None or all_expenses_df.empty:
+            st.warning(
+                "No expenses could be loaded from any source. "
+                "Checked: database (`load_expenses`), `data/expenses.csv`, "
+                "`expenses.csv`, `exports/expenses.csv`, and any `expenses*.csv` "
+                "in `data/`, project root, `exports/`, `backend/`, `database/`."
+            )
+            if expenses_diag.get("error"):
+                st.caption(f"Reason: {expenses_diag['error']}")
+        else:
+            diag_col1, diag_col2, diag_col3, diag_col4 = st.columns(4)
+            with diag_col1:
+                st.metric("Source", expenses_source.split("(")[0].strip()[:20])
+            with diag_col2:
+                st.metric("Total Rows Loaded", expenses_diag.get("rows", 0))
+            with diag_col3:
+                st.metric("Date Column", str(expenses_diag.get("date_col")))
+            with diag_col4:
+                st.metric("Amount Column", str(expenses_diag.get("amount_col")))
+
+            if "category" in all_expenses_df.columns:
+                categories_preview = (
+                    all_expenses_df["category"]
+                    .astype(str)
+                    .value_counts()
+                    .head(10)
+                )
+                st.caption("Top expense categories detected:")
+                st.dataframe(
+                    categories_preview.rename_axis("Category").reset_index(name="Count"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            st.caption(
+                f"Rows in selected period ({date_from} → {date_to}): "
+                f"**{len(expenses_df)}**"
+            )
+    
+    # ==============================
+    # CALCULATE REAL METRICS
     # ==============================
     total_col = "final_total" if "final_total" in sales_df.columns else "total" if "total" in sales_df.columns else None
     profit_col = "profit" if "profit" in sales_df.columns else None
     
-    # These are now unduplicated because sales_df is deduplicated
     total_sales = to_float(sales_df[total_col].sum()) if total_col and not sales_df.empty else 0
     total_expenses = to_float(expenses_df["amount"].sum()) if "amount" in expenses_df.columns and not expenses_df.empty else 0
     total_profit = to_float(sales_df[profit_col].sum()) if profit_col and not sales_df.empty else 0
