@@ -1,915 +1,931 @@
-# backend/modules/shift_management.py - FIXED Shift History with unduplicated data
+# backend/modules/shift_management.py
+# Full rewrite: branch-aware shift definitions + owner CRUD per branch
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import requests
+import json
 
 from backend.core.db_adapter import (
-    load_shifts, save_shifts, 
+    load_shifts, save_shifts, start_shift, end_shift,
     get_all_active_shifts, get_active_shifts_by_branch,
     get_current_branch, load_cash, get_cash_summary,
-    load_sales, load_products
+    load_sales, load_products, load_users, load_branches,
 )
-from backend.modules.shift_manager import (
-    start_shift, end_shift, 
-    get_active_shift_for_branch,
-    get_branch_active_shift_id,
-    is_shift_active_in_branch,
-    get_shift_stats,
-    get_shift_summary,
-    get_cashier_shift_history
+from backend.core.shift_definitions import (
+    load_shift_definitions,
+    add_shift_definition,
+    update_shift_definition,
+    delete_shift_definition,
+    get_shift_names_for_branch,
+    ensure_branch_has_defaults,
 )
-from backend.modules.expenses import load_expenses
-from backend.modules.income import load_income
-from backend.core.floating_financials import get_credit_records, get_credit_summary
+
+# ==============================
+# CONSTANTS
+# ==============================
+COMPANY_NAME = "AZIEL INVESTMENTS"
+COMPANY_ADDRESS = "Retreat Park, Harare"
+COMPANY_PHONE = "+263 78 290 5853"
+COMPANY_EMAIL = "info@azielinvestments.co.zw"
+
+WHATSAPP_NUMBER = "263782905853"
+EMAIL_NOTIFICATION = "kingtimothy495@gmail.com"
 
 
 # ==============================
-# HELPER FUNCTIONS
+# SESSION CONTEXT HELPERS
 # ==============================
-
-def safe_float(value, default=0.0):
-    """Safely convert value to float"""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _get_session_branch():
-    """Return the authoritative branch for the current session."""
+    """Authoritative branch for the current session."""
     return (
-        st.session_state.get("user_branch")
-        or st.session_state.get("current_branch_code")
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
         or "HO"
     )
 
 
 def _is_multi_branch_user():
-    """True for owner/manager/admin — they see all branches."""
+    """True for owner / manager / admin."""
     return st.session_state.get("role", "cashier") in ("owner", "manager", "admin")
 
 
-def _enforce_branch(df, branch_id=None):
-    """Return only rows for the current branch, if the frame has a branch_id column."""
-    if df is None or df.empty:
-        return df
-    if branch_id is None:
-        branch_id = _get_session_branch()
-    if "branch_id" not in df.columns:
-        return df
-    return df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()].copy()
-
-
-def get_unduplicated_sales(sales_df):
-    """Get unduplicated sales by receipt_no to avoid revenue duplication"""
-    if sales_df is None or sales_df.empty:
-        return pd.DataFrame()
-    
-    sales_df = sales_df.copy()
-    receipt_col = None
-    for col in ["receipt_no", "receipt", "transaction_id"]:
-        if col in sales_df.columns:
-            receipt_col = col
-            break
-    
-    if receipt_col and receipt_col in sales_df.columns:
-        return sales_df.drop_duplicates(subset=[receipt_col])
-    
-    return sales_df
-
-
-def get_receipt_column(df):
-    """Find receipt column in dataframe"""
-    if df is None or df.empty:
-        return None
-    for col in ["receipt_no", "receipt", "transaction_id", "order_id", "invoice"]:
-        if col in df.columns:
-            return col
-    return None
-
-
-def get_amount_column(df):
-    """Find amount column in dataframe"""
-    if df is None or df.empty:
-        return None
-    for col in ["final_total", "total", "amount", "sale_amount", "revenue"]:
-        if col in df.columns:
-            return col
-    return None
-
-
-def get_payment_method_column(df):
-    """Find payment method column in dataframe"""
-    if df is None or df.empty:
-        return None
-    for col in ["payment_method", "payment_type", "payment", "method"]:
-        if col in df.columns:
-            return col
-    return None
-
-
-def get_cash_sales_unduplicated(sales_df):
-    """Get cash sales from unduplicated receipts"""
-    if sales_df is None or sales_df.empty:
-        return 0.0
-    
-    sales_undup = get_unduplicated_sales(sales_df)
-    if sales_undup.empty:
-        return 0.0
-    
-    payment_col = get_payment_method_column(sales_undup)
-    amount_col = get_amount_column(sales_undup)
-    
-    if payment_col and amount_col:
-        cash_sales = sales_undup[sales_undup[payment_col].str.upper().isin(["CASH", "ECOCASH"])]
-        return safe_float(cash_sales[amount_col].sum())
-    
-    return 0.0
-
-
-def get_credit_sales_unduplicated(sales_df):
-    """Get credit sales from unduplicated receipts"""
-    if sales_df is None or sales_df.empty:
-        return 0.0
-    
-    sales_undup = get_unduplicated_sales(sales_df)
-    if sales_undup.empty:
-        return 0.0
-    
-    payment_col = get_payment_method_column(sales_undup)
-    amount_col = get_amount_column(sales_undup)
-    
-    if payment_col and amount_col:
-        credit_sales = sales_undup[sales_undup[payment_col].str.upper() == "CREDIT"]
-        return safe_float(credit_sales[amount_col].sum())
-    
-    return 0.0
-
-
-def get_total_revenue_unduplicated(sales_df):
-    """Get total revenue from unduplicated sales"""
-    if sales_df is None or sales_df.empty:
-        return 0.0
-    
-    sales_undup = get_unduplicated_sales(sales_df)
-    if sales_undup.empty:
-        return 0.0
-    
-    amount_col = get_amount_column(sales_undup)
-    if amount_col:
-        return safe_float(sales_undup[amount_col].sum())
-    
-    return 0.0
-
-
-def get_total_revenue_for_date_range(sales_df, start_date, end_date):
-    """Get total revenue for a date range from unduplicated sales"""
-    if sales_df is None or sales_df.empty:
-        return 0.0
-    
-    sales_undup = get_unduplicated_sales(sales_df)
-    if sales_undup.empty:
-        return 0.0
-    
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_undup.columns:
-            date_col = col
-            break
-    
-    if date_col is None:
-        return 0.0
-    
-    sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
-    sales_undup = sales_undup.dropna(subset=[date_col])
-    
-    mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
-    filtered = sales_undup[mask]
-    
-    amount_col = get_amount_column(filtered)
-    if amount_col:
-        return safe_float(filtered[amount_col].sum())
-    
-    return 0.0
-
-
-def get_profit_for_date_range(sales_df, start_date, end_date):
-    """Get total profit for a date range from unduplicated sales"""
-    if sales_df is None or sales_df.empty:
-        return 0.0
-    
-    sales_undup = get_unduplicated_sales(sales_df)
-    if sales_undup.empty:
-        return 0.0
-    
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_undup.columns:
-            date_col = col
-            break
-    
-    if date_col is None:
-        return 0.0
-    
-    sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
-    sales_undup = sales_undup.dropna(subset=[date_col])
-    
-    mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
-    filtered = sales_undup[mask]
-    
-    profit_col = None
-    for col in ["profit", "gross_profit"]:
-        if col in filtered.columns:
-            profit_col = col
-            break
-    
-    if profit_col:
-        return safe_float(filtered[profit_col].sum())
-    
-    amount_col = get_amount_column(filtered)
-    if amount_col:
-        return safe_float(filtered[amount_col].sum()) * 0.3
-    
-    return 0.0
-
-
-def get_transactions_for_date_range(sales_df, start_date, end_date):
-    """Get number of transactions for a date range from unduplicated sales"""
-    if sales_df is None or sales_df.empty:
-        return 0
-    
-    sales_undup = get_unduplicated_sales(sales_df)
-    if sales_undup.empty:
-        return 0
-    
-    date_col = None
-    for col in ["sale_date", "date", "transaction_date", "created_at"]:
-        if col in sales_undup.columns:
-            date_col = col
-            break
-    
-    if date_col is None:
-        return 0
-    
-    sales_undup[date_col] = pd.to_datetime(sales_undup[date_col], errors="coerce")
-    sales_undup = sales_undup.dropna(subset=[date_col])
-    
-    mask = (sales_undup[date_col].dt.date >= start_date) & (sales_undup[date_col].dt.date <= end_date)
-    filtered = sales_undup[mask]
-    
-    return len(filtered)
-
-
-def shift_management_page():
-    """Main shift management page - Branch Level (BRANCH-ENFORCED)"""
-    
-    st.title("Shift Management")
-    st.caption("Manage branch shifts, track performance, and monitor activity")
-    
-    # ==============================
-    # SESSION CONTEXT
-    # ==============================
-    username = st.session_state.get("username", "system")
-    full_name = st.session_state.get("user_full_name", username)
-    user_branch = _get_session_branch()
-    user_role = st.session_state.get("role", "cashier")
-    branch_name = st.session_state.get("branch_name", "Head Office")
-    multi_branch = _is_multi_branch_user()
-    
-    # Check if user can manage shifts (manager, admin, owner)
-    can_manage_shifts = user_role in ["owner", "manager", "admin"]
-    
-    # ==============================
-    # LOAD DATA — BRANCH-ENFORCED
-    # ==============================
-    # db_adapter.load_shifts() is already scoped to the session branch via
-    # get_current_branch(); we still apply a defensive filter for cashiers.
-    shifts_df = load_shifts()
-    if not multi_branch and "branch_id" in shifts_df.columns and not shifts_df.empty:
-        shifts_df = shifts_df[
-            shifts_df["branch_id"].astype(str).str.upper() == str(user_branch).upper()
-        ].copy()
-    
-    # Sales / expenses / income / credit are all branch-scoped through db_adapter
-    sales_df = load_sales()
-    expenses_df = load_expenses()
-    income_df = load_income()
-    credit_df = get_credit_records()
-    
-    # Get unduplicated sales
-    sales_undup = get_unduplicated_sales(sales_df)
-    total_revenue_all = get_total_revenue_unduplicated(sales_undup)
-    
-    # Get the active shift for this branch
-    active_shift = get_active_shift_for_branch(user_branch)
-    is_shift_active = active_shift is not None
-    shift_id = active_shift.get("shift_id") if is_shift_active else None
-    
-    # ==============================
-    # SIDEBAR - Shift Controls
-    # ==============================
-    st.sidebar.header("Shift Controls")
-    st.sidebar.info(f"**Branch:** {user_branch}")
-    st.sidebar.info(f"**Role:** {user_role.upper()}")
-    
-    # Active shift status in sidebar
-    if is_shift_active:
-        st.sidebar.success(f"🟢 Shift ACTIVE")
-        st.sidebar.caption(f"ID: {shift_id[:12]}...")
-        st.sidebar.caption(f"Started by: {active_shift.get('cashier_name', 'Unknown')}")
-        st.sidebar.caption(f"Opening Cash: ${active_shift.get('opening_cash', 0):.2f}")
-    else:
-        st.sidebar.warning("🔴 No Active Shift")
-        if can_manage_shifts:
-            st.sidebar.info("Start a shift using the form below")
-    
-    # Start a new shift (only for authorized users)
-    if can_manage_shifts:
-        st.sidebar.subheader("Start New Branch Shift")
-        st.sidebar.caption("Start a shift for this branch")
-        
-        with st.sidebar.form("start_shift_form"):
-            cashier_username = st.text_input("Cashier Username", value=username)
-            cashier_name = st.text_input("Cashier Name", value=full_name)
-            manager_username = st.text_input("Manager Username", value=username)
-            opening_cash = st.number_input("Opening Cash ($)", min_value=0.0, value=0.0, step=10.0)
-            
-            submitted = st.form_submit_button("Start Shift", use_container_width=True)
-            
-            if submitted:
-                if not cashier_username or not cashier_name:
-                    st.sidebar.error("Please enter cashier details")
-                else:
-                    success, result, message = start_shift(
-                        cashier_username=cashier_username,
-                        cashier_name=cashier_name,
-                        branch_id=user_branch,
-                        branch_name=branch_name,
-                        manager_username=manager_username,
-                        opening_cash=opening_cash
-                    )
-                    if success:
-                        st.sidebar.success(f"Shift started! ID: {result}")
-                        st.sidebar.info(f"Opening Cash: ${opening_cash:.2f}")
-                        st.session_state.active_shift_id = result
-                        st.session_state.branch_shift_active = True
-                        st.rerun()
-                    else:
-                        st.sidebar.error(f"{message}")
-    else:
-        st.sidebar.info("Only managers and owners can start shifts.")
-        st.sidebar.caption("Please ask your manager to start a shift.")
-    
-    # Display active shifts in sidebar (all branches for owners, own branch for others)
-    all_active_shifts = get_all_active_shifts()
-    if not all_active_shifts.empty:
-        if multi_branch:
-            st.sidebar.subheader("🟢 Active Shifts (All Branches)")
-        else:
-            st.sidebar.subheader("🟢 Active Shifts (Your Branch)")
-        
-        for _, shift in all_active_shifts.iterrows():
-            start_time = shift.get('start_time')
-            if hasattr(start_time, 'strftime'):
-                start_time_str = start_time.strftime("%Y-%m-%d %H:%M")
-            else:
-                start_time_str = str(start_time)[:16] if start_time else "N/A"
-            
-            st.sidebar.info(
-                f"**{shift.get('cashier_name', 'Unknown')}**\n"
-                f"Branch: {shift.get('branch_id', 'N/A')}\n"
-                f"Shift: {shift.get('shift_id', 'N/A')[:12]}...\n"
-                f"Started: {start_time_str}\n"
-                f"Opening: ${shift.get('opening_cash', 0):.2f}"
-            )
-    
-    # ==============================
-    # MAIN CONTENT - Tabs
-    # ==============================
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Active Shifts",
-        "Shift History",
-        "Shift Summary",
-        "Shift Performance"
-    ])
-    
-    # ==============================
-    # TAB 1: ACTIVE SHIFTS
-    # ==============================
-    with tab1:
-        st.markdown("## 🟢 Active Shifts")
-        
-        if all_active_shifts.empty:
-            st.info("No active shifts at the moment")
-        else:
-            # Show current branch shift prominently
-            if is_shift_active:
-                st.markdown("### Your Branch Active Shift")
-                st.success(f"""
-                **Shift ACTIVE in {branch_name}**
-                - **Shift ID:** {shift_id}
-                - **Started by:** {active_shift.get('cashier_name', 'Unknown')}
-                - **Start Time:** {active_shift.get('start_time')}
-                - **Opening Cash:** ${active_shift.get('opening_cash', 0):.2f}
-                """)
-                
-                if can_manage_shifts:
-                    if st.button("🛑 End This Shift", type="primary", use_container_width=True):
-                        st.session_state.end_shift_id = shift_id
-                        st.session_state.show_end_shift = True
-                        st.rerun()
-                
-                # End Shift Dialog
-                if st.session_state.get("show_end_shift", False) and st.session_state.get("end_shift_id") == shift_id:
-                    with st.expander("End Shift", expanded=True):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            # Get shift metrics from correct sources
-                            shift_sales = sales_undup[sales_undup["shift_id"] == shift_id] if not sales_undup.empty and "shift_id" in sales_undup.columns else pd.DataFrame()
-                            
-                            total_sales = safe_float(shift_sales["final_total"].sum()) if not shift_sales.empty and "final_total" in shift_sales.columns else 0
-                            total_transactions = len(shift_sales)
-                            total_profit = safe_float(shift_sales["profit"].sum()) if not shift_sales.empty and "profit" in shift_sales.columns else 0
-                            
-                            cash_sales = get_cash_sales_unduplicated(shift_sales)
-                            credit_sales = get_credit_sales_unduplicated(shift_sales)
-                            
-                            st.metric("Total Sales", f"${total_sales:,.2f}")
-                            st.metric("Cash Sales", f"${cash_sales:,.2f}")
-                            st.metric("Credit Sales", f"${credit_sales:,.2f}")
-                            st.metric("Total Profit", f"${total_profit:,.2f}")
-                            st.metric("Transactions", f"{total_transactions}")
-                        
-                        with col2:
-                            # Get expenses for this shift from expenses module
-                            shift_expenses = 0
-                            if not expenses_df.empty and "shift_id" in expenses_df.columns:
-                                shift_expenses = safe_float(expenses_df[expenses_df["shift_id"] == shift_id]["amount"].sum())
-                            elif not expenses_df.empty and "date" in expenses_df.columns:
-                                expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
-                                today = datetime.now().date()
-                                today_expenses = expenses_df[expenses_df["date"].dt.date == today]
-                                shift_expenses = safe_float(today_expenses["amount"].sum())
-                            
-                            # Get income for this shift from income module
-                            shift_income = 0
-                            if not income_df.empty and "shift_id" in income_df.columns:
-                                shift_income = safe_float(income_df[income_df["shift_id"] == shift_id]["amount"].sum())
-                            elif not income_df.empty and "date" in income_df.columns:
-                                income_df["date"] = pd.to_datetime(income_df["date"], errors="coerce")
-                                today = datetime.now().date()
-                                today_income = income_df[income_df["date"].dt.date == today]
-                                shift_income = safe_float(today_income["amount"].sum())
-                            
-                            # Get debt payments from credit management
-                            debt_payments = 0
-                            if not credit_df.empty and "amount_paid" in credit_df.columns:
-                                debt_payments = safe_float(credit_df["amount_paid"].sum())
-                            
-                            st.metric("Expenses", f"${shift_expenses:,.2f}")
-                            st.metric("Income", f"${shift_income:,.2f}")
-                            st.metric("Debt Payments", f"${debt_payments:,.2f}")
-                            
-                            closing_cash = st.number_input(
-                                "Closing Cash ($)",
-                                min_value=0.0,
-                                value=float(active_shift.get("opening_cash", 0) + cash_sales + debt_payments - shift_expenses),
-                                step=10.0
-                            )
-                            
-                            notes = st.text_area("Shift Notes", placeholder="Any issues or comments about this shift...")
-                            
-                            if st.button("Confirm End Shift", type="primary", use_container_width=True):
-                                success, message = end_shift(
-                                    shift_id,
-                                    closing_cash,
-                                    total_sales,
-                                    total_profit,
-                                    total_transactions,
-                                    notes
-                                )
-                                if success:
-                                    st.success(f"{message}")
-                                    st.session_state.show_end_shift = False
-                                    st.session_state.end_shift_id = None
-                                    st.session_state.active_shift_id = None
-                                    st.session_state.branch_shift_active = False
-                                    st.rerun()
-                                else:
-                                    st.error(f"{message}")
-            else:
-                st.warning("No active shift in your branch")
-                if can_manage_shifts:
-                    st.info("Start a shift using the form in the sidebar.")
-            
-            st.markdown("---")
-            
-            # Show all active shifts (all branches for owners, own branch for others)
-            if multi_branch:
-                st.markdown("### All Active Shifts (All Branches)")
-            else:
-                st.markdown("### Active Shifts (Your Branch)")
-            
-            shift_display = []
-            shift_ids = []
-            
-            for idx, row in all_active_shifts.iterrows():
-                shift_id_val = row.get('shift_id')
-                cashier_name = row.get('cashier_name', 'Unknown')
-                branch = row.get('branch_id', 'N/A')
-                start_time = row.get('start_time')
-                
-                if hasattr(start_time, 'strftime'):
-                    time_str = start_time.strftime("%Y-%m-%d %H:%M")
-                else:
-                    time_str = str(start_time) if start_time else "N/A"
-                
-                shift_display.append(f"{shift_id_val} - {cashier_name} - {branch} - Started: {time_str}")
-                shift_ids.append(shift_id_val)
-            
-            if shift_display:
-                selected_display = st.selectbox(
-                    "Select Shift to View Details",
-                    options=shift_display,
-                    key="active_shift_select"
-                )
-                
-                if selected_display:
-                    shift_id_val = selected_display.split(" - ")[0]
-                    shift = all_active_shifts[all_active_shifts["shift_id"] == shift_id_val]
-                    
-                    if not shift.empty:
-                        shift_data = shift.iloc[0]
-                        
-                        col1, col2, col3 = st.columns(3)
-                        
-                        start_time = shift_data.get('start_time')
-                        if hasattr(start_time, 'strftime'):
-                            start_time_str = start_time.strftime("%Y-%m-%d %H:%M")
-                        else:
-                            start_time_str = str(start_time) if start_time else "N/A"
-                        
-                        with col1:
-                            st.metric("Cashier", shift_data.get('cashier_name', 'N/A'))
-                            st.metric("Shift ID", shift_data.get('shift_id', 'N/A'))
-                        
-                        with col2:
-                            st.metric("Started", start_time_str)
-                            st.metric("Branch", shift_data.get('branch_id', 'N/A'))
-                        
-                        with col3:
-                            st.metric("Opening Cash", f"${shift_data.get('opening_cash', 0):.2f}")
-                            st.metric("Status", f"🟢 {shift_data.get('status', 'OPEN')}")
-            
-            # Quick stats
-            if not all_active_shifts.empty:
-                st.markdown("### Active Shifts Summary")
-                
-                total_cashiers = len(all_active_shifts)
-                total_opening = all_active_shifts["opening_cash"].sum() if "opening_cash" in all_active_shifts.columns else 0
-                total_branches = all_active_shifts["branch_id"].nunique() if "branch_id" in all_active_shifts.columns else 0
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Active Cashiers", total_cashiers)
-                with col2:
-                    st.metric("Total Opening Cash", f"${total_opening:,.2f}")
-                with col3:
-                    st.metric("Active Branches", total_branches)
-    
-    # ==============================
-    # TAB 2: SHIFT HISTORY - BRANCH SPECIFIC
-    # ==============================
-    with tab2:
-        st.markdown("## Shift History")
-        if multi_branch:
-            st.caption("Showing shifts for all branches")
-        else:
-            st.caption(f"Showing shifts for branch: {user_branch}")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            date_range = st.date_input(
-                "Date Range",
-                value=(datetime.now() - timedelta(days=7), datetime.now())
-            )
-        
-        with col2:
-            # Get cashiers for this branch (owners: all)
-            all_cashiers = ["All"]
-            if not shifts_df.empty and "cashier_name" in shifts_df.columns:
-                if multi_branch:
-                    all_cashiers = ["All"] + sorted(shifts_df["cashier_name"].dropna().unique().tolist())
-                else:
-                    branch_cashiers = shifts_df[shifts_df["branch_id"] == user_branch] if "branch_id" in shifts_df.columns else shifts_df
-                    if not branch_cashiers.empty:
-                        all_cashiers = ["All"] + sorted(branch_cashiers["cashier_name"].dropna().unique().tolist())
-            selected_cashier = st.selectbox("Cashier", all_cashiers)
-        
-        with col3:
-            statuses = ["All", "OPEN", "CLOSED"]
-            selected_status = st.selectbox("Status", statuses)
-        
-        filtered_shifts = shifts_df.copy()
-        
-        start_date = None
-        end_date = None
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_date, end_date = date_range
-        
-        if not filtered_shifts.empty:
-            # ----- BRANCH FILTER -----
-            if not multi_branch and "branch_id" in filtered_shifts.columns:
-                filtered_shifts = filtered_shifts[
-                    filtered_shifts["branch_id"].astype(str).str.upper() == str(user_branch).upper()
-                ]
-            
-            # ----- DATE FILTER -----
-            if start_date and end_date and "start_time" in filtered_shifts.columns:
-                filtered_shifts["start_date"] = pd.to_datetime(filtered_shifts["start_time"]).dt.date
-                filtered_shifts = filtered_shifts[
-                    (filtered_shifts["start_date"] >= start_date) & 
-                    (filtered_shifts["start_date"] <= end_date)
-                ]
-            
-            # ----- CASHIER FILTER -----
-            if selected_cashier != "All" and "cashier_name" in filtered_shifts.columns:
-                filtered_shifts = filtered_shifts[filtered_shifts["cashier_name"] == selected_cashier]
-            
-            # ----- STATUS FILTER -----
-            if selected_status != "All" and "status" in filtered_shifts.columns:
-                filtered_shifts = filtered_shifts[filtered_shifts["status"] == selected_status]
-            
-            if not filtered_shifts.empty:
-                display_df = filtered_shifts.copy()
-                
-                for col in ["start_time", "end_time"]:
-                    if col in display_df.columns:
-                        display_df[col] = pd.to_datetime(display_df[col])
-                        display_df[col] = display_df[col].dt.strftime("%Y-%m-%d %H:%M")
-                
-                display_columns = {
-                    "shift_id": "Shift ID",
-                    "cashier_name": "Cashier",
-                    "cashier_username": "Username",
-                    "start_time": "Start Time",
-                    "end_time": "End Time",
-                    "opening_cash": "Opening Cash",
-                    "closing_cash": "Closing Cash",
-                    "variance": "Variance",
-                    "status": "Status"
-                }
-                
-                display_df = display_df.rename(columns=display_columns)
-                
-                show_cols = ["Shift ID", "Cashier", "Start Time", "End Time", "Status"]
-                available_cols = [col for col in show_cols if col in display_df.columns]
-                
-                st.dataframe(
-                    display_df[available_cols],
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Opening Cash": st.column_config.NumberColumn("Opening Cash", format="$%.2f"),
-                        "Closing Cash": st.column_config.NumberColumn("Closing Cash", format="$%.2f"),
-                        "Variance": st.column_config.NumberColumn("Variance", format="$%.2f")
-                    }
-                )
-                
-                # ==============================
-                # HISTORY SUMMARY - USING UNDUPLICATED SALES DATA
-                # ==============================
-                st.markdown("### History Summary")
-                
-                total_shifts = len(filtered_shifts)
-                
-                if start_date and end_date:
-                    total_revenue = get_total_revenue_for_date_range(sales_df, start_date, end_date)
-                    total_profit = get_profit_for_date_range(sales_df, start_date, end_date)
-                    total_transactions = get_transactions_for_date_range(sales_df, start_date, end_date)
-                else:
-                    total_revenue = get_total_revenue_unduplicated(sales_undup)
-                    total_profit = 0
-                    if not sales_undup.empty:
-                        profit_col = None
-                        for col in ["profit", "gross_profit"]:
-                            if col in sales_undup.columns:
-                                profit_col = col
-                                break
-                        if profit_col:
-                            total_profit = safe_float(sales_undup[profit_col].sum())
-                        else:
-                            amount_col = get_amount_column(sales_undup)
-                            if amount_col:
-                                total_profit = safe_float(sales_undup[amount_col].sum()) * 0.3
-                    total_transactions = len(sales_undup) if not sales_undup.empty else 0
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total Shifts", total_shifts)
-                with col2:
-                    st.metric("Total Revenue", f"${total_revenue:,.2f}")
-                with col3:
-                    st.metric("Total Profit", f"${total_profit:,.2f}")
-                with col4:
-                    st.metric("Transactions", f"{total_transactions:,}")
-                
-                st.caption("Revenue and profit calculated from unduplicated sales data for your branch.")
-            else:
-                st.info("No shifts found matching the filters")
-        else:
-            st.info("No shift history available for your branch yet.")
-    
-    # ==============================
-    # TAB 3: SHIFT SUMMARY - BRANCH LEVEL
-    # ==============================
-    with tab3:
-        st.markdown("## Shift Summary")
-        st.caption(f"Summary for branch: {user_branch}")
-        
-        # Get cash summary from correct sources
-        cash_sales = get_cash_sales_unduplicated(sales_undup)
-        credit_sales = get_credit_sales_unduplicated(sales_undup)
-        total_revenue = get_total_revenue_unduplicated(sales_undup)
-        
-        # Get expenses from expenses module
-        total_expenses = 0
-        if not expenses_df.empty and "amount" in expenses_df.columns:
-            if "date" in expenses_df.columns:
-                expenses_df["date"] = pd.to_datetime(expenses_df["date"], errors="coerce")
-                today = datetime.now().date()
-                today_expenses = expenses_df[expenses_df["date"].dt.date == today]
-                total_expenses = safe_float(today_expenses["amount"].sum())
-            else:
-                total_expenses = safe_float(expenses_df["amount"].sum())
-        
-        # Get income from income module
-        total_income = 0
-        if not income_df.empty and "amount" in income_df.columns:
-            if "date" in income_df.columns:
-                income_df["date"] = pd.to_datetime(income_df["date"], errors="coerce")
-                today = datetime.now().date()
-                today_income = income_df[income_df["date"].dt.date == today]
-                total_income = safe_float(today_income["amount"].sum())
-            else:
-                total_income = safe_float(income_df["amount"].sum())
-        
-        # Get debt payments from credit management
-        debt_payments = 0
-        if not credit_df.empty and "amount_paid" in credit_df.columns:
-            if "paid_at" in credit_df.columns:
-                credit_df["paid_at"] = pd.to_datetime(credit_df["paid_at"], errors="coerce")
-                today = datetime.now().date()
-                today_payments = credit_df[credit_df["paid_at"].dt.date == today]
-                debt_payments = safe_float(today_payments["amount_paid"].sum())
-            else:
-                debt_payments = safe_float(credit_df["amount_paid"].sum())
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Cash Sales", f"${cash_sales:,.2f}")
-        with col2:
-            st.metric("Credit Sales", f"${credit_sales:,.2f}")
-        with col3:
-            st.metric("Total Revenue", f"${total_revenue:,.2f}")
-        with col4:
-            st.metric("Debt Payments", f"${debt_payments:,.2f}")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Expenses", f"${total_expenses:,.2f}")
-        with col2:
-            st.metric("Income", f"${total_income:,.2f}")
-        with col3:
-            st.metric("Transactions", len(sales_undup) if not sales_undup.empty else 0)
-        with col4:
-            net = total_revenue - total_expenses + total_income
-            st.metric("Net Cash Flow", f"${net:,.2f}")
-        
-        # Daily trend - branch specific
-        st.markdown("### Daily Shift Performance")
-        
-        if not shifts_df.empty:
-            branch_shifts = shifts_df
-            if not multi_branch and "branch_id" in shifts_df.columns:
-                branch_shifts = shifts_df[
-                    shifts_df["branch_id"].astype(str).str.upper() == str(user_branch).upper()
-                ]
-            
-            if not branch_shifts.empty:
-                shifts_copy = branch_shifts.copy()
-                shifts_copy["date"] = pd.to_datetime(shifts_copy["start_time"]).dt.date
-                daily_summary = shifts_copy.groupby("date").agg({
-                    "total_revenue": "sum",
-                    "profit": "sum",
-                    "transactions": "sum"
-                }).reset_index()
-                
-                if not daily_summary.empty:
-                    fig = px.line(
-                        daily_summary,
-                        x="date",
-                        y=["total_revenue", "profit"],
-                        title=f"Daily Revenue and Profit - {user_branch}",
-                        labels={"value": "Amount ($)", "date": "Date", "variable": "Metric"}
-                    )
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No shift data available for this branch")
-        else:
-            st.info("No shift data available")
-    
-    # ==============================
-    # TAB 4: SHIFT PERFORMANCE - BRANCH LEVEL
-    # ==============================
-    with tab4:
-        st.markdown("## Shift Performance")
-        st.caption(f"Performance for branch: {user_branch}")
-        
-        if not shifts_df.empty and "cashier_name" in shifts_df.columns:
-            branch_shifts = shifts_df
-            if not multi_branch and "branch_id" in shifts_df.columns:
-                branch_shifts = shifts_df[
-                    shifts_df["branch_id"].astype(str).str.upper() == str(user_branch).upper()
-                ]
-            
-            if not branch_shifts.empty:
-                cashier_performance = branch_shifts.groupby("cashier_name").agg({
-                    "shift_id": "count",
-                    "total_revenue": "sum",
-                    "profit": "sum",
-                    "transactions": "sum"
-                }).reset_index()
-                
-                cashier_performance.columns = ["Cashier", "Shifts", "Total Revenue", "Total Profit", "Transactions"]
-                cashier_performance["Avg Revenue/Shift"] = cashier_performance["Total Revenue"] / cashier_performance["Shifts"]
-                cashier_performance["Avg Profit/Shift"] = cashier_performance["Total Profit"] / cashier_performance["Shifts"]
-                
-                cashier_performance = cashier_performance.sort_values("Total Revenue", ascending=False)
-                
-                st.markdown("### Cashier Performance Ranking")
-                
-                st.dataframe(
-                    cashier_performance,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Cashier": "Cashier",
-                        "Shifts": "Shifts",
-                        "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
-                        "Total Profit": st.column_config.NumberColumn("Total Profit", format="$%.2f"),
-                        "Transactions": "Transactions",
-                        "Avg Revenue/Shift": st.column_config.NumberColumn("Avg Revenue/Shift", format="$%.2f"),
-                        "Avg Profit/Shift": st.column_config.NumberColumn("Avg Profit/Shift", format="$%.2f")
-                    }
-                )
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig = px.bar(
-                        cashier_performance.head(10),
-                        x="Cashier",
-                        y="Total Revenue",
-                        title=f"Top Cashiers by Revenue - {user_branch}",
-                        color="Total Revenue",
-                        color_continuous_scale="Greens",
-                        text="Total Revenue"
-                    )
-                    fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                with col2:
-                    fig = px.bar(
-                        cashier_performance.head(10),
-                        x="Cashier",
-                        y="Transactions",
-                        title=f"Top Cashiers by Transactions - {user_branch}",
-                        color="Transactions",
-                        color_continuous_scale="Blues",
-                        text="Transactions"
-                    )
-                    fig.update_traces(texttemplate="%{text}", textposition="outside")
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No performance data available for this branch")
-        else:
-            st.info("No performance data available")
+def safe_format_time(time_val):
+    """Safely format a time value to string."""
+    if time_val is None:
+        return "N/A"
+    if isinstance(time_val, pd.Timestamp):
+        return time_val.strftime("%Y-%m-%d %H:%M")
+    if isinstance(time_val, datetime):
+        return time_val.strftime("%Y-%m-%d %H:%M")
+    time_str = str(time_val)
+    return time_str[:16] if time_str else "N/A"
 
 
 # ==============================
-# MAIN
+# NOTIFICATION HELPERS
+# ==============================
+def send_whatsapp_message(phone_number, message):
+    """Build a WhatsApp link for the given phone and message."""
+    try:
+        phone = phone_number.replace("+", "").replace(" ", "")
+        if not phone.startswith("263"):
+            phone = "263" + phone.lstrip("0")
+        return f"https://wa.me/{phone}?text={message.replace(' ', '%20').replace(chr(10), '%0A')}"
+    except Exception as e:
+        print(f"Error sending WhatsApp: {e}")
+        return None
+
+
+def send_email_notification(to_email, subject, body):
+    """Placeholder email sender — kept as in the original file."""
+    try:
+        print(f"Email would be sent to: {to_email}")
+        print(f"Subject: {subject}")
+        print(f"Body: {body}")
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
+
+# ==============================
+# SHIFT REPORT
+# ==============================
+def generate_shift_report(shift_data, shift_summary):
+    report = f"""
+{'='*60}
+{COMPANY_NAME} - SHIFT REPORT
+{'='*60}
+
+Shift ID: {shift_data.get('shift_id', 'N/A')}
+Shift Name: {shift_data.get('shift_name', 'N/A')}
+Cashier: {shift_data.get('cashier_name', 'N/A')}
+Branch: {shift_data.get('branch_name', 'N/A')}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+{'-'*40}
+SHIFT SUMMARY
+{'-'*40}
+Start Time: {safe_format_time(shift_data.get('start_time'))}
+End Time: {safe_format_time(shift_data.get('end_time', datetime.now()))}
+Duration: {shift_summary.get('duration', 'N/A')}
+Status: {shift_data.get('status', 'N/A')}
+
+{'-'*40}
+FINANCIAL SUMMARY
+{'-'*40}
+Opening Cash: ${shift_summary.get('opening_cash', 0):,.2f}
+Total Revenue: ${shift_summary.get('total_revenue', 0):,.2f}
+Total Profit: ${shift_summary.get('total_profit', 0):,.2f}
+Cash Sales: ${shift_summary.get('cash_sales', 0):,.2f}
+Credit Sales: ${shift_summary.get('credit_sales', 0):,.2f}
+Debt Payments: ${shift_summary.get('debt_payments', 0):,.2f}
+Expenses: ${shift_summary.get('expenses', 0):,.2f}
+
+{'-'*40}
+TRANSACTIONS
+{'-'*40}
+Total Transactions: {shift_summary.get('transactions', 0)}
+Closing Cash: ${shift_summary.get('closing_cash', 0):,.2f}
+Variance: ${shift_summary.get('variance', 0):,.2f}
+
+{'-'*40}
+NOTES
+{'-'*40}
+{shift_summary.get('notes', 'No notes')}
+
+{'='*60}
+End of Shift Report
+{COMPANY_NAME} - {COMPANY_PHONE}
+{'='*60}
+"""
+    return report
+
+
+# ==============================
+# BRANCH RESOLUTION FOR THIS PAGE
+# ==============================
+def _resolve_page_branch():
+    """
+    Decide which branch this page instance is looking at.
+
+    - Owner / manager / admin: use the value of the branch selector stored
+      in session state (defaults to their session branch).
+    - Everyone else: their session branch, no selector.
+    Returns (branch_id, branch_name, can_change).
+    """
+    session_branch = _get_session_branch()
+    can_change = _is_multi_branch_user()
+
+    if not can_change:
+        return session_branch, _branch_name(session_branch), False
+
+    # Owner / manager: read from session state (set by the selector below)
+    selected = st.session_state.get("sm_selected_branch", session_branch)
+    return selected, _branch_name(selected), True
+
+
+def _branch_name(branch_id):
+    try:
+        df = load_branches()
+        if df is None or df.empty:
+            return branch_id
+        match = df[df["branch_id"].astype(str).str.upper() == str(branch_id).upper()]
+        if not match.empty:
+            return match.iloc[0]["branch_name"]
+    except Exception:
+        pass
+    return branch_id
+
+
+# ==============================
+# MAIN PAGE
+# ==============================
+def shift_management_page():
+    """Main shift management page — branch-aware."""
+
+    st.title("Shift Management")
+    st.caption("Manage cashier shifts, track performance, and monitor activity")
+
+    role = st.session_state.get("role", "cashier")
+    user_branch = _get_session_branch()
+
+    # ==========================================================
+    # BRANCH SELECTOR (owners / managers only)
+    # ==========================================================
+    if _is_multi_branch_user():
+        branches_df = load_branches()
+        if branches_df is not None and not branches_df.empty:
+            branch_ids = branches_df["branch_id"].tolist()
+            branch_names = {
+                b_id: _branch_name(b_id) for b_id in branch_ids
+            }
+            display_labels = [f"{branch_names[b]} ({b})" for b in branch_ids]
+
+            default_id = st.session_state.get("sm_selected_branch", user_branch)
+            default_idx = branch_ids.index(default_id) if default_id in branch_ids else 0
+
+            col_a, col_b = st.columns([3, 2])
+            with col_a:
+                selected_label = st.selectbox(
+                    "Viewing Branch",
+                    options=display_labels,
+                    index=default_idx,
+                    key="sm_branch_selector",
+                )
+            chosen_id = branch_ids[display_labels.index(selected_label)]
+            st.session_state["sm_selected_branch"] = chosen_id
+            st.caption(f"You are viewing shifts for branch **{branch_names[chosen_id]}** ({chosen_id}).")
+
+            # Ensure this branch has its default shift definitions seeded.
+            ensure_branch_has_defaults(chosen_id)
+    else:
+        st.caption(
+            f"📍 You are viewing shifts for your branch: **{_branch_name(user_branch)}** ({user_branch})"
+        )
+        ensure_branch_has_defaults(user_branch)
+
+    # Branch this page instance operates on
+    page_branch_id, page_branch_name, can_change = _resolve_page_branch()
+
+    # Load data — scoped by page branch
+    shifts_df = load_shifts(branch_id=page_branch_id)
+    if shifts_df is None:
+        shifts_df = pd.DataFrame()
+
+    active_shifts = get_active_shifts_by_branch(page_branch_id)
+    if active_shifts is None:
+        active_shifts = pd.DataFrame()
+
+    # Session state
+    if "show_end_shift" not in st.session_state:
+        st.session_state.show_end_shift = False
+    if "end_shift_id" not in st.session_state:
+        st.session_state.end_shift_id = None
+    if "shift_ended" not in st.session_state:
+        st.session_state.shift_ended = False
+    if "button_clicked" not in st.session_state:
+        st.session_state.button_clicked = False
+    if "shift_report" not in st.session_state:
+        st.session_state.shift_report = None
+
+    # ==========================================================
+    # TABS
+    # ==========================================================
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Active Shifts",
+        "Shift History",
+        "Shift Summary",
+        "Shift Performance",
+        "Manage Shifts",
+    ])
+
+    # ==========================================================
+    # TAB 5: MANAGE SHIFTS  (owner / manager only)
+    # ==========================================================
+    with tab5:
+        _manage_shifts_tab(page_branch_id, page_branch_name)
+
+    # ==========================================================
+    # SIDEBAR — Start Shift (owner / manager, scoped to page branch)
+    # ==========================================================
+    st.sidebar.header("Shift Controls")
+    st.sidebar.info(f"**Branch:** {page_branch_name} ({page_branch_id})")
+    st.sidebar.info(f"**Role:** {role.upper()}")
+
+    if role in ("owner", "manager"):
+        st.sidebar.subheader("Start New Shift")
+
+        # Only show shift names that belong to THIS branch
+        branch_shift_names = get_shift_names_for_branch(page_branch_id)
+
+        if not branch_shift_names:
+            st.sidebar.warning(
+                "No shift definitions found for this branch. "
+                "Add shifts in the **Manage Shifts** tab first."
+            )
+        else:
+            with st.sidebar.form("start_shift_form"):
+                shift_name = st.selectbox("Select Shift", branch_shift_names)
+
+                cashier_username = st.text_input(
+                    "Cashier Username",
+                    value=st.session_state.get("username", ""),
+                )
+                cashier_name = st.text_input(
+                    "Cashier Name",
+                    value=st.session_state.get("full_name", ""),
+                )
+                manager_username = st.text_input(
+                    "Manager Username",
+                    value=st.session_state.get("username", ""),
+                )
+                opening_cash = st.number_input(
+                    "Opening Cash ($)", min_value=0.0, value=0.0, step=10.0
+                )
+
+                submitted = st.form_submit_button("Start Shift", use_container_width=True)
+
+                if submitted:
+                    if not cashier_username or not cashier_name:
+                        st.sidebar.error("Please enter cashier details")
+                    else:
+                        success, result, message = start_shift(
+                            cashier_username,
+                            cashier_name,
+                            page_branch_id,
+                            page_branch_name,
+                            manager_username,
+                            opening_cash,
+                            shift_name,
+                        )
+                        if success:
+                            st.sidebar.success(f"Shift started! ID: {result}")
+                            st.rerun()
+                        else:
+                            st.sidebar.error(f"{message}")
+    else:
+        st.sidebar.info("Only managers and owners can start shifts.")
+        st.sidebar.caption("Please ask your manager to start a shift.")
+
+    # Sidebar list of active shifts for the page branch
+    if not active_shifts.empty:
+        st.sidebar.subheader("Active Shifts (this branch)")
+        for _, shift in active_shifts.iterrows():
+            start_time_str = safe_format_time(shift.get("start_time"))
+            st.sidebar.info(
+                f"**{shift.get('cashier_name', 'Unknown')}**\n"
+                f"Shift: {shift.get('shift_id', 'N/A')}\n"
+                f"Started: {start_time_str}\n"
+                f"Opening: ${float(shift.get('opening_cash', 0) or 0):.2f}"
+            )
+    else:
+        st.sidebar.info("No active shifts in this branch")
+
+    # ==========================================================
+    # TAB 1: ACTIVE SHIFTS
+    # ==========================================================
+    with tab1:
+        _active_shifts_tab(active_shifts, page_branch_id, page_branch_name, role)
+
+    # ==========================================================
+    # TAB 2: SHIFT HISTORY
+    # ==========================================================
+    with tab2:
+        _shift_history_tab(shifts_df, page_branch_id, page_branch_name)
+
+    # ==========================================================
+    # TAB 3: SHIFT SUMMARY
+    # ==========================================================
+    with tab3:
+        _shift_summary_tab(shifts_df, page_branch_id, page_branch_name)
+
+    # ==========================================================
+    # TAB 4: SHIFT PERFORMANCE
+    # ==========================================================
+    with tab4:
+        _shift_performance_tab(shifts_df, page_branch_id, page_branch_name)
+
+
+# ==========================================================
+# TAB IMPLEMENTATIONS
+# ==========================================================
+def _active_shifts_tab(active_shifts, page_branch_id, page_branch_name, role):
+    st.markdown(f"## Active Shifts — {page_branch_name}")
+
+    if active_shifts is None or active_shifts.empty:
+        st.info("No active shifts in this branch")
+        return
+
+    shift_options = []
+    for _, shift in active_shifts.iterrows():
+        sid = shift.get("shift_id")
+        cashier = shift.get("cashier_name", "Unknown")
+        start_str = safe_format_time(shift.get("start_time"))
+        shift_options.append(f"{sid} - {cashier} - Started: {start_str}")
+
+    selected_option = st.selectbox(
+        "Select Active Shift",
+        options=shift_options,
+        key="active_shift_select",
+    )
+
+    if not selected_option:
+        return
+
+    shift_id = selected_option.split(" - ")[0]
+    match = active_shifts[active_shifts["shift_id"] == shift_id]
+    if match.empty:
+        st.warning("Selected shift no longer exists")
+        return
+
+    shift_data = match.iloc[0]
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Cashier", shift_data.get("cashier_name", "N/A"))
+        st.metric("Shift ID", shift_data.get("shift_id", "N/A"))
+    with col2:
+        st.metric("Started", safe_format_time(shift_data.get("start_time")))
+        st.metric("Opening Cash", f"${float(shift_data.get('opening_cash', 0) or 0):.2f}")
+    with col3:
+        st.metric("Status", f"{shift_data.get('status', 'N/A')}")
+
+        if role in ("owner", "manager"):
+            if st.button("End This Shift", type="primary", use_container_width=True):
+                st.session_state.end_shift_id = shift_id
+                st.session_state.show_end_shift = True
+                st.rerun()
+
+    # End Shift dialog
+    if (
+        st.session_state.get("show_end_shift", False)
+        and st.session_state.get("end_shift_id") == shift_id
+        and role in ("owner", "manager")
+    ):
+        _end_shift_dialog(shift_data, shift_id, page_branch_id)
+
+    # Quick stats
+    st.markdown("### Active Shifts Summary")
+    total_cashiers = len(active_shifts)
+    total_opening = active_shifts["opening_cash"].sum() if "opening_cash" in active_shifts.columns else 0
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Active Cashiers", total_cashiers)
+    with col2:
+        st.metric("Total Opening Cash", f"${float(total_opening or 0):,.2f}")
+
+
+def _end_shift_dialog(shift_data, shift_id, page_branch_id):
+    with st.expander("End Shift", expanded=True):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            sales_df = load_sales(branch_id=page_branch_id)
+            cash_df = load_cash(branch_id=page_branch_id)
+
+            shift_sales = (
+                sales_df[sales_df["shift_id"] == shift_id]
+                if not sales_df.empty and "shift_id" in sales_df.columns
+                else pd.DataFrame()
+            )
+            shift_cash = (
+                cash_df[cash_df["shift_id"] == shift_id]
+                if not cash_df.empty and "shift_id" in cash_df.columns
+                else pd.DataFrame()
+            )
+
+            total_sales = (
+                float(shift_sales["final_total"].sum())
+                if not shift_sales.empty and "final_total" in shift_sales.columns else 0
+            )
+            total_transactions = len(shift_sales)
+            total_profit = (
+                float(shift_sales["profit"].sum())
+                if not shift_sales.empty and "profit" in shift_sales.columns else 0
+            )
+
+            if not shift_cash.empty and "type" in shift_cash.columns:
+                cash_sales = float(shift_cash[shift_cash["type"] == "CASH_SALE"]["amount"].sum())
+                credit_sales = float(shift_cash[shift_cash["type"] == "CREDIT_SALE"]["amount"].sum())
+                debt_payments = float(shift_cash[shift_cash["type"] == "DEBT_PAYMENT"]["amount"].sum())
+                expenses = float(shift_cash[shift_cash["type"] == "EXPENSE"]["amount"].sum())
+            else:
+                cash_sales = credit_sales = debt_payments = expenses = 0.0
+
+            st.metric("Total Sales", f"${total_sales:,.2f}")
+            st.metric("Total Profit", f"${total_profit:,.2f}")
+            st.metric("Transactions", total_transactions)
+
+        with col2:
+            closing_cash = st.number_input(
+                "Closing Cash ($)",
+                min_value=0.0,
+                value=float(shift_data.get("opening_cash", 0) or 0),
+                step=10.0,
+            )
+            notes = st.text_area("Shift Notes", placeholder="Any issues or comments about this shift...")
+
+            if st.button("Confirm End Shift", type="primary", use_container_width=True):
+                success, message = end_shift(
+                    shift_id,
+                    closing_cash,
+                    total_sales,
+                    total_profit,
+                    total_transactions,
+                    notes,
+                )
+                if success:
+                    shift_summary = {
+                        "opening_cash": shift_data.get("opening_cash", 0),
+                        "total_revenue": total_sales,
+                        "total_profit": total_profit,
+                        "cash_sales": cash_sales,
+                        "credit_sales": credit_sales,
+                        "debt_payments": debt_payments,
+                        "expenses": expenses,
+                        "transactions": total_transactions,
+                        "closing_cash": closing_cash,
+                        "variance": closing_cash - (
+                            float(shift_data.get("opening_cash", 0) or 0) + cash_sales + debt_payments - expenses
+                        ),
+                        "duration": (
+                            f"{safe_format_time(shift_data.get('start_time'))} - "
+                            f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        ),
+                        "notes": notes,
+                    }
+
+                    report = generate_shift_report(shift_data.to_dict(), shift_summary)
+                    st.session_state.shift_report = report
+
+                    whatsapp_message = f"""
+SHIFT ENDED - {COMPANY_NAME}
+
+Shift: {shift_data.get('shift_id')}
+Cashier: {shift_data.get('cashier_name')}
+Revenue: ${total_sales:,.2f}
+Profit: ${total_profit:,.2f}
+Transactions: {total_transactions}
+Closing Cash: ${closing_cash:,.2f}
+
+Full report attached.
+"""
+                    whatsapp_link = send_whatsapp_message(WHATSAPP_NUMBER, whatsapp_message)
+                    if whatsapp_link:
+                        st.success(f"WhatsApp notification ready: [Click to send]({whatsapp_link})")
+
+                    send_email_notification(
+                        EMAIL_NOTIFICATION,
+                        f"Shift Report - {shift_data.get('shift_id')}",
+                        report,
+                    )
+
+                    st.balloons()
+                    st.success(message)
+
+                    with st.expander("View Shift Report", expanded=True):
+                        st.text(report)
+
+                    st.session_state.show_end_shift = False
+                    st.session_state.end_shift_id = None
+                    st.session_state.shift_ended = True
+                    st.rerun()
+                else:
+                    st.error(message)
+
+
+def _shift_history_tab(shifts_df, page_branch_id, page_branch_name):
+    st.markdown(f"## Shift History — {page_branch_name}")
+
+    if shifts_df is None or shifts_df.empty:
+        st.info(f"No shift history for branch {page_branch_name} yet.")
+        return
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        date_range = st.date_input(
+            "Date Range",
+            value=(datetime.now() - timedelta(days=7), datetime.now()),
+        )
+
+    with col2:
+        if "cashier_name" in shifts_df.columns:
+            cashiers = ["All"] + sorted(shifts_df["cashier_name"].dropna().unique().tolist())
+        else:
+            cashiers = ["All"]
+        selected_cashier = st.selectbox("Cashier", cashiers)
+
+    with col3:
+        selected_status = st.selectbox("Status", ["All", "OPEN", "CLOSED"])
+
+    filtered = shifts_df.copy()
+
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start_date, end_date = date_range
+        filtered["start_date"] = pd.to_datetime(filtered["start_time"]).dt.date
+        filtered = filtered[
+            (filtered["start_date"] >= start_date) & (filtered["start_date"] <= end_date)
+        ]
+
+    if selected_cashier != "All" and "cashier_name" in filtered.columns:
+        filtered = filtered[filtered["cashier_name"] == selected_cashier]
+
+    if selected_status != "All" and "status" in filtered.columns:
+        filtered = filtered[filtered["status"] == selected_status]
+
+    if filtered.empty:
+        st.info("No shifts found matching the filters")
+        return
+
+    display = filtered.copy()
+    for col in ("start_time", "end_time"):
+        if col in display.columns:
+            display[col] = pd.to_datetime(display[col], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+
+    display = display.rename(columns={
+        "shift_id": "Shift ID",
+        "shift_name": "Shift Name",
+        "cashier_name": "Cashier",
+        "cashier_username": "Username",
+        "start_time": "Start Time",
+        "end_time": "End Time",
+        "opening_cash": "Opening Cash",
+        "closing_cash": "Closing Cash",
+        "total_revenue": "Revenue",
+        "profit": "Profit",
+        "transactions": "Transactions",
+        "variance": "Variance",
+        "status": "Status",
+    })
+
+    show_cols = ["Shift ID", "Shift Name", "Cashier", "Start Time", "End Time", "Revenue", "Transactions", "Status"]
+    available_cols = [c for c in show_cols if c in display.columns]
+
+    st.dataframe(
+        display[available_cols],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Revenue": st.column_config.NumberColumn("Revenue", format="$%.2f"),
+            "Opening Cash": st.column_config.NumberColumn("Opening Cash", format="$%.2f"),
+            "Closing Cash": st.column_config.NumberColumn("Closing Cash", format="$%.2f"),
+            "Variance": st.column_config.NumberColumn("Variance", format="$%.2f"),
+            "Profit": st.column_config.NumberColumn("Profit", format="$%.2f"),
+        },
+    )
+
+    st.markdown("### History Summary")
+    total_shifts = len(filtered)
+    total_revenue = float(filtered["total_revenue"].sum()) if "total_revenue" in filtered.columns else 0
+    total_profit = float(filtered["profit"].sum()) if "profit" in filtered.columns else 0
+    total_transactions = float(filtered["transactions"].sum()) if "transactions" in filtered.columns else 0
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Shifts", total_shifts)
+    with col2:
+        st.metric("Total Revenue", f"${total_revenue:,.2f}")
+    with col3:
+        st.metric("Total Profit", f"${total_profit:,.2f}")
+    with col4:
+        st.metric("Transactions", f"{total_transactions:,.0f}")
+
+
+def _shift_summary_tab(shifts_df, page_branch_id, page_branch_name):
+    st.markdown(f"## Shift Summary — {page_branch_name}")
+
+    cash_summary = get_cash_summary()
+
+    if cash_summary:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Opening Cash", f"${cash_summary.get('opening_cash', 0):,.2f}")
+        with col2:
+            st.metric("Cash Sales", f"${cash_summary.get('cash_sales', 0):,.2f}")
+        with col3:
+            st.metric("Credit Sales", f"${cash_summary.get('credit_sales', 0):,.2f}")
+        with col4:
+            st.metric("Total Revenue", f"${cash_summary.get('total_revenue', 0):,.2f}")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Expenses", f"${cash_summary.get('expenses', 0):,.2f}")
+        with col2:
+            st.metric("Deposits", f"${cash_summary.get('deposits', 0):,.2f}")
+        with col3:
+            st.metric("Transactions", cash_summary.get("transactions_count", 0))
+        with col4:
+            st.metric("Variance", f"${cash_summary.get('variance', 0):,.2f}")
+
+    st.markdown("### Daily Shift Performance")
+
+    if shifts_df is None or shifts_df.empty:
+        st.info("No shift data for this branch yet")
+        return
+
+    copy = shifts_df.copy()
+    copy["date"] = pd.to_datetime(copy["start_time"], errors="coerce").dt.date
+    daily = copy.groupby("date").agg({
+        "total_revenue": "sum",
+        "profit": "sum",
+        "transactions": "sum",
+    }).reset_index()
+
+    if daily.empty:
+        st.info("No daily summary available")
+        return
+
+    fig = px.line(
+        daily,
+        x="date",
+        y=["total_revenue", "profit"],
+        title=f"Daily Revenue and Profit — {page_branch_name}",
+        labels={"value": "Amount ($)", "date": "Date", "variable": "Metric"},
+    )
+    fig.update_layout(height=350)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _shift_performance_tab(shifts_df, page_branch_id, page_branch_name):
+    st.markdown(f"## Shift Performance — {page_branch_name}")
+
+    if shifts_df is None or shifts_df.empty or "cashier_name" not in shifts_df.columns:
+        st.info("No performance data for this branch")
+        return
+
+    cashier_perf = shifts_df.groupby("cashier_name").agg({
+        "shift_id": "count",
+        "total_revenue": "sum",
+        "profit": "sum",
+        "transactions": "sum",
+    }).reset_index()
+
+    cashier_perf.columns = ["Cashier", "Shifts", "Total Revenue", "Total Profit", "Transactions"]
+    cashier_perf["Avg Revenue/Shift"] = cashier_perf["Total Revenue"] / cashier_perf["Shifts"].replace(0, 1)
+    cashier_perf["Avg Profit/Shift"] = cashier_perf["Total Profit"] / cashier_perf["Shifts"].replace(0, 1)
+    cashier_perf = cashier_perf.sort_values("Total Revenue", ascending=False)
+
+    st.markdown("### Cashier Performance Ranking")
+
+    st.dataframe(
+        cashier_perf,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
+            "Total Profit": st.column_config.NumberColumn("Total Profit", format="$%.2f"),
+            "Avg Revenue/Shift": st.column_config.NumberColumn("Avg Revenue/Shift", format="$%.2f"),
+            "Avg Profit/Shift": st.column_config.NumberColumn("Avg Profit/Shift", format="$%.2f"),
+        },
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        fig = px.bar(
+            cashier_perf.head(10),
+            x="Cashier", y="Total Revenue",
+            title=f"Top Cashiers by Revenue — {page_branch_name}",
+            color="Total Revenue", color_continuous_scale="Greens",
+            text="Total Revenue",
+        )
+        fig.update_traces(texttemplate="$%{text:.2f}", textposition="outside")
+        fig.update_layout(height=350)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        fig = px.bar(
+            cashier_perf.head(10),
+            x="Cashier", y="Transactions",
+            title=f"Top Cashiers by Transactions — {page_branch_name}",
+            color="Transactions", color_continuous_scale="Blues",
+            text="Transactions",
+        )
+        fig.update_traces(texttemplate="%{text}", textposition="outside")
+        fig.update_layout(height=350)
+        st.plotly_chart(fig, use_container_width=True)
+
+
+# ==========================================================
+# TAB 5: MANAGE SHIFTS (owner / manager only)
+# ==========================================================
+def _manage_shifts_tab(page_branch_id, page_branch_name):
+    st.markdown("## Manage Shifts")
+    st.caption(
+        "Add, edit, or remove shift definitions for the branch shown above. "
+        "Only owners and managers can make changes here."
+    )
+
+    role = st.session_state.get("role", "cashier")
+
+    # Load definitions for this branch (includes inactive so we can un-delete)
+    defs_df = load_shift_definitions(branch_id=page_branch_id, include_inactive=True)
+
+    if defs_df is None:
+        defs_df = pd.DataFrame()
+
+    # ---------- VIEW (everyone who can reach this tab) ----------
+    st.markdown(f"### Current Shifts — {page_branch_name}")
+    if defs_df.empty:
+        st.info("No shift definitions yet for this branch.")
+    else:
+        view = defs_df.copy()
+        view["active"] = view["active"].apply(lambda x: "Active" if x else "Inactive")
+        view = view.rename(columns={
+            "shift_name": "Shift Name",
+            "display_name": "Display Name",
+            "start_time": "Start",
+            "end_time": "End",
+            "active": "Status",
+            "sort_order": "Order",
+        })
+        cols = [c for c in ["Shift Name", "Display Name", "Start", "End", "Status", "Order"] if c in view.columns]
+        st.dataframe(view[cols], use_container_width=True, hide_index=True)
+
+    # ---------- CRUD (owner / manager only) ----------
+    if role not in ("owner", "manager"):
+        st.info("Only owners and managers can add, edit, or remove shift definitions.")
+        return
+
+    st.markdown("---")
+
+    # -------- ADD --------
+    with st.expander("➕ Add New Shift", expanded=False):
+        with st.form("add_shift_def_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_shift_name = st.text_input("Shift Name *", placeholder="e.g., FOXTROT").strip().upper()
+                new_display = st.text_input("Display Name", placeholder="e.g., Foxtrot Shift (16:00 - 22:00)")
+                new_sort = st.number_input("Sort Order", min_value=0, max_value=999, value=99, step=1)
+            with col2:
+                new_start = st.text_input("Start Time (HH:MM)", placeholder="16:00")
+                new_end = st.text_input("End Time (HH:MM)", placeholder="22:00")
+
+            add_btn = st.form_submit_button("Add Shift", type="primary", use_container_width=True)
+
+            if add_btn:
+                if not new_shift_name:
+                    st.error("Shift Name is required")
+                elif not new_start or not new_end:
+                    st.error("Start Time and End Time are required (HH:MM format)")
+                else:
+                    ok, msg = add_shift_definition(
+                        branch_id=page_branch_id,
+                        shift_name=new_shift_name,
+                        display_name=new_display or f"{new_shift_name} Shift",
+                        start_time=new_start,
+                        end_time=new_end,
+                        sort_order=int(new_sort),
+                    )
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    # -------- EDIT --------
+    if not defs_df.empty:
+        active_defs = defs_df[defs_df["active"] == True] if "active" in defs_df.columns else defs_df
+        options = [
+            f"{row['shift_name']} — {row['display_name'] or ''} (id {row['id']})"
+            for _, row in active_defs.iterrows()
+        ]
+
+        with st.expander("✏️ Edit Shift", expanded=False):
+            if not options:
+                st.info("No active shifts to edit.")
+            else:
+                selected_label = st.selectbox("Select Shift to Edit", options, key="sm_edit_select")
+                idx = options.index(selected_label)
+                row = active_defs.iloc[idx]
+
+                with st.form("edit_shift_def_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_disp = st.text_input("Display Name", value=row["display_name"] or "")
+                        new_sort_order = st.number_input(
+                            "Sort Order", min_value=0, max_value=999,
+                            value=int(row["sort_order"] or 0), step=1,
+                        )
+                    with col2:
+                        new_start_str = str(row["start_time"])[:5] if row["start_time"] else "06:00"
+                        new_end_str = str(row["end_time"])[:5] if row["end_time"] else "12:00"
+                        new_start = st.text_input("Start Time (HH:MM)", value=new_start_str)
+                        new_end = st.text_input("End Time (HH:MM)", value=new_end_str)
+
+                    update_btn = st.form_submit_button("Save Changes", type="primary", use_container_width=True)
+
+                    if update_btn:
+                        ok, msg = update_shift_definition(
+                            definition_id=int(row["id"]),
+                            display_name=new_disp,
+                            start_time=new_start,
+                            end_time=new_end,
+                            active=True,
+                            sort_order=int(new_sort_order),
+                        )
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
+        # -------- DELETE (soft) --------
+        with st.expander("🗑️ Delete Shift", expanded=False):
+            if not options:
+                st.info("No active shifts to delete.")
+            else:
+                del_label = st.selectbox("Select Shift to Delete", options, key="sm_del_select")
+                del_idx = options.index(del_label)
+                del_row = active_defs.iloc[del_idx]
+
+                st.warning(
+                    f"You are about to remove **{del_row['shift_name']}** from "
+                    f"**{page_branch_name}**. Existing shift history is not affected."
+                )
+                confirm = st.checkbox("I understand this will hide the shift from new shift starts")
+
+                if st.button("Confirm Delete", use_container_width=True, key="sm_delete_btn"):
+                    if not confirm:
+                        st.error("Please tick the confirmation checkbox.")
+                    else:
+                        ok, msg = delete_shift_definition(int(del_row["id"]))
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
+
+# ==============================
+# MAIN GUARD
 # ==============================
 if __name__ == "__main__":
     shift_management_page()

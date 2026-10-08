@@ -71,10 +71,14 @@ def init_session():
 # SESSION BRANCH HELPER
 # ==============================
 def _get_session_branch():
-    """Return the authoritative branch for the current session."""
+    """
+    Return the authoritative branch for the current session.
+    Prefers `current_branch_code` (written by the branch-selection screen)
+    over `user_branch` (which may be a stale default), then falls back to HO.
+    """
     return (
-        st.session_state.get("user_branch")
-        or st.session_state.get("current_branch_code")
+        st.session_state.get("current_branch_code")
+        or st.session_state.get("user_branch")
         or "HO"
     )
 
@@ -363,7 +367,7 @@ def pos_page():
     cart = st.session_state.cart
     
     # ==============================
-    # SHIFT STATUS - FAST
+    # SHIFT STATUS - FAST (BRANCH-AWARE)
     # ==============================
     user_branch = _get_session_branch()
     branch_shift = get_branch_shift_status(user_branch)
@@ -928,8 +932,15 @@ def pos_page():
                     "cashier": st.session_state.get("username", "system")
                 }
                 
+                # ----- Branch authority: prefer current_branch_code -----
+                checkout_branch = (
+                    st.session_state.get("current_branch_code")
+                    or st.session_state.get("user_branch")
+                    or "HO"
+                )
+                
                 success, message = process_checkout_batch(
-                    branch_id=user_branch,
+                    branch_id=checkout_branch,
                     checkout_data=checkout_data
                 )
                 
