@@ -9,6 +9,38 @@ except:
 
 import streamlit as st
 
+import streamlit as st
+
+# ==============================
+# TEMP DIAGNOSTIC — paste at very top of app.py
+# ==============================
+if "logged_in" in st.session_state and st.session_state.get("logged_in"):
+    with st.sidebar.expander("🔍 BRANCH DEBUG", expanded=True):
+        st.write("**Session keys relevant to branch:**")
+        st.write(f"- `user_branch`           = `{st.session_state.get('user_branch')}`")
+        st.write(f"- `current_branch`        = `{st.session_state.get('current_branch')}`")
+        st.write(f"- `current_branch_code`   = `{st.session_state.get('current_branch_code')}`")
+        st.write(f"- `branch_authenticated`  = `{st.session_state.get('branch_authenticated')}`")
+        st.write(f"- `role`                  = `{st.session_state.get('role')}`")
+        st.write(f"- `username`              = `{st.session_state.get('username')}`")
+        st.write("**What the loaders will actually query with:**")
+        try:
+            from backend.core.db_adapter import get_current_branch
+            st.write(f"- `get_current_branch()` = `{get_current_branch()}`")
+        except Exception as e:
+            st.write(f"- error: {e}")
+        st.write("**Row count for this branch:**")
+        try:
+            from backend.core.db_adapter import load_sales
+            df = load_sales()
+            st.write(f"- sales rows = `{len(df)}`")
+            if not df.empty and "branch_id" in df.columns:
+                st.write(f"- distinct branch_ids in returned frame = `{df['branch_id'].unique().tolist()}`")
+        except Exception as e:
+            st.write(f"- error: {e}")
+# ==============================
+# END TEMP DIAGNOSTIC
+
 st.cache_data.clear()
 st.cache_resource.clear()
 
