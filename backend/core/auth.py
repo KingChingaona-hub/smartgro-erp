@@ -1,4 +1,4 @@
-# backend/core/auth.py - COMPLETE FIXED VERSION WITH ALL MODULES INTEGRATED
+# backend/core/auth.py - COMPLETE FIXED VERSION WITH BRANCH AUTHORITY
 import pandas as pd
 import streamlit as st
 from backend.core.db_adapter import load_users, save_users
@@ -90,9 +90,9 @@ ROLES = {
         "permissions": [
             "pos", "view_inventory", "create_customer", "view_sales_history",
             "mobile_dashboard", "voice_commands", "barcode_scanner",
-            # ===== ADDED: Cashier can now access debtors =====
+            # ===== Cashier can now access debtors =====
             "debtors", "debtors_dashboard", "record_debt_payment",
-            # FLOATING FINANCIALS - Cashier can access
+            # FLOATING FINANCIALS
             "floating_financials"
         ],
         "description": "Can process sales and manage debtors",
@@ -139,33 +139,25 @@ def can_access_feature(role, feature):
         return True
     
     feature_permissions = {
-        # ==============================
         # POS & SALES
-        # ==============================
         "pos": ["cashier", "manager", "owner"],
         "sales_history": ["cashier", "manager", "owner", "mobile_user"],
         "sales_dashboard": ["manager", "owner"],
         "returns_management": ["manager", "owner"],
         
-        # ==============================
         # INVENTORY
-        # ==============================
         "inventory_view": ["cashier", "manager", "owner", "mobile_user"],
         "inventory_edit": ["manager", "owner"],
         "barcode_scanner": ["cashier", "manager", "owner"],
         "barcode_generator": ["manager", "owner"],
         
-        # ==============================
         # PURCHASES & SUPPLIERS
-        # ==============================
         "purchases": ["manager", "owner"],
         "purchases_dashboard": ["manager", "owner"],
         "supplier_bidding": ["manager", "owner"],
         "smart_replenishment": ["manager", "owner"],
         
-        # ==============================
         # FINANCE
-        # ==============================
         "cash_dashboard": ["manager", "owner"],
         "income": ["manager", "owner"],
         "income_dashboard": ["manager", "owner"],
@@ -176,9 +168,7 @@ def can_access_feature(role, feature):
         "payment_gateway": ["manager", "owner"],
         "accounting_sync": ["manager", "owner"],
         
-        # ==============================
         # CUSTOMERS
-        # ==============================
         "customers": ["cashier", "manager", "owner"],
         "customer_app": ["owner", "manager", "cashier", "viewer", "mobile_user"],
         "customer_insights": ["manager", "owner"],
@@ -187,16 +177,12 @@ def can_access_feature(role, feature):
         "segmentation_dashboard": ["manager", "owner"],
         "lifecycle_dashboard": ["manager", "owner"],
         
-        # ==============================
-        # DEBTORS - CASHIER NOW HAS ACCESS
-        # ==============================
+        # DEBTORS
         "debtors": ["cashier", "manager", "owner"],
         "debtors_dashboard": ["cashier", "manager", "owner"],
         "record_debt_payment": ["cashier", "manager", "owner"],
         
-        # ==============================
         # ANALYTICS - NEW DATA SCIENCE MODULES
-        # ==============================
         "anomaly_detection": ["manager", "owner"],
         "automated_insights": ["manager", "owner"],
         "churn_prediction": ["manager", "owner"],
@@ -209,30 +195,22 @@ def can_access_feature(role, feature):
         "demand_forecasting": ["manager", "owner"],
         "reports": ["manager", "owner"],
         
-        # ==============================
         # OPERATIONS
-        # ==============================
         "shift_management": ["manager", "owner"],
         "branch_performance": ["manager", "owner"],
         "documents": ["manager", "owner"],
         "voice_commands": ["cashier", "manager", "owner"],
         
-        # ==============================
         # MOBILE
-        # ==============================
         "mobile_dashboard": ["owner", "manager", "cashier", "mobile_user"],
         "whatsapp_alerts": ["owner", "manager"],
         "receive_notifications": ["owner", "manager", "mobile_user"],
         "mobile_approvals": ["owner", "manager"],
         
-        # ==============================
         # LIVE & REAL-TIME
-        # ==============================
         "live_dashboard": ["manager", "owner"],
         
-        # ==============================
         # SECURITY & ADMIN
-        # ==============================
         "security": ["manager", "owner"],
         "language_management": ["manager", "owner"],
         "offline_mode": ["manager", "owner"],
@@ -244,17 +222,13 @@ def can_access_feature(role, feature):
         "user_management": ["owner"],
         "branch_management": ["owner"],
         
-        # ==============================
         # INTEGRATIONS
-        # ==============================
         "ecommerce_sync": ["manager", "owner"],
         "sms_gateway": ["manager", "owner"],
         "automated_followup": ["manager", "owner"],
         "workflow_approvals": ["manager", "owner"],
         
-        # ==============================
-        # FLOATING FINANCIALS - NEW
-        # ==============================
+        # FLOATING FINANCIALS
         "floating_financials": ["owner", "manager", "cashier"],
     }
     
@@ -528,11 +502,18 @@ def process_login_user(user, df):
     BRANCH AUTHORITY RULE
     ---------------------
     The branch selected on the branch-selection screen is the single source
-    of truth. It is stored in BOTH `current_branch_code` and `user_branch`.
-    We now prefer `current_branch_code` when resolving the branch, because
-    `user_branch` can be a stale default ("HO") left over from a previous
-    session. Reading the freshly-written `current_branch_code` first fixes
-    the scenario where logging in as NAT/VIL still showed HO data.
+    of truth. It is written into `current_branch_code` by
+    branch_auth.set_session_branch() BEFORE any user login is processed.
+
+    Precedence:
+        1. `current_branch_code` (branch-selection screen) — the only
+           authoritative source.
+        2. The user's assigned `branch_id` from the DB (fallback only when
+           no selection exists — e.g. auto-login, tests, CLI).
+        3. "HO" (final fallback).
+
+    Owners/admins are cross-branch by design — their DB record value must
+    never lock them to one branch. They always follow the selection.
     """
     try:
         username = user.iloc[0]["username"]
@@ -542,24 +523,28 @@ def process_login_user(user, df):
         whatsapp = user.iloc[0].get("whatsapp", "")
 
         # ---------- BRANCH AUTHORITY ----------
-        # Prefer `current_branch_code` (written by the branch-selection screen)
-        # over `user_branch` (which may be a stale "HO" from a previous session).
-        session_branch = (
-            st.session_state.get("current_branch_code")
-            or st.session_state.get("user_branch")
-            or "HO"
-        )
-        user_branch = user.iloc[0].get("branch_id") or "HO"
+        # Rule:
+        #   1. The branch-selection screen is authoritative. It writes
+        #      `current_branch_code` via branch_auth.set_session_branch().
+        #   2. If no selection exists (e.g. auto-login, tests, CLI), fall
+        #      back to the user's assigned branch from the DB.
+        #   3. Owner / admin are cross-branch by design — their record
+        #      value must never restrict them to a single branch.
+        selected_branch = st.session_state.get("current_branch_code")
+        user_branch = user.iloc[0].get("branch_id")
 
-        # If the user record matches the selected branch, keep the record's
-        # value (this preserves intentional access restrictions). Otherwise,
-        # keep the branch the user actually selected at login.
-        if user_branch and user_branch.upper() == session_branch.upper():
-            branch_id = user_branch
+        if selected_branch:
+            branch_id = str(selected_branch).strip().upper()
+        elif user_branch:
+            branch_id = str(user_branch).strip().upper()
         else:
-            branch_id = session_branch
+            branch_id = "HO"
 
-        # Lock it in for the entire session
+        # Owners/admins always follow the selection (or HO if none).
+        if role in ("owner", "admin"):
+            branch_id = str(selected_branch or user_branch or "HO").strip().upper()
+
+        # Lock it in for the entire session — all three keys must agree.
         st.session_state["user_branch"] = branch_id
         st.session_state["current_branch"] = branch_id
         st.session_state["current_branch_code"] = branch_id
@@ -656,14 +641,20 @@ def check_mobile_login(username, password):
             if not can_use_mobile(role):
                 return False, None, "Mobile access not enabled for this role"
             
-            # Branch authority: prefer the freshly-selected branch code
-            session_branch = (
-                st.session_state.get("current_branch_code")
-                or st.session_state.get("user_branch")
-                or "HO"
-            )
-            user_branch = user.iloc[0].get("branch_id") or "HO"
-            branch_id = user_branch if (user_branch and user_branch.upper() == session_branch.upper()) else session_branch
+            # ---------- BRANCH AUTHORITY ----------
+            selected_branch = st.session_state.get("current_branch_code")
+            user_branch = user.iloc[0].get("branch_id")
+
+            if selected_branch:
+                branch_id = str(selected_branch).strip().upper()
+            elif user_branch:
+                branch_id = str(user_branch).strip().upper()
+            else:
+                branch_id = "HO"
+
+            if role in ("owner", "admin"):
+                branch_id = str(selected_branch or user_branch or "HO").strip().upper()
+            # --------------------------------------
 
             full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
             whatsapp = user.iloc[0].get("whatsapp", "")
@@ -695,14 +686,20 @@ def check_mobile_login(username, password):
             if not can_use_mobile(role):
                 return False, None, "Mobile access not enabled for this role"
             
-            # Branch authority: prefer the freshly-selected branch code
-            session_branch = (
-                st.session_state.get("current_branch_code")
-                or st.session_state.get("user_branch")
-                or "HO"
-            )
-            user_branch = user.iloc[0].get("branch_id") or "HO"
-            branch_id = user_branch if (user_branch and user_branch.upper() == session_branch.upper()) else session_branch
+            # ---------- BRANCH AUTHORITY ----------
+            selected_branch = st.session_state.get("current_branch_code")
+            user_branch = user.iloc[0].get("branch_id")
+
+            if selected_branch:
+                branch_id = str(selected_branch).strip().upper()
+            elif user_branch:
+                branch_id = str(user_branch).strip().upper()
+            else:
+                branch_id = "HO"
+
+            if role in ("owner", "admin"):
+                branch_id = str(selected_branch or user_branch or "HO").strip().upper()
+            # --------------------------------------
 
             full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
             whatsapp = user.iloc[0].get("whatsapp", "")
