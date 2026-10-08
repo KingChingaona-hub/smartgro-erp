@@ -7,6 +7,11 @@
 # - save_purchases re-tags the row's branch_id on conflict AND returns False
 #   when ANY row failed validation OR nothing was actually written, so the UI
 #   can no longer show a fake success for a partial/empty write
+# - save_products returns False when ANY row failed validation OR nothing was
+#   written, and logs every skipped row so silent write failures are visible
+# - delete_products / delete_all_products issue real SQL DELETEs (the old
+#   "batch delete" path re-saved the surviving rows, which never removed
+#   anything from the DB)
 # - start_shift / end_shift / update_shift_stats all pass branch_id through
 
 import psycopg2
@@ -585,59 +590,84 @@ def load_products(branch_id=None):
 
 
 def save_products(df, branch_id=None):
+    """
+    Save products to the database.
+
+    Contract:
+      - branch_id defaults to the session branch.
+      - Every row is upserted on (branch_id, barcode).
+      - Returns True ONLY if every row was accepted by validation and
+        written. Returns False if ANY row failed validation, or if the
+        DataFrame was non-empty but zero rows were written.
+      - Skipped rows are logged so the caller can diagnose silent failures.
+
+    Callers should pass ONLY the rows they want to write — not the
+    entire product catalog — so that stale rows can't overwrite fresh
+    DB values.
+    """
     if branch_id is None:
         branch_id = get_current_branch()
+
+    branch_id = str(branch_id).strip()
+
+    if df is None or df.empty:
+        print("[save_products] empty DataFrame, nothing to save")
+        return False
+
+    total_rows = len(df)
+    inserted_count = 0
+    updated_count = 0
+    validation_errors = []
 
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
-                print("ERROR: Database connection failed")
+                print("[save_products] no DB connection")
                 return False
 
-            if df.empty:
-                print("DataFrame is empty, nothing to save")
-                return True
-
-            inserted_count = 0
-            updated_count = 0
-
             for idx, row in df.iterrows():
+                # -------- validation --------
+                barcode = str(row.get("barcode", "")).strip()
+                name = str(row.get("name", "")).strip()
+
+                if not name:
+                    validation_errors.append(f"Row {idx}: name is required")
+                    continue
+
+                valid, msg = validate_barcode(barcode)
+                if not valid:
+                    validation_errors.append(f"Row {idx}: invalid barcode ({barcode!r}) - {msg}")
+                    continue
+                # validate_barcode returns the cleaned value as msg on success
+                barcode = str(msg).strip()
+
+                category = str(row.get("category", "") or "").strip() or "Uncategorized"
+
                 try:
-                    data = row.to_dict()
+                    price = float(row.get("price", 0) or 0)
+                except (ValueError, TypeError):
+                    price = 0.0
 
-                    barcode = str(data.get("barcode", "")).strip()
-                    name = str(data.get("name", "")).strip()
-                    category = str(data.get("category", "Uncategorized")).strip()
+                try:
+                    cost = float(row.get("cost", 0) or 0)
+                except (ValueError, TypeError):
+                    cost = 0.0
 
-                    try:
-                        price = float(data.get("price", 0))
-                    except (ValueError, TypeError):
-                        price = 0.0
+                try:
+                    stock = float(row.get("stock", 0) or 0)
+                except (ValueError, TypeError):
+                    stock = 0.0
 
-                    try:
-                        cost = float(data.get("cost", 0))
-                    except (ValueError, TypeError):
-                        cost = 0.0
+                try:
+                    reorder_level = float(row.get("reorder_level", 0) or 0)
+                except (ValueError, TypeError):
+                    reorder_level = 0.0
 
-                    try:
-                        stock = float(data.get("stock", 0))
-                    except (ValueError, TypeError):
-                        stock = 0.0
-
-                    try:
-                        reorder_level = float(data.get("reorder_level", 0))
-                    except (ValueError, TypeError):
-                        reorder_level = 0.0
-
-                    if not name:
-                        print(f"Row {idx}: Missing name, skipping")
-                        continue
-
-                    if not barcode:
-                        barcode = name.replace(" ", "_").upper()[:20]
-
+                # -------- upsert --------
+                try:
                     cur.execute("""
-                        INSERT INTO products (branch_id, barcode, name, category, price, cost, stock, reorder_level)
+                        INSERT INTO products
+                            (branch_id, barcode, name, category, price, cost, stock, reorder_level)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (branch_id, barcode) DO UPDATE SET
                             name = EXCLUDED.name,
@@ -654,34 +684,128 @@ def save_products(df, branch_id=None):
                         price,
                         cost,
                         stock,
-                        reorder_level
+                        reorder_level,
                     ))
 
                     if cur.rowcount == 1:
                         inserted_count += 1
                     else:
                         updated_count += 1
-
                 except Exception as e:
-                    print(f"Error processing row {idx}: {e}")
+                    validation_errors.append(f"Row {idx}: DB error - {e}")
                     continue
 
             conn.commit()
-            print(f"Saved {inserted_count} new and {updated_count} updated products for branch: {branch_id}")
 
             try:
                 cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (branch_id,))
-                count = cur.fetchone()[0]
-                print(f"Verification: {count} products in database for branch: {branch_id}")
-            except Exception as e:
-                print(f"Verification error: {e}")
+                result = cur.fetchone()
+                total_in_branch = (
+                    result.get("count", 0) if isinstance(result, dict)
+                    else (result[0] if result else 0)
+                )
+            except Exception:
+                total_in_branch = "?"
+
+            print(
+                f"[save_products] branch={branch_id!r} "
+                f"rows_in_df={total_rows} inserted={inserted_count} "
+                f"updated={updated_count} total_in_branch={total_in_branch}"
+            )
+
+            if validation_errors:
+                print(f"[save_products] validation errors: {validation_errors}")
+                # Any rejected row means the caller must know.
+                return False
+
+            if inserted_count + updated_count == 0:
+                return False
 
             return True
 
     except Exception as e:
-        print(f"Error saving products: {e}")
+        print(f"[save_products] fatal error: {e}")
         import traceback
         traceback.print_exc()
+        return False
+
+
+def delete_products(barcodes, branch_id=None):
+    """
+    Delete products by barcode for the current branch.
+
+    barcodes: iterable of barcode strings, or a single barcode string.
+    Returns True if at least one row was deleted, False otherwise.
+    """
+    if branch_id is None:
+        branch_id = get_current_branch()
+
+    branch_id = str(branch_id).strip()
+
+    if barcodes is None:
+        return False
+
+    if isinstance(barcodes, str):
+        barcodes = [barcodes]
+
+    barcodes = [str(b).strip() for b in barcodes if str(b).strip()]
+    if not barcodes:
+        return False
+
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                print("[delete_products] no DB connection")
+                return False
+
+            cur.execute(
+                "DELETE FROM products WHERE branch_id = %s AND barcode = ANY(%s)",
+                (branch_id, barcodes),
+            )
+            deleted = cur.rowcount
+            conn.commit()
+
+            print(f"[delete_products] branch={branch_id!r} requested={len(barcodes)} deleted={deleted}")
+            return deleted > 0
+
+    except Exception as e:
+        print(f"[delete_products] error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def delete_all_products(branch_id=None):
+    """
+    Delete ALL products for the current branch.
+
+    Returns True if rows were deleted, False otherwise.
+    """
+    if branch_id is None:
+        branch_id = get_current_branch()
+
+    branch_id = str(branch_id).strip()
+
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None or conn is None:
+                return False
+
+            cur.execute("SELECT COUNT(*) FROM products WHERE branch_id = %s", (branch_id,))
+            result = cur.fetchone()
+            count = (
+                result.get("count", 0) if isinstance(result, dict)
+                else (result[0] if result else 0)
+            )
+
+            cur.execute("DELETE FROM products WHERE branch_id = %s", (branch_id,))
+            conn.commit()
+
+            print(f"[delete_all_products] branch={branch_id!r} deleted={count}")
+            return count > 0
+
+    except Exception as e:
+        print(f"[delete_all_products] error: {e}")
         return False
 
 
@@ -4425,6 +4549,7 @@ def process_checkout_batch(branch_id, checkout_data):
 # ==============================
 __all__ = [
     "load_products", "save_products",
+    "delete_products", "delete_all_products",
     "load_sales", "save_sales",
     "load_customers", "save_customers",
     "load_debtors", "save_debtors",
