@@ -3243,33 +3243,63 @@ def save_shifts(df, branch_id=None):
 def start_shift(cashier_username, cashier_name, branch_id, branch_name,
                 manager_username, opening_cash=0, shift_name=None):
     """
-    Start a shift. The shift_id includes the branch so two branches can
-    both start "ALPHA" on the same day without a primary key collision.
+    Start a shift. Persists ONLY the new shift row, derives branch_name from
+    the branches table (ignoring whatever the caller passed), and verifies
+    the row landed before returning success.
     """
     if branch_id is None:
         branch_id = get_current_branch()
 
     valid, msg = validate_username(cashier_username)
     if not valid:
-        return False, f"Invalid cashier username: {msg}", ""
+        return False, "", f"Invalid cashier username: {msg}"
 
     valid, amount, msg = validate_amount(opening_cash)
     if not valid:
-        return False, f"Invalid opening cash: {msg}", ""
+        return False, "", f"Invalid opening cash: {msg}"
 
-    df = load_shifts(branch_id=branch_id)
+    # ---- 1. Derive branch_name from the branches table (authoritative) ----
+    canonical_branch_name = str(branch_name or "").strip()
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is not None:
+                cur.execute(
+                    "SELECT branch_name FROM branches "
+                    "WHERE UPPER(TRIM(branch_id)) = UPPER(TRIM(%s)) LIMIT 1",
+                    (str(branch_id),),
+                )
+                row = cur.fetchone()
+                if row:
+                    n = row.get("branch_name") if isinstance(row, dict) else row[0]
+                    if n:
+                        canonical_branch_name = str(n)
+    except Exception as e:
+        print(f"[start_shift] branch_name lookup failed: {e}")
+    if not canonical_branch_name:
+        canonical_branch_name = str(branch_id)
 
-    if "branch_id" in df.columns and "status" in df.columns:
-        active_shift = df[
-            (df["branch_id"].astype(str).str.upper() == str(branch_id).upper())
-            & (df["status"] == "OPEN")
-        ]
-        if not active_shift.empty:
-            shift_id = active_shift.iloc[0]["shift_id"]
-            existing_cashier = active_shift.iloc[0].get("cashier_name", "Unknown")
-            return True, shift_id, f"Shift already active in this branch (started by {existing_cashier})"
+    # ---- 2. Reject if an OPEN shift already exists for this branch ----
+    target = str(branch_id).strip().upper()
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is not None:
+                cur.execute("""
+                    SELECT shift_id, branch_id, cashier_name
+                    FROM shifts
+                    WHERE UPPER(TRIM(COALESCE(status, ''))) = 'OPEN'
+                    ORDER BY start_time DESC
+                """)
+                for r in (cur.fetchall() or []):
+                    rd = dict(r)
+                    if str(rd.get("branch_id", "")).strip().upper() == target:
+                        return True, str(rd.get("shift_id")), (
+                            f"Shift already active in this branch "
+                            f"(started by {rd.get('cashier_name', 'Unknown')})"
+                        )
+    except Exception as e:
+        print(f"[start_shift] open-shift check failed: {e}")
 
-    # Branch-scoped, second-precision unique shift_id
+    # ---- 3. Build the new row ----
     shift_name_part = (shift_name or "ALPHA").upper()
     shift_id = f"{branch_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{shift_name_part}"
 
@@ -3277,7 +3307,7 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
         "shift_id": shift_id,
         "shift_name": shift_name_part,
         "branch_id": branch_id,
-        "branch_name": sanitize_string(branch_name, 100),
+        "branch_name": sanitize_string(canonical_branch_name, 100),
         "cashier_username": sanitize_string(cashier_username, 50),
         "cashier_name": sanitize_string(cashier_name, 100),
         "manager_username": sanitize_string(manager_username, 50),
@@ -3294,14 +3324,35 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
         "transactions": 0,
         "variance": 0.0,
         "status": "OPEN",
-        "notes": None
+        "notes": None,
     }
 
-    df = pd.concat([df, pd.DataFrame([new_shift])], ignore_index=True)
-    save_shifts(df, branch_id=branch_id)
+    # ---- 4. Pass ONLY the new row; check the return value ----
+    new_row_df = pd.DataFrame([new_shift])
+    if not save_shifts(new_row_df, branch_id=branch_id):
+        return False, "", (
+            "save_shifts returned False — the new shift was rejected by the "
+            "database. Check the terminal for the exact validation error."
+        )
+
+    # ---- 5. Verify the row actually landed ----
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is not None:
+                cur.execute(
+                    "SELECT status FROM shifts WHERE shift_id = %s",
+                    (str(shift_id),),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return False, "", (
+                        "save_shifts reported success but the new shift is not "
+                        "in the database."
+                    )
+    except Exception as e:
+        print(f"[start_shift] verification failed: {e}")
 
     return True, shift_id, "Shift started successfully!"
-
 
 def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="", branch_id=None):
     if branch_id is None:

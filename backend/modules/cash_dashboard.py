@@ -99,29 +99,28 @@ def _cleanup_session_state_for_branch(branch_id):
 def _query_open_shift_for_branch(branch_id):
     """
     Return the OPEN shift row for the branch, or None.
-
-    Uses a direct SQL query with UPPER(TRIM(...)) so case or whitespace
-    mismatches on branch_id cannot hide a live shift.
+    Filters in Python so case/whitespace on branch_id cannot hide the row.
     """
+    target = str(branch_id).strip().upper()
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
                 return None
             cur.execute("""
-                SELECT shift_id, branch_id, branch_name, cashier_name, cashier_username,
-                       start_time, opening_cash, status
+                SELECT shift_id, branch_id, branch_name, cashier_name,
+                       cashier_username, start_time, opening_cash, status
                 FROM shifts
-                WHERE UPPER(TRIM(branch_id)) = UPPER(TRIM(%s))
-                  AND UPPER(TRIM(status)) = 'OPEN'
+                WHERE UPPER(TRIM(COALESCE(status, ''))) = 'OPEN'
                 ORDER BY start_time DESC
-                LIMIT 1
-            """, (str(branch_id),))
-            row = cur.fetchone()
-            return dict(row) if row else None
+            """)
+            for row in (cur.fetchall() or []):
+                rd = dict(row)
+                if str(rd.get("branch_id", "")).strip().upper() == target:
+                    return rd
+            return None
     except Exception as e:
         print(f"[cash_dashboard] open-shift lookup failed: {e}")
         return None
-
 
 def _force_close_shift(shift_id, branch_id, reason=""):
     """Close a stale OPEN shift directly. Returns (ok, message)."""
