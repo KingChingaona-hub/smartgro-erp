@@ -54,16 +54,67 @@ def _is_multi_branch_user():
     return st.session_state.get("role", "cashier") in ("owner", "manager", "admin")
 
 
+# ==============================
+# SAFE TIME FORMATTERS
+# ==============================
 def safe_format_time(time_val):
-    """Safely format a time value to string."""
+    """
+    Safely format a time value to string.
+
+    Returns "N/A" for None, NaT, NaN, or anything that has no strftime
+    and no sensible string representation. This is the single guard that
+    prevents `NaTType does not support strftime` from crashing the page.
+    """
     if time_val is None:
         return "N/A"
+
+    # pandas NaT or numpy NaN
+    try:
+        if pd.isna(time_val):
+            return "N/A"
+    except Exception:
+        pass
+
     if isinstance(time_val, pd.Timestamp):
-        return time_val.strftime("%Y-%m-%d %H:%M")
+        try:
+            return time_val.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return "N/A"
+
     if isinstance(time_val, datetime):
-        return time_val.strftime("%Y-%m-%d %H:%M")
+        try:
+            return time_val.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return "N/A"
+
     time_str = str(time_val)
+    if not time_str or time_str.lower() == "nat":
+        return "N/A"
     return time_str[:16] if time_str else "N/A"
+
+
+def _fmt_time(value, fmt="%Y-%m-%d %H:%M"):
+    """
+    Format a datetime/Timestamp/string, returning "" for NaT/None/invalid.
+    Used by tables so an open shift's empty end_time renders as blank
+    instead of raising.
+    """
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime(fmt)
+        except Exception:
+            return ""
+    s = str(value)
+    if not s or s.lower() == "nat":
+        return ""
+    return s[:16]
 
 
 def _normalize_time(value, default="06:00"):
@@ -673,7 +724,9 @@ def _shift_history_tab(shifts_df, page_branch_id, page_branch_name):
 
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
-        filtered["start_date"] = pd.to_datetime(filtered["start_time"]).dt.date
+        filtered["start_date"] = pd.to_datetime(
+            filtered["start_time"], errors="coerce"
+        ).dt.date
         filtered = filtered[
             (filtered["start_date"] >= start_date) & (filtered["start_date"] <= end_date)
         ]
@@ -689,9 +742,11 @@ def _shift_history_tab(shifts_df, page_branch_id, page_branch_name):
         return
 
     display = filtered.copy()
+
+    # Safe formatting: NaT becomes ""
     for col in ("start_time", "end_time"):
         if col in display.columns:
-            display[col] = pd.to_datetime(display[col], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+            display[col] = display[col].apply(_fmt_time)
 
     display = display.rename(columns={
         "shift_id": "Shift ID",
@@ -868,16 +923,6 @@ def _shift_performance_tab(shifts_df, page_branch_id, page_branch_name):
 def _manage_shifts_tab(page_branch_id, page_branch_name):
     """
     Full CRUD for shift definitions in the selected branch.
-
-    - View all shifts (including inactive) for the branch.
-    - Add a new shift (name, display name, start, end, sort order).
-    - Edit an existing shift.
-    - Soft-delete a shift.
-
-    Branches with no shifts at all are seeded with defaults by
-    `ensure_branch_has_defaults(page_branch_id)` in the page header,
-    so the Add form is always usable. A manual "Seed Defaults" button
-    is also shown so owners can recover a branch whose seeding failed.
     """
     st.markdown("## Manage Shifts")
     st.caption(
@@ -887,7 +932,6 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
 
     role = st.session_state.get("role", "cashier")
 
-    # Load definitions for this branch (includes inactive so we can un-delete)
     defs_df = load_shift_definitions(branch_id=page_branch_id, include_inactive=True)
 
     if defs_df is None:
@@ -901,7 +945,6 @@ def _manage_shifts_tab(page_branch_id, page_branch_name):
             "Use the **➕ Add New Shift** form below, or click **Seed Default Shifts** "
             "to create the standard ALPHA–ECHO set."
         )
-        # Owner/manager seed shortcut
         if role in ("owner", "manager"):
             if st.button(
                 "➕ Seed Default Shifts (ALPHA–ECHO)",
