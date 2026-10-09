@@ -629,6 +629,13 @@ def save_products(df, branch_id=None):
       slightly different spelling (trailing space, case difference), the
       DB's exact value is used so ON CONFLICT hits that row instead of
       inserting a new one.
+
+    Barcode-integrity:
+      validate_barcode is expected to return the cleaned barcode as its
+      second element on success. This function double-checks that the
+      returned value is a valid 13-digit numeric string. If it isn't,
+      the row is rejected rather than silently writing a non-barcode
+      value like a stale success message.
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -661,10 +668,28 @@ def save_products(df, branch_id=None):
 
                 valid, msg = validate_barcode(barcode)
                 if not valid:
-                    validation_errors.append(f"Row {idx}: invalid barcode ({barcode!r}) - {msg}")
+                    validation_errors.append(
+                        f"Row {idx}: invalid barcode ({barcode!r}) - {msg}"
+                    )
                     continue
-                # validate_barcode returns the cleaned value as msg on success
-                barcode = str(msg).strip()
+
+                # Belt and braces: the second element MUST be the cleaned
+                # barcode itself, a 13-digit numeric string. If a legacy
+                # validator returned a message instead, we do NOT write it.
+                candidate = str(msg).strip()
+                if candidate.isdigit() and len(candidate) == 13:
+                    barcode = candidate
+                else:
+                    # Trust the input only if it is already well-formed.
+                    if barcode.isdigit() and len(barcode) == 13:
+                        # Keep the input; it was already valid.
+                        pass
+                    else:
+                        validation_errors.append(
+                            f"Row {idx}: validate_barcode returned a non-barcode "
+                            f"value ({candidate!r}) for input {barcode!r}"
+                        )
+                        continue
 
                 # If a row with this barcode already exists in the DB under a
                 # slightly different spelling (whitespace, case), use the DB's

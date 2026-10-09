@@ -155,21 +155,43 @@ def validate_phone(phone: str, country: str = "ZW") -> Tuple[bool, str]:
     return True, clean_phone
 
 
-def validate_barcode(barcode: str) -> Tuple[bool, str]:
-    """Validate barcode format"""
-    if not barcode or not isinstance(barcode, str):
+def validate_barcode(barcode):
+    """
+    Validate a product barcode.
+
+    Rules:
+      - Must be a 13-digit numeric string (EAN-13 format).
+      - This matches both real scanned barcodes and system-generated ones.
+
+    Returns:
+        (True, cleaned_barcode)  on success
+        (False, reason_string)   on failure
+
+    IMPORTANT: on success the second element is the cleaned barcode itself,
+    never a static message. Callers such as save_products assign it directly
+    back to the row before the INSERT.
+    """
+    if barcode is None:
         return False, "Barcode is required"
-    
-    if len(barcode) < 4:
-        return False, "Barcode must be at least 4 characters"
-    
-    if len(barcode) > 50:
-        return False, "Barcode cannot exceed 50 characters"
-    
-    if not re.match(PATTERNS["barcode"], barcode):
-        return False, "Barcode can only contain letters, numbers, hyphens, and underscores"
-    
-    return True, "Valid barcode"
+
+    if isinstance(barcode, (int, float)):
+        if isinstance(barcode, float) and not float(barcode).is_integer():
+            return False, "Barcode must be a whole number"
+        barcode = str(int(barcode))
+
+    barcode = str(barcode).strip()
+
+    if not barcode:
+        return False, "Barcode is required"
+
+    if not barcode.isdigit():
+        return False, "Barcode must contain only digits"
+
+    if len(barcode) != 13:
+        return False, "Barcode must be exactly 13 digits"
+
+    # On success the second element is the CLEANED BARCODE.
+    return True, barcode
 
 
 def validate_product_name(name: str) -> Tuple[bool, str]:
