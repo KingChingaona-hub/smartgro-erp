@@ -5,15 +5,15 @@ Inventory management page.
 Guarantees:
   - No @st.cache_data anywhere; every render reads fresh from the DB.
   - Every write path is explicit:
-        * Add Product         -> INSERT (save_products, new barcode only)
+        * Add Product           -> INSERT (save_products, new barcode only)
         * Single Product Update -> UPDATE that one row by (branch_id, barcode)
-        * Batch Update        -> UPDATE only the edited rows by (branch_id, barcode)
-        * Batch Delete        -> SQL DELETE via delete_products
-        * Delete All          -> SQL DELETE via delete_all_products
+        * Batch Update          -> UPDATE only the edited rows by (branch_id, barcode)
+        * Batch Delete          -> SQL DELETE via delete_products
+        * Delete All            -> SQL DELETE via delete_all_products
   - Barcodes are never changed on update; they are the stable identity of a
     product within a branch.
-  - Relies on the unique constraint products(branch_id, barcode), which makes
-    ON CONFLICT DO UPDATE work correctly and prevents duplicate rows.
+  - On any save failure, the page shows the exact rows, dtypes, branch_id,
+    and DB state so the cause is visible without reading the terminal.
 """
 
 import pandas as pd
@@ -27,6 +27,7 @@ from backend.core.db_adapter import (
     delete_products,
     delete_all_products,
     load_branches,
+    get_db_cursor,
 )
 from backend.core.auth import check_login
 
@@ -72,6 +73,46 @@ def _generate_numeric_barcode(seed_index=0):
 
 
 # ==============================
+# DIAGNOSTIC HELPERS
+# ==============================
+def _diagnose_save_failure(edited_df, branch_id):
+    """
+    Called when save_products returns False. Renders everything needed to
+    see why: the attempted rows, dtypes, the branch argument, and what the
+    DB actually has for each barcode we tried to write.
+    """
+    st.error("save_products returned False. Diagnostics below.")
+
+    st.write("**Rows attempted:**")
+    st.dataframe(edited_df, use_container_width=True, hide_index=True)
+
+    st.write("**Column dtypes:**")
+    st.write(edited_df.dtypes.astype(str))
+
+    st.write(f"**branch_id passed to save_products:** `{branch_id!r}`")
+
+    st.write("**Per-row DB state:**")
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                st.warning("Could not open DB cursor for diagnostics.")
+                return
+            for _, r in edited_df.iterrows():
+                bc = str(r["barcode"])
+                cur.execute(
+                    "SELECT id, branch_id, barcode, LENGTH(barcode) AS bc_len, "
+                    "       name, stock, price "
+                    "FROM products WHERE barcode = %s",
+                    (bc,),
+                )
+                rows = cur.fetchall() or []
+                rows_as_dicts = [dict(x) for x in rows]
+                st.write(f"`barcode={bc!r}` → {rows_as_dicts}")
+    except Exception as e:
+        st.write(f"DB diagnostic failed: {e}")
+
+
+# ==============================
 # SESSION STATE
 # ==============================
 def _init_session():
@@ -96,9 +137,9 @@ def _ensure_branch_consistency():
     last = st.session_state.get("_inv_last_branch")
     if last != current:
         st.session_state.batch_selected = []
-        # Drop any batch-edit widgets from the previous branch
         for k in list(st.session_state.keys()):
-            if k.startswith(("be_name_", "be_cat_", "be_price_", "be_cost_", "be_stock_", "be_reorder_")):
+            if k.startswith(("be_name_", "be_cat_", "be_price_",
+                             "be_cost_", "be_stock_", "be_reorder_")):
                 del st.session_state[k]
         st.session_state["_inv_last_branch"] = current
 
@@ -281,14 +322,12 @@ def inventory_page():
                         "reorder_level": float(reorder_level),
                     }])
 
-                    if save_products(new_row, branch_id=branch_id):
+                    ok = save_products(new_row, branch_id=branch_id)
+                    if ok:
                         st.success(f"Product '{name}' added successfully!")
                         st.rerun()
                     else:
-                        st.error(
-                            "Failed to add product. The barcode or values were rejected by "
-                            "the database. See terminal for details."
-                        )
+                        _diagnose_save_failure(new_row, branch_id)
 
     st.markdown("---")
 
@@ -512,9 +551,6 @@ def inventory_page():
                 )
 
             if save_all:
-                # Build the list of rows to update. Barcode comes from the
-                # original DB row, so this is always an UPDATE of that exact
-                # row — never an INSERT.
                 edited_rows = []
                 skipped = []
 
@@ -550,7 +586,7 @@ def inventory_page():
 
                     edited_rows.append({
                         "branch_id": branch_id,
-                        "barcode": barcode,               # <-- identity, unchanged
+                        "barcode": barcode,               # identity, unchanged
                         "name": str(new_name).strip(),
                         "category": str(new_category).strip() or "Uncategorized",
                         "price": float(new_price),
@@ -576,9 +612,7 @@ def inventory_page():
                         st.session_state.batch_selected = []
                         st.rerun()
                     else:
-                        st.error("save_products returned False. See terminal.")
-                        st.write("**Rows attempted:**")
-                        st.dataframe(edited_df, use_container_width=True, hide_index=True)
+                        _diagnose_save_failure(edited_df, branch_id)
 
     st.markdown("---")
 
@@ -685,7 +719,7 @@ def inventory_page():
                         else:
                             edited = pd.DataFrame([{
                                 "branch_id": branch_id,
-                                "barcode": original_barcode,     # <-- identity
+                                "barcode": original_barcode,     # identity
                                 "name": update_name.strip(),
                                 "category": update_category.strip() or "Uncategorized",
                                 "price": float(update_price),
@@ -694,11 +728,12 @@ def inventory_page():
                                 "reorder_level": float(update_reorder),
                             }])
 
-                            if save_products(edited, branch_id=branch_id):
+                            ok = save_products(edited, branch_id=branch_id)
+                            if ok:
                                 st.success(f"Product '{update_name}' updated successfully!")
                                 st.rerun()
                             else:
-                                st.error("Failed to update product. See terminal for details.")
+                                _diagnose_save_failure(edited, branch_id)
 
     st.markdown("---")
 
