@@ -12,6 +12,12 @@ Guarantees:
         * Delete All            -> SQL DELETE via delete_all_products
   - Barcodes are never changed on update; they are the stable identity of a
     product within a branch.
+  - Before any batch/single update, the barcode sent to the DB is looked up
+    via UPPER(TRIM(...)) and replaced with the DB's exact stored value. This
+    makes the ON CONFLICT hit the existing row instead of inserting a
+    duplicate when the DB has a slightly different spelling.
+  - After a successful save or a "Clear Selection", the edit widgets AND the
+    pick checkboxes are dropped, so Streamlit actually unchecks them.
   - On any save failure, the page shows the exact rows, dtypes, branch_id,
     and DB state so the cause is visible without reading the terminal.
 """
@@ -73,14 +79,43 @@ def _generate_numeric_barcode(seed_index=0):
 
 
 # ==============================
-# DIAGNOSTIC HELPERS
+# DB BARCODE LOOKUP
+# ==============================
+def _resolve_db_barcode(barcode, branch_id):
+    """
+    Return the DB's exact stored barcode for this branch if a row exists
+    whose barcode matches modulo case and whitespace. Otherwise return the
+    input unchanged.
+
+    This is what prevents updates from silently inserting a duplicate row
+    when the in-memory barcode differs from the stored one by a trailing
+    space or a case difference.
+    """
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is None:
+                return barcode
+            cur.execute(
+                "SELECT barcode FROM products "
+                "WHERE branch_id = %s "
+                "  AND UPPER(TRIM(barcode)) = UPPER(TRIM(%s)) "
+                "LIMIT 1",
+                (str(branch_id).strip(), str(barcode).strip()),
+            )
+            row = cur.fetchone()
+            if row:
+                db_bc = row["barcode"] if isinstance(row, dict) else row[0]
+                if db_bc:
+                    return str(db_bc)
+    except Exception as e:
+        print(f"[_resolve_db_barcode] lookup failed for {barcode!r}: {e}")
+    return barcode
+
+
+# ==============================
+# DIAGNOSTIC HELPER
 # ==============================
 def _diagnose_save_failure(edited_df, branch_id):
-    """
-    Called when save_products returns False. Renders everything needed to
-    see why: the attempted rows, dtypes, the branch argument, and what the
-    DB actually has for each barcode we tried to write.
-    """
     st.error("save_products returned False. Diagnostics below.")
 
     st.write("**Rows attempted:**")
@@ -106,14 +141,13 @@ def _diagnose_save_failure(edited_df, branch_id):
                     (bc,),
                 )
                 rows = cur.fetchall() or []
-                rows_as_dicts = [dict(x) for x in rows]
-                st.write(f"`barcode={bc!r}` → {rows_as_dicts}")
+                st.write(f"`barcode={bc!r}` → {[dict(x) for x in rows]}")
     except Exception as e:
         st.write(f"DB diagnostic failed: {e}")
 
 
 # ==============================
-# SESSION STATE
+# SESSION STATE HELPERS
 # ==============================
 def _init_session():
     if "batch_selected" not in st.session_state:
@@ -125,22 +159,47 @@ def _init_session():
 
 
 def _drop_edit_widgets(barcode, branch_id):
-    """Drop the batch-edit widgets for a single product (after save/reset)."""
-    for prefix in ("be_name", "be_cat", "be_price", "be_cost", "be_stock", "be_reorder"):
+    """
+    Drop the edit widgets AND the pick checkbox for one product.
+    Removing the checkbox key is what makes Streamlit actually uncheck it.
+    """
+    prefixes = (
+        "be_name", "be_cat", "be_price", "be_cost", "be_stock", "be_reorder",
+        "bu_pick",
+    )
+    for prefix in prefixes:
         k = f"{prefix}_{barcode}_{branch_id}"
         if k in st.session_state:
             del st.session_state[k]
+
+
+def _clear_batch_edit_state(branch_id):
+    """
+    Drop every batch-edit widget, every pick checkbox, and the select-all
+    checkbox, then reset the selection list.
+    """
+    for k in list(st.session_state.keys()):
+        if k == f"bu_select_all_{branch_id}":
+            del st.session_state[k]
+            continue
+        if (
+            k.startswith(("be_name_", "be_cat_", "be_price_",
+                          "be_cost_", "be_stock_", "be_reorder_", "bu_pick_"))
+            and k.endswith(f"_{branch_id}")
+        ):
+            del st.session_state[k]
+    st.session_state.batch_selected = []
 
 
 def _ensure_branch_consistency():
     current = _get_session_branch()
     last = st.session_state.get("_inv_last_branch")
     if last != current:
-        st.session_state.batch_selected = []
         for k in list(st.session_state.keys()):
             if k.startswith(("be_name_", "be_cat_", "be_price_",
-                             "be_cost_", "be_stock_", "be_reorder_")):
+                             "be_cost_", "be_stock_", "be_reorder_", "bu_pick_")):
                 del st.session_state[k]
+        st.session_state.batch_selected = []
         st.session_state["_inv_last_branch"] = current
 
 
@@ -255,7 +314,7 @@ def inventory_page():
     st.markdown("---")
 
     # ==============================
-    # ADD PRODUCT  (INSERT ONLY)
+    # ADD PRODUCT
     # ==============================
     st.markdown("## Add Product")
     st.caption("Creates a new product. Barcode must be unique within the branch.")
@@ -533,13 +592,18 @@ def inventory_page():
 
             with c1:
                 if st.button("Clear Selection", use_container_width=True, key=f"bu_clear_{branch_id}"):
-                    st.session_state.batch_selected = []
+                    _clear_batch_edit_state(branch_id)
                     st.rerun()
 
             with c2:
                 if st.button("Reset Changes", use_container_width=True, key=f"bu_reset_{branch_id}"):
+                    # Reset the edit fields but keep the pick checkboxes checked.
                     for barcode in currently_checked:
-                        _drop_edit_widgets(barcode, branch_id)
+                        for prefix in ("be_name", "be_cat", "be_price",
+                                       "be_cost", "be_stock", "be_reorder"):
+                            k = f"{prefix}_{barcode}_{branch_id}"
+                            if k in st.session_state:
+                                del st.session_state[k]
                     st.rerun()
 
             with c3:
@@ -560,6 +624,12 @@ def inventory_page():
                         skipped.append(f"{barcode}: no longer in DB")
                         continue
                     original = rows.iloc[0]
+
+                    # ---- Key fix: replace the in-memory barcode with the
+                    # ---- DB's exact stored barcode. This makes the upsert
+                    # ---- hit the existing row instead of inserting a
+                    # ---- duplicate when spelling differs (whitespace, case).
+                    db_barcode = _resolve_db_barcode(barcode, branch_id)
 
                     new_name = st.session_state.get(
                         f"be_name_{barcode}_{branch_id}", str(original.get("name", ""))
@@ -586,7 +656,7 @@ def inventory_page():
 
                     edited_rows.append({
                         "branch_id": branch_id,
-                        "barcode": barcode,               # identity, unchanged
+                        "barcode": db_barcode,          # <-- DB's exact value
                         "name": str(new_name).strip(),
                         "category": str(new_category).strip() or "Uncategorized",
                         "price": float(new_price),
@@ -607,9 +677,9 @@ def inventory_page():
                     if ok:
                         st.success(f"Updated {len(edited_rows)} product(s).")
                         st.balloons()
-                        for barcode in currently_checked:
-                            _drop_edit_widgets(barcode, branch_id)
-                        st.session_state.batch_selected = []
+                        # Clear widget state, including pick checkboxes, so
+                        # they render unchecked on the next rerun.
+                        _clear_batch_edit_state(branch_id)
                         st.rerun()
                     else:
                         _diagnose_save_failure(edited_df, branch_id)
@@ -637,6 +707,8 @@ def inventory_page():
             else:
                 p = rows.iloc[0]
                 original_barcode = str(p["barcode"])
+                # Ensure the write uses the DB's exact stored barcode.
+                db_barcode = _resolve_db_barcode(original_barcode, branch_id)
 
                 name_lower = str(p["name"]).lower()
                 category_lower = str(p.get("category", "")).lower()
@@ -719,7 +791,7 @@ def inventory_page():
                         else:
                             edited = pd.DataFrame([{
                                 "branch_id": branch_id,
-                                "barcode": original_barcode,     # identity
+                                "barcode": db_barcode,       # DB's exact value
                                 "name": update_name.strip(),
                                 "category": update_category.strip() or "Uncategorized",
                                 "price": float(update_price),

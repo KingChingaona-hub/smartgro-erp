@@ -397,15 +397,6 @@ def set_current_branch(branch_id):
     except Exception:
         pass
 
-
-def set_current_branch(branch_id):
-    try:
-        import streamlit as st
-        st.session_state.user_branch = branch_id
-    except Exception:
-        pass
-
-
 # ==============================
 # GET ACTIVE SHIFT ID
 # ==============================
@@ -631,6 +622,13 @@ def save_products(df, branch_id=None):
     Callers should pass ONLY the rows they want to write — not the
     entire product catalog — so that stale rows can't overwrite fresh
     DB values.
+
+    Duplicate-safety:
+      Before the upsert, each incoming barcode is looked up in the DB via
+      UPPER(TRIM(barcode)). If a row with the same barcode exists under a
+      slightly different spelling (trailing space, case difference), the
+      DB's exact value is used so ON CONFLICT hits that row instead of
+      inserting a new one.
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -667,6 +665,25 @@ def save_products(df, branch_id=None):
                     continue
                 # validate_barcode returns the cleaned value as msg on success
                 barcode = str(msg).strip()
+
+                # If a row with this barcode already exists in the DB under a
+                # slightly different spelling (whitespace, case), use the DB's
+                # exact value so ON CONFLICT hits that row instead of inserting
+                # a duplicate.
+                try:
+                    cur.execute(
+                        "SELECT barcode FROM products "
+                        "WHERE branch_id = %s AND UPPER(TRIM(barcode)) = UPPER(TRIM(%s)) "
+                        "LIMIT 1",
+                        (branch_id, barcode),
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        db_bc = existing.get("barcode") if isinstance(existing, dict) else existing[0]
+                        if db_bc:
+                            barcode = str(db_bc)
+                except Exception as _e:
+                    print(f"[save_products] barcode lookup skipped for {barcode!r}: {_e}")
 
                 category = str(row.get("category", "") or "").strip() or "Uncategorized"
 
@@ -755,8 +772,7 @@ def save_products(df, branch_id=None):
         import traceback
         traceback.print_exc()
         return False
-
-
+    
 def delete_products(barcodes, branch_id=None):
     """
     Delete products by barcode for the current branch.
