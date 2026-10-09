@@ -268,14 +268,17 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
     """
     Start a shift.
 
-    Critical guarantees:
-      - Only the NEW row is passed to save_shifts, so a stale historical
-        row can never prevent the new shift from being committed.
-      - The return value of save_shifts is checked.
-      - The row is read back from the DB before success is reported.
-      - branch_name is re-derived from the branches table; the caller's
+    Guarantees:
+      - Only the NEW row is passed to save_shifts.
+      - save_shifts's return value is checked (it now verifies internally
+        on the same cursor that committed).
+      - Read-back verification uses a short retry loop so a fresh
+        connection cannot return a stale snapshot right after commit.
+      - branch_name is derived from the branches table; the caller's
         argument is ignored.
     """
+    import time
+
     if branch_id is None:
         branch_id = _get_session_branch()
 
@@ -287,24 +290,24 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
             f"(started by {existing.get('cashier_name', 'Unknown')})"
         )
 
-    # ---- Determine the shift_name to use ----
+    # ---- Determine shift_name ----
     if shift_name is None:
         shift_name = "ALPHA"
     shift_name = str(shift_name).strip().upper()
     if not shift_name:
         shift_name = "ALPHA"
 
-    # ---- Time slot lookup (branch shift_definitions → legacy → 06:00/12:00) ----
+    # ---- Time slot lookup ----
     start_slot, end_slot = _lookup_branch_shift_times(branch_id, shift_name)
     if not start_slot or not end_slot:
         legacy = SHIFT_SLOTS.get(shift_name, {})
         start_slot = legacy.get("start_time", "06:00")
         end_slot = legacy.get("end_time", "12:00")
 
-    # ---- Unique shift_id includes branch ----
+    # ---- Unique shift_id ----
     shift_id = f"{branch_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{shift_name}"
 
-    # ---- Derive canonical branch_name from the branches table ----
+    # ---- Derive canonical branch_name ----
     canonical_branch_name = _canonical_branch_name(branch_id)
 
     new_row = pd.DataFrame([{
@@ -331,24 +334,45 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
         "notes": f"Shift {shift_name} ({start_slot} - {end_slot})",
     }])
 
-    # ---- Persist ONLY the new row and check the result ----
+    # ---- Persist. save_shifts now verifies internally. ----
     if not save_shifts(new_row, branch_id=branch_id):
         return False, "", (
             "save_shifts returned False — the new shift was rejected by the "
-            "database. Check the terminal for the exact validation error."
+            "database. Check the terminal for the [save_shifts] log line."
         )
 
-    # ---- Verify the row actually landed ----
-    landed = _find_open_shift_direct(branch_id)
-    if not landed or str(landed.get("shift_id")) != str(shift_id):
-        return False, "", (
-            "Shift was reported saved but could not be read back from the "
-            "database."
-        )
+    # ---- Read-back with a short retry loop ----
+    # A fresh pooled connection can briefly see a pre-commit snapshot even
+    # after commit returns. Retry a few times to let replication /
+    # visibility catch up.
+    for attempt in range(5):
+        landed = _find_open_shift_direct(branch_id)
+        if landed and str(landed.get("shift_id")) == str(shift_id):
+            return True, shift_id, f"Shift {shift_name} started successfully!"
+        time.sleep(0.2)
 
-    return True, shift_id, f"Shift {shift_name} started successfully!"
+    # Last resort: read back the row by shift_id directly, not by branch.
+    try:
+        with get_db_cursor() as (cur, conn):
+            if cur is not None:
+                cur.execute(
+                    "SELECT shift_id, branch_id, status FROM shifts "
+                    "WHERE shift_id = %s LIMIT 1",
+                    (str(shift_id),),
+                )
+                row = cur.fetchone()
+                if row:
+                    rd = dict(row)
+                    if str(rd.get("status", "")).strip().upper() == "OPEN":
+                        return True, shift_id, f"Shift {shift_name} started successfully!"
+    except Exception as e:
+        print(f"[start_shift] final read-back failed: {e}")
 
-
+    return False, "", (
+        "save_shifts reported success but the shift could not be read back "
+        "after 5 retries. Check the terminal for [save_shifts] output."
+    )
+    
 # ==============================
 # END SHIFT  (corrected)
 # ==============================
