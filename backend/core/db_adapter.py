@@ -3123,37 +3123,65 @@ def load_shifts(branch_id=None, status=None):
 
 
 def save_shifts(df, branch_id=None):
+    """
+    Save shift rows.
+
+    Honest contract:
+      - branch_id defaults to the session branch.
+      - Every row is upserted on shift_id (ON CONFLICT re-tags branch_id).
+      - Returns False if df is empty, if ANY row failed validation, or if
+        any row is missing from the DB after commit.
+      - Returns True only when every row in the batch was accepted AND
+        verified present in the database.
+    """
     if branch_id is None:
         branch_id = get_current_branch()
+
+    if df is None or df.empty:
+        print("[save_shifts] empty DataFrame, nothing to save")
+        return False
+
+    branch_id = str(branch_id).strip()
+
+    validation_errors = []
+    saved_count = 0
+    total_rows = len(df)
 
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
+                print("[save_shifts] no DB connection")
                 return False
 
-            validation_errors = []
             for idx, row in df.iterrows():
-                if 'shift_id' in row and row["shift_id"]:
-                    if len(str(row["shift_id"])) < 4:
-                        validation_errors.append(f"Row {idx}: shift_id too short")
-                        continue
-                else:
+                # ---------- per-row validation ----------
+                shift_id_val = row.get("shift_id")
+                if not shift_id_val or str(shift_id_val).strip() == "":
                     validation_errors.append(f"Row {idx}: shift_id is required")
                     continue
 
-                if 'cashier_username' in row:
-                    valid, msg = validate_username(row["cashier_username"])
+                if len(str(shift_id_val)) < 4:
+                    validation_errors.append(f"Row {idx}: shift_id too short")
+                    continue
+
+                cashier_username = row.get("cashier_username")
+                if cashier_username is not None:
+                    valid, msg = validate_username(str(cashier_username))
                     if not valid:
-                        validation_errors.append(f"Row {idx}: invalid cashier_username - {msg}")
+                        validation_errors.append(
+                            f"Row {idx}: invalid cashier_username - {msg}"
+                        )
                         continue
 
-                if 'opening_cash' in row:
-                    valid, amount, msg = validate_amount(row["opening_cash"])
-                    if not valid:
-                        validation_errors.append(f"Row {idx}: invalid opening_cash - {msg}")
-                        continue
-                    row["opening_cash"] = amount
+                opening_cash_val = row.get("opening_cash", 0)
+                valid, opening_cash_clean, msg = validate_amount(opening_cash_val)
+                if not valid:
+                    validation_errors.append(
+                        f"Row {idx}: invalid opening_cash - {msg}"
+                    )
+                    continue
 
+                # ---------- normalise optional values ----------
                 end_time = row.get("end_time")
                 if end_time == "" or (isinstance(end_time, float) and pd.isna(end_time)):
                     end_time = None
@@ -3166,7 +3194,8 @@ def save_shifts(df, branch_id=None):
                 if notes == "" or (isinstance(notes, float) and pd.isna(notes)):
                     notes = None
 
-                opening_cash = to_float(row.get("opening_cash"))
+                # ---------- numeric coercion ----------
+                opening_cash = to_float(opening_cash_clean)
                 closing_cash = to_float(row.get("closing_cash"))
                 cash_sales = to_float(row.get("cash_sales"))
                 credit_sales = to_float(row.get("credit_sales"))
@@ -3175,68 +3204,123 @@ def save_shifts(df, branch_id=None):
                 total_revenue = to_float(row.get("total_revenue"))
                 profit = to_float(row.get("profit"))
                 variance = to_float(row.get("variance"))
-                transactions = int(row.get("transactions", 0)) if row.get("transactions") else 0
 
-                # `branch_id = EXCLUDED.branch_id` in the update list ensures a
-                # PK collision (shift_id) can never silently leave the row tagged
-                # with the wrong branch.
-                cur.execute("""
-                    INSERT INTO shifts (shift_id, branch_id, branch_name, cashier_username,
-                        cashier_name, manager_username, start_time, end_time,
-                        opening_cash, closing_cash, cash_sales, credit_sales,
-                        debt_payments, expenses, total_revenue, profit,
-                        transactions, variance, status, notes)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (shift_id) DO UPDATE SET
-                        branch_id = EXCLUDED.branch_id,
-                        branch_name = EXCLUDED.branch_name,
-                        cashier_username = EXCLUDED.cashier_username,
-                        cashier_name = EXCLUDED.cashier_name,
-                        manager_username = EXCLUDED.manager_username,
-                        start_time = EXCLUDED.start_time,
-                        end_time = EXCLUDED.end_time,
-                        opening_cash = EXCLUDED.opening_cash,
-                        closing_cash = EXCLUDED.closing_cash,
-                        cash_sales = EXCLUDED.cash_sales,
-                        credit_sales = EXCLUDED.credit_sales,
-                        debt_payments = EXCLUDED.debt_payments,
-                        expenses = EXCLUDED.expenses,
-                        total_revenue = EXCLUDED.total_revenue,
-                        profit = EXCLUDED.profit,
-                        transactions = EXCLUDED.transactions,
-                        variance = EXCLUDED.variance,
-                        status = EXCLUDED.status,
-                        notes = EXCLUDED.notes
-                """, (
-                    str(row["shift_id"]),
-                    str(branch_id),
-                    str(row.get("branch_name", "Head Office")),
-                    str(row.get("cashier_username", "")),
-                    str(row.get("cashier_name", "")),
-                    str(row.get("manager_username", "")),
-                    start_time,
-                    end_time,
-                    opening_cash,
-                    closing_cash,
-                    cash_sales,
-                    credit_sales,
-                    debt_payments,
-                    expenses,
-                    total_revenue,
-                    profit,
-                    transactions,
-                    variance,
-                    str(row.get("status", "OPEN")),
-                    notes
-                ))
+                transactions_raw = row.get("transactions", 0)
+                try:
+                    transactions = int(transactions_raw) if transactions_raw else 0
+                except (ValueError, TypeError):
+                    transactions = 0
 
+                # ---------- upsert ----------
+                try:
+                    cur.execute("""
+                        INSERT INTO shifts (shift_id, branch_id, branch_name, cashier_username,
+                            cashier_name, manager_username, start_time, end_time,
+                            opening_cash, closing_cash, cash_sales, credit_sales,
+                            debt_payments, expenses, total_revenue, profit,
+                            transactions, variance, status, notes)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (shift_id) DO UPDATE SET
+                            branch_id = EXCLUDED.branch_id,
+                            branch_name = EXCLUDED.branch_name,
+                            cashier_username = EXCLUDED.cashier_username,
+                            cashier_name = EXCLUDED.cashier_name,
+                            manager_username = EXCLUDED.manager_username,
+                            start_time = EXCLUDED.start_time,
+                            end_time = EXCLUDED.end_time,
+                            opening_cash = EXCLUDED.opening_cash,
+                            closing_cash = EXCLUDED.closing_cash,
+                            cash_sales = EXCLUDED.cash_sales,
+                            credit_sales = EXCLUDED.credit_sales,
+                            debt_payments = EXCLUDED.debt_payments,
+                            expenses = EXCLUDED.expenses,
+                            total_revenue = EXCLUDED.total_revenue,
+                            profit = EXCLUDED.profit,
+                            transactions = EXCLUDED.transactions,
+                            variance = EXCLUDED.variance,
+                            status = EXCLUDED.status,
+                            notes = EXCLUDED.notes
+                    """, (
+                        str(shift_id_val),
+                        branch_id,
+                        str(row.get("branch_name", "Head Office") or "Head Office"),
+                        str(row.get("cashier_username", "") or ""),
+                        str(row.get("cashier_name", "") or ""),
+                        str(row.get("manager_username", "") or ""),
+                        start_time,
+                        end_time,
+                        opening_cash,
+                        closing_cash,
+                        cash_sales,
+                        credit_sales,
+                        debt_payments,
+                        expenses,
+                        total_revenue,
+                        profit,
+                        transactions,
+                        variance,
+                        str(row.get("status", "OPEN") or "OPEN"),
+                        notes,
+                    ))
+                    saved_count += 1
+
+                except Exception as e:
+                    validation_errors.append(
+                        f"Row {idx} (shift_id={shift_id_val}): DB error - {e}"
+                    )
+                    continue
+
+            # ---------- honest return ----------
             if validation_errors:
-                print(f"Validation errors: {validation_errors}")
+                print(f"[save_shifts] validation errors: {validation_errors}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                return False
+
+            if saved_count == 0:
+                print("[save_shifts] no rows saved")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                return False
 
             conn.commit()
+
+            # ---------- post-commit verification on the SAME cursor ----------
+            try:
+                for _, vrow in df.iterrows():
+                    sid = str(vrow.get("shift_id", "")).strip()
+                    if not sid:
+                        continue
+                    cur.execute(
+                        "SELECT 1 FROM shifts WHERE shift_id = %s LIMIT 1",
+                        (sid,),
+                    )
+                    if not cur.fetchone():
+                        print(
+                            f"[save_shifts] row {sid} missing after commit — "
+                            f"rolling back not possible (already committed), "
+                            f"returning False"
+                        )
+                        return False
+            except Exception as e:
+                print(f"[save_shifts] post-commit verification failed: {e}")
+                return False
+
+            print(
+                f"[save_shifts] branch={branch_id!r} "
+                f"rows_in_df={total_rows} rows_saved={saved_count}"
+            )
             return True
+
     except Exception as e:
-        print(f"Error saving shifts: {e}")
+        print(f"[save_shifts] fatal error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
