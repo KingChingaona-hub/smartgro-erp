@@ -356,19 +356,46 @@ def to_float(value):
 # ==============================
 def get_current_branch():
     """
-    Return the authoritative branch for the current session.
-    Prefers `current_branch_code` (set by the branch-selection screen)
-    over `user_branch` (which may be a stale default).
+    Authoritative branch for the current session.
+
+    Priority:
+      1. current_branch_code (set by the branch selector)
+      2. user_branch         (set at login)
+      3. "HO"
+
+    Both keys are normalised (upper + strip) so case and whitespace can
+    never split a session between two different branches.
     """
     try:
         import streamlit as st
-        return (
-            st.session_state.get("current_branch_code")
-            or st.session_state.get("user_branch")
-            or "HO"
-        )
+
+        cbc = st.session_state.get("current_branch_code")
+        ub = st.session_state.get("user_branch")
+
+        cbc_clean = str(cbc).strip().upper() if cbc else None
+        ub_clean = str(ub).strip().upper() if ub else None
+
+        if cbc_clean and ub_clean and cbc_clean != ub_clean:
+            print(
+                f"[branch] conflict: current_branch_code={cbc_clean!r} "
+                f"vs user_branch={ub_clean!r} — using current_branch_code"
+            )
+
+        return cbc_clean or ub_clean or "HO"
     except Exception:
         return "HO"
+
+
+def set_current_branch(branch_id):
+    """Write both session branch keys together so they can never disagree."""
+    try:
+        import streamlit as st
+        branch_id = str(branch_id).strip().upper()
+        st.session_state.user_branch = branch_id
+        st.session_state.current_branch_code = branch_id
+        print(f"[branch] session branch set to {branch_id!r}")
+    except Exception:
+        pass
 
 
 def set_current_branch(branch_id):
