@@ -2,15 +2,12 @@
 import os
 os.environ['TZ'] = 'Africa/Harare'
 try:
-    import time
-    time.tzset()
+    import time as _time
+    _time.tzset()
 except:
     pass
 
 import streamlit as st
-
-st.cache_data.clear()
-st.cache_resource.clear()
 
 # ==============================
 # HANDLE MOBILE NAVIGATION - FIXED
@@ -33,9 +30,8 @@ def check_session_timeout():
         if idle_time > 7200:  # 2 hours
             # Clear session without using window.location.href
             for key in list(st.session_state.keys()):
-                if key not in ["branch_selected", "branch_authenticated", "current_branch", 
+                if key not in ["branch_selected", "branch_authenticated", "current_branch",
                                "user_branch", "current_branch_code", "current_branch_name",
-                               "stock_monitor_started", "stock_monitor_thread", 
                                "current_theme", "auto_switch_theme", "welcome_seen"]:
                     try:
                         del st.session_state[key]
@@ -244,12 +240,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 # ==============================
-# AUTO-NOTIFICATION SCHEDULER
-# ==============================
-import threading
-import time
-
-# ==============================
 # PAGE CONFIG - FIXED
 # ==============================
 st.set_page_config(
@@ -258,41 +248,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# ==============================
-# AUTO-NOTIFICATION BACKGROUND THREAD
-# ==============================
-def start_stock_monitor_thread():
-    """Start background thread for automatic stock monitoring"""
-    
-    def monitor_loop():
-        """Background monitoring loop"""
-        while True:
-            try:
-                settings = load_notification_settings()
-                
-                if settings.get("auto_notify_enabled", True):
-                    success, message, new_found = check_and_send_low_stock_alerts(force=False)
-                    
-                    if success:
-                        print(f"[Auto-Monitor] {message} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-                    elif new_found is not False and "No low stock" not in message:
-                        print(f"[Auto-Monitor] Info: {message}")
-                
-                check_interval = settings.get("check_interval_minutes", 30)
-                time.sleep(check_interval * 60)
-                
-            except Exception as e:
-                print(f"[Auto-Monitor Error] {str(e)}")
-                time.sleep(60)
-    
-    try:
-        monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
-        monitor_thread.start()
-        return monitor_thread
-    except Exception as e:
-        print(f"Failed to start monitor thread: {e}")
-        return None
 
 # ==============================
 # INIT SYSTEM WITH ERROR HANDLING
@@ -310,21 +265,6 @@ try:
 except Exception as e:
     print(f"Error initializing users: {e}")
     st.error(f"User initialization error: {e}")
-
-# ==============================
-# START AUTO-NOTIFICATION MONITOR
-# ==============================
-if "stock_monitor_started" not in st.session_state:
-    try:
-        monitor_thread = start_stock_monitor_thread()
-        if monitor_thread:
-            st.session_state.stock_monitor_started = True
-            st.session_state.stock_monitor_thread = monitor_thread
-            print("Stock monitor thread started")
-        else:
-            print("Failed to start stock monitor thread")
-    except Exception as e:
-        print(f"Error starting stock monitor: {e}")
 
 # ==============================
 # SESSION DEFAULTS
@@ -537,6 +477,21 @@ def main_app():
     # SESSION TIMEOUT - Already handled above
     # ==============================
     st.session_state.last_activity = datetime.now()
+
+    # ==============================
+    # LIGHTWEIGHT LOW-STOCK CHECK (replaces background thread)
+    # ==============================
+    try:
+        now = datetime.now()
+        last_check = st.session_state.get("last_stock_check")
+        if last_check is None or (now - last_check).total_seconds() > 1800:  # every 30 min
+            st.session_state.last_stock_check = now
+            try:
+                check_and_send_low_stock_alerts(force=False)
+            except Exception as e:
+                print(f"Low stock check error: {e}")
+    except Exception as e:
+        print(f"Stock check wrapper error: {e}")
     
     # ==============================
     # BRANCH GUARD
@@ -707,8 +662,6 @@ def main_app():
             # Preserve only session-lifetime-independent keys. Do NOT preserve
             # branch keys — they must be re-set on next login.
             keys_to_keep = [
-                "stock_monitor_started",
-                "stock_monitor_thread",
                 "current_theme",
                 "auto_switch_theme",
             ]

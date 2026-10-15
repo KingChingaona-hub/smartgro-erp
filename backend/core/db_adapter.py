@@ -2,6 +2,7 @@
 # Branch-safe PostgreSQL adapter.
 # - Every loader/saver defaults to the session branch when branch_id is not given
 # - Session branch resolution prefers `current_branch_code` over `user_branch`
+# - Read-only loaders are cached (30s TTL) via @st.cache_data
 # - save_shifts re-tags the row's branch_id on conflict so a PK collision can
 #   never silently leave a row on the wrong branch
 # - save_purchases re-tags the row's branch_id on conflict AND returns False
@@ -9,9 +10,7 @@
 #   can no longer show a fake success for a partial/empty write
 # - save_products returns False when ANY row failed validation OR nothing was
 #   written, and logs every skipped row so silent write failures are visible
-# - delete_products / delete_all_products issue real SQL DELETEs (the old
-#   "batch delete" path re-saved the surviving rows, which never removed
-#   anything from the DB)
+# - delete_products / delete_all_products issue real SQL DELETEs
 # - start_shift / end_shift / update_shift_stats all pass branch_id through
 
 import psycopg2
@@ -26,6 +25,28 @@ from decimal import Decimal
 import os
 from urllib.parse import urlparse, parse_qs
 import uuid
+
+# ==============================
+# SAFE CACHING FOR READ-ONLY LOADERS
+# ==============================
+# Streamlit reruns the whole app on every click. Without caching, every
+# rerun re-reads every table from PostgreSQL. We cache the read-only
+# loaders for 30 seconds, keyed on their arguments (which always include
+# branch_id after the public wrappers below resolve it), so branches can
+# never mix. Saves are NOT cached.
+import streamlit as _st
+
+def _cached(ttl=30):
+    """Decorator: cache_data, but degrade gracefully if Streamlit is absent."""
+    def wrap(fn):
+        try:
+            return _st.cache_data(ttl=ttl, show_spinner=False)(fn)
+        except Exception as e:
+            print(f"[db_adapter] cache disabled for {fn.__name__}: {e}")
+            return fn
+    return wrap
+
+print("[db_adapter] caching decorator ready")
 
 # ==============================
 # IMPORT VALIDATION MODULE
@@ -365,6 +386,9 @@ def get_current_branch():
 
     Both keys are normalised (upper + strip) so case and whitespace can
     never split a session between two different branches.
+
+    NEVER returns None — this is critical, because the cached loaders use
+    the return value as part of their cache key.
     """
     try:
         import streamlit as st
@@ -397,6 +421,7 @@ def set_current_branch(branch_id):
     except Exception:
         pass
 
+
 # ==============================
 # GET ACTIVE SHIFT ID
 # ==============================
@@ -415,7 +440,8 @@ def get_active_shift_id(branch_id=None):
         if shift_id:
             return shift_id
 
-        shifts_df = load_shifts(branch_id=branch_id, status="OPEN")
+        # Use the uncached path to avoid cache thrash during checkout.
+        shifts_df = _load_shifts_impl(str(branch_id), "OPEN")
         if not shifts_df.empty:
             return shifts_df.iloc[0]["shift_id"]
 
@@ -427,7 +453,7 @@ def get_active_shift_id(branch_id=None):
 # ==============================
 # BRANCH FUNCTIONS
 # ==============================
-def load_branches():
+def _load_branches_impl():
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -440,6 +466,15 @@ def load_branches():
     except Exception as e:
         print(f"Error loading branches: {e}")
         return pd.DataFrame()
+
+
+@_cached()
+def _load_branches_cached():
+    return _load_branches_impl()
+
+
+def load_branches():
+    return _load_branches_cached()
 
 
 def load_all_branches():
@@ -548,11 +583,8 @@ def validate_product_data(data):
     return len(errors) == 0, errors, data
 
 
-def load_products(branch_id=None):
-    """Load products from database (branch-scoped)."""
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_products_impl(branch_id):
+    """Load products from database (branch-scoped). branch_id is explicit."""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -572,32 +604,28 @@ def load_products(branch_id=None):
                 return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category",
                                              "price", "cost", "stock", "reorder_level"])
 
-            if rows:
-                df = pd.DataFrame(rows)
+            df = pd.DataFrame(rows)
 
-                required_cols = ["id", "branch_id", "barcode", "name", "category", "price", "cost", "stock", "reorder_level"]
-                for col in required_cols:
-                    if col not in df.columns:
-                        if col in ["price", "cost", "stock", "reorder_level"]:
-                            df[col] = 0
-                        elif col == "branch_id":
-                            df[col] = branch_id
-                        else:
-                            df[col] = ""
+            required_cols = ["id", "branch_id", "barcode", "name", "category", "price", "cost", "stock", "reorder_level"]
+            for col in required_cols:
+                if col not in df.columns:
+                    if col in ["price", "cost", "stock", "reorder_level"]:
+                        df[col] = 0
+                    elif col == "branch_id":
+                        df[col] = branch_id
+                    else:
+                        df[col] = ""
 
-                for col in ["price", "cost", "stock", "reorder_level"]:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            for col in ["price", "cost", "stock", "reorder_level"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-                for col in ["barcode", "name", "category", "branch_id"]:
-                    if col in df.columns:
-                        df[col] = df[col].fillna("").astype(str)
+            for col in ["barcode", "name", "category", "branch_id"]:
+                if col in df.columns:
+                    df[col] = df[col].fillna("").astype(str)
 
-                print(f"Loaded {len(df)} products for branch: {branch_id}")
-                return _enforce_branch(df, branch_id)
-
-            return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category",
-                                         "price", "cost", "stock", "reorder_level"])
+            print(f"Loaded {len(df)} products for branch: {branch_id}")
+            return _enforce_branch(df, branch_id)
 
     except Exception as e:
         print(f"Error loading products: {e}")
@@ -605,6 +633,17 @@ def load_products(branch_id=None):
         traceback.print_exc()
         return pd.DataFrame(columns=["id", "branch_id", "barcode", "name", "category",
                                      "price", "cost", "stock", "reorder_level"])
+
+
+@_cached()
+def _load_products_cached(branch_id):
+    return _load_products_impl(branch_id)
+
+
+def load_products(branch_id=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_products_cached(str(branch_id))
 
 
 def save_products(df, branch_id=None):
@@ -618,24 +657,6 @@ def save_products(df, branch_id=None):
         written. Returns False if ANY row failed validation, or if the
         DataFrame was non-empty but zero rows were written.
       - Skipped rows are logged so the caller can diagnose silent failures.
-
-    Callers should pass ONLY the rows they want to write — not the
-    entire product catalog — so that stale rows can't overwrite fresh
-    DB values.
-
-    Duplicate-safety:
-      Before the upsert, each incoming barcode is looked up in the DB via
-      UPPER(TRIM(barcode)). If a row with the same barcode exists under a
-      slightly different spelling (trailing space, case difference), the
-      DB's exact value is used so ON CONFLICT hits that row instead of
-      inserting a new one.
-
-    Barcode-integrity:
-      validate_barcode is expected to return the cleaned barcode as its
-      second element on success. This function double-checks that the
-      returned value is a valid 13-digit numeric string. If it isn't,
-      the row is rejected rather than silently writing a non-barcode
-      value like a stale success message.
     """
     if branch_id is None:
         branch_id = get_current_branch()
@@ -658,7 +679,6 @@ def save_products(df, branch_id=None):
                 return False
 
             for idx, row in df.iterrows():
-                # -------- validation --------
                 barcode = str(row.get("barcode", "")).strip()
                 name = str(row.get("name", "")).strip()
 
@@ -673,16 +693,11 @@ def save_products(df, branch_id=None):
                     )
                     continue
 
-                # Belt and braces: the second element MUST be the cleaned
-                # barcode itself, a 13-digit numeric string. If a legacy
-                # validator returned a message instead, we do NOT write it.
                 candidate = str(msg).strip()
                 if candidate.isdigit() and len(candidate) == 13:
                     barcode = candidate
                 else:
-                    # Trust the input only if it is already well-formed.
                     if barcode.isdigit() and len(barcode) == 13:
-                        # Keep the input; it was already valid.
                         pass
                     else:
                         validation_errors.append(
@@ -691,10 +706,6 @@ def save_products(df, branch_id=None):
                         )
                         continue
 
-                # If a row with this barcode already exists in the DB under a
-                # slightly different spelling (whitespace, case), use the DB's
-                # exact value so ON CONFLICT hits that row instead of inserting
-                # a duplicate.
                 try:
                     cur.execute(
                         "SELECT barcode FROM products "
@@ -732,7 +743,6 @@ def save_products(df, branch_id=None):
                 except (ValueError, TypeError):
                     reorder_level = 0.0
 
-                # -------- upsert --------
                 try:
                     cur.execute("""
                         INSERT INTO products
@@ -746,14 +756,8 @@ def save_products(df, branch_id=None):
                             stock = EXCLUDED.stock,
                             reorder_level = EXCLUDED.reorder_level
                     """, (
-                        branch_id,
-                        barcode,
-                        name,
-                        category,
-                        price,
-                        cost,
-                        stock,
-                        reorder_level,
+                        branch_id, barcode, name, category,
+                        price, cost, stock, reorder_level,
                     ))
 
                     if cur.rowcount == 1:
@@ -784,11 +788,16 @@ def save_products(df, branch_id=None):
 
             if validation_errors:
                 print(f"[save_products] validation errors: {validation_errors}")
-                # Any rejected row means the caller must know.
                 return False
 
             if inserted_count + updated_count == 0:
                 return False
+
+            # Bust cache so subsequent reads see fresh data.
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
 
             return True
 
@@ -797,14 +806,9 @@ def save_products(df, branch_id=None):
         import traceback
         traceback.print_exc()
         return False
-    
-def delete_products(barcodes, branch_id=None):
-    """
-    Delete products by barcode for the current branch.
 
-    barcodes: iterable of barcode strings, or a single barcode string.
-    Returns True if at least one row was deleted, False otherwise.
-    """
+
+def delete_products(barcodes, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -834,6 +838,10 @@ def delete_products(barcodes, branch_id=None):
             conn.commit()
 
             print(f"[delete_products] branch={branch_id!r} requested={len(barcodes)} deleted={deleted}")
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return deleted > 0
 
     except Exception as e:
@@ -844,11 +852,6 @@ def delete_products(barcodes, branch_id=None):
 
 
 def delete_all_products(branch_id=None):
-    """
-    Delete ALL products for the current branch.
-
-    Returns True if rows were deleted, False otherwise.
-    """
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -870,6 +873,10 @@ def delete_all_products(branch_id=None):
             conn.commit()
 
             print(f"[delete_all_products] branch={branch_id!r} deleted={count}")
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return count > 0
 
     except Exception as e:
@@ -941,10 +948,7 @@ def validate_sale_data(data):
     return len(errors) == 0, errors, data
 
 
-def load_sales(branch_id=None, date_from=None, date_to=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_sales_impl(branch_id, date_from, date_to):
     query = "SELECT * FROM sales WHERE branch_id = %s"
     params = [branch_id]
 
@@ -972,6 +976,17 @@ def load_sales(branch_id=None, date_from=None, date_to=None):
     except Exception as e:
         print(f"Error loading sales: {e}")
         return pd.DataFrame()
+
+
+@_cached()
+def _load_sales_cached(branch_id, date_from, date_to):
+    return _load_sales_impl(branch_id, date_from, date_to)
+
+
+def load_sales(branch_id=None, date_from=None, date_to=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_sales_cached(str(branch_id), date_from, date_to)
 
 
 def save_sales(df, branch_id=None):
@@ -1053,6 +1068,10 @@ def save_sales(df, branch_id=None):
                 print(f"Validation errors: {validation_errors}")
 
             conn.commit()
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"Error saving sales: {e}")
@@ -1098,10 +1117,7 @@ def validate_customer_data(data):
     return len(errors) == 0, errors, data
 
 
-def load_customers(branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_customers_impl(branch_id):
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -1114,6 +1130,17 @@ def load_customers(branch_id=None):
     except Exception as e:
         print(f"Error loading customers: {e}")
         return pd.DataFrame()
+
+
+@_cached()
+def _load_customers_cached(branch_id):
+    return _load_customers_impl(branch_id)
+
+
+def load_customers(branch_id=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_customers_cached(str(branch_id))
 
 
 def save_customers(df, branch_id=None):
@@ -1153,6 +1180,10 @@ def save_customers(df, branch_id=None):
                 print(f"Validation errors: {validation_errors}")
 
             conn.commit()
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"Error saving customers: {e}")
@@ -1230,6 +1261,10 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
                       item.get("qty", 1), float(item.get("total", 0))))
 
             conn.commit()
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"Error recording customer purchase: {e}")
@@ -1304,6 +1339,10 @@ def save_customer_transactions(df, branch_id=None):
                 print(f"Validation errors: {validation_errors}")
 
             conn.commit()
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"Error saving customer transactions: {e}")
@@ -1376,10 +1415,7 @@ def validate_debtor_data(data):
     return len(errors) == 0, errors, data
 
 
-def load_debtors(branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_debtors_impl(branch_id):
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -1392,6 +1428,17 @@ def load_debtors(branch_id=None):
     except Exception as e:
         print(f"Error loading debtors: {e}")
         return pd.DataFrame()
+
+
+@_cached()
+def _load_debtors_cached(branch_id):
+    return _load_debtors_impl(branch_id)
+
+
+def load_debtors(branch_id=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_debtors_cached(str(branch_id))
 
 
 def save_debtors(df, branch_id=None):
@@ -1439,6 +1486,10 @@ def save_debtors(df, branch_id=None):
                 print(f"Validation errors: {validation_errors}")
 
             conn.commit()
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"Error saving debtors: {e}")
@@ -1672,10 +1723,7 @@ def validate_expense_data(data):
     return len(errors) == 0, errors, data
 
 
-def load_expenses(branch_id=None, date_from=None, date_to=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_expenses_impl(branch_id, date_from, date_to):
     query = "SELECT * FROM expenses WHERE branch_id = %s"
     params = [branch_id]
 
@@ -1726,10 +1774,18 @@ def load_expenses(branch_id=None, date_from=None, date_to=None):
                                     'amount', 'vendor', 'payment_method', 'recorded_by', 'notes'])
 
 
+@_cached()
+def _load_expenses_cached(branch_id, date_from, date_to):
+    return _load_expenses_impl(branch_id, date_from, date_to)
+
+
+def load_expenses(branch_id=None, date_from=None, date_to=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_expenses_cached(str(branch_id), date_from, date_to)
+
+
 def save_expenses(df, branch_id=None):
-    """
-    Save expenses to database - APPENDS new records, NEVER deletes existing ones
-    """
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -1802,15 +1858,10 @@ def save_expenses(df, branch_id=None):
 
             conn.commit()
             print(f"Saved {inserted_count} expenses for branch: {branch_id}")
-
             try:
-                cur.execute("SELECT COUNT(*) FROM expenses WHERE branch_id = %s", (branch_id,))
-                result = cur.fetchone()
-                count = result['count'] if isinstance(result, dict) else result[0]
-                print(f"Verification: {count} expenses in database for branch: {branch_id}")
-            except Exception as e:
-                print(f"Verification error: {e}")
-
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
 
     except Exception as e:
@@ -1826,7 +1877,6 @@ def get_total_expenses(branch_id=None):
 
 
 def load_expense_categories():
-    """Load expense categories from database or return defaults"""
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -2075,9 +2125,6 @@ def get_monthly_expenses(month=None, year=None, branch_id=None):
 
 
 def record_expense(expense_type, category, description, amount, vendor="", payment_method="CASH", user="System", notes="", branch_id=None):
-    """
-    Record a single expense - APPENDS new record, NEVER deletes existing ones
-    """
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -2152,10 +2199,7 @@ def update_budget_actuals(category, amount, branch_id=None):
 # ==============================
 # INCOME FUNCTIONS
 # ==============================
-def load_income(branch_id=None, date_from=None, date_to=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_income_impl(branch_id, date_from, date_to):
     query = "SELECT * FROM income WHERE branch_id = %s"
     params = [branch_id]
 
@@ -2205,10 +2249,18 @@ def load_income(branch_id=None, date_from=None, date_to=None):
         return pd.DataFrame(columns=['date', 'income_source', 'description', 'amount', 'user'])
 
 
+@_cached()
+def _load_income_cached(branch_id, date_from, date_to):
+    return _load_income_impl(branch_id, date_from, date_to)
+
+
+def load_income(branch_id=None, date_from=None, date_to=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_income_cached(str(branch_id), date_from, date_to)
+
+
 def save_income(df, branch_id=None):
-    """
-    Save income to database - APPENDS new records, NEVER deletes existing ones
-    """
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -2292,14 +2344,10 @@ def save_income(df, branch_id=None):
 
             conn.commit()
             print(f"Saved {inserted_count} income records for branch: {branch_id}")
-
             try:
-                cur.execute("SELECT COUNT(*) FROM income WHERE branch_id = %s", (branch_id,))
-                count = cur.fetchone()[0]
-                print(f"Verification: {count} income records in database for branch: {branch_id}")
-            except Exception as e:
-                print(f"Verification error: {e}")
-
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
 
     except Exception as e:
@@ -2340,7 +2388,6 @@ def get_monthly_income(month=None, branch_id=None):
 
 
 def get_income_by_source(month=None, branch_id=None):
-    """Get income grouped by source"""
     try:
         df = load_income(branch_id=branch_id)
 
@@ -2384,9 +2431,6 @@ def get_income_by_source(month=None, branch_id=None):
 
 
 def record_income(income_source, description, amount, user="System", branch_id=None):
-    """
-    Record a single income - APPENDS new record, NEVER deletes existing ones
-    """
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -2434,7 +2478,6 @@ def record_income(income_source, description, amount, user="System", branch_id=N
 
 
 def get_total_income(branch_id=None):
-    """Get total income all time"""
     df = load_income(branch_id=branch_id)
     return df["amount"].sum() if not df.empty else 0
 
@@ -2442,10 +2485,7 @@ def get_total_income(branch_id=None):
 # ==============================
 # PURCHASE FUNCTIONS
 # ==============================
-def load_purchases(branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_purchases_impl(branch_id):
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -2460,30 +2500,21 @@ def load_purchases(branch_id=None):
         return pd.DataFrame()
 
 
+@_cached()
+def _load_purchases_cached(branch_id):
+    return _load_purchases_impl(branch_id)
+
+
+def load_purchases(branch_id=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_purchases_cached(str(branch_id))
+
+
 def save_purchases(df, branch_id=None):
-    """
-    Save purchase rows.
-
-    Branch-safety:
-      - branch_id defaults to the session branch.
-      - ON CONFLICT re-tags the row's branch_id so a cross-branch primary
-        key collision can never leave the row on the wrong branch.
-
-    Honest return value:
-      - Returns False if the DataFrame is empty.
-      - Returns False if ANY row failed validation (even if some rows
-        succeeded), so the UI cannot show a fake success for a
-        partially-rejected batch.
-      - Returns False if zero rows were actually written.
-      - Returns True only when every row in the batch was accepted.
-
-    The caller is expected to pass ONLY the rows it wants to save
-    (e.g. just the new PO's rows), not the entire purchases table.
-    """
     if branch_id is None:
         branch_id = get_current_branch()
 
-    # Normalise branch_id for the write so UPPER/LOWER mismatches never split rows.
     branch_id = str(branch_id).strip()
 
     total_rows = 0 if df is None else len(df)
@@ -2501,7 +2532,6 @@ def save_purchases(df, branch_id=None):
                 return False
 
             for idx, row in df.iterrows():
-                # ---- validation ----
                 if 'supplier' in row:
                     valid, msg = validate_supplier_name(row["supplier"])
                     if not valid:
@@ -2535,9 +2565,6 @@ def save_purchases(df, branch_id=None):
                         continue
                     row["total_cost"] = amount
 
-                # ---- insert / update ----
-                # `branch_id = EXCLUDED.branch_id` in the update list ensures a
-                # cross-branch primary-key collision re-tags the row.
                 cur.execute("""
                     INSERT INTO purchases (branch_id, po_number, date_ordered, supplier,
                         product_name, barcode, quantity_ordered, quantity_received,
@@ -2578,7 +2605,6 @@ def save_purchases(df, branch_id=None):
 
             conn.commit()
 
-            # ---- verification ----
             try:
                 cur.execute(
                     "SELECT COUNT(*) FROM purchases WHERE branch_id = %s",
@@ -2599,15 +2625,16 @@ def save_purchases(df, branch_id=None):
                 f"total_in_branch={total_in_branch}"
             )
 
-            # ---- HONEST RETURN ----
-            # Any validation error = the caller must know that the batch
-            # was not fully written.
             if validation_errors:
                 return False
 
             if saved_count == 0:
                 return False
 
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
 
     except Exception as e:
@@ -2657,10 +2684,7 @@ def validate_cash_data(data):
     return len(errors) == 0, errors, data
 
 
-def load_cash(branch_id=None, shift_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_cash_impl(branch_id, shift_id):
     query = "SELECT * FROM cash_register WHERE branch_id = %s"
     params = [branch_id]
 
@@ -2682,6 +2706,17 @@ def load_cash(branch_id=None, shift_id=None):
     except Exception as e:
         print(f"Error loading cash: {e}")
         return pd.DataFrame()
+
+
+@_cached()
+def _load_cash_cached(branch_id, shift_id):
+    return _load_cash_impl(branch_id, shift_id)
+
+
+def load_cash(branch_id=None, shift_id=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_cash_cached(str(branch_id), shift_id)
 
 
 def save_cash(df, branch_id=None):
@@ -2716,6 +2751,10 @@ def save_cash(df, branch_id=None):
                 print(f"Validation errors: {validation_errors}")
 
             conn.commit()
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"Error saving cash: {e}")
@@ -3160,7 +3199,7 @@ def get_cashier_performance(branch_id=None):
 # ==============================
 # SHIFT FUNCTIONS
 # ==============================
-def load_shifts(branch_id=None, status=None):
+def _load_shifts_impl(branch_id, status):
     query = "SELECT * FROM shifts WHERE 1=1"
     params = []
 
@@ -3190,18 +3229,18 @@ def load_shifts(branch_id=None, status=None):
         return pd.DataFrame()
 
 
-def save_shifts(df, branch_id=None):
-    """
-    Save shift rows.
+@_cached()
+def _load_shifts_cached(branch_id, status):
+    return _load_shifts_impl(branch_id, status)
 
-    Honest contract:
-      - branch_id defaults to the session branch.
-      - Every row is upserted on shift_id (ON CONFLICT re-tags branch_id).
-      - Returns False if df is empty, if ANY row failed validation, or if
-        any row is missing from the DB after commit.
-      - Returns True only when every row in the batch was accepted AND
-        verified present in the database.
-    """
+
+def load_shifts(branch_id=None, status=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_shifts_cached(str(branch_id), status)
+
+
+def save_shifts(df, branch_id=None):
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -3222,7 +3261,6 @@ def save_shifts(df, branch_id=None):
                 return False
 
             for idx, row in df.iterrows():
-                # ---------- per-row validation ----------
                 shift_id_val = row.get("shift_id")
                 if not shift_id_val or str(shift_id_val).strip() == "":
                     validation_errors.append(f"Row {idx}: shift_id is required")
@@ -3249,7 +3287,6 @@ def save_shifts(df, branch_id=None):
                     )
                     continue
 
-                # ---------- normalise optional values ----------
                 end_time = row.get("end_time")
                 if end_time == "" or (isinstance(end_time, float) and pd.isna(end_time)):
                     end_time = None
@@ -3262,7 +3299,6 @@ def save_shifts(df, branch_id=None):
                 if notes == "" or (isinstance(notes, float) and pd.isna(notes)):
                     notes = None
 
-                # ---------- numeric coercion ----------
                 opening_cash = to_float(opening_cash_clean)
                 closing_cash = to_float(row.get("closing_cash"))
                 cash_sales = to_float(row.get("cash_sales"))
@@ -3279,7 +3315,6 @@ def save_shifts(df, branch_id=None):
                 except (ValueError, TypeError):
                     transactions = 0
 
-                # ---------- upsert ----------
                 try:
                     cur.execute("""
                         INSERT INTO shifts (shift_id, branch_id, branch_name, cashier_username,
@@ -3339,7 +3374,6 @@ def save_shifts(df, branch_id=None):
                     )
                     continue
 
-            # ---------- honest return ----------
             if validation_errors:
                 print(f"[save_shifts] validation errors: {validation_errors}")
                 try:
@@ -3358,7 +3392,6 @@ def save_shifts(df, branch_id=None):
 
             conn.commit()
 
-            # ---------- post-commit verification on the SAME cursor ----------
             try:
                 for _, vrow in df.iterrows():
                     sid = str(vrow.get("shift_id", "")).strip()
@@ -3371,7 +3404,6 @@ def save_shifts(df, branch_id=None):
                     if not cur.fetchone():
                         print(
                             f"[save_shifts] row {sid} missing after commit — "
-                            f"rolling back not possible (already committed), "
                             f"returning False"
                         )
                         return False
@@ -3383,6 +3415,11 @@ def save_shifts(df, branch_id=None):
                 f"[save_shifts] branch={branch_id!r} "
                 f"rows_in_df={total_rows} rows_saved={saved_count}"
             )
+
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
 
     except Exception as e:
@@ -3394,11 +3431,6 @@ def save_shifts(df, branch_id=None):
 
 def start_shift(cashier_username, cashier_name, branch_id, branch_name,
                 manager_username, opening_cash=0, shift_name=None):
-    """
-    Start a shift. Persists ONLY the new shift row, derives branch_name from
-    the branches table (ignoring whatever the caller passed), and verifies
-    the row landed before returning success.
-    """
     if branch_id is None:
         branch_id = get_current_branch()
 
@@ -3410,7 +3442,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
     if not valid:
         return False, "", f"Invalid opening cash: {msg}"
 
-    # ---- 1. Derive branch_name from the branches table (authoritative) ----
     canonical_branch_name = str(branch_name or "").strip()
     try:
         with get_db_cursor() as (cur, conn):
@@ -3430,7 +3461,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
     if not canonical_branch_name:
         canonical_branch_name = str(branch_id)
 
-    # ---- 2. Reject if an OPEN shift already exists for this branch ----
     target = str(branch_id).strip().upper()
     try:
         with get_db_cursor() as (cur, conn):
@@ -3451,7 +3481,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
     except Exception as e:
         print(f"[start_shift] open-shift check failed: {e}")
 
-    # ---- 3. Build the new row ----
     shift_name_part = (shift_name or "ALPHA").upper()
     shift_id = f"{branch_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{shift_name_part}"
 
@@ -3479,7 +3508,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
         "notes": None,
     }
 
-    # ---- 4. Pass ONLY the new row; check the return value ----
     new_row_df = pd.DataFrame([new_shift])
     if not save_shifts(new_row_df, branch_id=branch_id):
         return False, "", (
@@ -3487,7 +3515,6 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
             "database. Check the terminal for the exact validation error."
         )
 
-    # ---- 5. Verify the row actually landed ----
     try:
         with get_db_cursor() as (cur, conn):
             if cur is not None:
@@ -3505,6 +3532,7 @@ def start_shift(cashier_username, cashier_name, branch_id, branch_name,
         print(f"[start_shift] verification failed: {e}")
 
     return True, shift_id, "Shift started successfully!"
+
 
 def end_shift(shift_id, closing_cash, total_sales, profit, transactions, notes="", branch_id=None):
     if branch_id is None:
@@ -3592,11 +3620,6 @@ def get_active_shifts_by_branch(branch_id):
 
 
 def get_all_active_shifts():
-    """
-    Get all active shifts.
-    Enforced at the loader level: a branch-restricted user only sees shifts
-    for their own branch; owners/managers see everything.
-    """
     try:
         df = load_shifts()
 
@@ -3611,7 +3634,6 @@ def get_all_active_shifts():
         if active.empty:
             return pd.DataFrame()
 
-        # ---- BRANCH ENFORCEMENT ----
         try:
             import streamlit as st
             role = st.session_state.get("role", "cashier")
@@ -3629,7 +3651,6 @@ def get_all_active_shifts():
             ]
             if active.empty:
                 return pd.DataFrame()
-        # ----------------------------
 
         safe_columns = [
             'shift_id', 'branch_id', 'branch_name', 'cashier_name',
@@ -3707,10 +3728,7 @@ def update_shift_stats(shift_id, cash_sales=0, credit_sales=0, debt_payments=0, 
 # ==============================
 # SUPPLIER FUNCTIONS
 # ==============================
-def load_suppliers(branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_suppliers_impl(branch_id):
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -3725,13 +3743,21 @@ def load_suppliers(branch_id=None):
         return pd.DataFrame()
 
 
+@_cached()
+def _load_suppliers_cached(branch_id):
+    return _load_suppliers_impl(branch_id)
+
+
+def load_suppliers(branch_id=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_suppliers_cached(str(branch_id))
+
+
 # ==============================
 # LOYALTY FUNCTIONS
 # ==============================
-def load_loyalty(branch_id=None):
-    if branch_id is None:
-        branch_id = get_current_branch()
-
+def _load_loyalty_impl(branch_id):
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None:
@@ -3744,6 +3770,17 @@ def load_loyalty(branch_id=None):
     except Exception as e:
         print(f"Error loading loyalty: {e}")
         return pd.DataFrame()
+
+
+@_cached()
+def _load_loyalty_cached(branch_id):
+    return _load_loyalty_impl(branch_id)
+
+
+def load_loyalty(branch_id=None):
+    if branch_id is None:
+        branch_id = get_current_branch()
+    return _load_loyalty_cached(str(branch_id))
 
 
 def save_loyalty(df, branch_id=None):
@@ -3798,6 +3835,10 @@ def save_loyalty(df, branch_id=None):
                 print(f"Validation errors: {validation_errors}")
 
             conn.commit()
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
             return True
     except Exception as e:
         print(f"Error saving loyalty: {e}")
@@ -4179,11 +4220,6 @@ def get_branch_performance_summary(branch_id):
 
 
 def get_all_branches_performance():
-    """
-    Get performance for all branches.
-    - Owner/manager/admin: returns every branch.
-    - Everyone else: only their own branch.
-    """
     branches_df = load_branches()
     performance = []
 
@@ -4607,10 +4643,6 @@ def init_users():
 # BATCH CHECKOUT
 # ==============================
 def process_checkout_batch(branch_id, checkout_data):
-    """
-    Process entire checkout in ONE database transaction - FASTEST
-    Returns: (success, message)
-    """
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
@@ -4739,6 +4771,11 @@ def process_checkout_batch(branch_id, checkout_data):
                     print(f"Loyalty points error (non-critical): {e}")
 
             conn.commit()
+
+            try:
+                _st.cache_data.clear()
+            except Exception:
+                pass
 
             return True, "Checkout completed successfully"
 
