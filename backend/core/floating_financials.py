@@ -9,6 +9,8 @@
 #        - Partial recovery keeps it in WRITTEN_OFF / BAD_DEBT with updated reason
 # ADDED: DENY new credit to customers who currently have an unresolved
 #        BAD_DEBT / WRITTEN_OFF credit (is_customer_in_bad_debt check)
+# FIXED: Foreign key constraint on floating_credit_payments changed to ON DELETE CASCADE
+#        so that full recovery does not throw a foreign key violation error.
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -214,7 +216,7 @@ def init_floating_tables():
                 CREATE TABLE IF NOT EXISTS floating_change_collections (
                     id SERIAL PRIMARY KEY,
                     collection_id VARCHAR(50) UNIQUE NOT NULL,
-                    change_id VARCHAR(50) REFERENCES floating_changes(change_id),
+                    change_id VARCHAR(50) REFERENCES floating_changes(change_id) ON DELETE CASCADE,
                     amount DECIMAL(15,2) NOT NULL,
                     balance_before DECIMAL(15,2),
                     balance_after DECIMAL(15,2),
@@ -237,7 +239,7 @@ def init_floating_tables():
                 CREATE TABLE IF NOT EXISTS floating_credit_payments (
                     id SERIAL PRIMARY KEY,
                     payment_id VARCHAR(50) UNIQUE NOT NULL,
-                    credit_id VARCHAR(50) REFERENCES floating_credits(credit_id),
+                    credit_id VARCHAR(50) REFERENCES floating_credits(credit_id) ON DELETE CASCADE,
                     amount DECIMAL(15,2) NOT NULL,
                     balance_before DECIMAL(15,2),
                     balance_after DECIMAL(15,2),
@@ -247,6 +249,38 @@ def init_floating_tables():
                 )
             """)
             logger.info("Created floating_credit_payments table")
+        else:
+            # FIX: Ensure existing foreign keys use ON DELETE CASCADE to prevent deletion errors
+            try:
+                cur.execute("""
+                    ALTER TABLE floating_credit_payments
+                    DROP CONSTRAINT IF EXISTS floating_credit_payments_credit_id_fkey;
+                """)
+                cur.execute("""
+                    ALTER TABLE floating_credit_payments
+                    ADD CONSTRAINT floating_credit_payments_credit_id_fkey
+                    FOREIGN KEY (credit_id) REFERENCES floating_credits(credit_id) ON DELETE CASCADE;
+                """)
+                logger.info("Updated floating_credit_payments foreign key to ON DELETE CASCADE")
+            except Exception as e:
+                logger.warning(f"Could not update foreign key constraint: {e}")
+                conn.rollback()
+
+        # Same safety catch for changes collections
+        try:
+            cur.execute("""
+                ALTER TABLE floating_change_collections
+                DROP CONSTRAINT IF EXISTS floating_change_collections_change_id_fkey;
+            """)
+            cur.execute("""
+                ALTER TABLE floating_change_collections
+                ADD CONSTRAINT floating_change_collections_change_id_fkey
+                FOREIGN KEY (change_id) REFERENCES floating_changes(change_id) ON DELETE CASCADE;
+            """)
+            logger.info("Updated floating_change_collections foreign key to ON DELETE CASCADE")
+        except Exception as e:
+            logger.warning(f"Could not update changes foreign key constraint: {e}")
+            conn.rollback()
         
         conn.commit()
         cur.close()
