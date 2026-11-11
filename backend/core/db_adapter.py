@@ -1,17 +1,7 @@
 # backend/core/db_adapter.py
 # Branch-safe PostgreSQL adapter.
-# - Every loader/saver defaults to the session branch when branch_id is not given
-# - Session branch resolution prefers `current_branch_code` over `user_branch`
-# - Read-only loaders are cached (30s TTL) via @st.cache_data
-# - save_shifts re-tags the row's branch_id on conflict so a PK collision can
-#   never silently leave a row on the wrong branch
-# - save_purchases re-tags the row's branch_id on conflict AND returns False
-#   when ANY row failed validation OR nothing was actually written, so the UI
-#   can no longer show a fake success for a partial/empty write
-# - save_products returns False when ANY row failed validation OR nothing was
-#   written, and logs every skipped row so silent write failures are visible
-# - delete_products / delete_all_products issue real SQL DELETEs
-# - start_shift / end_shift / update_shift_stats all pass branch_id through
+# FIX: Removed hardcoded database password from get_default_config.
+# FIX: App now forces the use of environment variables (or Streamlit secrets).
 
 import psycopg2
 import psycopg2.extras
@@ -25,22 +15,16 @@ from decimal import Decimal
 import os
 from urllib.parse import urlparse, parse_qs
 import uuid
+import streamlit as st
 
 # ==============================
 # SAFE CACHING FOR READ-ONLY LOADERS
 # ==============================
-# Streamlit reruns the whole app on every click. Without caching, every
-# rerun re-reads every table from PostgreSQL. We cache the read-only
-# loaders for 30 seconds, keyed on their arguments (which always include
-# branch_id after the public wrappers below resolve it), so branches can
-# never mix. Saves are NOT cached.
-import streamlit as _st
-
 def _cached(ttl=30):
     """Decorator: cache_data, but degrade gracefully if Streamlit is absent."""
     def wrap(fn):
         try:
-            return _st.cache_data(ttl=ttl, show_spinner=False)(fn)
+            return st.cache_data(ttl=ttl, show_spinner=False)(fn)
         except Exception as e:
             print(f"[db_adapter] cache disabled for {fn.__name__}: {e}")
             return fn
@@ -133,20 +117,22 @@ ALERT_HISTORY_FILE = Path("data/alert_history.json")
 # ==============================
 CONFIG_FILE = Path("data/db_config.json")
 
-
 def get_default_config():
+    """
+    SECURITY FIX: Never hardcode passwords here. 
+    The system will fall back to the environment variable.
+    """
     return {
         "host": "localhost",
         "port": 5432,
         "database": "smartgro",
         "user": "postgres",
-        "password": "R234715KING",
+        "password": os.environ.get("POSTGRESQL_PASSWORD", ""), 
         "pool_min_conn": 1,
         "pool_max_conn": 10,
         "connect_timeout": 30,
         "sslmode": "require"
     }
-
 
 def load_db_config():
     """Load database configuration from environment or file"""
@@ -184,7 +170,6 @@ def load_db_config():
     config = get_default_config()
     config["sslmode"] = "require"
     return config
-
 
 def save_db_config(config):
     CONFIG_FILE.parent.mkdir(exist_ok=True)
@@ -378,17 +363,7 @@ def to_float(value):
 def get_current_branch():
     """
     Authoritative branch for the current session.
-
-    Priority:
-      1. current_branch_code (set by the branch selector)
-      2. user_branch         (set at login)
-      3. "HO"
-
-    Both keys are normalised (upper + strip) so case and whitespace can
-    never split a session between two different branches.
-
-    NEVER returns None — this is critical, because the cached loaders use
-    the return value as part of their cache key.
+    Never returns None — falls back to 'HO'.
     """
     try:
         import streamlit as st
@@ -795,7 +770,7 @@ def save_products(df, branch_id=None):
 
             # Bust cache so subsequent reads see fresh data.
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
 
@@ -839,7 +814,7 @@ def delete_products(barcodes, branch_id=None):
 
             print(f"[delete_products] branch={branch_id!r} requested={len(barcodes)} deleted={deleted}")
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return deleted > 0
@@ -874,7 +849,7 @@ def delete_all_products(branch_id=None):
 
             print(f"[delete_all_products] branch={branch_id!r} deleted={count}")
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return count > 0
@@ -1069,7 +1044,7 @@ def save_sales(df, branch_id=None):
 
             conn.commit()
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -1181,7 +1156,7 @@ def save_customers(df, branch_id=None):
 
             conn.commit()
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -1262,7 +1237,7 @@ def record_customer_purchase(customer_name, phone, cart, total, receipt_no, bran
 
             conn.commit()
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -1340,7 +1315,7 @@ def save_customer_transactions(df, branch_id=None):
 
             conn.commit()
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -1487,7 +1462,7 @@ def save_debtors(df, branch_id=None):
 
             conn.commit()
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -1859,7 +1834,7 @@ def save_expenses(df, branch_id=None):
             conn.commit()
             print(f"Saved {inserted_count} expenses for branch: {branch_id}")
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -2345,7 +2320,7 @@ def save_income(df, branch_id=None):
             conn.commit()
             print(f"Saved {inserted_count} income records for branch: {branch_id}")
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -2632,7 +2607,7 @@ def save_purchases(df, branch_id=None):
                 return False
 
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -2752,7 +2727,7 @@ def save_cash(df, branch_id=None):
 
             conn.commit()
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -3417,7 +3392,7 @@ def save_shifts(df, branch_id=None):
             )
 
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -3836,7 +3811,7 @@ def save_loyalty(df, branch_id=None):
 
             conn.commit()
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
             return True
@@ -4773,7 +4748,7 @@ def process_checkout_batch(branch_id, checkout_data):
             conn.commit()
 
             try:
-                _st.cache_data.clear()
+                st.cache_data.clear()
             except Exception:
                 pass
 

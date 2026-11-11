@@ -402,7 +402,7 @@ def init_users():
 def check_login(username, password):
     """
     Standard login check with rate limiting.
-    Supports both plain text and hashed passwords.
+    Strictly uses hashed passwords for security.
     """
     try:
         logger.info(f"Login attempt for user: {username}")
@@ -427,26 +427,7 @@ def check_login(username, password):
             df["active"] = True
             save_users(df)
         
-        # Try plain text first
-        user = df[
-            (df["username"] == username) &
-            (df["password"] == password) &
-            (df["active"] == True)
-        ]
-        
-        if not user.empty:
-            logger.info(f"Login successful (plain text) for: {username}")
-            try:
-                hashed = hash_password(password)
-                idx = user.index[0]
-                df.loc[idx, "password"] = hashed
-                save_users(df)
-                logger.info(f"Updated password to hashed for: {username}")
-            except Exception as e:
-                logger.warning(f"Could not update to hashed password: {e}")
-            return process_login_user(user, df)
-        
-        # Try hashed
+        # Try hashed ONLY
         hashed = hash_password(password)
         user = df[
             (df["username"] == username) &
@@ -628,51 +609,7 @@ def check_mobile_login(username, password):
             df["mobile_enabled"] = True
             save_users(df)
         
-        # Try plain text first
-        user = df[
-            (df["username"] == username) &
-            (df["password"] == password) &
-            (df["active"] == True) &
-            (df["mobile_enabled"] == True)
-        ]
-        
-        if not user.empty:
-            role = user.iloc[0]["role"]
-            if not can_use_mobile(role):
-                return False, None, "Mobile access not enabled for this role"
-            
-            # ---------- BRANCH AUTHORITY ----------
-            selected_branch = st.session_state.get("current_branch_code")
-            user_branch = user.iloc[0].get("branch_id")
-
-            if selected_branch:
-                branch_id = str(selected_branch).strip().upper()
-            elif user_branch:
-                branch_id = str(user_branch).strip().upper()
-            else:
-                branch_id = "HO"
-
-            if role in ("owner", "admin"):
-                branch_id = str(selected_branch or user_branch or "HO").strip().upper()
-            # --------------------------------------
-
-            full_name = user.iloc[0].get("full_name", user.iloc[0]["username"])
-            whatsapp = user.iloc[0].get("whatsapp", "")
-            
-            idx = user.index[0]
-            df.loc[idx, "last_mobile_login"] = datetime.now().isoformat()
-            save_users(df)
-            
-            st.session_state.user_full_name = full_name
-            st.session_state.user_branch = branch_id
-            st.session_state.current_branch = branch_id
-            st.session_state.current_branch_code = branch_id
-            st.session_state.whatsapp_number = whatsapp if whatsapp else None
-            st.session_state.mobile_mode = True
-            
-            return True, role, "Mobile login successful"
-        
-        # Try hashed
+        # Try hashed ONLY
         hashed = hash_password(password)
         user = df[
             (df["username"] == username) &
