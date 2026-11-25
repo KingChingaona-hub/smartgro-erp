@@ -4,7 +4,8 @@ AZIEL INVESTMENTS ERP
 Theme Manager
 Professional themes with accessible colour contrast.
 
-Maintains compatibility with the existing theme_manager functions.
+Includes visible and accessible Streamlit form buttons,
+especially Login and other authentication buttons.
 """
 
 import streamlit as st
@@ -153,30 +154,37 @@ THEME_PALETTES = {
 # ============================================================
 
 AVAILABLE_THEMES = {
+
     "aziel_gold": {
         "name": "Aziel Gold",
         "description": "Signature corporate theme."
     },
+
     "ocean_blue": {
         "name": "Ocean Blue",
         "description": "Professional blue theme."
     },
+
     "royal_purple": {
         "name": "Royal Purple",
         "description": "Elegant purple theme."
     },
+
     "sunrise_orange": {
         "name": "Sunrise Orange",
         "description": "Warm orange and yellow theme."
     },
+
     "emerald_green": {
         "name": "Emerald Green",
         "description": "Fresh green theme."
     },
+
     "midnight_luxe": {
         "name": "Midnight Luxe",
         "description": "Premium dark navy theme."
     },
+
     "auto": {
         "name": "Auto (Day/Night)",
         "description": "Automatically changes between light and dark."
@@ -187,6 +195,7 @@ AVAILABLE_THEMES = {
         "name": "Light Mode",
         "description": "Legacy light theme."
     },
+
     "dark": {
         "name": "Dark Mode",
         "description": "Legacy dark theme."
@@ -333,9 +342,7 @@ def get_active_theme():
     if selected_theme == "auto":
         selected_theme = get_auto_theme()
 
-    selected_theme = normalize_theme(selected_theme)
-
-    return selected_theme
+    return normalize_theme(selected_theme)
 
 
 def get_theme_colors(theme_name=None):
@@ -493,27 +500,109 @@ def generate_theme_css(colors):
     }}
 
     /* ==========================================
-       BUTTONS
+       STANDARD BUTTONS
     ========================================== */
 
     .stButton > button,
-    .stDownloadButton > button {{
+    .stDownloadButton > button,
+    .stLinkButton > a {{
         background-color: {colors['primary']} !important;
         color: {colors['button_text']} !important;
         border: 1px solid {colors['primary']} !important;
-        border-radius: 8px;
-        font-weight: 600;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        opacity: 1 !important;
+        visibility: visible !important;
     }}
 
     .stButton > button p,
-    .stDownloadButton > button p {{
+    .stDownloadButton > button p,
+    .stLinkButton > a p {{
         color: {colors['button_text']} !important;
     }}
 
     .stButton > button:hover,
-    .stDownloadButton > button:hover {{
+    .stDownloadButton > button:hover,
+    .stLinkButton > a:hover {{
         border-color: {colors['secondary']} !important;
         filter: brightness(1.08);
+    }}
+
+    /* ==========================================
+       FORM SUBMIT BUTTONS
+       IMPORTANT: LOGIN BUTTON VISIBILITY FIX
+    ========================================== */
+
+    [data-testid="stFormSubmitButton"] button,
+    .stFormSubmitButton button,
+    form button[type="submit"],
+    [data-testid="stForm"] button[kind="primary"],
+    [data-testid="stForm"] button[kind="secondary"] {{
+
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+
+        min-height: 42px !important;
+        min-width: 110px !important;
+
+        padding: 0.5rem 1.2rem !important;
+
+        background-color: {colors['primary']} !important;
+        color: {colors['button_text']} !important;
+
+        border: 1px solid {colors['primary']} !important;
+        border-radius: 8px !important;
+
+        font-weight: 700 !important;
+        font-size: 15px !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        cursor: pointer !important;
+
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12) !important;
+    }}
+
+    /* Make sure text and icons inside Login buttons are visible. */
+
+    [data-testid="stFormSubmitButton"] button *,
+    .stFormSubmitButton button *,
+    form button[type="submit"] * {{
+        color: {colors['button_text']} !important;
+        -webkit-text-fill-color: {colors['button_text']} !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }}
+
+    /* Hover effect for form buttons. */
+
+    [data-testid="stFormSubmitButton"] button:hover,
+    .stFormSubmitButton button:hover,
+    form button[type="submit"]:hover {{
+        background-color: {colors['secondary']} !important;
+        border-color: {colors['secondary']} !important;
+        filter: brightness(1.04);
+    }}
+
+    /* Preserve readable text when a button is disabled. */
+
+    [data-testid="stFormSubmitButton"] button:disabled,
+    .stFormSubmitButton button:disabled,
+    form button[type="submit"]:disabled {{
+        opacity: 0.75 !important;
+        visibility: visible !important;
+        cursor: not-allowed !important;
+    }}
+
+    /* Keyboard focus visibility. */
+
+    [data-testid="stFormSubmitButton"] button:focus-visible,
+    .stFormSubmitButton button:focus-visible,
+    form button[type="submit"]:focus-visible {{
+        outline: 3px solid {colors['secondary']} !important;
+        outline-offset: 3px !important;
     }}
 
     /* ==========================================
@@ -655,10 +744,8 @@ def apply_theme(colors=None):
         selected_colors = colors
 
     elif isinstance(colors, str):
-
         if colors == "auto":
             selected_colors = get_theme_colors(get_auto_theme())
-
         else:
             selected_colors = get_theme_colors(colors)
 
@@ -700,7 +787,12 @@ def apply_page_theme(page_name=None):
 
 
 def apply_login_theme():
-    """Apply the selected theme to the login page."""
+    """
+    Apply the selected theme to the login page.
+
+    Includes the form-submit button visibility styling
+    required by Login and authentication forms.
+    """
 
     apply_theme(get_active_theme())
 
@@ -772,7 +864,6 @@ def theme_selector():
     if selected_key != current_theme:
 
         if set_theme(selected_key):
-
             st.rerun()
 
     active_theme = get_active_theme()
