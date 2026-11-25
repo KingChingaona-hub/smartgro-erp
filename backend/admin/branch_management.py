@@ -5,8 +5,9 @@
 #   3. No unconditional save_branches() on every page load
 #   4. Spinners during long operations
 #   5. Robust re-load after every mutation
-#   6. EDIT now passes original_branch_id to save_branches() so a rename
-#      becomes DELETE-old + INSERT-new (no duplicate row, all fields saved).
+#   6. EDIT now resolves original_branch_id from the selector label directly
+#      (no positional iloc lookup), and ALWAYS passes it to save_branches so
+#      a rename becomes DELETE-old + INSERT-new atomically.
 
 import streamlit as st
 import pandas as pd
@@ -139,7 +140,7 @@ def _reassign_branch_data(source_branch_id, target_branch_id):
 
 
 def _safe_delete_branch(branch_id, allow_orphan=False):
-    if branch_id == "HO":
+    if str(branch_id).strip().upper() == "HO":
         return False, "Head Office cannot be deleted"
     counts = _branch_row_counts(branch_id)
     total = _total_rows(counts)
@@ -151,7 +152,10 @@ def _safe_delete_branch(branch_id, allow_orphan=False):
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
                 return False, "Database connection failed"
-            cur.execute("DELETE FROM branches WHERE branch_id = %s", (branch_id,))
+            cur.execute(
+                "DELETE FROM branches WHERE UPPER(TRIM(branch_id)) = %s",
+                (str(branch_id).strip().upper(),),
+            )
             conn.commit()
         return True, f"Branch {branch_id} deleted."
     except Exception as e:
@@ -323,8 +327,8 @@ def branch_management_page():
                 st.error("Branch Code is required")
             elif not new_branch_name.strip():
                 st.error("Branch Name is required")
-            elif new_branch_id.upper() in df["branch_id"].astype(str).str.upper().tolist():
-                st.error(f"Branch Code '{new_branch_id.upper()}' already exists!")
+            elif new_branch_id.strip().upper() in df["branch_id"].astype(str).str.upper().tolist():
+                st.error(f"Branch Code '{new_branch_id.strip().upper()}' already exists!")
             else:
                 try:
                     with st.spinner("Saving new branch..."):
@@ -361,136 +365,147 @@ def branch_management_page():
     if df.empty:
         st.info("No branches available to update.")
     else:
-        # Use branch_id as the selector label so renaming a branch doesn't break
-        branch_labels = [f"{r['branch_name']} ({r['branch_id']})" for _, r in df.iterrows()]
+        # -------------------------------------------------------
+        # Build a label -> branch_id map. The branch_id is embedded
+        # in the label itself, so selection is unambiguous even if
+        # df.index isn't 0..N-1 (e.g. after a previous concat).
+        # -------------------------------------------------------
+        label_to_id = {}
+        for _, r in df.iterrows():
+            bid = str(r["branch_id"]).strip()
+            label = f"{r['branch_name']} ({bid})"
+            # Guard against two branches with the same display label
+            while label in label_to_id:
+                label = label + " "
+            label_to_id[label] = bid
+
         selected_label = st.selectbox(
-            "Select Branch to Update", branch_labels, key="update_branch_select"
+            "Select Branch to Update",
+            list(label_to_id.keys()),
+            key="update_branch_select",
         )
+        original_branch_id = label_to_id[selected_label]
+        row = df[df["branch_id"].astype(str) == str(original_branch_id)].iloc[0]
 
-        if selected_label:
-            selected_idx = branch_labels.index(selected_label)
-            original_branch_id = df.iloc[selected_idx]["branch_id"]
-            row = df[df["branch_id"] == original_branch_id].iloc[0]
+        with st.form("update_branch_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                update_branch_id = st.text_input("Branch Code (Editable)", value=row["branch_id"])
+                update_branch_name = st.text_input("Branch Name", value=row["branch_name"])
+                update_location = st.text_input("Location", value=row["location"])
+                update_password = st.text_input(
+                    "Branch Login Password", value=row.get("branch_password", "admin123")
+                )
+            with col2:
+                update_level = st.selectbox(
+                    "Level", [1, 2, 3, 4, 5, 6],
+                    index=int(row["level"]) - 1 if int(row["level"]) <= 6 else 0,
+                )
+                update_package = st.selectbox(
+                    "Subscription Package", ["Bronze", "Silver", "Gold", "Platinum"],
+                    index=["Bronze", "Silver", "Gold", "Platinum"].index(
+                        row.get("package", "Bronze")
+                    ),
+                )
+                update_status = st.selectbox(
+                    "Subscription Status", ["Active", "Terminated"],
+                    index=["Active", "Terminated"].index(row.get("status", "Active")),
+                )
+                update_active = st.checkbox("System Active", value=bool(row["active"]))
 
-            with st.form("update_branch_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    update_branch_id = st.text_input("Branch Code (Editable)", value=row["branch_id"])
-                    update_branch_name = st.text_input("Branch Name", value=row["branch_name"])
-                    update_location = st.text_input("Location", value=row["location"])
-                    update_password = st.text_input(
-                        "Branch Login Password", value=row.get("branch_password", "admin123")
-                    )
-                with col2:
-                    update_level = st.selectbox(
-                        "Level", [1, 2, 3, 4, 5, 6],
-                        index=int(row["level"]) - 1 if int(row["level"]) <= 6 else 0,
-                    )
-                    update_package = st.selectbox(
-                        "Subscription Package", ["Bronze", "Silver", "Gold", "Platinum"],
-                        index=["Bronze", "Silver", "Gold", "Platinum"].index(
-                            row.get("package", "Bronze")
-                        ),
-                    )
-                    update_status = st.selectbox(
-                        "Subscription Status", ["Active", "Terminated"],
-                        index=["Active", "Terminated"].index(row.get("status", "Active")),
-                    )
-                    update_active = st.checkbox("System Active", value=bool(row["active"]))
+            if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
+                if not update_branch_name.strip():
+                    st.error("Branch Name is required")
+                else:
+                    try:
+                        with st.spinner("Saving changes..."):
+                            current_df = load_branches()
+                            old_code = str(original_branch_id).strip().upper()
+                            new_code = update_branch_id.strip().upper()
 
-                if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
-                    if not update_branch_name.strip():
-                        st.error("Branch Name is required")
-                    else:
-                        try:
-                            with st.spinner("Saving changes..."):
-                                current_df = load_branches()
-                                old_code = str(original_branch_id).strip().upper()
-                                new_code = update_branch_id.strip().upper()
+                            idx_matches = current_df.index[
+                                current_df["branch_id"].astype(str).str.upper() == old_code
+                            ].tolist()
+                            if not idx_matches:
+                                st.error(
+                                    f"Branch {original_branch_id} not found in fresh data. "
+                                    "Try clicking 'Refresh Data'."
+                                )
+                            else:
+                                idx = idx_matches[0]
 
-                                # Match by the ORIGINAL branch_id (stable key)
-                                idx_matches = current_df.index[
-                                    current_df["branch_id"].astype(str).str.upper() == old_code
-                                ].tolist()
-                                if not idx_matches:
+                                # The row we want the DB to end up with,
+                                # keyed on new_code.
+                                new_row = {
+                                    "branch_id": new_code,
+                                    "branch_name": update_branch_name.strip(),
+                                    "location": update_location.strip(),
+                                    "level": update_level,
+                                    "active": update_active,
+                                    "package": update_package,
+                                    "status": update_status,
+                                    "branch_password": update_password,
+                                }
+                                # Preserve any legacy columns not covered above
+                                for col in current_df.columns:
+                                    if col not in new_row:
+                                        new_row[col] = row.get(col, "")
+
+                                # Rebuild the frame: drop the old row so a
+                                # rename can't leave a ghost, keep everything
+                                # else, append the edited row.
+                                others = current_df.drop(index=idx).reset_index(drop=True)
+                                updated_df = pd.concat(
+                                    [others, pd.DataFrame([new_row])],
+                                    ignore_index=True,
+                                )
+
+                                # ALWAYS pass original_branch_id. The adapter
+                                # only issues the DELETE when old != new, but
+                                # passing it unconditionally makes the intent
+                                # explicit and removes any "None slipped
+                                # through" failure mode.
+                                ok = save_branches(
+                                    updated_df, original_branch_id=old_code
+                                )
+                                if not ok:
                                     st.error(
-                                        f"Branch {original_branch_id} not found in fresh data. "
-                                        "Try clicking 'Refresh Data'."
+                                        "save_branches returned False — see server "
+                                        "logs for the reason (invalid branch code, "
+                                        "DB error, or DB did not exist)."
                                     )
-                                else:
-                                    idx = idx_matches[0]
+                                    st.stop()
 
-                                    # -------------------------------------------------
-                                    # Build the single row we want the DB to end up
-                                    # with, keyed on `new_code`.
-                                    # -------------------------------------------------
-                                    new_row = {
-                                        "branch_id": new_code,
-                                        "branch_name": update_branch_name.strip(),
-                                        "location": update_location.strip(),
-                                        "level": update_level,
-                                        "active": update_active,
-                                        "package": update_package,
-                                        "status": update_status,
-                                        "branch_password": update_password,
-                                    }
-                                    # Preserve any legacy columns not covered above
-                                    for col in current_df.columns:
-                                        if col not in new_row:
-                                            new_row[col] = row.get(col, "")
+                                # Rename users table if the code changed
+                                if old_code != new_code:
+                                    users_df = load_users()
+                                    if not users_df.empty and "branch_id" in users_df.columns:
+                                        users_df.loc[
+                                            users_df["branch_id"].astype(str).str.upper()
+                                            == old_code,
+                                            "branch_id",
+                                        ] = new_code
+                                        save_users(users_df)
 
-                                    # Rebuild the frame:
-                                    #  - drop the old row (so a rename can't leave a ghost)
-                                    #  - keep every other branch as-is
-                                    #  - append the edited row
-                                    others = current_df.drop(index=idx).reset_index(drop=True)
-                                    updated_df = pd.concat(
-                                        [others, pd.DataFrame([new_row])],
-                                        ignore_index=True,
-                                    )
+                                # Status flip (terminate / activate)
+                                if row.get("status") != update_status:
+                                    users_df = load_users()
+                                    if not users_df.empty and "branch_id" in users_df.columns:
+                                        branch_users = (
+                                            users_df["branch_id"].astype(str).str.upper()
+                                            == new_code
+                                        )
+                                        users_df.loc[branch_users, "active"] = (
+                                            update_status == "Active"
+                                        )
+                                        save_users(users_df)
 
-                                    # ---------------------------------------------
-                                    # THE FIX: tell the adapter the original key
-                                    # so it can DELETE the old row when a rename
-                                    # happened, then upsert the new row with all
-                                    # 8 columns (name/location/level/active/
-                                    # package/status/branch_password).
-                                    # ---------------------------------------------
-                                    if old_code != new_code:
-                                        save_branches(updated_df, original_branch_id=old_code)
-                                    else:
-                                        save_branches(updated_df)
-
-                                    # If branch code changed, update users table
-                                    if old_code != new_code:
-                                        users_df = load_users()
-                                        if not users_df.empty and "branch_id" in users_df.columns:
-                                            users_df.loc[
-                                                users_df["branch_id"].astype(str).str.upper() == old_code,
-                                                "branch_id",
-                                            ] = new_code
-                                            save_users(users_df)
-
-                                    # Handle status change (terminate / activate)
-                                    if row.get("status") != update_status:
-                                        users_df = load_users()
-                                        if not users_df.empty and "branch_id" in users_df.columns:
-                                            branch_users = (
-                                                users_df["branch_id"].astype(str).str.upper()
-                                                == new_code
-                                            )
-                                            if update_status == "Terminated":
-                                                users_df.loc[branch_users, "active"] = False
-                                            else:
-                                                users_df.loc[branch_users, "active"] = True
-                                            save_users(users_df)
-
-                            _finish_operation(
-                                f"Branch '{update_branch_name}' updated successfully!",
-                                "success",
-                            )
-                        except Exception as e:
-                            st.error(f"Error updating branch: {str(e)}")
+                        _finish_operation(
+                            f"Branch '{update_branch_name}' updated successfully!",
+                            "success",
+                        )
+                    except Exception as e:
+                        st.error(f"Error updating branch: {str(e)}")
 
     st.markdown("---")
 
@@ -512,17 +527,21 @@ def branch_management_page():
         if deletable_branches.empty:
             st.info("No deletable branches (Head Office cannot be deleted).")
         else:
-            branch_options = [
-                f"{r['branch_name']} ({r['branch_id']})"
-                for _, r in deletable_branches.iterrows()
-            ]
-            selected_delete_label = st.selectbox(
-                "Select Branch to Delete", branch_options, key="delete_branch_select"
-            )
+            delete_label_to_id = {}
+            for _, r in deletable_branches.iterrows():
+                bid = str(r["branch_id"]).strip()
+                label = f"{r['branch_name']} ({bid})"
+                while label in delete_label_to_id:
+                    label = label + " "
+                delete_label_to_id[label] = bid
 
-            idx = branch_options.index(selected_delete_label)
-            target_row = deletable_branches.iloc[idx]
-            target_id = target_row["branch_id"]
+            selected_delete_label = st.selectbox(
+                "Select Branch to Delete",
+                list(delete_label_to_id.keys()),
+                key="delete_branch_select",
+            )
+            target_id = delete_label_to_id[selected_delete_label]
+            target_row = df[df["branch_id"].astype(str) == str(target_id)].iloc[0]
 
             st.markdown(f"### Data in **{target_row['branch_name']}** ({target_id})")
 
@@ -557,15 +576,21 @@ def branch_management_page():
             # -------- Option A: Reassign then delete --------
             st.markdown("#### Option A — Reassign all data to another branch, then delete")
 
-            other_branches = df[df["branch_id"] != target_id]
-            reassign_options = [
-                f"{r['branch_name']} ({r['branch_id']})"
-                for _, r in other_branches.iterrows()
-            ]
+            other_branches = df[df["branch_id"].astype(str) != str(target_id)]
+            reassign_label_to_id = {}
+            for _, r in other_branches.iterrows():
+                bid = str(r["branch_id"]).strip()
+                label = f"{r['branch_name']} ({bid})"
+                while label in reassign_label_to_id:
+                    label = label + " "
+                reassign_label_to_id[label] = bid
+
             reassign_label = st.selectbox(
-                "Reassign data to", reassign_options, key="reassign_target_select"
+                "Reassign data to",
+                list(reassign_label_to_id.keys()),
+                key="reassign_target_select",
             )
-            reassign_id = other_branches.iloc[reassign_options.index(reassign_label)]["branch_id"]
+            reassign_id = reassign_label_to_id[reassign_label]
 
             st.info(
                 f"All rows in **{target_row['branch_name']}** will be moved to "
