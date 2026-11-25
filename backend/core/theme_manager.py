@@ -1,6 +1,10 @@
+
 """
-Theme Manager for SmartGro ERP
-Uses Streamlit's native theming system
+AZIEL INVESTMENTS ERP
+Theme Manager
+Professional themes with accessible colour contrast.
+
+Maintains compatibility with the existing theme_manager functions.
 """
 
 import streamlit as st
@@ -8,246 +12,784 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-# ==============================
-# THEME CONFIGURATION FILE
-# ==============================
+
+# ============================================================
+# THEME CONFIGURATION
+# ============================================================
+
 THEME_FILE = Path("data/user_theme.json")
 
-# ==============================
+
+# ============================================================
+# COLOUR PALETTES
+# ============================================================
+
+THEME_PALETTES = {
+
+    "aziel_gold": {
+        "name": "Aziel Gold",
+        "description": "Signature corporate gold, white and navy.",
+        "mode": "light",
+        "primary": "#C69214",
+        "secondary": "#F3C969",
+        "background": "#FFFFFF",
+        "surface": "#F7F8FA",
+        "sidebar": "#F1F3F6",
+        "text": "#202938",
+        "muted": "#657184",
+        "border": "#DCE1E8",
+        "input": "#FFFFFF",
+        "input_text": "#202938",
+        "button_text": "#FFFFFF",
+        "success": "#16834A",
+        "warning": "#A96500",
+        "danger": "#C0392B",
+    },
+
+    "ocean_blue": {
+        "name": "Ocean Blue",
+        "description": "Professional blue with clean white surfaces.",
+        "mode": "light",
+        "primary": "#1677C8",
+        "secondary": "#55A9E8",
+        "background": "#F8FBFF",
+        "surface": "#FFFFFF",
+        "sidebar": "#EAF3FC",
+        "text": "#172B43",
+        "muted": "#5F7187",
+        "border": "#D5E2EF",
+        "input": "#FFFFFF",
+        "input_text": "#172B43",
+        "button_text": "#FFFFFF",
+        "success": "#16834A",
+        "warning": "#A96500",
+        "danger": "#C0392B",
+    },
+
+    "royal_purple": {
+        "name": "Royal Purple",
+        "description": "Elegant purple with soft backgrounds.",
+        "mode": "light",
+        "primary": "#7550A8",
+        "secondary": "#A98BD1",
+        "background": "#FBF9FE",
+        "surface": "#FFFFFF",
+        "sidebar": "#F1EBF8",
+        "text": "#29213A",
+        "muted": "#6F657F",
+        "border": "#E2D9ED",
+        "input": "#FFFFFF",
+        "input_text": "#29213A",
+        "button_text": "#FFFFFF",
+        "success": "#16834A",
+        "warning": "#A96500",
+        "danger": "#C0392B",
+    },
+
+    "sunrise_orange": {
+        "name": "Sunrise Orange",
+        "description": "Warm orange, yellow and white.",
+        "mode": "light",
+        "primary": "#D96820",
+        "secondary": "#F3B84B",
+        "background": "#FFFCF8",
+        "surface": "#FFFFFF",
+        "sidebar": "#FFF1E5",
+        "text": "#35251D",
+        "muted": "#79675D",
+        "border": "#EEDCCD",
+        "input": "#FFFFFF",
+        "input_text": "#35251D",
+        "button_text": "#FFFFFF",
+        "success": "#16834A",
+        "warning": "#A96500",
+        "danger": "#C0392B",
+    },
+
+    "emerald_green": {
+        "name": "Emerald Green",
+        "description": "Fresh green with professional neutral surfaces.",
+        "mode": "light",
+        "primary": "#16845B",
+        "secondary": "#62B995",
+        "background": "#F8FCFA",
+        "surface": "#FFFFFF",
+        "sidebar": "#EAF5EF",
+        "text": "#19342A",
+        "muted": "#60776B",
+        "border": "#D6E7DD",
+        "input": "#FFFFFF",
+        "input_text": "#19342A",
+        "button_text": "#FFFFFF",
+        "success": "#16834A",
+        "warning": "#A96500",
+        "danger": "#C0392B",
+    },
+
+    "midnight_luxe": {
+        "name": "Midnight Luxe",
+        "description": "Deep navy, gold accents and bright readable text.",
+        "mode": "dark",
+        "primary": "#D6A83D",
+        "secondary": "#F0CA75",
+        "background": "#101827",
+        "surface": "#192538",
+        "sidebar": "#0C1422",
+        "text": "#F5F7FB",
+        "muted": "#B7C2D1",
+        "border": "#344258",
+        "input": "#25344A",
+        "input_text": "#FFFFFF",
+        "button_text": "#172033",
+        "success": "#43C58A",
+        "warning": "#F3BD55",
+        "danger": "#FF7777",
+    },
+}
+
+
+# ============================================================
 # AVAILABLE THEMES
-# ==============================
+# ============================================================
+
 AVAILABLE_THEMES = {
+    "aziel_gold": {
+        "name": "Aziel Gold",
+        "description": "Signature corporate theme."
+    },
+    "ocean_blue": {
+        "name": "Ocean Blue",
+        "description": "Professional blue theme."
+    },
+    "royal_purple": {
+        "name": "Royal Purple",
+        "description": "Elegant purple theme."
+    },
+    "sunrise_orange": {
+        "name": "Sunrise Orange",
+        "description": "Warm orange and yellow theme."
+    },
+    "emerald_green": {
+        "name": "Emerald Green",
+        "description": "Fresh green theme."
+    },
+    "midnight_luxe": {
+        "name": "Midnight Luxe",
+        "description": "Premium dark navy theme."
+    },
+    "auto": {
+        "name": "Auto (Day/Night)",
+        "description": "Automatically changes between light and dark."
+    },
+
+    # Legacy names retained for compatibility.
     "light": {
         "name": "Light Mode",
-        "description": "Light background with dark text"
+        "description": "Legacy light theme."
     },
     "dark": {
         "name": "Dark Mode",
-        "description": "Dark background with light text"
+        "description": "Legacy dark theme."
     },
-    "auto": {
-        "name": "Auto (System)",
-        "description": "Follows your system preference"
-    }
 }
 
-# ==============================
+
+THEME_OPTIONS = [
+    "aziel_gold",
+    "ocean_blue",
+    "royal_purple",
+    "sunrise_orange",
+    "emerald_green",
+    "midnight_luxe",
+    "auto",
+]
+
+
+# ============================================================
+# LEGACY THEME MAPPING
+# ============================================================
+
+def normalize_theme(theme_name):
+    """Convert legacy theme names into supported palettes."""
+
+    if theme_name == "light":
+        return "aziel_gold"
+
+    if theme_name == "dark":
+        return "midnight_luxe"
+
+    if theme_name in THEME_PALETTES:
+        return theme_name
+
+    if theme_name == "auto":
+        return "auto"
+
+    return "aziel_gold"
+
+
+# ============================================================
 # THEME PERSISTENCE
-# ==============================
+# ============================================================
+
 def save_theme_preference(theme_name):
-    """Save theme preference to file"""
+    """Save the selected theme to the theme configuration file."""
+
     try:
-        THEME_FILE.parent.mkdir(exist_ok=True)
-        with open(THEME_FILE, "w") as f:
-            json.dump({"theme": theme_name, "updated": datetime.now().isoformat()}, f)
+        if theme_name not in AVAILABLE_THEMES:
+            return False
+
+        THEME_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        data = {
+            "theme": theme_name,
+            "updated": datetime.now().isoformat()
+        }
+
+        with open(THEME_FILE, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+
         return True
-    except Exception as e:
-        print(f"Error saving theme: {e}")
+
+    except Exception as error:
+        print(f"Error saving theme preference: {error}")
         return False
 
+
 def load_theme_preference():
-    """Load theme preference from file"""
-    if THEME_FILE.exists():
-        try:
-            with open(THEME_FILE, "r") as f:
-                data = json.load(f)
-                theme = data.get("theme", "auto")
+    """Load the saved theme preference."""
+
+    try:
+        if THEME_FILE.exists():
+
+            with open(THEME_FILE, "r", encoding="utf-8") as file:
+                data = json.load(file)
+
+            theme = data.get("theme", "auto")
+
+            if theme in AVAILABLE_THEMES:
                 return theme
-        except:
-            pass
+
+    except Exception as error:
+        print(f"Error loading theme preference: {error}")
+
     return "auto"
 
+
+# ============================================================
+# CURRENT THEME
+# ============================================================
+
 def get_current_theme():
-    """Get current theme preference"""
-    return st.session_state.get("current_theme", load_theme_preference())
+    """Return the current theme preference."""
+
+    if "current_theme" not in st.session_state:
+        st.session_state.current_theme = load_theme_preference()
+
+    return st.session_state.current_theme
+
 
 def set_theme(theme_name):
-    """Set theme preference and apply it"""
-    if theme_name in AVAILABLE_THEMES:
-        st.session_state.current_theme = theme_name
-        save_theme_preference(theme_name)
-        return True
-    return False
+    """Set and save the selected theme."""
+
+    if theme_name not in AVAILABLE_THEMES:
+        return False
+
+    st.session_state.current_theme = theme_name
+
+    save_theme_preference(theme_name)
+
+    return True
+
+
+# ============================================================
+# AUTOMATIC DAY/NIGHT THEME
+# ============================================================
 
 def get_auto_theme():
-    """Get theme based on time of day"""
-    current_hour = datetime.now().hour
-    if current_hour >= 18 or current_hour < 6:
-        return "dark"
-    else:
-        return "light"
+    """
+    Select a theme based on the local system time.
 
-# ==============================
-# THEME APPLICATION - Using Streamlit Config
-# ==============================
+    Day:   06:00 - 17:59
+    Night: 18:00 - 05:59
+    """
+
+    current_hour = datetime.now().hour
+
+    if current_hour >= 18 or current_hour < 6:
+        return "midnight_luxe"
+
+    return "aziel_gold"
+
+
+# ============================================================
+# RESOLVE ACTIVE THEME
+# ============================================================
+
+def get_active_theme():
+    """Return the actual palette that should currently be displayed."""
+
+    selected_theme = get_current_theme()
+
+    if selected_theme == "auto":
+        selected_theme = get_auto_theme()
+
+    selected_theme = normalize_theme(selected_theme)
+
+    return selected_theme
+
+
+def get_theme_colors(theme_name=None):
+    """Return the colour palette for a selected or active theme."""
+
+    if theme_name is None:
+        theme_name = get_active_theme()
+
+    if isinstance(theme_name, dict):
+        return theme_name
+
+    if theme_name == "auto":
+        theme_name = get_auto_theme()
+
+    theme_name = normalize_theme(theme_name)
+
+    return THEME_PALETTES.get(
+        theme_name,
+        THEME_PALETTES["aziel_gold"]
+    )
+
+
+# ============================================================
+# CSS THEME GENERATOR
+# ============================================================
+
+def generate_theme_css(colors):
+    """Generate accessible CSS for the selected colour palette."""
+
+    return f"""
+    <style>
+
+    /* ==========================================
+       GLOBAL APPLICATION
+    ========================================== */
+
+    .stApp {{
+        background-color: {colors['background']} !important;
+        color: {colors['text']} !important;
+    }}
+
+    [data-testid="stAppViewContainer"] {{
+        background-color: {colors['background']} !important;
+    }}
+
+    [data-testid="stMain"] {{
+        background-color: {colors['background']} !important;
+        color: {colors['text']} !important;
+    }}
+
+    .main .block-container {{
+        background-color: {colors['background']};
+        color: {colors['text']};
+    }}
+
+    /* ==========================================
+       GENERAL TEXT
+    ========================================== */
+
+    .stMarkdown,
+    .stMarkdown p,
+    .stMarkdown li,
+    .stMarkdown span,
+    .stMarkdown label,
+    .stCaption,
+    [data-testid="stCaptionContainer"] {{
+        color: {colors['text']};
+    }}
+
+    h1, h2, h3, h4, h5, h6 {{
+        color: {colors['text']} !important;
+    }}
+
+    label,
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stWidgetLabel"] label {{
+        color: {colors['text']} !important;
+    }}
+
+    small {{
+        color: {colors['muted']};
+    }}
+
+    /* ==========================================
+       SIDEBAR
+    ========================================== */
+
+    [data-testid="stSidebar"] {{
+        background-color: {colors['sidebar']} !important;
+    }}
+
+    [data-testid="stSidebar"] > div:first-child {{
+        background-color: {colors['sidebar']} !important;
+    }}
+
+    [data-testid="stSidebar"] * {{
+        color: {colors['text']};
+    }}
+
+    [data-testid="stSidebar"] button {{
+        border-color: {colors['border']};
+    }}
+
+    /* ==========================================
+       INPUT FIELDS
+    ========================================== */
+
+    input,
+    textarea,
+    [data-baseweb="input"] input,
+    [data-baseweb="textarea"] textarea {{
+        background-color: {colors['input']} !important;
+        color: {colors['input_text']} !important;
+        border-color: {colors['border']} !important;
+        -webkit-text-fill-color: {colors['input_text']} !important;
+        caret-color: {colors['input_text']} !important;
+    }}
+
+    input::placeholder,
+    textarea::placeholder {{
+        color: {colors['muted']} !important;
+        -webkit-text-fill-color: {colors['muted']} !important;
+        opacity: 1 !important;
+    }}
+
+    [data-baseweb="input"],
+    [data-baseweb="textarea"] {{
+        background-color: {colors['input']} !important;
+        border-color: {colors['border']} !important;
+    }}
+
+    /* ==========================================
+       SELECT BOXES AND DROPDOWNS
+    ========================================== */
+
+    [data-baseweb="select"] > div {{
+        background-color: {colors['input']} !important;
+        border-color: {colors['border']} !important;
+        color: {colors['input_text']} !important;
+    }}
+
+    [data-baseweb="select"] span {{
+        color: {colors['input_text']} !important;
+    }}
+
+    [role="listbox"],
+    [role="option"],
+    [data-baseweb="popover"] {{
+        background-color: {colors['surface']} !important;
+        color: {colors['text']} !important;
+    }}
+
+    [role="option"] * {{
+        color: {colors['text']} !important;
+    }}
+
+    /* ==========================================
+       BUTTONS
+    ========================================== */
+
+    .stButton > button,
+    .stDownloadButton > button {{
+        background-color: {colors['primary']} !important;
+        color: {colors['button_text']} !important;
+        border: 1px solid {colors['primary']} !important;
+        border-radius: 8px;
+        font-weight: 600;
+    }}
+
+    .stButton > button p,
+    .stDownloadButton > button p {{
+        color: {colors['button_text']} !important;
+    }}
+
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {{
+        border-color: {colors['secondary']} !important;
+        filter: brightness(1.08);
+    }}
+
+    /* ==========================================
+       METRICS
+    ========================================== */
+
+    [data-testid="stMetric"] {{
+        background-color: {colors['surface']};
+        border: 1px solid {colors['border']};
+        padding: 12px;
+        border-radius: 10px;
+    }}
+
+    [data-testid="stMetricLabel"] {{
+        color: {colors['muted']} !important;
+    }}
+
+    [data-testid="stMetricValue"] {{
+        color: {colors['text']} !important;
+    }}
+
+    [data-testid="stMetricDelta"] {{
+        color: {colors['success']} !important;
+    }}
+
+    /* ==========================================
+       TABLES
+    ========================================== */
+
+    [data-testid="stTable"] {{
+        background-color: {colors['surface']} !important;
+        color: {colors['text']} !important;
+    }}
+
+    [data-testid="stDataFrame"],
+    [data-testid="stDataEditor"] {{
+        background-color: {colors['surface']} !important;
+        border: 1px solid {colors['border']};
+        border-radius: 8px;
+    }}
+
+    /* ==========================================
+       TABS
+    ========================================== */
+
+    [data-baseweb="tab-list"] {{
+        border-bottom: 1px solid {colors['border']};
+    }}
+
+    [data-baseweb="tab"] {{
+        color: {colors['text']} !important;
+    }}
+
+    [aria-selected="true"] {{
+        color: {colors['primary']} !important;
+        border-bottom-color: {colors['primary']} !important;
+    }}
+
+    /* ==========================================
+       ALERTS
+    ========================================== */
+
+    [data-testid="stAlert"] {{
+        border-radius: 8px;
+    }}
+
+    /* ==========================================
+       LINKS
+    ========================================== */
+
+    a {{
+        color: {colors['primary']} !important;
+    }}
+
+    /* ==========================================
+       CHECKBOXES AND RADIO BUTTONS
+    ========================================== */
+
+    [data-testid="stCheckbox"] label,
+    [data-testid="stRadio"] label {{
+        color: {colors['text']} !important;
+    }}
+
+    /* ==========================================
+       EXPANDERS
+    ========================================== */
+
+    [data-testid="stExpander"] {{
+        background-color: {colors['surface']};
+        border: 1px solid {colors['border']};
+        border-radius: 8px;
+    }}
+
+    [data-testid="stExpander"] summary {{
+        color: {colors['text']} !important;
+    }}
+
+    /* ==========================================
+       DIVIDERS
+    ========================================== */
+
+    hr {{
+        border-color: {colors['border']} !important;
+    }}
+
+    /* ==========================================
+       SCROLLBARS
+    ========================================== */
+
+    * {{
+        scrollbar-color: {colors['primary']} {colors['surface']};
+    }}
+
+    </style>
+    """
+
+
+# ============================================================
+# APPLY THEME
+# ============================================================
+
 def apply_theme(colors=None):
     """
-    Apply theme by setting Streamlit config.
-    This uses Streamlit's native theming.
+    Apply the requested theme.
+
+    Compatible with:
+        apply_theme()
+        apply_theme("dark")
+        apply_theme("light")
+        apply_theme("aziel_gold")
+        apply_theme("midnight_luxe")
+        apply_theme(custom_colour_dictionary)
     """
-    # Streamlit handles theming natively via config.toml
-    # We just need to ensure the theme is applied
-    current_theme = get_current_theme()
-    
-    # Apply theme using Streamlit's built-in method
-    # This sets the theme preference in the session
-    if current_theme == "dark":
-        st.markdown("""
-        <style>
-        /* Dark theme adjustments */
-        .stApp {
-            background-color: #0E1117;
-            color: #FAFAFA;
-        }
-        .stSidebar {
-            background-color: #1E1E1E;
-        }
-        .stSelectbox, .stTextInput, .stNumberInput {
-            background-color: #262730;
-            color: #FAFAFA;
-        }
-        .stDataFrame {
-            background-color: #262730;
-        }
-        .stMarkdown {
-            color: #FAFAFA;
-        }
-        .stAlert {
-            background-color: #262730;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-    elif current_theme == "light":
-        st.markdown("""
-        <style>
-        /* Light theme adjustments */
-        .stApp {
-            background-color: #FFFFFF;
-            color: #262730;
-        }
-        .stSidebar {
-            background-color: #F0F2F6;
-        }
-        .stSelectbox, .stTextInput, .stNumberInput {
-            background-color: #FFFFFF;
-            color: #262730;
-        }
-        .stDataFrame {
-            background-color: #FFFFFF;
-        }
-        .stMarkdown {
-            color: #262730;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+
+    if colors is None:
+        selected_colors = get_theme_colors()
+
+    elif isinstance(colors, dict):
+        selected_colors = colors
+
+    elif isinstance(colors, str):
+
+        if colors == "auto":
+            selected_colors = get_theme_colors(get_auto_theme())
+
+        else:
+            selected_colors = get_theme_colors(colors)
+
     else:
-        # Auto theme - remove custom styles
-        st.markdown("""
-        <style>
-        /* Auto theme - use system defaults */
-        .stApp {
-            background-color: transparent;
-            color: inherit;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+        selected_colors = get_theme_colors()
+
+    css = generate_theme_css(selected_colors)
+
+    st.markdown(css, unsafe_allow_html=True)
+
+
+# ============================================================
+# REMOVE CUSTOM THEME
+# ============================================================
 
 def apply_no_theme():
-    """Apply no theme - use Streamlit defaults"""
-    st.markdown("""
-    <style>
-    /* Reset to Streamlit defaults */
-    .stApp {
-        background-color: transparent !important;
-        color: inherit !important;
-    }
-    .stSidebar {
-        background-color: transparent !important;
-    }
-    .stSelectbox, .stTextInput, .stNumberInput {
-        background-color: transparent !important;
-        color: inherit !important;
-    }
-    .stDataFrame {
-        background-color: transparent !important;
-    }
-    .stMarkdown {
-        color: inherit !important;
-    }
-    .stAlert {
-        background-color: transparent !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    """Remove custom styling and use Streamlit's default appearance."""
 
-def apply_page_theme(page_name):
-    """Apply theme for a specific page"""
-    current_theme = get_current_theme()
-    if current_theme == "auto":
-        # Use time-based auto theme
-        auto_theme = get_auto_theme()
-        if auto_theme == "dark":
-            apply_theme("dark")
-        else:
-            apply_theme("light")
-    else:
-        apply_theme(current_theme)
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background-color: transparent;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ============================================================
+# PAGE THEME
+# ============================================================
+
+def apply_page_theme(page_name=None):
+    """Apply the currently selected theme to an ERP page."""
+
+    apply_theme(get_active_theme())
+
 
 def apply_login_theme():
-    """Apply theme to login page"""
-    apply_no_theme()
+    """Apply the selected theme to the login page."""
+
+    apply_theme(get_active_theme())
+
 
 def apply_branch_selection_theme():
-    """Apply theme to branch selection page"""
-    apply_no_theme()
+    """Apply the selected theme to branch selection."""
 
-def get_page_theme(page_name):
-    """Get theme colors for a page"""
-    current_theme = get_current_theme()
-    if current_theme == "auto":
-        auto_theme = get_auto_theme()
-        return AVAILABLE_THEMES.get(auto_theme, AVAILABLE_THEMES["light"])
-    return AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES["light"])
+    apply_theme(get_active_theme())
 
-# ==============================
+
+def get_page_theme(page_name=None):
+    """Return the theme configuration for the active page."""
+
+    active_theme = get_active_theme()
+
+    return {
+        **AVAILABLE_THEMES.get(
+            active_theme,
+            AVAILABLE_THEMES["aziel_gold"]
+        ),
+        "colors": get_theme_colors(active_theme)
+    }
+
+
+# ============================================================
 # THEME SELECTOR
-# ==============================
+# ============================================================
+
 def theme_selector():
     """
-    Theme selector using Streamlit's native theming.
-    This allows users to choose their theme preference.
+    Display the ERP theme selector in the sidebar.
+
+    Offers six professional themes and automatic day/night mode.
     """
-    st.sidebar.markdown("### Theme Settings")
-    st.sidebar.caption("Choose your preferred theme")
-    
-    current_theme = get_current_theme()
-    
-    # Get theme options
-    theme_options = list(AVAILABLE_THEMES.keys())
-    theme_labels = [AVAILABLE_THEMES[t]['name'] for t in theme_options]
-    
-    # Create a mapping from label to key
-    label_to_key = {AVAILABLE_THEMES[t]['name']: t for t in theme_options}
-    
-    # Get current theme label
-    current_label = AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']
-    
-    # Theme selector
-    selected_label = st.sidebar.selectbox(
-        "Select Theme",
-        options=theme_labels,
-        index=theme_labels.index(current_label) if current_label in theme_labels else 0,
-        help="Choose your preferred theme. This controls how the app looks."
+
+    st.sidebar.markdown("### 🎨 Theme Settings")
+
+    st.sidebar.caption(
+        "Personalise the appearance of AZIEL INVESTMENTS ERP."
     )
-    
-    # If theme changed, update it
-    if selected_label:
-        selected_key = label_to_key[selected_label]
-        if selected_key != current_theme:
-            set_theme(selected_key)
-            st.sidebar.success(f"Theme set to: {selected_label}")
+
+    current_theme = get_current_theme()
+
+    if current_theme not in THEME_OPTIONS:
+        current_theme = "auto"
+
+    theme_labels = [
+        AVAILABLE_THEMES[theme]["name"]
+        for theme in THEME_OPTIONS
+    ]
+
+    label_to_key = {
+        AVAILABLE_THEMES[theme]["name"]: theme
+        for theme in THEME_OPTIONS
+    }
+
+    current_label = AVAILABLE_THEMES[current_theme]["name"]
+
+    selected_label = st.sidebar.selectbox(
+        "Choose your theme",
+        options=theme_labels,
+        index=theme_labels.index(current_label),
+        key="aziel_theme_selector",
+        help="Choose a theme for your ERP dashboard."
+    )
+
+    selected_key = label_to_key[selected_label]
+
+    if selected_key != current_theme:
+
+        if set_theme(selected_key):
+
             st.rerun()
-    
-    # Show current theme info
-    st.sidebar.caption(f"Current: {AVAILABLE_THEMES.get(current_theme, AVAILABLE_THEMES['auto'])['name']}")
-    #st.sidebar.info("Theme applies using Streamlit's native theming.")
+
+    active_theme = get_active_theme()
+
+    st.sidebar.caption(
+        f"Selected: {AVAILABLE_THEMES[current_theme]['name']}"
+    )
+
+    if current_theme == "auto":
+
+        st.sidebar.info(
+            f"Automatic mode is currently using "
+            f"{THEME_PALETTES[active_theme]['name']}."
+        )
+
+    else:
+
+        st.sidebar.caption(
+            THEME_PALETTES[active_theme]["description"]
+        )
