@@ -1,6 +1,10 @@
 # backend/core/role_based_menu.py
-# UPDATED: Added Package Modules filtering. 
-# Access = (User Role Permissions) INTERSECT (Branch Subscription Package).
+# UPDATED: Added Package Modules filtering + Owner bypass.
+#
+# Access rules:
+#   OWNER   → ALWAYS sees all 63 modules (bypasses package filter)
+#   MANAGER → (role permissions) ∩ (branch package modules)
+#   CASHIER → (cashier base modules) ∩ (branch package modules)
 
 import streamlit as st
 from backend.core.auth import can_access_feature
@@ -29,7 +33,7 @@ PACKAGE_MODULES = {
         # Store Ops
         "Shift Management", "Documents",
         # Security
-        "User Management"
+        "User Management",
     ],
     "Silver": [
         # All Bronze
@@ -40,7 +44,7 @@ PACKAGE_MODULES = {
         # Silver Additions
         "Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
         "Reports Dashboard", "Floating Financials", "P&L", "Duplicate Products",
-        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management"
+        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management",
     ],
     "Gold": [
         # All Silver
@@ -56,7 +60,7 @@ PACKAGE_MODULES = {
         "Supplier Bidding", "Supplier Bidding Portal", "Smart Replenishment", "Inventory Optimizer",
         "Financial Closing", "Profit Center Analysis",
         "Automated Follow-up", "Workflow Approvals",
-        "Live Dashboard", "Payment Gateway", "SMS Gateway", "E-commerce Sync"
+        "Live Dashboard", "Payment Gateway", "SMS Gateway", "E-commerce Sync",
     ],
     "Platinum": [
         # All Gold
@@ -76,8 +80,8 @@ PACKAGE_MODULES = {
         "Predictive Analytics", "Demand Forecasting", "Churn Prediction", "Recommendation Engine",
         "Anomaly Detection", "Automated Insights", "Competitor Price Monitoring", "Business Advisor",
         "Accounting Sync", "API Developer", "Multi-Tenant", "White Label", "Voice Commands",
-        "Branch Management", "Branch Performance", "Security Dashboard", "Settings"
-    ]
+        "Branch Management", "Branch Performance", "Security Dashboard", "Settings",
+    ],
 }
 
 
@@ -109,15 +113,25 @@ def _branch_label(branch_id=None):
 
 
 # ============================================================
-# get_visible_modules - UPDATED WITH PACKAGE FILTERING
+# get_visible_modules - with OWNER BYPASS
 # ============================================================
 def get_visible_modules(role, branch_package=None):
-    """Return ALL modules a role can access, filtered by the branch's package."""
-    
+    """
+    Return ALL modules a role can access.
+
+    Access rules:
+      • OWNER   → ALWAYS sees all 63 modules (bypasses package filter).
+                  Owners must never be locked out — they need Branch Management,
+                  User Management, Settings, etc. to administer the system
+                  regardless of which package a branch is on.
+      • MANAGER → (role permissions) ∩ (branch package modules)
+      • CASHIER → (cashier base modules) ∩ (branch package modules)
+    """
+
     # If no package is passed, pull from session (defaults to Bronze)
     if branch_package is None:
         branch_package = st.session_state.get("branch_package", "Bronze")
-    
+
     # Ensure we have a valid package fallback
     if branch_package not in PACKAGE_MODULES:
         branch_package = "Bronze"
@@ -207,24 +221,29 @@ def get_visible_modules(role, branch_package=None):
         {"name": "Settings", "permission": "settings"},
     ]
 
-    # Get allowed modules for the package
+    # ============================================================
+    # OWNER BYPASS — sees ALL 63 modules, regardless of any branch package
+    # ============================================================
+    if role == "owner":
+        return sorted([m["name"] for m in all_modules])
+    # ============================================================
+
+    # Get allowed modules for the package (used only for non-owner roles)
     allowed_by_package = PACKAGE_MODULES[branch_package]
 
-    # 1. CASHIER - RESTRICTED ACCESS
+    # 1. CASHIER - RESTRICTED ACCESS (∩ package)
     if role == "cashier":
         cashier_modules = [
             "POS", "Sales History", "Barcode Scanner",
             "Customer Dashboard", "Floating Financials",
-            "Debtors", "Debtors Dashboard", "Shift Management", "Documents"
+            "Debtors", "Debtors Dashboard", "Shift Management", "Documents",
         ]
-        # Intersection: Cashier modules + Package modules
         final_modules = [m for m in cashier_modules if m in allowed_by_package]
         return sorted(final_modules)
 
-    # 2. OWNER & MANAGER - FULL ACCESS (Limited by Package)
+    # 2. MANAGER - (role permissions) ∩ (branch package)
     visible_modules = []
     for module in all_modules:
-        # Check if role allows it AND package allows it
         if can_access_feature(role, module["permission"]) and module["name"] in allowed_by_package:
             visible_modules.append(module["name"])
 
@@ -241,7 +260,7 @@ def get_visible_modules(role, branch_package=None):
 # ============================================================
 def get_navigation_menu(role, branch_package=None):
     """Get the complete navigation structure based on role and package."""
-    
+
     if branch_package is None:
         branch_package = st.session_state.get("branch_package", "Bronze")
 
@@ -257,7 +276,6 @@ def get_navigation_menu(role, branch_package=None):
             "Operations": ["Shift Management", "Documents"],
             "Financial": ["Floating Financials"],
         }
-        # Filter out empty categories
         return {k: [i for i in v if i in visible_modules] for k, v in cashier_menu.items() if any(i in visible_modules for i in v)}
 
     # Category groupings for Manager and Owner
@@ -319,7 +337,7 @@ def get_navigation_menu(role, branch_package=None):
 # ============================================================
 def get_mobile_menu(role, branch_package=None):
     """Get simplified mobile-optimized menu structure."""
-    
+
     if branch_package is None:
         branch_package = st.session_state.get("branch_package", "Bronze")
 
@@ -380,7 +398,7 @@ def get_mobile_menu(role, branch_package=None):
 # ============================================================
 def get_mobile_navigation_html(role, current_page, branch_package=None):
     """Generate HTML for mobile bottom navigation bar."""
-    
+
     if branch_package is None:
         branch_package = st.session_state.get("branch_package", "Bronze")
 
@@ -547,7 +565,7 @@ def get_menu_badge_counts(branch_id=None):
 # ============================================================
 def render_sidebar_menu(role, current_page, branch_id=None, branch_package=None):
     """Render the sidebar menu with badges, scoped to the given branch and package."""
-    
+
     if branch_package is None:
         branch_package = st.session_state.get("branch_package", "Bronze")
 
