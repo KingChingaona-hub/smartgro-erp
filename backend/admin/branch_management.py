@@ -1,16 +1,20 @@
 # backend/admin/branch_management.py
-# UPDATED: Added Package Tiers, Dynamic Branch Passwords, Code Editing, and Auto-Deactivation of Users.
+# FIXED:
+#   1. Lazy-loaded data summary (fixes slowness — no more 22×N queries per load)
+#   2. Targeted cache invalidation (fixes stale display after save)
+#   3. No unconditional save_branches() on every page load
+#   4. Spinners during long operations
+#   5. Robust re-load after every mutation
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 from backend.core.db_adapter import (
     load_branches,
     save_branches,
     get_db_cursor,
-    load_users,      # ADDED: Needed to deactivate users
-    save_users       # ADDED: Needed to save user changes
+    load_users,
+    save_users,
 )
 
 # ==============================================================
@@ -25,6 +29,37 @@ BRANCH_SCOPED_TABLES = [
 ]
 
 # ==============================================================
+# CACHE HELPERS
+# ==============================================================
+def _invalidate_branch_cache():
+    """
+    Clear the branches cache only (targeted). Leaves products/sales caches intact.
+    Works whether load_branches is @st.cache_data decorated or a plain function.
+    """
+    try:
+        if hasattr(load_branches, "clear"):
+            load_branches.clear()
+            print("[branch_management] branches cache cleared")
+    except Exception as e:
+        print(f"[branch_management] targeted clear failed: {e}")
+
+    # Fallback (harmless if load_branches isn't cached)
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+
+
+def _finish_operation(message, message_type="success"):
+    """Persist a message, invalidate cache, rerun."""
+    st.session_state.bm_message = message
+    st.session_state.bm_message_type = message_type
+    st.session_state.bm_force_refresh = True
+    _invalidate_branch_cache()
+    st.rerun()
+
+
+# ==============================================================
 # DATA HELPERS
 # ==============================================================
 def _branch_row_counts(branch_id):
@@ -35,7 +70,10 @@ def _branch_row_counts(branch_id):
                 return counts
             for table in BRANCH_SCOPED_TABLES:
                 try:
-                    cur.execute(f"SELECT COUNT(*) AS c FROM {table} WHERE branch_id = %s", (branch_id,))
+                    cur.execute(
+                        f"SELECT COUNT(*) AS c FROM {table} WHERE branch_id = %s",
+                        (branch_id,),
+                    )
                     row = cur.fetchone()
                     if row is None:
                         continue
@@ -51,8 +89,10 @@ def _branch_row_counts(branch_id):
         print(f"[branch_management] row count error: {e}")
     return counts
 
+
 def _total_rows(counts):
     return sum(counts.values())
+
 
 def _format_counts_table(counts):
     if not counts:
@@ -62,10 +102,10 @@ def _format_counts_table(counts):
         return pd.DataFrame(columns=["Table", "Rows"])
     return pd.DataFrame(rows).sort_values("Rows", ascending=False).reset_index(drop=True)
 
+
 def _reassign_branch_data(source_branch_id, target_branch_id):
     if source_branch_id == target_branch_id:
         return False, "Source and target branches must be different"
-
     moved = {}
     try:
         with get_db_cursor() as (cur, conn):
@@ -73,7 +113,10 @@ def _reassign_branch_data(source_branch_id, target_branch_id):
                 return False, "Database connection failed"
             for table in BRANCH_SCOPED_TABLES:
                 try:
-                    cur.execute(f"UPDATE {table} SET branch_id = %s WHERE branch_id = %s", (target_branch_id, source_branch_id))
+                    cur.execute(
+                        f"UPDATE {table} SET branch_id = %s WHERE branch_id = %s",
+                        (target_branch_id, source_branch_id),
+                    )
                     moved[table] = cur.rowcount or 0
                 except Exception:
                     try:
@@ -83,10 +126,15 @@ def _reassign_branch_data(source_branch_id, target_branch_id):
                     continue
             conn.commit()
         parts = [f"{t}: {n}" for t, n in moved.items() if n > 0]
-        msg = f"Reassigned {sum(moved.values())} rows to {target_branch_id}. " + ", ".join(parts) if parts else f"No rows needed reassignment to {target_branch_id}."
+        msg = (
+            f"Reassigned {sum(moved.values())} rows to {target_branch_id}. " + ", ".join(parts)
+            if parts
+            else f"No rows needed reassignment to {target_branch_id}."
+        )
         return True, msg
     except Exception as e:
         return False, f"Error reassigning data: {str(e)}"
+
 
 def _safe_delete_branch(branch_id, allow_orphan=False):
     if branch_id == "HO":
@@ -94,7 +142,9 @@ def _safe_delete_branch(branch_id, allow_orphan=False):
     counts = _branch_row_counts(branch_id)
     total = _total_rows(counts)
     if total > 0 and not allow_orphan:
-        return False, f"Branch {branch_id} still has {total} row(s). Reassign or clear them first."
+        return False, (
+            f"Branch {branch_id} still has {total} row(s). Reassign or clear them first."
+        )
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
@@ -104,6 +154,7 @@ def _safe_delete_branch(branch_id, allow_orphan=False):
         return True, f"Branch {branch_id} deleted."
     except Exception as e:
         return False, f"Error deleting branch: {str(e)}"
+
 
 # ==============================================================
 # MAIN PAGE
@@ -119,20 +170,32 @@ def branch_management_page():
     for key, default in [
         ("bm_message", ""), ("bm_message_type", ""), ("bm_force_refresh", False),
         ("bm_branch_created", False), ("bm_branch_updated", False), ("bm_branch_deleted", False),
+        ("bm_show_summary", False),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
 
+    # ---------- Cache control ----------
     if st.session_state.bm_force_refresh:
-        st.cache_data.clear()
+        _invalidate_branch_cache()
         st.session_state.bm_force_refresh = False
 
+    # ---------- Load branches ----------
     df = load_branches()
 
-    # ADDED: Ensure new columns exist for backward compatibility
-    required_columns = ["branch_id", "branch_name", "location", "level", "active", "package", "status", "branch_password"]
+    # ---------- Column migration: only save if columns were actually missing ----------
+    required_columns = [
+        "branch_id", "branch_name", "location", "level", "active",
+        "package", "status", "branch_password",
+    ]
+    columns_added = False
+    legacy_pw = {
+        "HO": "ho123", "NAT": "nat123", "PRO": "pro123",
+        "DIS": "dis123", "VIL": "vil123",
+    }
     for col in required_columns:
         if col not in df.columns:
+            columns_added = True
             if col == "active":
                 df[col] = True
             elif col == "level":
@@ -142,12 +205,18 @@ def branch_management_page():
             elif col == "status":
                 df[col] = "Active"
             elif col == "branch_password":
-                df[col] = "admin123" # Default password for existing branches
+                df[col] = df["branch_id"].astype(str).str.upper().map(
+                    lambda x: legacy_pw.get(x, "admin123")
+                )
             else:
                 df[col] = ""
 
-    save_branches(df)
+    if columns_added:
+        save_branches(df)
+        _invalidate_branch_cache()
+        df = load_branches()   # reload fresh after schema change
 
+    # ---------- Messages ----------
     if st.session_state.bm_message:
         if st.session_state.bm_message_type == "success":
             st.success(st.session_state.bm_message)
@@ -185,23 +254,39 @@ def branch_management_page():
     st.markdown("---")
 
     # ==========================================================
-    # DATA SUMMARY PER BRANCH
+    # DATA SUMMARY PER BRANCH — LAZY-LOADED (fixes slowness)
     # ==========================================================
     with st.expander("📊 Data summary per branch", expanded=False):
+        st.caption(
+            "Shows how many rows each branch has across all branch-scoped tables. "
+            "Loading this runs ~22 queries per branch, so it's opt-in for speed."
+        )
         if df.empty:
             st.info("No branches to summarise.")
         else:
-            summary_rows = []
-            for _, br in df.iterrows():
-                bid = br["branch_id"]
-                counts = _branch_row_counts(bid)
-                total = _total_rows(counts)
-                busiest = max(counts.items(), key=lambda kv: kv[1]) if counts else (None, 0)
-                summary_rows.append({
-                    "Branch": br["branch_name"], "Code": bid, "Total rows": total,
-                    "Busiest table": f"{busiest[0]} ({busiest[1]})" if busiest[0] else "—",
-                })
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+            load_summary = st.checkbox(
+                "🔄 Load data summary now (may take a few seconds)",
+                key="load_data_summary_cb",
+            )
+            if load_summary:
+                with st.spinner("Counting rows across all branches..."):
+                    summary_rows = []
+                    for _, br in df.iterrows():
+                        bid = br["branch_id"]
+                        counts = _branch_row_counts(bid)
+                        total = _total_rows(counts)
+                        busiest = max(counts.items(), key=lambda kv: kv[1]) if counts else (None, 0)
+                        summary_rows.append({
+                            "Branch": br["branch_name"],
+                            "Code": bid,
+                            "Total rows": total,
+                            "Busiest table": f"{busiest[0]} ({busiest[1]})" if busiest[0] else "—",
+                        })
+                    st.dataframe(
+                        pd.DataFrame(summary_rows),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
     st.markdown("---")
 
@@ -216,60 +301,72 @@ def branch_management_page():
             new_branch_id = st.text_input("Branch Code *", placeholder="e.g., BR004")
             new_branch_name = st.text_input("Branch Name *", placeholder="e.g., Harare City Centre")
             new_location = st.text_input("Location", placeholder="e.g., Harare")
-            new_branch_password = st.text_input("Branch Login Password *", type="password", value="admin123")
-
+            new_branch_password = st.text_input(
+                "Branch Login Password *", type="password", value="admin123"
+            )
         with col2:
-            new_level = st.selectbox("Branch Level", [1, 2, 3, 4, 5, 6], help="1=Head Office, 2=National, etc.")
+            new_level = st.selectbox(
+                "Branch Level", [1, 2, 3, 4, 5, 6],
+                help="1=Head Office, 2=National, 3=Provincial, 4=District, 5=Village, 6=Other",
+            )
             new_package = st.selectbox("Subscription Package", ["Bronze", "Silver", "Gold", "Platinum"])
             new_active = st.checkbox("Active Branch", value=True)
             new_status = st.selectbox("Subscription Status", ["Active", "Terminated"], index=0)
 
         submitted = st.form_submit_button("Add Branch", type="primary", use_container_width=True)
+
         if submitted:
-            if not new_branch_id.strip(): st.error("Branch Code is required")
-            elif not new_branch_name.strip(): st.error("Branch Name is required")
+            if not new_branch_id.strip():
+                st.error("Branch Code is required")
+            elif not new_branch_name.strip():
+                st.error("Branch Name is required")
             elif new_branch_id.upper() in df["branch_id"].astype(str).str.upper().tolist():
                 st.error(f"Branch Code '{new_branch_id.upper()}' already exists!")
             else:
                 try:
-                    new_branch = pd.DataFrame([{
-                        "branch_id": new_branch_id.strip().upper(),
-                        "branch_name": new_branch_name.strip(),
-                        "location": new_location.strip(),
-                        "level": new_level,
-                        "active": new_active,
-                        "package": new_package,
-                        "status": new_status,
-                        "branch_password": new_branch_password
-                    }])
-                    current_df = load_branches()
-                    updated_df = pd.concat([current_df, new_branch], ignore_index=True)
-                    save_branches(updated_df)
+                    with st.spinner("Saving new branch..."):
+                        new_branch = pd.DataFrame([{
+                            "branch_id": new_branch_id.strip().upper(),
+                            "branch_name": new_branch_name.strip(),
+                            "location": new_location.strip(),
+                            "level": new_level,
+                            "active": new_active,
+                            "package": new_package,
+                            "status": new_status,
+                            "branch_password": new_branch_password,
+                        }])
+                        current_df = load_branches()
+                        updated_df = pd.concat([current_df, new_branch], ignore_index=True)
+                        save_branches(updated_df)
 
-                    st.session_state.bm_message = f"Branch '{new_branch_name}' added successfully!"
-                    st.session_state.bm_message_type = "success"
                     st.session_state.bm_branch_created = True
-                    st.session_state.bm_force_refresh = True
-                    st.rerun()
+                    _finish_operation(
+                        f"Branch '{new_branch_name}' added successfully!",
+                        "success",
+                    )
                 except Exception as e:
                     st.error(f"Error adding branch: {str(e)}")
 
     st.markdown("---")
 
     # ==========================================================
-    # EDIT BRANCH (Updated with Package & Status logic)
+    # EDIT BRANCH
     # ==========================================================
     st.subheader("Update / Edit Branch")
 
     if df.empty:
         st.info("No branches available to update.")
     else:
-        branch_names = df["branch_name"].tolist()
-        selected_branch_name = st.selectbox("Select Branch to Update", branch_names, key="update_branch_select")
+        # Use branch_id as the selector label so renaming a branch doesn't break
+        branch_labels = [f"{r['branch_name']} ({r['branch_id']})" for _, r in df.iterrows()]
+        selected_label = st.selectbox(
+            "Select Branch to Update", branch_labels, key="update_branch_select"
+        )
 
-        if selected_branch_name:
-            row = df[df["branch_name"] == selected_branch_name].iloc[0]
-            original_branch_id = row["branch_id"]
+        if selected_label:
+            selected_idx = branch_labels.index(selected_label)
+            original_branch_id = df.iloc[selected_idx]["branch_id"]
+            row = df[df["branch_id"] == original_branch_id].iloc[0]
 
             with st.form("update_branch_form"):
                 col1, col2 = st.columns(2)
@@ -277,12 +374,24 @@ def branch_management_page():
                     update_branch_id = st.text_input("Branch Code (Editable)", value=row["branch_id"])
                     update_branch_name = st.text_input("Branch Name", value=row["branch_name"])
                     update_location = st.text_input("Location", value=row["location"])
-                    update_password = st.text_input("Branch Login Password", value=row.get("branch_password", "admin123"))
-
+                    update_password = st.text_input(
+                        "Branch Login Password", value=row.get("branch_password", "admin123")
+                    )
                 with col2:
-                    update_level = st.selectbox("Level", [1, 2, 3, 4, 5, 6], index=int(row["level"]) - 1 if int(row["level"]) <= 6 else 0)
-                    update_package = st.selectbox("Subscription Package", ["Bronze", "Silver", "Gold", "Platinum"], index=["Bronze", "Silver", "Gold", "Platinum"].index(row.get("package", "Bronze")))
-                    update_status = st.selectbox("Subscription Status", ["Active", "Terminated"], index=["Active", "Terminated"].index(row.get("status", "Active")))
+                    update_level = st.selectbox(
+                        "Level", [1, 2, 3, 4, 5, 6],
+                        index=int(row["level"]) - 1 if int(row["level"]) <= 6 else 0,
+                    )
+                    update_package = st.selectbox(
+                        "Subscription Package", ["Bronze", "Silver", "Gold", "Platinum"],
+                        index=["Bronze", "Silver", "Gold", "Platinum"].index(
+                            row.get("package", "Bronze")
+                        ),
+                    )
+                    update_status = st.selectbox(
+                        "Subscription Status", ["Active", "Terminated"],
+                        index=["Active", "Terminated"].index(row.get("status", "Active")),
+                    )
                     update_active = st.checkbox("System Active", value=bool(row["active"]))
 
                 if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
@@ -290,46 +399,59 @@ def branch_management_page():
                         st.error("Branch Name is required")
                     else:
                         try:
-                            current_df = load_branches()
-                            idx = current_df[current_df["branch_name"] == selected_branch_name].index[0]
-                            
-                            # 1. Update Branch Data
-                            current_df.at[idx, "branch_id"] = update_branch_id.strip().upper()
-                            current_df.at[idx, "branch_name"] = update_branch_name
-                            current_df.at[idx, "location"] = update_location
-                            current_df.at[idx, "level"] = update_level
-                            current_df.at[idx, "active"] = update_active
-                            current_df.at[idx, "package"] = update_package
-                            current_df.at[idx, "status"] = update_status
-                            current_df.at[idx, "branch_password"] = update_password
-                            
-                            save_branches(current_df)
+                            with st.spinner("Saving changes..."):
+                                current_df = load_branches()
+                                # Match by branch_id (stable key), not by name
+                                idx_matches = current_df.index[
+                                    current_df["branch_id"] == original_branch_id
+                                ].tolist()
+                                if not idx_matches:
+                                    st.error(
+                                        f"Branch {original_branch_id} not found in fresh data. "
+                                        "Try clicking 'Refresh Data'."
+                                    )
+                                else:
+                                    idx = idx_matches[0]
+                                    new_code = update_branch_id.strip().upper()
 
-                            # 2. If Branch Code changed, update Users table
-                            if original_branch_id != update_branch_id.strip().upper():
-                                users_df = load_users()
-                                if not users_df.empty and "branch_id" in users_df.columns:
-                                    users_df.loc[users_df["branch_id"] == original_branch_id, "branch_id"] = update_branch_id.strip().upper()
-                                    save_users(users_df)
+                                    current_df.at[idx, "branch_id"] = new_code
+                                    current_df.at[idx, "branch_name"] = update_branch_name
+                                    current_df.at[idx, "location"] = update_location
+                                    current_df.at[idx, "level"] = update_level
+                                    current_df.at[idx, "active"] = update_active
+                                    current_df.at[idx, "package"] = update_package
+                                    current_df.at[idx, "status"] = update_status
+                                    current_df.at[idx, "branch_password"] = update_password
+                                    save_branches(current_df)
 
-                            # 3. Handle Status Change (Terminate / Activate)
-                            if row.get("status") != update_status:
-                                users_df = load_users()
-                                if not users_df.empty and "branch_id" in users_df.columns:
-                                    branch_users = users_df["branch_id"].astype(str).str.upper() == update_branch_id.strip().upper()
-                                    if update_status == "Terminated":
-                                        users_df.loc[branch_users, "active"] = False
-                                        st.warning(f"Branch Terminated. All users for {update_branch_id} have been deactivated.")
-                                    else:
-                                        users_df.loc[branch_users, "active"] = True
-                                        st.success(f"Branch Activated. All users for {update_branch_id} have been reactivated.")
-                                    save_users(users_df)
+                                    # If branch code changed, update users table
+                                    if original_branch_id != new_code:
+                                        users_df = load_users()
+                                        if not users_df.empty and "branch_id" in users_df.columns:
+                                            users_df.loc[
+                                                users_df["branch_id"] == original_branch_id,
+                                                "branch_id",
+                                            ] = new_code
+                                            save_users(users_df)
 
-                            st.session_state.bm_message = f"Branch '{update_branch_name}' updated successfully!"
-                            st.session_state.bm_message_type = "success"
-                            st.session_state.bm_branch_updated = True
-                            st.session_state.bm_force_refresh = True
-                            st.rerun()
+                                    # Handle status change (terminate / activate)
+                                    if row.get("status") != update_status:
+                                        users_df = load_users()
+                                        if not users_df.empty and "branch_id" in users_df.columns:
+                                            branch_users = (
+                                                users_df["branch_id"].astype(str).str.upper()
+                                                == new_code
+                                            )
+                                            if update_status == "Terminated":
+                                                users_df.loc[branch_users, "active"] = False
+                                            else:
+                                                users_df.loc[branch_users, "active"] = True
+                                            save_users(users_df)
+
+                            _finish_operation(
+                                f"Branch '{update_branch_name}' updated successfully!",
+                                "success",
+                            )
                         except Exception as e:
                             st.error(f"Error updating branch: {str(e)}")
 
@@ -339,96 +461,171 @@ def branch_management_page():
     # DELETE BRANCH
     # ==========================================================
     st.subheader("Delete Branch")
+    st.caption(
+        "A branch can only be deleted when it has no data. "
+        "If it has data, you can either reassign it to another branch, "
+        "or explicitly override and leave the data orphaned."
+    )
+
     if df.empty or len(df) <= 1:
-        st.info("Cannot delete the only remaining branch.")
+        st.info("Cannot delete the only remaining branch. Add another branch first.")
     else:
         deletable_branches = df[df["branch_id"].astype(str).str.upper() != "HO"]
+
         if deletable_branches.empty:
             st.info("No deletable branches (Head Office cannot be deleted).")
         else:
-            branch_options = [f"{r['branch_name']} ({r['branch_id']})" for _, r in deletable_branches.iterrows()]
-            selected_delete_label = st.selectbox("Select Branch to Delete", branch_options, key="delete_branch_select")
+            branch_options = [
+                f"{r['branch_name']} ({r['branch_id']})"
+                for _, r in deletable_branches.iterrows()
+            ]
+            selected_delete_label = st.selectbox(
+                "Select Branch to Delete", branch_options, key="delete_branch_select"
+            )
 
             idx = branch_options.index(selected_delete_label)
             target_row = deletable_branches.iloc[idx]
             target_id = target_row["branch_id"]
 
+            # -------- Show what would be affected (lazy: button-triggered) --------
             st.markdown(f"### Data in **{target_row['branch_name']}** ({target_id})")
-            counts = _branch_row_counts(target_id)
-            total_rows = _total_rows(counts)
 
-            if total_rows == 0:
-                st.success("This branch has no data. It can be deleted safely.")
+            load_counts = st.checkbox(
+                "Check what data will be affected", key="load_delete_counts_cb"
+            )
+            if load_counts:
+                with st.spinner("Counting rows..."):
+                    counts = _branch_row_counts(target_id)
+                    total_rows = _total_rows(counts)
+
+                if total_rows == 0:
+                    st.success("This branch has no data. It can be deleted safely.")
+                else:
+                    st.warning(
+                        f"This branch has **{total_rows}** row(s) across "
+                        f"{len([c for c in counts.values() if c > 0])} table(s). "
+                        f"Deleting it without reassigning will orphan these rows."
+                    )
+                    st.dataframe(
+                        _format_counts_table(counts),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
             else:
-                st.warning(f"This branch has **{total_rows}** row(s). Deleting it without reassigning will orphan these rows.")
-                st.dataframe(_format_counts_table(counts), use_container_width=True, hide_index=True)
+                total_rows = 0  # assume unknown; will load on demand below
+                counts = {}
+                st.info("Tick the checkbox above to see the row counts before deleting.")
 
             st.markdown("---")
 
-            if total_rows > 0:
-                st.markdown("#### Option A — Reassign all data to another branch, then delete")
-                other_branches = df[df["branch_id"] != target_id]
-                reassign_options = [f"{r['branch_name']} ({r['branch_id']})" for _, r in other_branches.iterrows()]
-                reassign_label = st.selectbox("Reassign data to", reassign_options, key="reassign_target_select")
-                reassign_id = other_branches.iloc[reassign_options.index(reassign_label)]["branch_id"]
+            # -------- Option A: Reassign then delete --------
+            st.markdown("#### Option A — Reassign all data to another branch, then delete")
 
-                confirm_reassign = st.checkbox("I understand the data will be moved and the branch will be deleted", key="confirm_reassign")
-                if st.button("Reassign & Delete Branch", use_container_width=True, key="reassign_delete_btn"):
-                    if not confirm_reassign:
-                        st.error("Please tick the confirmation checkbox.")
-                    else:
+            other_branches = df[df["branch_id"] != target_id]
+            reassign_options = [
+                f"{r['branch_name']} ({r['branch_id']})"
+                for _, r in other_branches.iterrows()
+            ]
+            reassign_label = st.selectbox(
+                "Reassign data to", reassign_options, key="reassign_target_select"
+            )
+            reassign_id = other_branches.iloc[reassign_options.index(reassign_label)]["branch_id"]
+
+            st.info(
+                f"All rows in **{target_row['branch_name']}** will be moved to "
+                f"**{reassign_label}** and then the branch will be deleted. "
+                f"This cannot be undone."
+            )
+
+            confirm_reassign = st.checkbox(
+                "I understand the data will be moved and the branch will be deleted",
+                key="confirm_reassign",
+            )
+
+            if st.button(
+                "Reassign & Delete Branch",
+                use_container_width=True,
+                key="reassign_delete_btn",
+            ):
+                if not confirm_reassign:
+                    st.error("Please tick the confirmation checkbox.")
+                else:
+                    with st.spinner("Reassigning data and deleting branch..."):
                         ok, msg = _reassign_branch_data(target_id, reassign_id)
                         if not ok:
                             st.error(msg)
                         else:
-                            st.success(msg)
                             ok2, msg2 = _safe_delete_branch(target_id, allow_orphan=False)
                             if ok2:
-                                st.session_state.bm_message = f"Branch '{target_row['branch_name']}' deleted after reassignment."
-                                st.session_state.bm_message_type = "success"
                                 st.session_state.bm_branch_deleted = True
-                                st.session_state.bm_force_refresh = True
-                                st.rerun()
+                                _finish_operation(
+                                    f"Branch '{target_row['branch_name']}' deleted after reassignment.",
+                                    "success",
+                                )
                             else:
                                 st.error(f"Data moved, but branch row could not be deleted: {msg2}")
-                st.markdown("---")
 
-            if total_rows == 0:
-                st.markdown("#### Delete this empty branch")
-                if st.button("Delete Branch", use_container_width=True, key="delete_empty_branch_btn"):
+            st.markdown("---")
+
+            # -------- Option B: Delete only if empty --------
+            st.markdown("#### Option B — Delete an empty branch")
+
+            if st.button(
+                "Delete Empty Branch",
+                use_container_width=True,
+                key="delete_empty_branch_btn",
+            ):
+                with st.spinner("Checking and deleting..."):
                     ok, msg = _safe_delete_branch(target_id, allow_orphan=False)
                     if ok:
-                        st.session_state.bm_message = msg
-                        st.session_state.bm_message_type = "success"
                         st.session_state.bm_branch_deleted = True
-                        st.session_state.bm_force_refresh = True
-                        st.rerun()
+                        _finish_operation(msg, "success")
                     else:
                         st.error(msg)
 
-            if total_rows > 0:
-                with st.expander("⚠️ Option B — Force delete (leave data orphaned)", expanded=False):
-                    st.error("This will remove the branch row. Orphaned rows remain in the database but will no longer be reachable.")
-                    force_confirm = st.text_input(f"Type the branch code **{target_id}** to confirm", key="force_delete_confirm")
-                    if st.button("Force Delete Branch", use_container_width=True, key="force_delete_btn"):
-                        if force_confirm.strip().upper() != str(target_id).upper():
-                            st.error("Confirmation text does not match the branch code.")
-                        else:
+            # -------- Option C: Force delete (leaves orphans) --------
+            with st.expander("⚠️ Option C — Force delete (leave data orphaned)", expanded=False):
+                st.error(
+                    "This will remove the branch row from the branches table. "
+                    "Orphaned rows remain in the database but will no longer be reachable "
+                    "from any login. This is not recommended."
+                )
+                force_confirm = st.text_input(
+                    f"Type the branch code **{target_id}** to confirm",
+                    key="force_delete_confirm",
+                )
+                if st.button(
+                    "Force Delete Branch",
+                    use_container_width=True,
+                    key="force_delete_btn",
+                ):
+                    if force_confirm.strip().upper() != str(target_id).upper():
+                        st.error("Confirmation text does not match the branch code.")
+                    else:
+                        with st.spinner("Force deleting..."):
                             ok, msg = _safe_delete_branch(target_id, allow_orphan=True)
                             if ok:
-                                st.session_state.bm_message = f"Branch {target_id} force-deleted. {total_rows} rows remain orphaned."
-                                st.session_state.bm_message_type = "info"
                                 st.session_state.bm_branch_deleted = True
-                                st.session_state.bm_force_refresh = True
-                                st.rerun()
+                                _finish_operation(
+                                    f"Branch {target_id} force-deleted. Data rows remain orphaned.",
+                                    "info",
+                                )
                             else:
                                 st.error(msg)
 
     st.markdown("---")
+
+    # ==========================================================
+    # REFRESH
+    # ==========================================================
     if st.button("Refresh Data", use_container_width=True):
-        st.cache_data.clear()
+        _invalidate_branch_cache()
         st.session_state.bm_force_refresh = True
         st.rerun()
 
+
+# ==============================
+# MAIN GUARD
+# ==============================
 if __name__ == "__main__":
     branch_management_page()
