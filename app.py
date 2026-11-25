@@ -1,4 +1,4 @@
-# app.py - COMPLETE FIXED VERSION
+# app.py - COMPLETE FIXED VERSION WITH DYNAMIC BRANCH & PACKAGE SUPPORT
 import os
 os.environ['TZ'] = 'Africa/Harare'
 try:
@@ -21,18 +21,18 @@ def navigate_to(page):
     st.rerun()
 
 # ==============================
-# SESSION TIMEOUT - FIXED (No window.location.href)
+# SESSION TIMEOUT - FIXED
 # ==============================
 def check_session_timeout():
     """Check session timeout using Streamlit's native method"""
     if "last_activity" in st.session_state:
         idle_time = (datetime.now() - st.session_state.last_activity).seconds
         if idle_time > 7200:  # 2 hours
-            # Clear session without using window.location.href
             for key in list(st.session_state.keys()):
                 if key not in ["branch_selected", "branch_authenticated", "current_branch",
                                "user_branch", "current_branch_code", "current_branch_name",
-                               "current_theme", "auto_switch_theme", "welcome_seen"]:
+                               "current_theme", "auto_switch_theme", "welcome_seen",
+                               "branch_package"]: # Added branch_package to keep
                     try:
                         del st.session_state[key]
                     except:
@@ -50,7 +50,6 @@ import sys
 # ERROR HANDLING WRAPPER
 # ==============================
 def safe_execute(func, *args, **kwargs):
-    """Safely execute a function with error handling"""
     try:
         return func(*args, **kwargs)
     except Exception as e:
@@ -95,7 +94,15 @@ from backend.core.db_adapter import (
 
 from backend.core.auth import init_users, check_login, can_access_feature, get_user_permissions
 from backend.core.branch_manager import branch_selector, get_current_branch, set_user_branch
-from backend.core.branch_auth import branch_selection_page, get_current_branch as get_branch_code, BRANCHES
+# UPDATED IMPORT: Added get_branch_info, is_branch_active, get_branch_display_name
+from backend.core.branch_auth import (
+    branch_selection_page, 
+    get_current_branch as get_branch_code, 
+    BRANCHES,
+    get_branch_info,
+    is_branch_active,
+    get_branch_display_name
+)
 from backend.core.role_based_menu import get_visible_modules, get_navigation_menu
 from backend.core.theme_manager import (
     apply_theme, 
@@ -286,6 +293,7 @@ if "logged_in" not in st.session_state:
     st.session_state.current_page = "Stock Dashboard"
     st.session_state.last_activity = datetime.now()
     st.session_state.modules_debug = False
+    st.session_state.branch_package = "Bronze" # ADDED
 
 if "current_theme" not in st.session_state:
     try:
@@ -304,7 +312,7 @@ if st.session_state.logged_in:
     check_session_timeout()
 
 # ==============================
-# BRANCH SELECTION PAGE
+# BRANCH SELECTION PAGE - UPDATED
 # ==============================
 def branch_login_page():
     """Page for selecting and authenticating branch"""
@@ -341,26 +349,42 @@ def branch_login_page():
                 try:
                     if branch_code and branch_password:
                         branch_code_upper = branch_code.upper()
-                        if branch_code_upper in BRANCHES:
-                            if BRANCHES[branch_code_upper]["password"] == branch_password:
-                                # Clear any stale branch keys first
-                                for stale_key in ("user_branch", "current_branch", "current_branch_code", "current_branch_name"):
-                                    st.session_state.pop(stale_key, None)
+                        
+                        # Fetch dynamic branch info
+                        branch_info = get_branch_info(branch_code_upper)
+                        
+                        if branch_info:
+                            if branch_info["password"] == branch_password:
+                                # Check if Terminated
+                                if branch_info.get("status", "Active") != "Active":
+                                    st.error("This branch's subscription has been terminated. Please contact Aziel Investments.")
+                                    try:
+                                        show_toast("Subscription Terminated", "error")
+                                    except:
+                                        pass
+                                else:
+                                    # Clear any stale branch keys first
+                                    for stale_key in ("user_branch", "current_branch", "current_branch_code", "current_branch_name", "branch_package"):
+                                        st.session_state.pop(stale_key, None)
 
-                                st.session_state.branch_selected = True
-                                st.session_state.branch_authenticated = True
-                                st.session_state.current_branch = branch_code_upper
-                                st.session_state.branch_name = BRANCHES[branch_code_upper]["name"]
-                                st.session_state.user_branch = branch_code_upper
-                                st.session_state.current_branch_code = branch_code_upper
-                                st.session_state.current_branch_name = BRANCHES[branch_code_upper]["name"]
-                                set_current_branch(branch_code_upper)
-                                st.success("Access granted")
-                                try:
-                                    show_toast("Branch access granted successfully!", "success")
-                                except:
-                                    pass
-                                st.rerun()
+                                    st.session_state.branch_selected = True
+                                    st.session_state.branch_authenticated = True
+                                    st.session_state.current_branch = branch_code_upper
+                                    st.session_state.branch_name = branch_info["name"]
+                                    st.session_state.user_branch = branch_code_upper
+                                    st.session_state.current_branch_code = branch_code_upper
+                                    st.session_state.current_branch_name = branch_info["name"]
+                                    
+                                    # SAVE PACKAGE TO SESSION
+                                    st.session_state.branch_package = branch_info.get("package", "Bronze")
+                                    
+                                    set_current_branch(branch_code_upper)
+                                    st.success("Access granted")
+                                    try:
+                                        show_toast("Branch access granted successfully!", "success")
+                                    except:
+                                        pass
+                                    st.rerun()
                             else:
                                 st.error("Invalid branch password")
                                 try:
@@ -400,7 +424,7 @@ def login_page():
     with col2:
         try:
             current_branch = st.session_state.get("current_branch_code", "HO")
-            branch_name = BRANCHES.get(current_branch, {}).get("name", "Unknown")
+            branch_name = get_branch_display_name(current_branch)
         except Exception as e:
             print(f"Error getting branch info: {e}")
             branch_name = "Unknown"
@@ -470,16 +494,13 @@ def login_page():
                     print(traceback.format_exc())
 
 # ==============================
-# MAIN APP - FLAT ALPHABETICAL NAVIGATION - FIXED
+# MAIN APP - DYNAMIC PACKAGE NAVIGATION
 # ==============================
 def main_app():
-    # ==============================
-    # SESSION TIMEOUT - Already handled above
-    # ==============================
     st.session_state.last_activity = datetime.now()
 
     # ==============================
-    # LIGHTWEIGHT LOW-STOCK CHECK (replaces background thread)
+    # LIGHTWEIGHT LOW-STOCK CHECK
     # ==============================
     try:
         now = datetime.now()
@@ -494,27 +515,32 @@ def main_app():
         print(f"Stock check wrapper error: {e}")
     
     # ==============================
-    # BRANCH GUARD
-    # Every non-owner / non-manager / non-admin user must have a branch
-    # bound to the session.
+    # BRANCH GUARD & TERMINATION CHECK
     # ==============================
     role = st.session_state.get("role", "cashier")
     session_branch = (
         st.session_state.get("current_branch_code")
         or st.session_state.get("user_branch")
     )
+    branch_package = st.session_state.get("branch_package", "Bronze")
+
+    # If the branch is not active, kick them out immediately
+    if role != "owner" and session_branch:
+        if not is_branch_active(session_branch):
+            st.error("Your branch subscription has been terminated. Logging out...")
+            st.session_state.logged_in = False
+            st.session_state.branch_selected = False
+            st.session_state.branch_authenticated = False
+            st.rerun()
+            return
 
     if role not in ("owner", "manager", "admin") and not session_branch:
-        st.error(
-            "Your session is not linked to a branch. "
-            "Please log in again."
-        )
+        st.error("Your session is not linked to a branch. Please log in again.")
         st.session_state.logged_in = False
         st.session_state.branch_selected = False
         st.session_state.branch_authenticated = False
         st.rerun()
         return
-    # ------------------------------
 
     # ==============================
     # PWA META TAGS
@@ -533,7 +559,7 @@ def main_app():
         or "HO"
     )
     try:
-        branch_name = BRANCHES.get(current_branch, {}).get("name", "Unknown")
+        branch_name = get_branch_display_name(current_branch)
     except:
         branch_name = "Unknown"
     
@@ -577,12 +603,11 @@ def main_app():
     # ==============================
     # SIDEBAR
     # ==============================
-    
     st.sidebar.markdown(f"""
     <div style='background: linear-gradient(135deg, #006400 0%, #FFD700 50%, #FF0000 100%); 
                 border-radius: 10px; padding: 10px; text-align: center; color: white;'>
         <strong>{branch_name}</strong><br>
-        <small>Code: {current_branch}</small>
+        <small>Code: {current_branch} | Pkg: {branch_package}</small>
     </div>
     """, unsafe_allow_html=True)
     
@@ -599,17 +624,18 @@ def main_app():
     st.sidebar.markdown("---")
     
     # ==============================
-    # FLAT ALPHABETICAL NAVIGATION
+    # FLAT ALPHABETICAL NAVIGATION (FILTERED BY PACKAGE)
     # ==============================
     try:
-        all_items = get_visible_modules(role)
+        # UPDATED: Passing branch_package to filter modules
+        all_items = get_visible_modules(role, branch_package)
         
         exclude = ["Customer App", "Customer Insights"]
         all_items = [item for item in all_items if item not in exclude]
         
         all_items = sorted(all_items)
         
-        st.sidebar.write(f"📊 {len(all_items)} modules loaded")
+        st.sidebar.write(f"📊 {len(all_items)} modules available")
         
     except Exception as e:
         st.error(f"Error loading navigation: {str(e)}")
@@ -645,9 +671,7 @@ def main_app():
             st.session_state.branch_authenticated = False
             st.session_state.logged_in = False
             st.session_state.welcome_seen = False
-            # Clear the stale branch keys so the next branch-selection
-            # screen writes clean values.
-            for key in ("user_branch", "current_branch", "current_branch_code", "current_branch_name"):
+            for key in ("user_branch", "current_branch", "current_branch_code", "current_branch_name", "branch_package"):
                 st.session_state.pop(key, None)
             st.rerun()
         except Exception as e:
@@ -659,12 +683,7 @@ def main_app():
     
     if st.sidebar.button("Logout", key="logout_sidebar", use_container_width=True):
         try:
-            # Preserve only session-lifetime-independent keys. Do NOT preserve
-            # branch keys — they must be re-set on next login.
-            keys_to_keep = [
-                "current_theme",
-                "auto_switch_theme",
-            ]
+            keys_to_keep = ["current_theme", "auto_switch_theme"]
             for key in list(st.session_state.keys()):
                 if key not in keys_to_keep:
                     try:
@@ -698,6 +717,7 @@ def main_app():
 
     # Route to appropriate page with error handling
     try:
+        # (Routing logic remains exactly the same)
         # ================= ACCOUNTING =================
         if page == "Accounting Sync":
             if can_access_feature(role, "accounting_sync") or role in ["owner", "manager"]:

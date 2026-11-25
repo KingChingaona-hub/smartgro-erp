@@ -1,10 +1,6 @@
 # backend/core/role_based_menu.py
-# Role-driven navigation and badge counts.
-#
-# Two data reads happen here — low-stock and pending-purchase counts used
-# as badges on sidebar buttons. Both are now branch-scoped: they read from
-# the session branch via get_current_branch(). Owners/managers can still
-# see the badges for the branch they are currently signed into.
+# UPDATED: Added Package Modules filtering. 
+# Access = (User Role Permissions) INTERSECT (Branch Subscription Package).
 
 import streamlit as st
 from backend.core.auth import can_access_feature
@@ -14,6 +10,75 @@ from backend.core.db_adapter import (
     get_current_branch,
     load_branches,
 )
+
+# ============================================================
+# PACKAGE MODULE MAPPING
+# ============================================================
+PACKAGE_MODULES = {
+    "Bronze": [
+        # Sales & POS
+        "POS", "Sales History",
+        # Stock Management
+        "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
+        # Purchases & Expenses
+        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
+        # Income & Cash
+        "Income", "Income Dashboard", "Cash Dashboard",
+        # Credit
+        "Debtors", "Debtors Dashboard",
+        # Store Ops
+        "Shift Management", "Documents",
+        # Security
+        "User Management"
+    ],
+    "Silver": [
+        # All Bronze
+        "POS", "Sales History", "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
+        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
+        "Income", "Income Dashboard", "Cash Dashboard", "Debtors", "Debtors Dashboard",
+        "Shift Management", "Documents", "User Management",
+        # Silver Additions
+        "Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
+        "Reports Dashboard", "Floating Financials", "P&L", "Duplicate Products",
+        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management"
+    ],
+    "Gold": [
+        # All Silver
+        "POS", "Sales History", "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
+        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
+        "Income", "Income Dashboard", "Cash Dashboard", "Debtors", "Debtors Dashboard",
+        "Shift Management", "Documents", "User Management",
+        "Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
+        "Reports Dashboard", "Floating Financials", "P&L", "Duplicate Products",
+        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management",
+        # Gold Additions
+        "Customer 360 View", "Customer Insights 360",
+        "Supplier Bidding", "Supplier Bidding Portal", "Smart Replenishment", "Inventory Optimizer",
+        "Financial Closing", "Profit Center Analysis",
+        "Automated Follow-up", "Workflow Approvals",
+        "Live Dashboard", "Payment Gateway", "SMS Gateway", "E-commerce Sync"
+    ],
+    "Platinum": [
+        # All Gold
+        "POS", "Sales History", "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
+        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
+        "Income", "Income Dashboard", "Cash Dashboard", "Debtors", "Debtors Dashboard",
+        "Shift Management", "Documents", "User Management",
+        "Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
+        "Reports Dashboard", "Floating Financials", "P&L", "Duplicate Products",
+        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management",
+        "Customer 360 View", "Customer Insights 360",
+        "Supplier Bidding", "Supplier Bidding Portal", "Smart Replenishment", "Inventory Optimizer",
+        "Financial Closing", "Profit Center Analysis",
+        "Automated Follow-up", "Workflow Approvals",
+        "Live Dashboard", "Payment Gateway", "SMS Gateway", "E-commerce Sync",
+        # Platinum Additions
+        "Predictive Analytics", "Demand Forecasting", "Churn Prediction", "Recommendation Engine",
+        "Anomaly Detection", "Automated Insights", "Competitor Price Monitoring", "Business Advisor",
+        "Accounting Sync", "API Developer", "Multi-Tenant", "White Label", "Voice Commands",
+        "Branch Management", "Branch Performance", "Security Dashboard", "Settings"
+    ]
+}
 
 
 # ==============================
@@ -35,161 +100,27 @@ def _branch_label(branch_id=None):
             match = bdf[bdf["branch_id"].astype(str).str.upper() == branch_id]
             if not match.empty:
                 name = match.iloc[0].get("branch_name", "")
+                pkg = match.iloc[0].get("package", "Unknown")
                 if name:
-                    return f"{name} ({branch_id})"
+                    return f"{name} ({branch_id}) - {pkg} Tier"
     except Exception:
         pass
     return branch_id
 
 
-def _get_permission_key(item):
-    """Helper function to map menu items to permission keys"""
-
-    # NEW DATA SCIENCE MODULES
-    if item == "Anomaly Detection":
-        return "anomaly_detection"
-    elif item == "Automated Insights":
-        return "automated_insights"
-    elif item == "Churn Prediction":
-        return "churn_prediction"
-    elif item == "Inventory Optimizer":
-        return "inventory_optimizer"
-    elif item == "Recommendation Engine":
-        return "recommendation_engine"
-
-    # FLOATING FINANCIALS
-    elif item == "Floating Financials":
-        return "floating_financials"
-
-    # Existing mappings
-    elif item == "Branch Management":
-        return "branch_management"
-    elif item == "Branch Performance":
-        return "branch_performance"
-    elif item == "User Management":
-        return "user_management"
-    elif item == "Shift Management":
-        return "shift_management"
-    elif item == "Settings":
-        return "settings"
-    elif item == "Mobile Dashboard":
-        return "mobile_dashboard"
-    elif item == "Demand Forecasting":
-        return "demand_forecasting"
-    elif item == "Live Dashboard":
-        return "live_dashboard"
-    elif item == "Barcode Generator":
-        return "inventory_view"
-    elif item == "Customer App":
-        return "customer_app"
-    elif item == "Customer Insights":
-        return "customer_insights"
-    elif item == "Security Dashboard":
-        return "security"
-    elif item == "Language Management":
-        return "language_management"
-    elif item == "Offline Mode":
-        return "offline_mode"
-    elif item == "Financial Closing":
-        return "financial_closing"
-    elif item == "Supplier Bidding":
-        return "supplier_bidding"
-    elif item == "Customer 360 View":
-        return "customer_360"
-    elif item == "Returns & Refunds":
-        return "returns_management"
-    elif item == "Documents":
-        return "documents"
-    elif item == "Profit Center Analysis":
-        return "profit_analysis"
-    elif item == "Predictive Analytics":
-        return "predictive_analytics"
-    elif item == "Competitor Price Monitoring":
-        return "competitor_price"
-    elif item == "Payment Gateway":
-        return "payment_gateway"
-    elif item == "Accounting Sync":
-        return "accounting_sync"
-    elif item == "E-commerce Sync":
-        return "ecommerce_sync"
-    elif item == "SMS Gateway":
-        return "sms_gateway"
-    elif item == "Smart Replenishment":
-        return "smart_replenishment"
-    elif item == "Automated Follow-up":
-        return "automated_followup"
-    elif item == "Workflow Approvals":
-        return "workflow_approvals"
-    elif item == "PWA Setup":
-        return "pwa_setup"
-    elif item == "Voice Commands":
-        return "voice_commands"
-    elif item == "Barcode Scanner":
-        return "barcode_scanner"
-    elif item == "White Label":
-        return "white_label"
-    elif item == "Multi-Tenant":
-        return "multi_tenant"
-    elif item == "API Developer":
-        return "api_developer"
-    elif item == "Debtors":
-        return "debtors"
-    elif item == "Debtors Dashboard":
-        return "debtors_dashboard"
-    elif item == "Business Advisor":
-        return "business_advisor"
-    elif item == "Sales History":
-        return "sales_history"
-    elif item == "Sales Dashboard":
-        return "sales_dashboard"
-    elif item == "Stock Dashboard":
-        return "inventory_view"
-    elif item == "Inventory":
-        return "inventory_view"
-    elif item == "POS":
-        return "pos"
-    elif item == "Customer Dashboard":
-        return "customers"
-    elif item == "Customer Insights 360":
-        return "customer_360"
-    elif item == "Retention Dashboard":
-        return "customers"
-    elif item == "Segmentation Dashboard":
-        return "customers"
-    elif item == "Lifecycle Dashboard":
-        return "customers"
-    elif item == "Reports Dashboard":
-        return "reports"
-    elif item == "Duplicate Products":
-        return "inventory_view"
-    elif item == "P&L":
-        return "pl"
-    elif item == "Income":
-        return "income"
-    elif item == "Income Dashboard":
-        return "income"
-    elif item == "Expenses":
-        return "expenses"
-    elif item == "Expenses Dashboard":
-        return "expenses"
-    elif item == "Cash Dashboard":
-        return "cash_dashboard"
-    elif item == "Purchases":
-        return "purchases"
-    elif item == "Purchases Dashboard":
-        return "purchases"
-    elif item == "Supplier Bidding Portal":
-        return "supplier_bidding"
-
-    # Return None if no mapping found
-    return None
-
-
 # ============================================================
-# get_visible_modules - FIXED
+# get_visible_modules - UPDATED WITH PACKAGE FILTERING
 # ============================================================
-def get_visible_modules(role):
-    """Return ALL modules a role can access."""
+def get_visible_modules(role, branch_package=None):
+    """Return ALL modules a role can access, filtered by the branch's package."""
+    
+    # If no package is passed, pull from session (defaults to Bronze)
+    if branch_package is None:
+        branch_package = st.session_state.get("branch_package", "Bronze")
+    
+    # Ensure we have a valid package fallback
+    if branch_package not in PACKAGE_MODULES:
+        branch_package = "Bronze"
 
     all_modules = [
         # Stock Management
@@ -276,49 +207,58 @@ def get_visible_modules(role):
         {"name": "Settings", "permission": "settings"},
     ]
 
-    # CASHIER - RESTRICTED ACCESS
+    # Get allowed modules for the package
+    allowed_by_package = PACKAGE_MODULES[branch_package]
+
+    # 1. CASHIER - RESTRICTED ACCESS
     if role == "cashier":
         cashier_modules = [
-            "POS",
-            "Sales History",
-            "Barcode Scanner",
-            "Customer Dashboard",
-            "Floating Financials",
+            "POS", "Sales History", "Barcode Scanner",
+            "Customer Dashboard", "Floating Financials",
+            "Debtors", "Debtors Dashboard", "Shift Management", "Documents"
         ]
-        return sorted(cashier_modules)
+        # Intersection: Cashier modules + Package modules
+        final_modules = [m for m in cashier_modules if m in allowed_by_package]
+        return sorted(final_modules)
 
-    # OWNER - FULL ACCESS
-    if role == "owner":
-        return sorted([m["name"] for m in all_modules])
+    # 2. OWNER & MANAGER - FULL ACCESS (Limited by Package)
+    visible_modules = []
+    for module in all_modules:
+        # Check if role allows it AND package allows it
+        if can_access_feature(role, module["permission"]) and module["name"] in allowed_by_package:
+            visible_modules.append(module["name"])
 
-    # MANAGER - FILTERED ACCESS
-    if role == "manager":
-        visible_modules = []
-        for module in all_modules:
-            if can_access_feature(role, module["permission"]):
-                visible_modules.append(module["name"])
-        return sorted(list(dict.fromkeys(visible_modules)))
+    # If somehow empty, fallback to basic POS/Stock if they are in package
+    if not visible_modules:
+        fallback = [m for m in ["POS", "Stock Dashboard", "Inventory"] if m in allowed_by_package]
+        return sorted(fallback)
 
-    # DEFAULT FALLBACK
-    return sorted(["POS", "Sales History", "Stock Dashboard", "Customer Dashboard"])
+    return sorted(list(dict.fromkeys(visible_modules)))
 
 
 # ============================================================
-# get_navigation_menu - FIXED
+# get_navigation_menu - UPDATED WITH PACKAGE FILTERING
 # ============================================================
-def get_navigation_menu(role):
-    """Get the complete navigation structure based on role."""
+def get_navigation_menu(role, branch_package=None):
+    """Get the complete navigation structure based on role and package."""
+    
+    if branch_package is None:
+        branch_package = st.session_state.get("branch_package", "Bronze")
 
-    visible_modules = get_visible_modules(role)
+    visible_modules = get_visible_modules(role, branch_package)
 
     # CASHIER - RESTRICTED MENU
     if role == "cashier":
-        return {
+        cashier_menu = {
             "Sales": ["POS", "Sales History"],
             "Scanner": ["Barcode Scanner"],
             "Customers": ["Customer Dashboard"],
+            "Credit": ["Debtors", "Debtors Dashboard"],
+            "Operations": ["Shift Management", "Documents"],
             "Financial": ["Floating Financials"],
         }
+        # Filter out empty categories
+        return {k: [i for i in v if i in visible_modules] for k, v in cashier_menu.items() if any(i in visible_modules for i in v)}
 
     # Category groupings for Manager and Owner
     categories = {
@@ -334,14 +274,13 @@ def get_navigation_menu(role):
         "Finance": [
             "Cash Dashboard", "Income", "Income Dashboard", "Expenses",
             "Expenses Dashboard", "P&L", "Financial Closing",
-            "Payment Gateway", "Accounting Sync",
+            "Payment Gateway", "Accounting Sync", "Floating Financials",
         ],
         "Customers": [
             "Customer Dashboard", "Customer 360 View", "Customer Insights 360",
             "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
         ],
         "Credit & Debtors": ["Debtors", "Debtors Dashboard"],
-        "Floating Financials": ["Floating Financials"],
         "Analytics": [
             "Reports Dashboard", "Business Advisor", "Demand Forecasting",
             "Predictive Analytics", "Profit Center Analysis", "Competitor Price Monitoring",
@@ -360,7 +299,6 @@ def get_navigation_menu(role):
         ],
     }
 
-    # Build menu with only visible modules
     filtered_menu = {}
     for category, items in categories.items():
         visible_items = [item for item in items if item in visible_modules]
@@ -369,30 +307,34 @@ def get_navigation_menu(role):
 
     if not filtered_menu:
         return {
-            "Sales": ["POS", "Sales History"],
+            "Sales": ["POS"],
             "Stock": ["Stock Dashboard", "Inventory"],
-            "Customers": ["Customer Dashboard"],
         }
 
     return filtered_menu
 
 
 # ============================================================
-# get_mobile_menu - FIXED
+# get_mobile_menu - UPDATED WITH PACKAGE FILTERING
 # ============================================================
-def get_mobile_menu(role):
+def get_mobile_menu(role, branch_package=None):
     """Get simplified mobile-optimized menu structure."""
+    
+    if branch_package is None:
+        branch_package = st.session_state.get("branch_package", "Bronze")
 
-    visible_modules = get_visible_modules(role)
+    visible_modules = get_visible_modules(role, branch_package)
 
-    # CASHIER - RESTRICTED MOBILE MENU
     if role == "cashier":
-        return {
+        cashier_mobile = {
             "Sales": ["POS", "Sales History"],
             "Scan": ["Barcode Scanner"],
             "Customers": ["Customer Dashboard"],
+            "Credit": ["Debtors"],
+            "Operations": ["Shift Management", "Documents"],
             "Financial": ["Floating Financials"],
         }
+        return {k: [i for i in v if i in visible_modules] for k, v in cashier_mobile.items() if any(i in visible_modules for i in v)}
 
     mobile_menu = {
         "Dashboard": ["Mobile Dashboard"],
@@ -434,12 +376,15 @@ def get_mobile_menu(role):
 
 
 # ============================================================
-# get_mobile_navigation_html - FIXED
+# get_mobile_navigation_html - UPDATED WITH PACKAGE FILTERING
 # ============================================================
-def get_mobile_navigation_html(role, current_page):
+def get_mobile_navigation_html(role, current_page, branch_package=None):
     """Generate HTML for mobile bottom navigation bar."""
+    
+    if branch_package is None:
+        branch_package = st.session_state.get("branch_package", "Bronze")
 
-    visible_modules = get_visible_modules(role)
+    visible_modules = get_visible_modules(role, branch_package)
 
     nav_items = [
         {"icon": "DB", "label": "Dashboard", "page": "Mobile Dashboard"},
@@ -480,50 +425,20 @@ def get_mobile_navigation_html(role, current_page):
     nav_html = """
     <style>
         .mobile-bottom-nav {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: white;
-            display: flex;
-            justify-content: space-around;
-            padding: 10px 5px;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-            z-index: 1000;
-            border-top: 1px solid #e0e0e0;
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: white; display: flex; justify-content: space-around;
+            padding: 10px 5px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 1000; border-top: 1px solid #e0e0e0;
         }
         .mobile-nav-item {
-            text-align: center;
-            flex: 1;
-            padding: 5px;
-            cursor: pointer;
-            text-decoration: none;
-            color: #666;
-            transition: all 0.3s ease;
+            text-align: center; flex: 1; padding: 5px; cursor: pointer;
+            text-decoration: none; color: #666; transition: all 0.3s ease;
         }
-        .mobile-nav-item.active {
-            color: #667eea;
-        }
-        .mobile-nav-icon {
-            font-size: 20px;
-            display: block;
-            font-weight: bold;
-        }
-        .mobile-nav-label {
-            font-size: 11px;
-            margin-top: 4px;
-            display: block;
-        }
-        @media (min-width: 769px) {
-            .mobile-bottom-nav {
-                display: none;
-            }
-        }
-        @media (max-width: 768px) {
-            .main .block-container {
-                padding-bottom: 80px !important;
-            }
-        }
+        .mobile-nav-item.active { color: #667eea; }
+        .mobile-nav-icon { font-size: 20px; display: block; font-weight: bold; }
+        .mobile-nav-label { font-size: 11px; margin-top: 4px; display: block; }
+        @media (min-width: 769px) { .mobile-bottom-nav { display: none; } }
+        @media (max-width: 768px) { .main .block-container { padding-bottom: 80px !important; } }
     </style>
     <div class="mobile-bottom-nav">
     """
@@ -547,38 +462,23 @@ def get_mobile_navigation_html(role, current_page):
 
     nav_html += """
     </div>
-
     <style>
         .mobile-menu-panel {
-            position: fixed;
-            bottom: 70px;
-            right: 10px;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            padding: 10px 0;
-            min-width: 150px;
-            display: none;
-            z-index: 1001;
+            position: fixed; bottom: 70px; right: 10px; background: white;
+            border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 10px 0; min-width: 150px; display: none; z-index: 1001;
         }
-        .mobile-menu-panel.show {
-            display: block;
-        }
+        .mobile-menu-panel.show { display: block; }
         .mobile-menu-item {
-            padding: 12px 20px;
-            text-decoration: none;
-            color: #333;
-            display: block;
-            transition: background 0.2s;
+            padding: 12px 20px; text-decoration: none; color: #333;
+            display: block; transition: background 0.2s;
         }
-        .mobile-menu-item:hover {
-            background: #f5f5f5;
-        }
+        .mobile-menu-item:hover { background: #f5f5f5; }
     </style>
     <div class="mobile-menu-panel">
     """
 
-    more_items = get_mobile_menu(role)
+    more_items = get_mobile_menu(role, branch_package)
     for category, items in more_items.items():
         if category != "More" and category != "Admin":
             continue
@@ -595,7 +495,6 @@ def get_mobile_navigation_html(role, current_page):
         });
     </script>
     """
-
     return nav_html
 
 
@@ -603,79 +502,61 @@ def get_mobile_navigation_html(role, current_page):
 # get_menu_badge_counts - BRANCH-SCOPED
 # ============================================================
 def get_menu_badge_counts(branch_id=None):
-    """
-    Get notification badge counts for menu items, scoped to the given
-    branch (defaults to the current session branch).
-
-    Both load_products() and load_purchases() now receive branch_id so the
-    badges never mix one branch's stock levels with another branch's.
-    """
     branch_id = _resolve_branch(branch_id)
-
     badges = {}
 
-    # ---- Low stock badge ----
     try:
         products_df = load_products(branch_id=branch_id)
         if products_df is not None and not products_df.empty:
-            # Ensure numeric before comparison
             for col in ("stock", "reorder_level"):
                 if col in products_df.columns:
                     products_df[col] = pd.to_numeric(products_df[col], errors="coerce").fillna(0)
-
             if "reorder_level" in products_df.columns:
-                low_stock = len(
-                    products_df[products_df["stock"] <= products_df["reorder_level"]]
-                )
+                low_stock = len(products_df[products_df["stock"] <= products_df["reorder_level"]])
                 if low_stock > 0:
                     badges["Stock Dashboard"] = low_stock
                     badges["Inventory"] = low_stock
     except Exception as e:
-        print(f"[role_based_menu] Low stock badge error for branch {branch_id}: {e}")
+        print(f"[role_based_menu] Low stock badge error: {e}")
 
-    # ---- Pending purchases badge ----
     try:
         purchases_df = load_purchases(branch_id=branch_id)
         if purchases_df is not None and not purchases_df.empty and "status" in purchases_df.columns:
-            pending = len(
-                purchases_df[purchases_df["status"].astype(str).str.upper() == "PENDING"]
-            )
+            pending = len(purchases_df[purchases_df["status"].astype(str).str.upper() == "PENDING"])
             if pending > 0:
                 badges["Purchases"] = pending
                 badges["Purchases Dashboard"] = pending
     except Exception as e:
-        print(f"[role_based_menu] Pending purchases badge error for branch {branch_id}: {e}")
+        print(f"[role_based_menu] Pending purchases badge error: {e}")
 
-    # ---- Pending returns badge (best-effort; module may not exist) ----
     try:
         from backend.modules.returns_management import load_returns
         returns_df = load_returns(branch_id=branch_id) if "branch_id" in load_returns.__code__.co_varnames else load_returns()
         if returns_df is not None and not returns_df.empty and "status" in returns_df.columns:
-            pending_returns = len(
-                returns_df[returns_df["status"].astype(str).str.upper() == "PENDING"]
-            )
+            pending_returns = len(returns_df[returns_df["status"].astype(str).str.upper() == "PENDING"])
             if pending_returns > 0:
                 badges["Returns & Refunds"] = pending_returns
     except Exception:
-        # returns_management may not accept branch_id yet; silently skip
         pass
 
     return badges
 
 
 # ============================================================
-# render_sidebar_menu - BRANCH-AWARE
+# render_sidebar_menu - BRANCH & PACKAGE AWARE
 # ============================================================
-def render_sidebar_menu(role, current_page, branch_id=None):
-    """Render the sidebar menu with badges, scoped to the given branch."""
+def render_sidebar_menu(role, current_page, branch_id=None, branch_package=None):
+    """Render the sidebar menu with badges, scoped to the given branch and package."""
+    
+    if branch_package is None:
+        branch_package = st.session_state.get("branch_package", "Bronze")
 
     branch_id = _resolve_branch(branch_id)
-
-    menu = get_navigation_menu(role)
+    menu = get_navigation_menu(role, branch_package)
     badges = get_menu_badge_counts(branch_id=branch_id)
 
     st.sidebar.markdown("### Navigation")
-    st.sidebar.caption(f"Branch: {_branch_label(branch_id)}")
+    st.sidebar.caption(f"📍 {_branch_label(branch_id)}")
 
     selected_item = current_page
 
@@ -707,7 +588,6 @@ def render_sidebar_menu(role, current_page, branch_id=None):
 # is_mobile_device - unchanged
 # ============================================================
 def is_mobile_device():
-    """Detect if current device is mobile."""
     try:
         from streamlit import runtime
         if runtime.exists():

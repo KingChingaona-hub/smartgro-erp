@@ -1,4 +1,5 @@
 # backend/core/branch_auth.py
+# UPDATED: Dynamic branch loading from DB, status checks, package binding.
 
 import streamlit as st
 import pandas as pd
@@ -6,71 +7,60 @@ from pathlib import Path
 from datetime import datetime
 
 # ==============================
-# BRANCH CODES AND CONFIGURATION
+# DYNAMIC BRANCH LOADING
 # ==============================
-BRANCHES = {
-    "HO": {
-        "code": "HO",
-        "name": "Head Office",
-        "level": 1,
-        "password": "ho123",
-        "parent": None
-    },
-    "NAT": {
-        "code": "NAT",
-        "name": "National Branch",
-        "level": 2,
-        "password": "nat123",
-        "parent": "HO"
-    },
-    "PRO": {
-        "code": "PRO",
-        "name": "Provincial Branch",
-        "level": 3,
-        "password": "pro123",
-        "parent": "NAT"
-    },
-    "DIS": {
-        "code": "DIS",
-        "name": "District Branch",
-        "level": 4,
-        "password": "dis123",
-        "parent": "PRO"
-    },
-    "VIL": {
-        "code": "VIL",
-        "name": "Village Branch",
-        "level": 5,
-        "password": "vil123",
-        "parent": "DIS"
-    }
-}
+def get_dynamic_branches():
+    """
+    Loads branches from the database dynamically.
+    Returns a dictionary formatted like the old hardcoded BRANCHES.
+    """
+    try:
+        from backend.core.db_adapter import load_branches
+        df = load_branches()
+        branches = {}
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                code = str(row.get("branch_id", "")).strip().upper()
+                if not code:
+                    continue
+                branches[code] = {
+                    "code": code,
+                    "name": row.get("branch_name", code),
+                    "level": row.get("level", 1),
+                    "password": str(row.get("branch_password", "admin123")),
+                    "status": row.get("status", "Active"),
+                    "package": row.get("package", "Bronze"),
+                    "parent": None
+                }
+        return branches
+    except Exception as e:
+        print(f"[branch_auth] Error loading dynamic branches: {e}")
+        return {}
 
+# Fallback dictionary (empty, but prevents import errors if DB is down)
+BRANCHES = get_dynamic_branches()
 
 # ==============================
-# SESSION BRANCH AUTHORITY  (NEW)
+# SESSION BRANCH AUTHORITY
 # ==============================
 def set_session_branch(branch_code: str):
     """
     Make this branch code the authoritative branch for the whole session.
-    Called right after the branch-selection login succeeds.
-
-    This sets `st.session_state["user_branch"]` — the key every loader
-    reads via `db_adapter.get_current_branch()` — so every page and every
-    query downstream is scoped to the branch the user chose on the
-    branch-selection screen.
     """
     branch_code = str(branch_code).strip().upper()
-
+    
+    # Get the dynamic info
+    branch_info = get_branch_info(branch_code)
+    
     # Canonical keys used across the app
     st.session_state["current_branch_code"] = branch_code
-    st.session_state["current_branch_name"] = get_branch_display_name(branch_code)
-
-    # Authoritative key used by db_adapter.get_current_branch()
+    st.session_state["current_branch_name"] = branch_info["name"] if branch_info else branch_code
     st.session_state["user_branch"] = branch_code
-
-    # Backwards-compat alias used by older code paths
     st.session_state["current_branch"] = branch_code
+    
+    # ADDED: Bind the package to the session so menus can filter
+    if branch_info:
+        st.session_state["branch_package"] = branch_info.get("package", "Bronze")
 
     # Ensure the session is flagged as branch-authenticated
     st.session_state["branch_authenticated"] = True
@@ -78,10 +68,6 @@ def set_session_branch(branch_code: str):
 
 
 def get_session_branch() -> str:
-    """
-    Return the authoritative branch code for the session.
-    Defaults to HO if nothing has been set.
-    """
     return (
         st.session_state.get("user_branch")
         or st.session_state.get("current_branch_code")
@@ -90,82 +76,75 @@ def get_session_branch() -> str:
 
 
 def assert_branch_locked() -> bool:
-    """
-    True once the user has selected a branch and cannot silently change it.
-    """
     return bool(st.session_state.get("branch_authenticated"))
 
 
 # ==============================
-# BRANCH VALIDATION
+# BRANCH VALIDATION (UPDATED TO USE DB)
 # ==============================
 def validate_branch_code(branch_code):
-    """Check if branch code is valid"""
-    return branch_code in BRANCHES
+    """Check if branch code is valid (Dynamic)"""
+    branches = get_dynamic_branches()
+    return str(branch_code).upper() in branches
 
 
 def get_branch_info(branch_code):
-    """Get branch information"""
-    return BRANCHES.get(branch_code, None)
+    """Get branch information (Dynamic)"""
+    branches = get_dynamic_branches()
+    return branches.get(str(branch_code).upper(), None)
 
 
 def verify_branch_password(branch_code, password):
-    """Verify branch password"""
-    branch = BRANCHES.get(branch_code)
-    if branch and branch["password"] == password:
+    """Verify branch password (Dynamic)"""
+    branch = get_branch_info(branch_code)
+    if branch and branch.get("password") == password:
         return True
     return False
 
 
+def is_branch_active(branch_code):
+    """Check if branch subscription is Active"""
+    branch = get_branch_info(branch_code)
+    if branch:
+        return branch.get("status", "Active") == "Active"
+    return False
+
+
 def get_branch_data_path(branch_code):
-    """Get data path for specific branch"""
     branch_folder = Path("branch_data") / branch_code
     branch_folder.mkdir(parents=True, exist_ok=True)
     return branch_folder
 
 
 def get_branch_display_name(branch_code):
-    """Get display name for branch"""
-    branch = BRANCHES.get(branch_code)
-    return branch["name"] if branch else branch_code
+    """Get display name for branch (Dynamic)"""
+    branch = get_branch_info(branch_code)
+    return branch["name"] if branch else str(branch_code).upper()
 
 
 # ==============================
 # BRANCH SESSION MANAGEMENT
 # ==============================
 def set_current_branch(branch_code):
-    """
-    Set current branch in session.
-    Kept for backwards compatibility — delegates to set_session_branch().
-    """
     set_session_branch(branch_code)
 
 
 def get_current_branch():
-    """Get current branch code"""
     return st.session_state.get("current_branch_code", None)
 
 
 def get_current_branch_name():
-    """Get current branch name"""
     return st.session_state.get("current_branch_name", "Unknown")
 
 
 def clear_branch_session():
-    """Clear branch session data"""
-    if "current_branch_code" in st.session_state:
-        del st.session_state.current_branch_code
-    if "current_branch_name" in st.session_state:
-        del st.session_state.current_branch_name
-    if "branch_authenticated" in st.session_state:
-        del st.session_state.branch_authenticated
-    if "branch_selected" in st.session_state:
-        del st.session_state.branch_selected
-    # Also clear the authoritative key so the next login starts clean
-    if "user_branch" in st.session_state:
-        del st.session_state.user_branch
-    if "current_branch" in st.session_state:
-        del st.session_state.current_branch
+    keys_to_clear = [
+        "current_branch_code", "current_branch_name", "branch_authenticated", 
+        "branch_selected", "user_branch", "current_branch", "branch_package"
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
 
 
 # ==============================
@@ -173,31 +152,40 @@ def clear_branch_session():
 # ==============================
 def branch_selection_page():
     """Page for selecting and authenticating branch"""
-
+    
     st.title("Branch Selection")
     st.markdown("---")
+    
+    # Fetch fresh branches every time the page loads
+    branches = get_dynamic_branches()
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("### Available Branches")
-
-        # Display all branches
-        for code, info in BRANCHES.items():
-            st.markdown(f"""
-            <div style='border:1px solid #ddd; border-radius:10px; padding:10px; margin:10px 0;'>
-                <strong>{info['name']}</strong><br>
-                Code: {code}<br>
-                Level: {info['level']}
-            </div>
-            """, unsafe_allow_html=True)
+        
+        if not branches:
+            st.warning("No branches configured in the system yet. Please contact support.")
+        else:
+            for code, info in branches.items():
+                # Visual indicator for terminated branches
+                status_color = "#d32f2f" if info['status'] == "Terminated" else "#388e3c"
+                status_text = info['status'].upper()
+                
+                st.markdown(f"""
+                <div style='border:1px solid #ddd; border-radius:10px; padding:10px; margin:10px 0;'>
+                    <strong>{info['name']}</strong> 
+                    <span style='float:right; font-size:12px; color:{status_color}; font-weight:bold;'>{status_text}</span><br>
+                    Code: {code} | Level: {info['level']} | Pkg: {info['package']}
+                </div>
+                """, unsafe_allow_html=True)
 
     with col2:
         st.markdown("### Login to Branch")
 
         branch_code = st.text_input(
             "Branch Code",
-            placeholder="Enter branch code (HO, NAT, PRO, DIS, VIL)",
+            placeholder="Enter branch code",
             key="branch_code_input"
         )
         branch_password = st.text_input(
@@ -209,20 +197,24 @@ def branch_selection_page():
 
         if st.button("Branch Login", type="primary", use_container_width=True):
             if branch_code and branch_password:
-                if validate_branch_code(branch_code.upper()):
-                    if verify_branch_password(branch_code.upper(), branch_password):
-                        # ---------- AUTHORITATIVE BRANCH BINDING ----------
-                        set_session_branch(branch_code.upper())
-                        st.success(f"Access granted to {get_branch_display_name(branch_code.upper())}")
+                code_upper = branch_code.strip().upper()
+                
+                # 1. Validate Code
+                if validate_branch_code(code_upper):
+                    branch_info = get_branch_info(code_upper)
+                    
+                    # 2. Check if Terminated
+                    if not is_branch_active(code_upper):
+                        st.error("This branch's subscription has been terminated. Please contact Aziel Investments support.")
+                    
+                    # 3. Verify Password
+                    elif verify_branch_password(code_upper, branch_password):
+                        set_session_branch(code_upper)
+                        st.success(f"Access granted to {get_branch_display_name(code_upper)}")
                         st.rerun()
                     else:
                         st.error("Invalid branch password")
                 else:
-                    st.error(f"Invalid branch code. Valid codes: {', '.join(BRANCHES.keys())}")
+                    st.error("Invalid branch code")
             else:
                 st.error("Please enter branch code and password")
-
-        st.markdown("---")
-        # st.caption("Demo Branch Credentials:")
-        # for code, info in BRANCHES.items():
-        #     st.caption(f"{info['name']} ({code}): {info['password']}")
