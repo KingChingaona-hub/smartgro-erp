@@ -1,4 +1,6 @@
-# app.py - COMPLETE FIXED VERSION WITH DYNAMIC BRANCH & PACKAGE SUPPORT
+# app.py - dynamic branch & package support.
+# Page access = role permission AND branch package (backend/core/packages.py,
+# enforced via role_based_menu.can_access_page) for BOTH sidebar and router.
 import os
 os.environ['TZ'] = 'Africa/Harare'
 try:
@@ -16,8 +18,8 @@ if "page" not in st.session_state:
     st.session_state.page = "Home"
 
 def navigate_to(page):
-    """Navigate to a page using Streamlit's native method"""
-    st.session_state.page = page
+    """Navigate to a page using Streamlit's native method."""
+    st.session_state.current_page = page
     st.rerun()
 
 # ==============================
@@ -26,7 +28,7 @@ def navigate_to(page):
 def check_session_timeout():
     """Check session timeout using Streamlit's native method"""
     if "last_activity" in st.session_state:
-        idle_time = (datetime.now() - st.session_state.last_activity).seconds
+        idle_time = (datetime.now() - st.session_state.last_activity).total_seconds()
         if idle_time > 7200:  # 2 hours
             for key in list(st.session_state.keys()):
                 if key not in ["branch_selected", "branch_authenticated", "current_branch",
@@ -103,7 +105,13 @@ from backend.core.branch_auth import (
     is_branch_active,
     get_branch_display_name
 )
-from backend.core.role_based_menu import get_visible_modules, get_navigation_menu
+from backend.core.role_based_menu import (
+    get_visible_modules,
+    get_navigation_menu,
+    can_access_page,
+    locked_page_message,
+)
+from backend.core.packages import normalize_package
 from backend.core.theme_manager import (
     apply_theme, 
     get_page_theme, 
@@ -276,24 +284,32 @@ except Exception as e:
 # ==============================
 # SESSION DEFAULTS
 # ==============================
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.session_state.role = ""
-    st.session_state.current_branch = "HO"
-    st.session_state.user_full_name = ""
-    st.session_state.user_branch = "HO"
-    st.session_state.current_branch_code = "HO"
-    st.session_state.current_branch_name = "Head Office"
-    st.session_state.active_shift_id = None
-    st.session_state.active_shift_branch = None
-    st.session_state.active_shift_branch_name = None
-    st.session_state.branch_selected = False
-    st.session_state.branch_authenticated = False
-    st.session_state.current_page = "Stock Dashboard"
-    st.session_state.last_activity = datetime.now()
-    st.session_state.modules_debug = False
-    st.session_state.branch_package = "Bronze" # ADDED
+# setdefault-style initialization also repairs sessions created by older
+# versions of the application.
+SESSION_DEFAULTS = {
+    "logged_in": False,
+    "username": "",
+    "role": "",
+    "current_branch": "HO",
+    "user_full_name": "",
+    "user_branch": "HO",
+    "current_branch_code": "HO",
+    "current_branch_name": "Head Office",
+    "active_shift_id": None,
+    "active_shift_branch": None,
+    "active_shift_branch_name": None,
+    "branch_selected": False,
+    "branch_authenticated": False,
+    "current_page": "Stock Dashboard",
+    "last_activity": datetime.now(),
+    "modules_debug": False,
+    "branch_package": "Bronze",
+    "welcome_seen": False,
+}
+
+for _key, _default in SESSION_DEFAULTS.items():
+    if _key not in st.session_state:
+        st.session_state[_key] = _default
 
 if "current_theme" not in st.session_state:
     try:
@@ -301,7 +317,7 @@ if "current_theme" not in st.session_state:
     except Exception as e:
         print(f"Error loading theme preference: {e}")
         st.session_state.current_theme = "default"
-        
+
 if "auto_switch_theme" not in st.session_state:
     st.session_state.auto_switch_theme = False
 
@@ -494,6 +510,81 @@ def login_page():
                     print(traceback.format_exc())
 
 # ==============================
+# PAGE ROUTES  (page name -> function)
+# ==============================
+# One entry per page. WHO may open a page is NOT decided here: that is
+# decided once, in main_app(), by can_access_page() (role AND package).
+PAGE_ROUTES = {
+    "Accounting Sync": accounting_sync_dashboard,
+    "Anomaly Detection": anomaly_detection_dashboard,
+    "API Developer": api_developer_dashboard,
+    "Automated Follow-up": automated_followup_dashboard,
+    "Automated Insights": automated_insights_dashboard,
+    "Barcode Generator": barcode_generator_page,
+    "Barcode Scanner": barcode_scanner_dashboard,
+    "Branch Management": branch_management_page,
+    "Branch Performance": branch_performance_page,
+    "Business Advisor": business_advisor_dashboard,
+    "Cash Dashboard": cash_dashboard,
+    "Churn Prediction": churn_prediction_dashboard,
+    "Competitor Price Monitoring": competitor_price_monitoring_dashboard,
+    "Customer 360 View": customer_360_view,
+    "Customer Dashboard": customers_dashboard,
+    "Customer Insights 360": customer_insights_360,
+    "Debtors": debtors_page,
+    "Debtors Dashboard": debtors_dashboard,
+    "Demand Forecasting": demand_forecasting_dashboard,
+    "Documents": documents_page,
+    "Duplicate Products": duplicate_products_page,
+    "E-commerce Sync": ecommerce_sync_dashboard,
+    "Expenses": expenses_page,
+    "Expenses Dashboard": expenses_dashboard,
+    "Financial Closing": financial_closing_dashboard,
+    "Floating Financials": floating_financials_page,
+    "Income": income_page,
+    "Income Dashboard": income_dashboard,
+    "Inventory": inventory_page,
+    "Inventory Optimizer": inventory_optimizer_dashboard,
+    "Language Management": language_dashboard,
+    "Lifecycle Dashboard": customers_lifecycle_dashboard,
+    "Live Dashboard": live_dashboard,
+    "Mobile Dashboard": mobile_dashboard,
+    "Multi-Tenant": multi_tenant_dashboard,
+    "Offline Mode": offline_mode_dashboard,
+    "P&L": pl_dashboard,
+    "Payment Gateway": payment_dashboard,
+    "POS": pos_page,
+    "Predictive Analytics": predictive_analytics_dashboard,
+    "Profit Center Analysis": profit_center_analysis,
+    "Purchases": purchases_page,
+    "Purchases Dashboard": purchases_dashboard,
+    "PWA Setup": pwa_setup_dashboard,
+    "Recommendation Engine": recommendation_engine_dashboard,
+    "Reports Dashboard": reports_dashboard,
+    "Retention Dashboard": customers_retention_dashboard,
+    "Returns & Refunds": returns_management_dashboard,
+    "Returns Management": returns_management_dashboard,
+    "Sales Dashboard": sales_dashboard,
+    "Sales History": sales_history_page,
+    "Security Dashboard": security_dashboard,
+    "Segmentation Dashboard": customers_segmentation_dashboard,
+    "Settings": settings_page,
+    "Shift Management": shift_management_page,
+    "Smart Replenishment": smart_replenishment_dashboard,
+    "SMS Gateway": sms_gateway_dashboard,
+    "Stock Dashboard": dashboard_page,
+    "Supplier Bidding": supplier_bidding_dashboard,
+    "Supplier Bidding Portal": supplier_bidding_portal,
+    "User Management": user_management_page,
+    "Voice Commands": voice_commands_dashboard,
+    "White Label": white_label_dashboard,
+    "Workflow Approvals": workflow_approvals_dashboard,
+}
+
+# Old page names still reachable from stale sessions/bookmarks.
+PAGE_ALIASES = {"Returns Management": "Returns & Refunds"}
+
+# ==============================
 # MAIN APP - DYNAMIC PACKAGE NAVIGATION
 # ==============================
 def main_app():
@@ -517,30 +608,54 @@ def main_app():
     # ==============================
     # BRANCH GUARD & TERMINATION CHECK
     # ==============================
-    role = st.session_state.get("role", "cashier")
+    role = str(st.session_state.get("role", "cashier") or "cashier").strip().lower()
     session_branch = (
         st.session_state.get("current_branch_code")
         or st.session_state.get("user_branch")
+        or st.session_state.get("current_branch")
     )
-    branch_package = st.session_state.get("branch_package", "Bronze")
+    session_branch = str(session_branch).strip().upper() if session_branch else None
+    current_branch = session_branch or "HO"
 
-    # If the branch is not active, kick them out immediately
-    if role != "owner" and session_branch:
-        if not is_branch_active(session_branch):
-            st.error("Your branch subscription has been terminated. Logging out...")
+    # The head-office owner administers the platform itself. Owners attached
+    # to client branches remain subject to that branch's subscription.
+    is_head_office_owner = role == "owner" and current_branch == "HO"
+
+    try:
+        # Refresh the branch record on each rerun so package changes take
+        # effect immediately without requiring users to log in again.
+        branch_record = get_branch_info(current_branch)
+    except Exception as e:
+        branch_record = None
+        print(f"Branch lookup error for {current_branch}: {e}")
+
+    if is_head_office_owner:
+        branch_package = normalize_package(
+            st.session_state.get("branch_package", "Platinum")
+        )
+    else:
+        if not branch_record:
+            st.error("Your branch could not be verified. Please log in again.")
             st.session_state.logged_in = False
             st.session_state.branch_selected = False
             st.session_state.branch_authenticated = False
             st.rerun()
             return
 
-    if role not in ("owner", "manager", "admin") and not session_branch:
-        st.error("Your session is not linked to a branch. Please log in again.")
-        st.session_state.logged_in = False
-        st.session_state.branch_selected = False
-        st.session_state.branch_authenticated = False
-        st.rerun()
-        return
+        branch_status = str(branch_record.get("status", "Active")).strip().lower()
+        if branch_status != "active":
+            st.error("Your branch subscription is not active. Please contact Aziel Investments.")
+            st.session_state.logged_in = False
+            st.session_state.branch_selected = False
+            st.session_state.branch_authenticated = False
+            st.rerun()
+            return
+
+        branch_package = normalize_package(branch_record.get("package"))
+        st.session_state.branch_package = branch_package
+
+    branch_package = normalize_package(branch_package)
+    st.session_state.branch_package = branch_package
 
     # ==============================
     # PWA META TAGS
@@ -552,12 +667,6 @@ def main_app():
         print(f"PWA setup error: {e}")
     
     username = st.session_state.get("username", "User")
-    current_branch = (
-        st.session_state.get("current_branch_code")
-        or st.session_state.get("current_branch")
-        or session_branch
-        or "HO"
-    )
     try:
         branch_name = get_branch_display_name(current_branch)
     except:
@@ -627,8 +736,8 @@ def main_app():
     # FLAT ALPHABETICAL NAVIGATION (FILTERED BY PACKAGE)
     # ==============================
     try:
-        # UPDATED: Passing branch_package to filter modules
-        all_items = get_visible_modules(role, branch_package)
+        # Role AND package AND branch (head-office owner sees everything)
+        all_items = get_visible_modules(role, branch_package, current_branch)
         
         exclude = ["Customer App", "Customer Insights"]
         all_items = [item for item in all_items if item not in exclude]
@@ -641,7 +750,9 @@ def main_app():
         st.error(f"Error loading navigation: {str(e)}")
         print(f"Navigation error: {e}")
         print(traceback.format_exc())
-        all_items = ["Stock Dashboard", "Inventory", "POS"]
+        # Fail closed if permission calculation fails; never expose a
+        # hard-coded fallback menu that may bypass role/package restrictions.
+        all_items = []
     
     selected_page = None
     
@@ -715,420 +826,24 @@ def main_app():
         page = selected_page
         st.session_state.current_page = selected_page
 
-    # Route to appropriate page with error handling
+    # Route to the page. Access = role permission AND branch package, decided
+    # in ONE place (the same rule that builds the sidebar), so the sidebar and
+    # the router can never disagree.
     try:
-        # (Routing logic remains exactly the same)
-        # ================= ACCOUNTING =================
-        if page == "Accounting Sync":
-            if can_access_feature(role, "accounting_sync") or role in ["owner", "manager"]:
-                accounting_sync_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
+        route_page = PAGE_ALIASES.get(page, page)
+        handler = PAGE_ROUTES.get(route_page)
 
-        # ================= ADMIN =================
-        elif page == "API Developer":
-            if can_access_feature(role, "api_developer") or role in ["owner", "manager"]:
-                api_developer_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Anomaly Detection":
-            if can_access_feature(role, "security") or role in ["owner", "manager"]:
-                anomaly_detection_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Automated Follow-up":
-            if can_access_feature(role, "automated_followup") or role in ["owner", "manager"]:
-                automated_followup_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Automated Insights":
-            if can_access_feature(role, "reports") or role in ["owner", "manager"]:
-                automated_insights_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= BARCODE =================
-        elif page == "Barcode Generator":
-            if can_access_feature(role, "inventory_view"):
-                barcode_generator_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Barcode Scanner":
-            if can_access_feature(role, "barcode_scanner") or role in ["owner", "manager", "cashier"]:
-                barcode_scanner_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= BRANCH =================
-        elif page == "Branch Management":
-            if role == "owner":
-                branch_management_page()
-            else:
-                st.error("Only system owner can access branch management")
-
-        elif page == "Branch Performance":
-            if can_access_feature(role, "branch_performance"):
-                branch_performance_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Business Advisor":
-            if can_access_feature(role, "business_advisor"):
-                business_advisor_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= CASH =================
-        elif page == "Cash Dashboard":
-            if can_access_feature(role, "cash_dashboard"):
-                cash_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Churn Prediction":
-            if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
-                churn_prediction_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Competitor Price Monitoring":
-            if can_access_feature(role, "competitor_price") or role in ["owner", "manager"]:
-                competitor_price_monitoring_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= CUSTOMERS =================
-        elif page == "Customer 360 View":
-            if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
-                customer_360_view()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Customer Dashboard":
-            if can_access_feature(role, "customers"):
-                customers_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Customer Insights 360":
-            if can_access_feature(role, "customer_360") or role in ["owner", "manager"]:
-                customer_insights_360()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= DEBTORS =================
-        elif page == "Debtors":
-            if can_access_feature(role, "debtors"):
-                debtors_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Debtors Dashboard":
-            if can_access_feature(role, "debtors_dashboard"):
-                debtors_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Demand Forecasting":
-            if can_access_feature(role, "demand_forecasting") or role in ["owner", "manager"]:
-                demand_forecasting_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Documents":
-            if role in ["owner", "manager"]:
-                documents_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Duplicate Products":
-            if can_access_feature(role, "inventory_view") or role in ["owner", "manager"]:
-                duplicate_products_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= E-COMMERCE =================
-        elif page == "E-commerce Sync":
-            if can_access_feature(role, "ecommerce_sync") or role in ["owner", "manager"]:
-                ecommerce_sync_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= EXPENSES =================
-        elif page == "Expenses":
-            if can_access_feature(role, "expenses"):
-                expenses_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Expenses Dashboard":
-            if can_access_feature(role, "expenses"):
-                expenses_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= FINANCIAL =================
-        elif page == "Financial Closing":
-            if can_access_feature(role, "financial_closing") or role in ["owner", "manager"]:
-                financial_closing_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= FLOATING FINANCIALS =================
-        elif page == "Floating Financials":
-            if can_access_feature(role, "floating_financials"):
-                floating_financials_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= INCOME =================
-        elif page == "Income":
-            if can_access_feature(role, "income"):
-                income_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Income Dashboard":
-            if can_access_feature(role, "income"):
-                income_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= INVENTORY =================
-        elif page == "Inventory":
-            if can_access_feature(role, "inventory_view"):
-                inventory_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Inventory Optimizer":
-            if can_access_feature(role, "inventory_view") or role in ["owner", "manager"]:
-                inventory_optimizer_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= LANGUAGE =================
-        elif page == "Language Management":
-            if can_access_feature(role, "language_management") or role in ["owner", "manager"]:
-                language_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Lifecycle Dashboard":
-            if can_access_feature(role, "customers"):
-                customers_lifecycle_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Live Dashboard":
-            if can_access_feature(role, "live_dashboard") or role in ["owner", "manager"]:
-                live_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= MOBILE =================
-        elif page == "Mobile Dashboard":
-            if can_access_feature(role, "mobile_dashboard") or role in ["owner", "manager", "cashier"]:
-                mobile_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Multi-Tenant":
-            if can_access_feature(role, "multi_tenant") or role == "owner":
-                multi_tenant_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= OFFLINE =================
-        elif page == "Offline Mode":
-            if can_access_feature(role, "offline_mode") or role in ["owner", "manager"]:
-                offline_mode_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= P&L =================
-        elif page == "P&L":
-            if can_access_feature(role, "pl"):
-                pl_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Payment Gateway":
-            if can_access_feature(role, "payment_gateway") or role in ["owner", "manager"]:
-                payment_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "POS":
-            if can_access_feature(role, "pos"):
-                pos_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Predictive Analytics":
-            if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
-                predictive_analytics_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Profit Center Analysis":
-            if can_access_feature(role, "profit_analysis") or role in ["owner", "manager"]:
-                profit_center_analysis()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= PURCHASES =================
-        elif page == "Purchases":
-            if can_access_feature(role, "purchases"):
-                purchases_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Purchases Dashboard":
-            if can_access_feature(role, "purchases"):
-                purchases_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "PWA Setup":
-            if can_access_feature(role, "pwa_setup") or role in ["owner", "manager"]:
-                pwa_setup_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= RECOMMENDATION =================
-        elif page == "Recommendation Engine":
-            if can_access_feature(role, "predictive_analytics") or role in ["owner", "manager"]:
-                recommendation_engine_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= REPORTS =================
-        elif page == "Reports Dashboard":
-            if can_access_feature(role, "reports"):
-                reports_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Retention Dashboard":
-            if can_access_feature(role, "customers"):
-                customers_retention_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Returns & Refunds":
-            if can_access_feature(role, "returns_management") or role in ["owner", "manager"]:
-                returns_management_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Returns Management":
-            if can_access_feature(role, "returns_management") or role in ["owner", "manager"]:
-                returns_management_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= SALES =================
-        elif page == "Sales Dashboard":
-            if can_access_feature(role, "sales_dashboard"):
-                sales_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Sales History":
-            if can_access_feature(role, "sales_history"):
-                sales_history_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Security Dashboard":
-            if can_access_feature(role, "security") or role in ["owner", "manager"]:
-                security_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Segmentation Dashboard":
-            if can_access_feature(role, "customers"):
-                customers_segmentation_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Settings":
-            if role == "owner":
-                settings_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Shift Management":
-            if can_access_feature(role, "shift_management"):
-                shift_management_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Smart Replenishment":
-            if can_access_feature(role, "smart_replenishment") or role in ["owner", "manager"]:
-                smart_replenishment_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "SMS Gateway":
-            if can_access_feature(role, "sms_gateway") or role in ["owner", "manager"]:
-                sms_gateway_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Stock Dashboard":
-            if can_access_feature(role, "inventory_view"):
-                dashboard_page()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Supplier Bidding":
-            if can_access_feature(role, "supplier_bidding") or role in ["owner", "manager"]:
-                supplier_bidding_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Supplier Bidding Portal":
-            supplier_bidding_portal()
-
-        # ================= USER =================
-        elif page == "User Management":
-            if role == "owner":
-                user_management_page()
-            else:
-                st.error("Only system owner can access user management")
-
-        # ================= VOICE =================
-        elif page == "Voice Commands":
-            if can_access_feature(role, "voice_commands") or role in ["owner", "manager", "cashier"]:
-                voice_commands_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        # ================= WHITE LABEL =================
-        elif page == "White Label":
-            if can_access_feature(role, "white_label") or role == "owner":
-                white_label_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        elif page == "Workflow Approvals":
-            if can_access_feature(role, "workflow_approvals") or role in ["owner", "manager"]:
-                workflow_approvals_dashboard()
-            else:
-                st.error("You don't have permission to access this page")
-
-        else:
+        if handler is None:
             st.warning(f"Module not found: {page}")
+        elif not can_access_page(role, route_page, branch_package, current_branch):
+            st.error(locked_page_message(route_page, branch_package))
+        else:
+            handler()
     except Exception as e:
         st.error(f"Error loading page: {str(e)}")
         print(f"Page routing error: {e}")
         print(traceback.format_exc())
+
 
 # ==============================
 # APP FLOW WITH ERROR HANDLING

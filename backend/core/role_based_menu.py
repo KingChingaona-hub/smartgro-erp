@@ -1,89 +1,29 @@
 # backend/core/role_based_menu.py
-# UPDATED: Added Package Modules filtering + Owner bypass.
+# Package matrix now lives in backend/core/packages.py (single source of truth).
 #
 # Access rules:
-#   OWNER   → ALWAYS sees all 63 modules (bypasses package filter)
-#   MANAGER → (role permissions) ∩ (branch package modules)
-#   CASHIER → (cashier base modules) ∩ (branch package modules)
+#   HEAD-OFFICE OWNER → sees every module (needed to manage branches/packages)
+#   BRANCH OWNER      → (branch package modules) + User Management + Settings
+#   MANAGER           → (role permissions) ∩ (branch package modules)
+#   CASHIER           → (cashier base modules) ∩ (branch package modules)
 
+import pandas as pd  # was missing: get_menu_badge_counts() uses pd.to_numeric
 import streamlit as st
 from backend.core.auth import can_access_feature
+from backend.core.packages import (
+    PACKAGE_MODULES,
+    CASHIER_MODULES,
+    OWNER_ALWAYS_MODULES,
+    normalize_package,
+    is_head_office,
+    min_package_for,
+)
 from backend.core.db_adapter import (
     load_products,
     load_purchases,
     get_current_branch,
     load_branches,
 )
-
-# ============================================================
-# PACKAGE MODULE MAPPING
-# ============================================================
-PACKAGE_MODULES = {
-    "Bronze": [
-        # Sales & POS
-        "POS", "Sales History",
-        # Stock Management
-        "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
-        # Purchases & Expenses
-        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
-        # Income & Cash
-        "Income", "Income Dashboard", "Cash Dashboard",
-        # Credit
-        "Debtors", "Debtors Dashboard",
-        # Store Ops
-        "Shift Management", "Documents",
-        # Security
-        "User Management",
-    ],
-    "Silver": [
-        # All Bronze
-        "POS", "Sales History", "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
-        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
-        "Income", "Income Dashboard", "Cash Dashboard", "Debtors", "Debtors Dashboard",
-        "Shift Management", "Documents", "User Management",
-        # Silver Additions
-        "Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
-        "Reports Dashboard", "Floating Financials", "P&L", "Duplicate Products",
-        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management",
-    ],
-    "Gold": [
-        # All Silver
-        "POS", "Sales History", "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
-        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
-        "Income", "Income Dashboard", "Cash Dashboard", "Debtors", "Debtors Dashboard",
-        "Shift Management", "Documents", "User Management",
-        "Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
-        "Reports Dashboard", "Floating Financials", "P&L", "Duplicate Products",
-        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management",
-        # Gold Additions
-        "Customer 360 View", "Customer Insights 360",
-        "Supplier Bidding", "Supplier Bidding Portal", "Smart Replenishment", "Inventory Optimizer",
-        "Financial Closing", "Profit Center Analysis",
-        "Automated Follow-up", "Workflow Approvals",
-        "Live Dashboard", "Payment Gateway", "SMS Gateway", "E-commerce Sync",
-    ],
-    "Platinum": [
-        # All Gold
-        "POS", "Sales History", "Stock Dashboard", "Inventory", "Barcode Generator", "Barcode Scanner",
-        "Purchases", "Purchases Dashboard", "Expenses", "Expenses Dashboard",
-        "Income", "Income Dashboard", "Cash Dashboard", "Debtors", "Debtors Dashboard",
-        "Shift Management", "Documents", "User Management",
-        "Customer Dashboard", "Retention Dashboard", "Segmentation Dashboard", "Lifecycle Dashboard",
-        "Reports Dashboard", "Floating Financials", "P&L", "Duplicate Products",
-        "Mobile Dashboard", "PWA Setup", "Offline Mode", "Language Management",
-        "Customer 360 View", "Customer Insights 360",
-        "Supplier Bidding", "Supplier Bidding Portal", "Smart Replenishment", "Inventory Optimizer",
-        "Financial Closing", "Profit Center Analysis",
-        "Automated Follow-up", "Workflow Approvals",
-        "Live Dashboard", "Payment Gateway", "SMS Gateway", "E-commerce Sync",
-        # Platinum Additions
-        "Predictive Analytics", "Demand Forecasting", "Churn Prediction", "Recommendation Engine",
-        "Anomaly Detection", "Automated Insights", "Competitor Price Monitoring", "Business Advisor",
-        "Accounting Sync", "API Developer", "Multi-Tenant", "White Label", "Voice Commands",
-        "Branch Management", "Branch Performance", "Security Dashboard", "Settings",
-    ],
-}
-
 
 # ==============================
 # BRANCH HELPERS
@@ -115,26 +55,23 @@ def _branch_label(branch_id=None):
 # ============================================================
 # get_visible_modules - with OWNER BYPASS
 # ============================================================
-def get_visible_modules(role, branch_package=None):
+def get_visible_modules(role, branch_package=None, branch_id=None):
     """
-    Return ALL modules a role can access.
+    Return the modules this role can see on this branch's package.
 
     Access rules:
-      • OWNER   → ALWAYS sees all 63 modules (bypasses package filter).
-                  Owners must never be locked out — they need Branch Management,
-                  User Management, Settings, etc. to administer the system
-                  regardless of which package a branch is on.
-      • MANAGER → (role permissions) ∩ (branch package modules)
-      • CASHIER → (cashier base modules) ∩ (branch package modules)
+      • HEAD-OFFICE OWNER → every module (administers branches and packages).
+      • BRANCH OWNER      → package modules + User Management + Settings.
+      • MANAGER           → (role permissions) ∩ (branch package modules).
+      • CASHIER           → (cashier base modules) ∩ (branch package modules).
     """
 
     # If no package is passed, pull from session (defaults to Bronze)
     if branch_package is None:
         branch_package = st.session_state.get("branch_package", "Bronze")
 
-    # Ensure we have a valid package fallback
-    if branch_package not in PACKAGE_MODULES:
-        branch_package = "Bronze"
+    # Normalise ("gold", " Gold ", None, NaN -> valid tier; unknown -> Bronze)
+    branch_package = normalize_package(branch_package)
 
     all_modules = [
         # Stock Management
@@ -221,23 +158,21 @@ def get_visible_modules(role, branch_package=None):
         {"name": "Settings", "permission": "settings"},
     ]
 
-    # ============================================================
-    # OWNER BYPASS — sees ALL 63 modules, regardless of any branch package
-    # ============================================================
+    # ---- OWNER ------------------------------------------------
     if role == "owner":
-        return sorted([m["name"] for m in all_modules])
-    # ============================================================
+        if branch_id is None:
+            branch_id = st.session_state.get("user_branch") or _resolve_branch()
+        if is_head_office(branch_id):
+            return sorted(m["name"] for m in all_modules)
+        allowed = PACKAGE_MODULES[branch_package] | OWNER_ALWAYS_MODULES
+        return sorted(m["name"] for m in all_modules if m["name"] in allowed)
 
     # Get allowed modules for the package (used only for non-owner roles)
     allowed_by_package = PACKAGE_MODULES[branch_package]
 
     # 1. CASHIER - RESTRICTED ACCESS (∩ package)
     if role == "cashier":
-        cashier_modules = [
-            "POS", "Sales History", "Barcode Scanner",
-            "Customer Dashboard", "Floating Financials",
-            "Debtors", "Debtors Dashboard", "Shift Management", "Documents",
-        ]
+        cashier_modules = CASHIER_MODULES
         final_modules = [m for m in cashier_modules if m in allowed_by_package]
         return sorted(final_modules)
 
@@ -253,6 +188,31 @@ def get_visible_modules(role, branch_package=None):
         return sorted(fallback)
 
     return sorted(list(dict.fromkeys(visible_modules)))
+
+
+# ============================================================
+# can_access_page - USE THIS IN THE ROUTER (not just the sidebar)
+# ============================================================
+def can_access_page(role, page, branch_package=None, branch_id=None):
+    """True only if `page` is in the user's visible modules (role AND package).
+
+    Hiding a sidebar button is not enough: anything that sets
+    st.session_state.current_page (old bookmark, stale session, ?page=...)
+    bypasses it. Call this before dispatching to the page.
+    """
+    return page in get_visible_modules(role, branch_package, branch_id)
+
+
+def locked_page_message(page, branch_package=None):
+    """User-facing text for a blocked page."""
+    pkg = normalize_package(
+        branch_package if branch_package is not None
+        else st.session_state.get("branch_package", "Bronze")
+    )
+    tier = min_package_for(page)
+    if tier and tier != pkg:
+        return f"🔒 **{page}** is available from the **{tier}** package. Your branch is on **{pkg}**."
+    return f"🔒 You don't have access to **{page}**."
 
 
 # ============================================================
