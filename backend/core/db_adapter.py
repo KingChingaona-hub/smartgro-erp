@@ -456,33 +456,94 @@ def load_all_branches():
     return load_branches()
 
 
-def save_branches(df):
+def save_branches(df, original_branch_id=None):
+    """
+    Save branches.
+    - Writes ALL columns (branch_id, branch_name, location, level, active,
+      package, status, branch_password).
+    - If original_branch_id is provided and differs from the row's branch_id,
+      the old row is deleted first so a rename does not create a duplicate.
+    - Clears the branches cache on success.
+    """
+    if df is None or df.empty:
+        print("[save_branches] empty DataFrame, nothing to save")
+        return False
+
     try:
         with get_db_cursor() as (cur, conn):
             if cur is None or conn is None:
+                print("[save_branches] no DB connection")
                 return False
+
+            # If this is a rename, remove the old row first.
+            if original_branch_id is not None:
+                old_key = str(original_branch_id).strip().upper()
+                new_keys = {
+                    str(v).strip().upper()
+                    for v in df["branch_id"].dropna().tolist()
+                }
+                if old_key and old_key not in new_keys:
+                    cur.execute(
+                        "DELETE FROM branches WHERE UPPER(TRIM(branch_id)) = %s",
+                        (old_key,),
+                    )
+                    print(f"[save_branches] deleted old branch {old_key!r} (rename)")
+
+            saved = 0
             for _, row in df.iterrows():
-                if 'branch_id' in row:
-                    valid, msg = validate_branch_code(str(row["branch_id"]))
-                    if not valid:
-                        print(f"Invalid branch_id: {msg}")
-                        continue
+                bid = str(row.get("branch_id", "")).strip().upper()
+                if not bid:
+                    print("[save_branches] skipping row with blank branch_id")
+                    continue
+
+                valid, msg = validate_branch_code(bid)
+                if not valid:
+                    print(f"[save_branches] invalid branch_id {bid!r}: {msg}")
+                    continue
 
                 cur.execute("""
-                    INSERT INTO branches (branch_id, branch_name, location, level, active)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO branches
+                        (branch_id, branch_name, location, level, active,
+                         package, status, branch_password)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (branch_id) DO UPDATE SET
-                        branch_name = EXCLUDED.branch_name,
-                        location = EXCLUDED.location,
-                        level = EXCLUDED.level,
-                        active = EXCLUDED.active
-                """, (row["branch_id"], row["branch_name"], row["location"], row["level"], row["active"]))
-            conn.commit()
-            return True
-    except Exception as e:
-        print(f"Error saving branches: {e}")
-        return False
+                        branch_name     = EXCLUDED.branch_name,
+                        location        = EXCLUDED.location,
+                        level           = EXCLUDED.level,
+                        active          = EXCLUDED.active,
+                        package         = EXCLUDED.package,
+                        status          = EXCLUDED.status,
+                        branch_password = EXCLUDED.branch_password
+                """, (
+                    bid,
+                    str(row.get("branch_name", "")).strip(),
+                    str(row.get("location", "")).strip(),
+                    int(row.get("level", 1) or 1),
+                    bool(row.get("active", True)),
+                    str(row.get("package", "Bronze") or "Bronze"),
+                    str(row.get("status", "Active") or "Active"),
+                    str(row.get("branch_password", "admin123") or "admin123"),
+                ))
+                saved += 1
 
+            conn.commit()
+
+            # Bust branches cache so the UI reloads fresh data.
+            try:
+                _load_branches_cached.clear()
+            except Exception:
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+
+            print(f"[save_branches] saved {saved}/{len(df)} rows")
+            return saved > 0
+
+    except Exception as e:
+        print(f"[save_branches] error: {e}")
+        import traceback; traceback.print_exc()
+        return False
 
 # ==============================
 # BRANCH ENFORCEMENT SAFETY NET

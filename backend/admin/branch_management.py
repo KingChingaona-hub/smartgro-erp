@@ -5,6 +5,8 @@
 #   3. No unconditional save_branches() on every page load
 #   4. Spinners during long operations
 #   5. Robust re-load after every mutation
+#   6. EDIT now passes original_branch_id to save_branches() so a rename
+#      becomes DELETE-old + INSERT-new (no duplicate row, all fields saved).
 
 import streamlit as st
 import pandas as pd
@@ -212,6 +214,7 @@ def branch_management_page():
                 df[col] = ""
 
     if columns_added:
+        # No renames here — no original_branch_id needed.
         save_branches(df)
         _invalidate_branch_cache()
         df = load_branches()   # reload fresh after schema change
@@ -254,9 +257,9 @@ def branch_management_page():
     st.markdown("---")
 
     # ==========================================================
-    # DATA SUMMARY PER BRANCH — LAZY-LOADED (fixes slowness)
+    # DATA SUMMARY PER BRANCH — LAZY-LOADED
     # ==========================================================
-    with st.expander("📊 Data summary per branch", expanded=False):
+    with st.expander("Data summary per branch", expanded=False):
         st.caption(
             "Shows how many rows each branch has across all branch-scoped tables. "
             "Loading this runs ~22 queries per branch, so it's opt-in for speed."
@@ -265,7 +268,7 @@ def branch_management_page():
             st.info("No branches to summarise.")
         else:
             load_summary = st.checkbox(
-                "🔄 Load data summary now (may take a few seconds)",
+                "Load data summary now (may take a few seconds)",
                 key="load_data_summary_cb",
             )
             if load_summary:
@@ -337,6 +340,7 @@ def branch_management_page():
                         }])
                         current_df = load_branches()
                         updated_df = pd.concat([current_df, new_branch], ignore_index=True)
+                        # New branch — no rename, no original_branch_id.
                         save_branches(updated_df)
 
                     st.session_state.bm_branch_created = True
@@ -401,9 +405,12 @@ def branch_management_page():
                         try:
                             with st.spinner("Saving changes..."):
                                 current_df = load_branches()
-                                # Match by branch_id (stable key), not by name
+                                old_code = str(original_branch_id).strip().upper()
+                                new_code = update_branch_id.strip().upper()
+
+                                # Match by the ORIGINAL branch_id (stable key)
                                 idx_matches = current_df.index[
-                                    current_df["branch_id"] == original_branch_id
+                                    current_df["branch_id"].astype(str).str.upper() == old_code
                                 ].tolist()
                                 if not idx_matches:
                                     st.error(
@@ -412,24 +419,54 @@ def branch_management_page():
                                     )
                                 else:
                                     idx = idx_matches[0]
-                                    new_code = update_branch_id.strip().upper()
 
-                                    current_df.at[idx, "branch_id"] = new_code
-                                    current_df.at[idx, "branch_name"] = update_branch_name
-                                    current_df.at[idx, "location"] = update_location
-                                    current_df.at[idx, "level"] = update_level
-                                    current_df.at[idx, "active"] = update_active
-                                    current_df.at[idx, "package"] = update_package
-                                    current_df.at[idx, "status"] = update_status
-                                    current_df.at[idx, "branch_password"] = update_password
-                                    save_branches(current_df)
+                                    # -------------------------------------------------
+                                    # Build the single row we want the DB to end up
+                                    # with, keyed on `new_code`.
+                                    # -------------------------------------------------
+                                    new_row = {
+                                        "branch_id": new_code,
+                                        "branch_name": update_branch_name.strip(),
+                                        "location": update_location.strip(),
+                                        "level": update_level,
+                                        "active": update_active,
+                                        "package": update_package,
+                                        "status": update_status,
+                                        "branch_password": update_password,
+                                    }
+                                    # Preserve any legacy columns not covered above
+                                    for col in current_df.columns:
+                                        if col not in new_row:
+                                            new_row[col] = row.get(col, "")
+
+                                    # Rebuild the frame:
+                                    #  - drop the old row (so a rename can't leave a ghost)
+                                    #  - keep every other branch as-is
+                                    #  - append the edited row
+                                    others = current_df.drop(index=idx).reset_index(drop=True)
+                                    updated_df = pd.concat(
+                                        [others, pd.DataFrame([new_row])],
+                                        ignore_index=True,
+                                    )
+
+                                    # ---------------------------------------------
+                                    # THE FIX: tell the adapter the original key
+                                    # so it can DELETE the old row when a rename
+                                    # happened, then upsert the new row with all
+                                    # 8 columns (name/location/level/active/
+                                    # package/status/branch_password).
+                                    # ---------------------------------------------
+                                    if old_code != new_code:
+                                        save_branches(updated_df, original_branch_id=old_code)
+                                    else:
+                                        save_branches(updated_df)
 
                                     # If branch code changed, update users table
-                                    if original_branch_id != new_code:
+                                    if old_code != new_code:
                                         users_df = load_users()
                                         if not users_df.empty and "branch_id" in users_df.columns:
                                             users_df.loc[
-                                                users_df["branch_id"] == original_branch_id,
+                                                users_df["branch_id"].astype(str).str.upper() == old_code,
                                                 "branch_id",
                                             ] = new_code
                                             save_users(users_df)
@@ -487,7 +524,6 @@ def branch_management_page():
             target_row = deletable_branches.iloc[idx]
             target_id = target_row["branch_id"]
 
-            # -------- Show what would be affected (lazy: button-triggered) --------
             st.markdown(f"### Data in **{target_row['branch_name']}** ({target_id})")
 
             load_counts = st.checkbox(
@@ -512,7 +548,7 @@ def branch_management_page():
                         hide_index=True,
                     )
             else:
-                total_rows = 0  # assume unknown; will load on demand below
+                total_rows = 0
                 counts = {}
                 st.info("Tick the checkbox above to see the row counts before deleting.")
 
@@ -584,7 +620,7 @@ def branch_management_page():
                         st.error(msg)
 
             # -------- Option C: Force delete (leaves orphans) --------
-            with st.expander("⚠️ Option C — Force delete (leave data orphaned)", expanded=False):
+            with st.expander("Option C — Force delete (leave data orphaned)", expanded=False):
                 st.error(
                     "This will remove the branch row from the branches table. "
                     "Orphaned rows remain in the database but will no longer be reachable "
