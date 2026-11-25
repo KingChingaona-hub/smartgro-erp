@@ -5,9 +5,12 @@
 #   3. No unconditional save_branches() on every page load
 #   4. Spinners during long operations
 #   5. Robust re-load after every mutation
-#   6. EDIT now resolves original_branch_id from the selector label directly
+#   6. EDIT resolves original_branch_id from the selector label directly
 #      (no positional iloc lookup), and ALWAYS passes it to save_branches so
 #      a rename becomes DELETE-old + INSERT-new atomically.
+#   7. Head Office (HO) branch code is LOCKED in the Edit form — the code
+#      field is disabled when editing HO, so HO can never be renamed and
+#      its data can never be orphaned by an accidental rename.
 
 import streamlit as st
 import pandas as pd
@@ -46,7 +49,6 @@ def _invalidate_branch_cache():
     except Exception as e:
         print(f"[branch_management] targeted clear failed: {e}")
 
-    # Fallback (harmless if load_branches isn't cached)
     try:
         st.cache_data.clear()
     except Exception:
@@ -218,7 +220,6 @@ def branch_management_page():
                 df[col] = ""
 
     if columns_added:
-        # No renames here — no original_branch_id needed.
         save_branches(df)
         _invalidate_branch_cache()
         df = load_branches()   # reload fresh after schema change
@@ -344,7 +345,6 @@ def branch_management_page():
                         }])
                         current_df = load_branches()
                         updated_df = pd.concat([current_df, new_branch], ignore_index=True)
-                        # New branch — no rename, no original_branch_id.
                         save_branches(updated_df)
 
                     st.session_state.bm_branch_created = True
@@ -368,13 +368,12 @@ def branch_management_page():
         # -------------------------------------------------------
         # Build a label -> branch_id map. The branch_id is embedded
         # in the label itself, so selection is unambiguous even if
-        # df.index isn't 0..N-1 (e.g. after a previous concat).
+        # df.index isn't 0..N-1.
         # -------------------------------------------------------
         label_to_id = {}
         for _, r in df.iterrows():
             bid = str(r["branch_id"]).strip()
             label = f"{r['branch_name']} ({bid})"
-            # Guard against two branches with the same display label
             while label in label_to_id:
                 label = label + " "
             label_to_id[label] = bid
@@ -387,10 +386,37 @@ def branch_management_page():
         original_branch_id = label_to_id[selected_label]
         row = df[df["branch_id"].astype(str) == str(original_branch_id)].iloc[0]
 
+        # --------------------- HO GUARD -------------------------
+        # Head Office (HO) is protected: its code must never be
+        # edited. Renaming HO would delete the branches row while
+        # all branch-scoped data stayed keyed to 'HO' — orphaning
+        # the entire business dataset. Lock the field when editing HO.
+        editing_ho = str(row["branch_id"]).strip().upper() == "HO"
+
         with st.form("update_branch_form"):
             col1, col2 = st.columns(2)
             with col1:
-                update_branch_id = st.text_input("Branch Code (Editable)", value=row["branch_id"])
+                update_branch_id = st.text_input(
+                    "Branch Code (Locked for Head Office)"
+                    if editing_ho
+                    else "Branch Code (Editable)",
+                    value=row["branch_id"],
+                    disabled=editing_ho,
+                    help=(
+                        "The Head Office code (HO) is fixed and cannot be "
+                        "renamed — all branch-scoped data is keyed to it."
+                        if editing_ho
+                        else "Changing the code renames the branch. All of "
+                             "its data will move with it only if you use "
+                             "'Reassign data' first."
+                    ),
+                )
+                if editing_ho:
+                    st.caption(
+                        "🔒 Head Office code is fixed. You can still edit "
+                        "its name, package, status, password and location."
+                    )
+
                 update_branch_name = st.text_input("Branch Name", value=row["branch_name"])
                 update_location = st.text_input("Location", value=row["location"])
                 update_password = st.text_input(
@@ -421,7 +447,13 @@ def branch_management_page():
                         with st.spinner("Saving changes..."):
                             current_df = load_branches()
                             old_code = str(original_branch_id).strip().upper()
-                            new_code = update_branch_id.strip().upper()
+                            # For HO, force new_code == old_code regardless of
+                            # what the (disabled) field contains.
+                            new_code = (
+                                old_code
+                                if editing_ho
+                                else update_branch_id.strip().upper()
+                            )
 
                             idx_matches = current_df.index[
                                 current_df["branch_id"].astype(str).str.upper() == old_code
@@ -434,8 +466,6 @@ def branch_management_page():
                             else:
                                 idx = idx_matches[0]
 
-                                # The row we want the DB to end up with,
-                                # keyed on new_code.
                                 new_row = {
                                     "branch_id": new_code,
                                     "branch_name": update_branch_name.strip(),
@@ -446,37 +476,28 @@ def branch_management_page():
                                     "status": update_status,
                                     "branch_password": update_password,
                                 }
-                                # Preserve any legacy columns not covered above
                                 for col in current_df.columns:
                                     if col not in new_row:
                                         new_row[col] = row.get(col, "")
 
-                                # Rebuild the frame: drop the old row so a
-                                # rename can't leave a ghost, keep everything
-                                # else, append the edited row.
                                 others = current_df.drop(index=idx).reset_index(drop=True)
                                 updated_df = pd.concat(
                                     [others, pd.DataFrame([new_row])],
                                     ignore_index=True,
                                 )
 
-                                # ALWAYS pass original_branch_id. The adapter
-                                # only issues the DELETE when old != new, but
-                                # passing it unconditionally makes the intent
-                                # explicit and removes any "None slipped
-                                # through" failure mode.
                                 ok = save_branches(
                                     updated_df, original_branch_id=old_code
                                 )
                                 if not ok:
                                     st.error(
                                         "save_branches returned False — see server "
-                                        "logs for the reason (invalid branch code, "
-                                        "DB error, or DB did not exist)."
+                                        "logs for the reason."
                                     )
                                     st.stop()
 
                                 # Rename users table if the code changed
+                                # (only possible for non-HO branches).
                                 if old_code != new_code:
                                     users_df = load_users()
                                     if not users_df.empty and "branch_id" in users_df.columns:
