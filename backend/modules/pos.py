@@ -144,7 +144,7 @@ def _cleanter_payload_from_state():
     content.append({"type": "text", "text": "Thank you for shopping with us!", "align": "center"})
     content.append({"type": "text", "text": "Aziel Investments", "align": "center"})
     content.append({
-        "type": "text", "text": "0782905853 / 0776067967",
+        "type": "text", "text": "0713955305 / 0776067967",
         "align": "center", "size": "small",
     })
     content.append({"type": "feed", "lines": 3})
