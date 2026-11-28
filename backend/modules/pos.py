@@ -8,11 +8,14 @@
 #   3. Compact two-column layout: products/cart on the left,
 #      totals/customer/payment/checkout on the right.
 #   4. No emojis in the UI.
-#   5. NEW: Checkout Success screen with two buttons:
-#      - Print Receipt
-#      - Return to Add to Cart
-#      After a successful thermal print, a "Receipt Printed Successfully -
-#      Return to Add to Cart" button is injected automatically by JS.
+#   5. NEW: After CHECKOUT is clicked, the page switches to a dedicated
+#      Checkout Complete screen (checkout_complete = True). It shows:
+#        - Print Receipt (thermal) with a "Return to Add to Cart" button
+#          injected automatically on successful print.
+#        - Return to Add to Cart (skip printing).
+#      The shopping UI is hidden until the cashier clicks one of those
+#      two return options, so the receipt always appears immediately
+#      after the first checkout.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -313,6 +316,9 @@ def init_session():
         st.session_state.customer_name_input = "Walk-in"
     if "customer_phone_input" not in st.session_state:
         st.session_state.customer_phone_input = ""
+    # NEW: tracks whether we are on the Checkout Complete screen
+    if "checkout_complete" not in st.session_state:
+        st.session_state.checkout_complete = False
 
 
 # ==============================
@@ -637,6 +643,104 @@ def pos_page():
                 st.rerun()
 
     st.markdown("---")
+
+    # ============================================================
+    # NEW: CHECKOUT COMPLETE MODE
+    # Shown immediately after CHECKOUT, hides the shopping UI so the
+    # receipt options appear at the top of the page on the FIRST sale.
+    # ============================================================
+    if st.session_state.get("checkout_complete", False) and st.session_state.get("receipt", ""):
+        st.subheader("Checkout Complete - Receipt")
+        st.success("Transaction completed successfully.")
+        st.caption(
+            "Option 1: Print to Thermal. Option 2: Skip printing and start a new sale."
+        )
+
+        action_col1, action_col2 = st.columns(2)
+
+        with action_col1:
+            st.markdown("**Print Receipt**")
+            render_thermal_print_button(
+                _cleanter_payload_from_state(), show_success_return=True
+            )
+
+        with action_col2:
+            st.markdown("**Return to Add to Cart**")
+            if st.button(
+                "Return to Add to Cart",
+                key="return_to_cart_btn",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.session_state.show_receipt = False
+                st.session_state.checkout_complete = False
+                st.session_state.receipt = ""
+                st.session_state.cart = []
+                st.rerun()
+
+        st.markdown("---")
+
+        with st.expander("View Receipt Text / HTML", expanded=False):
+            style = st.session_state.get("receipt_style", "Standard")
+            if style == "HTML Print":
+                html_receipt = generate_html_receipt(
+                    cart=st.session_state.get("last_cart", []),
+                    total_amount=st.session_state.get("last_subtotal", 0),
+                    receipt_no=st.session_state.get("last_receipt_no", "N/A"),
+                    payment_method=st.session_state.get("last_payment_method", "CASH"),
+                    customer_name=st.session_state.get("last_customer_display", "Walk-in"),
+                    discount_amount=st.session_state.get("last_discount_amount", 0),
+                    tax_amount=st.session_state.get("last_tax_amount", 0),
+                    final_total=st.session_state.get("last_final_total", 0),
+                    cash_received=st.session_state.get("last_cash_received", 0),
+                    change=st.session_state.get("last_change", 0),
+                )
+                st.components.v1.html(html_receipt, height=400, scrolling=True)
+            else:
+                st.text_area(
+                    "Receipt preview", st.session_state.receipt,
+                    height=200, key="receipt_preview_complete",
+                )
+
+            pdf_file = generate_receipt_pdf(st.session_state.receipt)
+            if pdf_file:
+                st.download_button(
+                    "Download PDF",
+                    data=pdf_file,
+                    file_name=(
+                        f"receipt_{st.session_state.get('last_receipt_no', 'receipt')}.pdf"
+                    ),
+                    mime="application/pdf",
+                    key="download_pdf_receipt_complete",
+                    use_container_width=True,
+                )
+
+            customer_phone_data = st.session_state.get("last_customer_phone", "")
+            if customer_phone_data:
+                wa = generate_whatsapp_receipt(
+                    st.session_state.get("last_cart", []),
+                    st.session_state.get("last_subtotal", 0),
+                    st.session_state.get("last_receipt_no", "N/A"),
+                    st.session_state.get("last_payment_method", "CASH"),
+                    st.session_state.get("last_customer_display", "Walk-in"),
+                    st.session_state.get("last_final_total", 0),
+                    st.session_state.get("last_discount_amount", 0),
+                    st.session_state.get("last_tax_amount", 0),
+                    st.session_state.get("last_cash_received", 0),
+                    st.session_state.get("last_change", 0),
+                )
+                link = get_whatsapp_link(customer_phone_data, wa)
+                if link:
+                    st.markdown(
+                        f'<a href="{link}" target="_blank">'
+                        f'<button style="background:#25D366;color:white;'
+                        f'border:none;border-radius:30px;padding:10px 20px;'
+                        f'width:100%;cursor:pointer;">Send via WhatsApp</button></a>',
+                        unsafe_allow_html=True,
+                    )
+
+        # Stop rendering the shopping UI while on the receipt screen.
+        return
 
     # ============================================================
     # TWO-COLUMN CARD
@@ -1113,6 +1217,8 @@ def pos_page():
                         st.session_state.receipt = receipt_text
                         st.session_state.last_receipt = receipt_text
                         st.session_state.show_receipt = True
+                        # NEW: switch to Checkout Complete screen immediately
+                        st.session_state.checkout_complete = True
                         st.session_state.cart = []
                         st.session_state.checkout_processing = False
                         _drop_product_cache()
@@ -1136,103 +1242,13 @@ def pos_page():
                             st.rerun()
 
     # ============================================================
-    # RECEIPT + THERMAL PRINT (below the columns)
+    # LAST RECEIPT (REPRINT) - only when not on Checkout Complete
     # ============================================================
-    if st.session_state.get("show_receipt", False) and st.session_state.receipt:
-        st.markdown("---")
-        st.subheader("Receipt")
-
-        st.markdown("**Post-Checkout Actions**")
-        st.caption(
-            "Option 1: Print to Thermal. Option 2: Skip printing and start a new sale."
-        )
-
-        action_col1, action_col2 = st.columns(2)
-
-        with action_col1:
-            st.markdown("**Print Receipt**")
-            # show_success_return=True injects a Return button after success
-            render_thermal_print_button(
-                _cleanter_payload_from_state(), show_success_return=True
-            )
-
-        with action_col2:
-            st.markdown("**Return to Add to Cart**")
-            if st.button(
-                "Return to Add to Cart",
-                key="return_to_cart_btn",
-                use_container_width=True,
-                type="primary",
-            ):
-                st.session_state.show_receipt = False
-                st.rerun()
-
-        st.markdown("---")
-
-        style = st.session_state.get("receipt_style", "Standard")
-        if style == "HTML Print":
-            html_receipt = generate_html_receipt(
-                cart=st.session_state.get("last_cart", []),
-                total_amount=st.session_state.get("last_subtotal", 0),
-                receipt_no=st.session_state.get("last_receipt_no", "N/A"),
-                payment_method=st.session_state.get("last_payment_method", "CASH"),
-                customer_name=st.session_state.get("last_customer_display", "Walk-in"),
-                discount_amount=st.session_state.get("last_discount_amount", 0),
-                tax_amount=st.session_state.get("last_tax_amount", 0),
-                final_total=st.session_state.get("last_final_total", 0),
-                cash_received=st.session_state.get("last_cash_received", 0),
-                change=st.session_state.get("last_change", 0),
-            )
-            st.components.v1.html(html_receipt, height=600, scrolling=True)
-        else:
-            st.text_area(
-                "Receipt preview", st.session_state.receipt,
-                height=250, key="receipt_preview",
-            )
-
-        pdf_file = generate_receipt_pdf(st.session_state.receipt)
-        if pdf_file:
-            st.download_button(
-                "Download PDF",
-                data=pdf_file,
-                file_name=(
-                    f"receipt_{st.session_state.get('last_receipt_no', 'receipt')}.pdf"
-                ),
-                mime="application/pdf",
-                key="download_pdf_receipt",
-                use_container_width=True,
-            )
-
-        customer_phone_data = st.session_state.get("last_customer_phone", "")
-        if customer_phone_data:
-            wa = generate_whatsapp_receipt(
-                st.session_state.get("last_cart", []),
-                st.session_state.get("last_subtotal", 0),
-                st.session_state.get("last_receipt_no", "N/A"),
-                st.session_state.get("last_payment_method", "CASH"),
-                st.session_state.get("last_customer_display", "Walk-in"),
-                st.session_state.get("last_final_total", 0),
-                st.session_state.get("last_discount_amount", 0),
-                st.session_state.get("last_tax_amount", 0),
-                st.session_state.get("last_cash_received", 0),
-                st.session_state.get("last_change", 0),
-            )
-            link = get_whatsapp_link(customer_phone_data, wa)
-            if link:
-                st.markdown(
-                    f'<a href="{link}" target="_blank">'
-                    f'<button style="background:#25D366;color:white;'
-                    f'border:none;border-radius:30px;padding:10px 20px;'
-                    f'width:100%;cursor:pointer;">Send via WhatsApp</button></a>',
-                    unsafe_allow_html=True,
-                )
-
-        if st.button("Close Receipt", key="close_receipt_btn", use_container_width=True):
-            st.session_state.show_receipt = False
-            st.rerun()
-
-    # Last receipt reprint
-    if st.session_state.last_receipt and not st.session_state.get("show_receipt", False):
+    if (
+        st.session_state.last_receipt
+        and not st.session_state.get("show_receipt", False)
+        and not st.session_state.get("checkout_complete", False)
+    ):
         with st.expander("Last Receipt (Reprint)", expanded=False):
             st.text_area(
                 "Last receipt", st.session_state.last_receipt,
