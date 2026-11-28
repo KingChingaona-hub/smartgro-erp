@@ -86,6 +86,10 @@ def _cleanter_payload_from_state():
         "align": "center", "bold": True, "size": "large",
     })
     content.append({
+        "type": "text", "text": "Your Business, Our Priority",
+        "align": "center", "bold": True,
+    })
+    content.append({
         "type": "text", "text": "Smart Business Management... Made Easy!",
         "align": "center",
     })
@@ -147,7 +151,7 @@ def _cleanter_payload_from_state():
 
     # Footer
     content.append({"type": "divider"})
-    content.append({"type": "text", "text": "Thank you for your business!", "align": "center"})
+    content.append({"type": "text", "text": "Thank you for shopping with us!", "align": "center"})
     content.append({"type": "text", "text": "Aziel Investments", "align": "center"})
     content.append({
         "type": "text", "text": "0782905853 / 0776067967",

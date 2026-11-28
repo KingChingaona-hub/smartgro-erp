@@ -17,17 +17,13 @@ except:
 # ==============================
 # BRANCH HEADER RESOLVER
 # ==============================
-_DEFAULT_BRANCH_NAME = "Aziel Investments - Retreat Park"
+_DEFAULT_BRANCH_NAME = "Aziel Investments"
 _DEFAULT_BRANCH_ADDR = "Retreat Park, Harare"
-_DEFAULT_BRANCH_PHONE = "0782 905 853"
+_DEFAULT_BRANCH_PHONE = "0782905853 / 0776067967"
 _DEFAULT_BRANCH_EMAIL = "info@azielinvestments.co.zw"
 
 
 def _get_session_branch():
-    """
-    Return the authoritative branch for the current session.
-    Prefers `current_branch_code` over `user_branch`.
-    """
     try:
         return (
             st.session_state.get("current_branch_code")
@@ -39,13 +35,6 @@ def _get_session_branch():
 
 
 def _resolve_branch_header(branch_id=None):
-    """
-    Return (name, address, phone, email) for receipt headers/footers.
-
-    - Prefers values from the branches table when the row exposes them.
-    - Falls back to the hardcoded Aziel defaults so existing callers
-      keep working with no changes.
-    """
     if branch_id is None:
         branch_id = _get_session_branch()
 
@@ -100,81 +89,69 @@ def generate_receipt(
     final_total=0,
     branch_id=None,
 ):
-    """Generate professional receipt with proper alignment and decimal support"""
-
     branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
 
     receipt = []
 
-    # ==============================
     # HEADER SECTION
-    # ==============================
-    receipt.append("=" * 48)
-    receipt.append("         AZIEL INVESTMENTS")
-    receipt.append("      SMART RETAIL ERP SYSTEM")
-    receipt.append("-" * 48)
-    receipt.append(f"Receipt No: {receipt_no}")
-    receipt.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    receipt.append(f"Cashier: {st.session_state.get('username', 'System')}")
-    receipt.append(f"Customer: {customer_name}")
-    receipt.append(f"Payment: {payment_method}")
-    receipt.append("=" * 48)
+    receipt.append("=" * 52)
+    receipt.append("              AZIEL INVESTMENTS")
+    receipt.append("         'Your Business, Our Priority'")
+    receipt.append("             Smart Retail ERP System")
+    receipt.append("-" * 52)
+    receipt.append(f"Receipt No : {receipt_no}")
+    receipt.append(f"Date       : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    receipt.append(f"Cashier    : {st.session_state.get('username', 'System')}")
+    receipt.append(f"Customer   : {customer_name}")
+    receipt.append(f"Payment    : {payment_method}")
+    receipt.append("=" * 52)
 
-    # ==============================
-    # TABLE HEADER (Aligned columns)
-    # ==============================
+    # TABLE HEADER
     receipt.append("")
-    receipt.append("QTY  ITEM                         PRICE     TOTAL")
-    receipt.append("-" * 48)
+    receipt.append("QTY  ITEM                       PRICE       TOTAL")
+    receipt.append("-" * 52)
 
-    # ==============================
-    # ITEMS SECTION (Proper alignment with decimal support)
-    # ==============================
+    # ITEMS SECTION
     for item in cart:
-        name = item['name'][:28]  # Truncate long names
-        qty = float(item['qty'])  # Support decimal quantities
+        name = item['name'][:26]
+        qty = float(item['qty'])
         price = float(item['price'])
         total = float(item['total'])
 
-        # Format quantity with 2 decimal places if it's a decimal
         if qty % 1 == 0:
             qty_str = f"{int(qty):<4}"
         else:
             qty_str = f"{qty:<4.2f}"
 
-        # Format with proper spacing
-        receipt.append(f"{qty_str} {name:<28} ${price:>7.2f} ${total:>7.2f}")
+        receipt.append(f"{qty_str} {name:<26} ${price:>7.2f} ${total:>8.2f}")
 
-    receipt.append("-" * 48)
+    receipt.append("-" * 52)
 
-    # ==============================
     # SUMMARY SECTION
-    # ==============================
-    receipt.append(f"{'SUBTOTAL:':>40} ${total_amount:>7.2f}")
+    receipt.append(f"{'SUBTOTAL:':>42} ${total_amount:>7.2f}")
 
     if discount_amount > 0:
-        receipt.append(f"{'DISCOUNT:':>40} -${discount_amount:>7.2f}")
+        receipt.append(f"{'DISCOUNT:':>42} -${discount_amount:>6.2f}")
 
     if tax_amount > 0:
-        receipt.append(f"{'TAX:':>40} +${tax_amount:>7.2f}")
+        receipt.append(f"{'TAX:':>42} +${tax_amount:>6.2f}")
 
-    receipt.append("-" * 48)
-    receipt.append(f"{'FINAL TOTAL:':>40} ${final_total:>7.2f}")
+    receipt.append("-" * 52)
+    receipt.append(f"{'FINAL TOTAL:':>42} ${final_total:>7.2f}")
 
     if payment_method == "CASH":
-        receipt.append(f"{'AMOUNT TENDERED:':>40} ${cash_received:>7.2f}")
-        receipt.append(f"{'CHANGE:':>40} ${change:>7.2f}")
+        receipt.append(f"{'AMOUNT TENDERED:':>42} ${cash_received:>7.2f}")
+        receipt.append(f"{'CHANGE:':>42} ${change:>7.2f}")
 
-    # ==============================
-    # FOOTER SECTION (branch-aware)
-    # ==============================
-    receipt.append("=" * 48)
-    receipt.append("        THANK YOU FOR SHOPPING!")
-    receipt.append("-" * 48)
-    receipt.append(f"     {branch_name}")
-    receipt.append(f"         Contact: {branch_phone}")
-    receipt.append(f"     Email: {branch_email}")
-    receipt.append("=" * 48)
+    # FOOTER SECTION
+    receipt.append("=" * 52)
+    receipt.append("        THANK YOU FOR SHOPPING WITH US!")
+    receipt.append("        'Your Business, Our Priority'")
+    receipt.append("-" * 52)
+    receipt.append(f"  Branch: {branch_name}")
+    receipt.append(f"  Contacts: {branch_phone}")
+    receipt.append(f"  Email: {branch_email}")
+    receipt.append("=" * 52)
 
     return "\n".join(receipt)
 
@@ -200,48 +177,40 @@ def generate_premium_receipt(
     loyalty_points_used=0,
     branch_id=None,
 ):
-    """Generate premium receipt with loyalty, branding, and decimal support"""
-
     branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
 
     receipt = []
 
-    # ==============================
     # HEADER WITH BRANDING
-    # ==============================
     receipt.append("")
-    receipt.append("╔══════════════════════════════════════════════════╗")
+    receipt.append("╔════════════════════════════════════════════════════╗")
     receipt.append("║                                                    ║")
-    receipt.append("║             ╔══════════════════════╗              ║")
-    receipt.append("║             ║   AZIEL INVESTMENTS   ║              ║")
-    receipt.append("║             ╚══════════════════════╝              ║")
+    receipt.append("║                AZIEL INVESTMENTS                   ║")
+    receipt.append("║           'Your Business, Our Priority'            ║")
     receipt.append("║                                                    ║")
-    receipt.append("║           SMART RETAIL ERP SYSTEM                  ║")
+    receipt.append("║              Smart Retail ERP System               ║")
     receipt.append("║                                                    ║")
     receipt.append("╠════════════════════════════════════════════════════╣")
-    receipt.append(f"║ Receipt No: {receipt_no:<37}║")
-    receipt.append(f"║ Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S'):<39}║")
-    receipt.append(f"║ Cashier: {st.session_state.get('username', 'System'):<37}║")
-    receipt.append(f"║ Customer: {customer_name:<37}║")
+    receipt.append(f"║ Receipt No : {receipt_no:<36}║")
+    receipt.append(f"║ Date       : {datetime.now().strftime('%Y-%m-%d %H:%M:%S'):<36}║")
+    receipt.append(f"║ Cashier    : {st.session_state.get('username', 'System'):<36}║")
+    receipt.append(f"║ Customer   : {customer_name:<36}║")
     if customer_phone:
-        receipt.append(f"║ Phone: {customer_phone:<40}║")
-    receipt.append(f"║ Payment: {payment_method:<38}║")
+        receipt.append(f"║ Phone      : {customer_phone:<36}║")
+    receipt.append(f"║ Payment    : {payment_method:<36}║")
     receipt.append("╠════════════════════════════════════════════════════╣")
 
-    # ==============================
-    # ITEMS TABLE WITH DECIMAL SUPPORT
-    # ==============================
+    # ITEMS TABLE
     receipt.append("║                                                    ║")
-    receipt.append("║  QTY  ITEM                     PRICE      TOTAL   ║")
+    receipt.append("║  QTY  ITEM                      PRICE      TOTAL   ║")
     receipt.append("║  ──────────────────────────────────────────────── ║")
 
     for item in cart:
         name = item['name'][:24]
-        qty = float(item['qty'])  # Support decimal quantities
+        qty = float(item['qty'])
         price = float(item['price'])
         total = float(item['total'])
 
-        # Format quantity with 2 decimal places if it's a decimal
         if qty % 1 == 0:
             qty_str = f"{int(qty):<3}"
         else:
@@ -251,53 +220,46 @@ def generate_premium_receipt(
 
     receipt.append("║  ──────────────────────────────────────────────── ║")
 
-    # ==============================
     # TOTALS
-    # ==============================
-    receipt.append(f"║  {'SUBTOTAL:':<37} ${total_amount:>7.2f} ║")
+    receipt.append(f"║  {'SUBTOTAL:':<39} ${total_amount:>7.2f} ║")
 
     if discount_amount > 0:
         if discount_percent > 0:
-            receipt.append(f"║  {'DISCOUNT (' + str(discount_percent) + '%):':<37} -${discount_amount:>6.2f} ║")
+            receipt.append(f"║  {'DISCOUNT (' + str(discount_percent) + '%):':<39} -${discount_amount:>6.2f} ║")
         else:
-            receipt.append(f"║  {'DISCOUNT:':<37} -${discount_amount:>6.2f} ║")
+            receipt.append(f"║  {'DISCOUNT:':<39} -${discount_amount:>6.2f} ║")
 
     if tax_amount > 0:
         if tax_percent > 0:
-            receipt.append(f"║  {'TAX (' + str(tax_percent) + '%):':<37} +${tax_amount:>6.2f} ║")
+            receipt.append(f"║  {'TAX (' + str(tax_percent) + '%):':<39} +${tax_amount:>6.2f} ║")
         else:
-            receipt.append(f"║  {'TAX:':<37} +${tax_amount:>6.2f} ║")
+            receipt.append(f"║  {'TAX:':<39} +${tax_amount:>6.2f} ║")
 
     receipt.append("║  ──────────────────────────────────────────────── ║")
-    receipt.append(f"║  {'FINAL TOTAL:':<37} ${final_total:>7.2f} ║")
+    receipt.append(f"║  {'FINAL TOTAL:':<39} ${final_total:>7.2f} ║")
 
     if payment_method == "CASH":
-        receipt.append(f"║  {'AMOUNT TENDERED:':<37} ${cash_received:>7.2f} ║")
-        receipt.append(f"║  {'CHANGE:':<37} ${change:>7.2f} ║")
+        receipt.append(f"║  {'AMOUNT TENDERED:':<39} ${cash_received:>7.2f} ║")
+        receipt.append(f"║  {'CHANGE:':<39} ${change:>7.2f} ║")
 
-    # ==============================
     # LOYALTY POINTS
-    # ==============================
     if loyalty_points_earned > 0:
         receipt.append("╠════════════════════════════════════════════════════╣")
-        receipt.append(f"║  ⭐ LOYALTY POINTS EARNED: {loyalty_points_earned:<21}║")
+        receipt.append(f"║  * LOYALTY POINTS EARNED: {loyalty_points_earned:<23}║")
 
     if loyalty_points_used > 0:
-        receipt.append(f"║  🎁 POINTS REDEEMED: {loyalty_points_used:<26}║")
+        receipt.append(f"║  * POINTS REDEEMED: {loyalty_points_used:<28}║")
 
-    # ==============================
-    # FOOTER (branch-aware)
-    # ==============================
+    # FOOTER
     receipt.append("╠════════════════════════════════════════════════════╣")
     receipt.append("║                                                    ║")
-    receipt.append("║         THANK YOU FOR SHOPPING WITH US!            ║")
+    receipt.append("║          THANK YOU FOR SHOPPING WITH US!           ║")
     receipt.append("║                                                    ║")
-    receipt.append(f"║  🏪 {branch_name[:48]:<48}║")
-    receipt.append(f"║  📞 Contact: {branch_phone[:37]:<37}║")
-    receipt.append(f"║  📧 Email: {branch_email[:39]:<39}║")
-    receipt.append("║  🌐 Web: www.azielinvestments.co.zw                ║")
+    receipt.append("║          'Your Business, Our Priority'             ║")
     receipt.append("║                                                    ║")
-    receipt.append("║     Follow us on social media for updates!         ║")
+    receipt.append(f"║  {branch_name[:48]:<50}║")
+    receipt.append(f"║  Contacts: {branch_phone[:36]:<36}║")
+    receipt.append(f"║  Email: {branch_email[:39]:<39}║")
     receipt.append("║                                                    ║")
     receipt.append("╚════════════════════════════════════════════════════╝")
     receipt.append("")
@@ -317,50 +279,48 @@ def generate_thermal_receipt(
     final_total=0,
     branch_id=None,
 ):
-    """Generate receipt optimized for 58mm thermal printers with decimal support"""
-
     branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
 
     receipt = []
 
     # Header
     receipt.append("")
-    receipt.append(" AZIEL INVESTMENTS")
-    receipt.append(" Smart Retail ERP")
-    receipt.append("-" * 32)
+    receipt.append("     AZIEL INVESTMENTS")
+    receipt.append(" 'Your Business, Our Priority'")
+    receipt.append("-" * 34)
     receipt.append(f" Receipt: {receipt_no}")
     receipt.append(f" Date: {datetime.now().strftime('%d/%m/%y %H:%M')}")
     receipt.append(f" Cashier: {st.session_state.get('username', 'System')[:12]}")
     receipt.append(f" Customer: {customer_name[:20]}")
-    receipt.append("-" * 32)
+    receipt.append("-" * 34)
 
-    # Items with decimal support
-    receipt.append(" QTY ITEM          PRICE")
+    # Items
+    receipt.append(" QTY ITEM           PRICE")
     for item in cart:
         name = item['name'][:12]
-        qty = float(item['qty'])  # Support decimal quantities
+        qty = float(item['qty'])
         price = float(item['price'])
         total = float(item['total'])
 
-        # Format quantity
         if qty % 1 == 0:
             qty_str = f"{int(qty):>2}"
         else:
             qty_str = f"{qty:>4.1f}"
 
         receipt.append(f" {qty_str}  {name:<12} ${price:>5.2f}")
-        receipt.append(f"                   ${total:>7.2f}")
+        receipt.append(f"                    ${total:>7.2f}")
 
-    receipt.append("-" * 32)
+    receipt.append("-" * 34)
     receipt.append(f" TOTAL: ${final_total:>8.2f}")
 
     if payment_method == "CASH":
-        receipt.append("-" * 32)
+        receipt.append("-" * 34)
 
     receipt.append("")
-    receipt.append(" THANK YOU!")
-    receipt.append(f" {branch_name[:28]}")
-    receipt.append("=" * 32)
+    receipt.append("  THANK YOU FOR SHOPPING!")
+    receipt.append(" 'Your Business, Our Priority'")
+    receipt.append(f" Contacts: {branch_phone[:20]}")
+    receipt.append("=" * 34)
     receipt.append("")
 
     return "\n".join(receipt)
@@ -380,46 +340,45 @@ def generate_debt_payment_receipt(
     note="",
     branch_id=None,
 ):
-    """Generate receipt for debt payment (branch-aware footer)"""
-
     branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
 
     receipt = []
 
-    # Header
-    receipt.append("=" * 48)
-    receipt.append("         AZIEL INVESTMENTS")
-    receipt.append("       DEBT PAYMENT RECEIPT")
-    receipt.append("-" * 48)
-    receipt.append(f"Receipt No: {receipt_no}")
-    receipt.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    receipt.append(f"Cashier: {st.session_state.get('username', 'System')}")
-    receipt.append("-" * 48)
-    receipt.append(f"Customer: {customer_name}")
-    receipt.append("-" * 48)
-    receipt.append(f"{'Previous Balance:':<30} ${previous_balance:>10,.2f}")
-    receipt.append(f"{'Amount Paid:':<30} ${amount_paid:>10,.2f}")
+    receipt.append("=" * 52)
+    receipt.append("              AZIEL INVESTMENTS")
+    receipt.append("         'Your Business, Our Priority'")
+    receipt.append("            DEBT PAYMENT RECEIPT")
+    receipt.append("-" * 52)
+    receipt.append(f"Receipt No : {receipt_no}")
+    receipt.append(f"Date       : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    receipt.append(f"Cashier    : {st.session_state.get('username', 'System')}")
+    receipt.append("-" * 52)
+    receipt.append(f"Customer   : {customer_name}")
+    receipt.append("-" * 52)
+    receipt.append(f"{'Previous Balance:':<32} ${previous_balance:>10,.2f}")
+    receipt.append(f"{'Amount Paid:':<32} ${amount_paid:>10,.2f}")
 
     if cash_tendered > 0 and cash_tendered >= amount_paid:
-        receipt.append(f"{'Cash Tendered:':<30} ${cash_tendered:>10,.2f}")
-        receipt.append(f"{'Change:':<30} ${change:>10,.2f}")
+        receipt.append(f"{'Cash Tendered:':<32} ${cash_tendered:>10,.2f}")
+        receipt.append(f"{'Change:':<32} ${change:>10,.2f}")
 
-    receipt.append("-" * 48)
-    receipt.append(f"{'New Balance:':<30} ${new_balance:>10,.2f}")
-    receipt.append("=" * 48)
+    receipt.append("-" * 52)
+    receipt.append(f"{'New Balance:':<32} ${new_balance:>10,.2f}")
+    receipt.append("=" * 52)
 
     if new_balance <= 0:
-        receipt.append("      ✓ FULLY PAID - THANK YOU!")
+        receipt.append("       FULLY PAID - THANK YOU!")
     else:
         receipt.append(f"   Remaining balance: ${new_balance:,.2f}")
 
-    receipt.append("=" * 48)
+    receipt.append("=" * 52)
     if note:
         receipt.append(f"Note: {note}")
-    receipt.append("Thank you for your payment!")
-    receipt.append(f"{branch_name}")
-    receipt.append(f"Contact: {branch_phone}")
-    receipt.append("=" * 48)
+    receipt.append("  THANK YOU FOR YOUR PAYMENT!")
+    receipt.append(" 'Your Business, Our Priority'")
+    receipt.append(f" {branch_name}")
+    receipt.append(f" Contacts: {branch_phone}")
+    receipt.append("=" * 52)
 
     return "\n".join(receipt)
 
@@ -428,13 +387,11 @@ def generate_debt_payment_receipt(
 # PDF RECEIPT GENERATOR
 # ==============================
 def generate_receipt_pdf(receipt_text):
-    """Generate PDF from receipt text"""
-
     if not PDF_AVAILABLE:
         return None
 
     buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=(80*mm, 200*mm))  # Thermal receipt size
+    c = canvas.Canvas(buffer, pagesize=(80*mm, 200*mm))
 
     y = 260
     for line in receipt_text.split("\n"):
@@ -451,7 +408,7 @@ def generate_receipt_pdf(receipt_text):
 
 
 # ==============================
-# HTML RECEIPT FOR PRINTING (with decimal support)
+# HTML RECEIPT FOR PRINTING
 # ==============================
 def generate_html_receipt(
     cart,
@@ -466,14 +423,11 @@ def generate_html_receipt(
     change=0,
     branch_id=None,
 ):
-    """Generate HTML receipt for browser printing with decimal support"""
-
     branch_name, branch_address, branch_phone, branch_email = _resolve_branch_header(branch_id)
 
     items_html = ""
     for item in cart:
-        qty = float(item['qty'])  # Support decimal quantities
-        # Format quantity
+        qty = float(item['qty'])
         if qty % 1 == 0:
             qty_str = f"{int(qty)}"
         else:
@@ -494,66 +448,25 @@ def generate_html_receipt(
     <head>
         <title>Aziel Investments - Receipt {receipt_no}</title>
         <style>
-            @page {{
-                size: 80mm auto;
-                margin: 0mm;
-            }}
+            @page {{ size: 80mm auto; margin: 0mm; }}
             body {{
                 font-family: 'Courier New', monospace;
-                font-size: 10pt;
-                margin: 0;
-                padding: 5mm;
-                width: 80mm;
+                font-size: 10pt; margin: 0; padding: 5mm; width: 80mm;
             }}
-            .receipt {{
-                width: 100%;
-            }}
-            .header {{
-                text-align: center;
-                margin-bottom: 10px;
-            }}
-            .header h1 {{
-                font-size: 14pt;
-                margin: 0;
-            }}
-            .header h2 {{
-                font-size: 10pt;
-                margin: 0;
-                color: #666;
-            }}
-            .divider {{
-                border-top: 1px dashed #000;
-                margin: 5px 0;
-            }}
-            .items-table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            .items-table th {{
-                text-align: left;
-                border-bottom: 1px solid #000;
-                padding: 3px 0;
-            }}
-            .items-table td {{
-                padding: 2px 0;
-            }}
-            .totals {{
-                text-align: right;
-                margin-top: 10px;
-            }}
-            .footer {{
-                text-align: center;
-                margin-top: 15px;
-                font-size: 8pt;
-            }}
+            .receipt {{ width: 100%; }}
+            .header {{ text-align: center; margin-bottom: 10px; }}
+            .header h1 {{ font-size: 14pt; margin: 0; }}
+            .header h2 {{ font-size: 10pt; margin: 0; color: #555; font-style: italic; }}
+            .divider {{ border-top: 1px dashed #000; margin: 5px 0; }}
+            .items-table {{ width: 100%; border-collapse: collapse; }}
+            .items-table th {{ text-align: left; border-bottom: 1px solid #000; padding: 3px 0; }}
+            .items-table td {{ padding: 2px 0; }}
+            .totals {{ text-align: right; margin-top: 10px; }}
+            .footer {{ text-align: center; margin-top: 15px; font-size: 9pt; }}
+            .motto {{ font-weight: bold; margin: 5px 0; }}
             @media print {{
-                body {{
-                    margin: 0;
-                    padding: 2mm;
-                }}
-                .no-print {{
-                    display: none;
-                }}
+                body {{ margin: 0; padding: 2mm; }}
+                .no-print {{ display: none; }}
             }}
         </style>
     </head>
@@ -561,7 +474,7 @@ def generate_html_receipt(
         <div class="receipt">
             <div class="header">
                 <h1>AZIEL INVESTMENTS</h1>
-                <h2>Smart Retail ERP System</h2>
+                <h2>'Your Business, Our Priority'</h2>
                 <div class="divider"></div>
                 <p>Receipt: {receipt_no}<br>
                 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
@@ -599,15 +512,16 @@ def generate_html_receipt(
             <div class="divider"></div>
 
             <div class="footer">
-                <p>THANK YOU FOR SHOPPING!</p>
+                <p>THANK YOU FOR SHOPPING WITH US!</p>
+                <p class="motto">'Your Business, Our Priority'</p>
                 <p>{branch_name}<br>
-                Contact: {branch_phone}<br>
+                Contacts: {branch_phone}<br>
                 Email: {branch_email}</p>
             </div>
         </div>
 
         <div class="no-print" style="text-align:center; margin-top:20px;">
-            <button onclick="window.print()">🖨️ Print Receipt</button>
+            <button onclick="window.print()">Print Receipt</button>
         </div>
     </body>
     </html>
