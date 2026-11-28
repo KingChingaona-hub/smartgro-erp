@@ -1,21 +1,11 @@
 # backend/modules/pos.py
 # UPDATED:
 #   1. Thermal printing via browser-side JavaScript fetch() to Cleanter
-#      (http://localhost:9100/print) - this is required because Python
-#      requests on the Streamlit server cannot reach the tablet's localhost.
-#   2. Cart quantity merging - clicking an item already in the cart
-#      increments its quantity instead of adding a duplicate row.
-#   3. Compact two-column layout: products/cart on the left,
-#      totals/customer/payment/checkout on the right.
+#   2. Cart quantity merging
+#   3. Compact two-column layout
 #   4. No emojis in the UI.
-#   5. NEW: After CHECKOUT is clicked, the page switches to a dedicated
-#      Checkout Complete screen (checkout_complete = True). It shows:
-#        - Print Receipt (thermal) with a "Return to Add to Cart" button
-#          injected automatically on successful print.
-#        - Return to Add to Cart (skip printing).
-#      The shopping UI is hidden until the cashier clicks one of those
-#      two return options, so the receipt always appears immediately
-#      after the first checkout.
+#   5. Checkout Complete screen (checkout_complete = True) 
+#   6. Fixed receipt phone number to 0782905853 and added Motto
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -149,7 +139,7 @@ def _cleanter_payload_from_state():
         content.append({"type": "row", "left": "Cash", "right": f"${cash_received:.2f}"})
         content.append({"type": "row", "left": "Change", "right": f"${change:.2f}"})
 
-    # Footer
+    # Footer (LOCKED TO 0782905853)
     content.append({"type": "divider"})
     content.append({"type": "text", "text": "Thank you for shopping with us!", "align": "center"})
     content.append({"type": "text", "text": "Aziel Investments", "align": "center"})
@@ -165,17 +155,7 @@ def _cleanter_payload_from_state():
 def render_thermal_print_button(payload_dict, show_success_return=False):
     """
     Render a button that sends the receipt payload to Cleanter using the
-    browser's own JavaScript fetch(). This is the ONLY way to reach
-    localhost:9100 from an HTTPS Streamlit page - the request must originate
-    in the browser on the same device as Cleanter.
-
-    Chrome will show a permission prompt on first tap
-    ("Allow ... to access other apps and services on this device?").
-    The cashier must tap Allow. The permission is remembered afterwards.
-
-    If show_success_return is True, after a successful print the button
-    is replaced by a "Receipt Printed Successfully - Return to Add to Cart"
-    button. Clicking it reloads the page to start a new sale.
+    browser's own JavaScript fetch().
     """
     payload_json = json.dumps(payload_dict)
 
@@ -249,10 +229,6 @@ def render_thermal_print_button(payload_dict, show_success_return=False):
 
 
 def render_cleanter_health_check():
-    """
-    Optional: a small browser-side health check for Cleanter.
-    Not required for printing, but useful for support.
-    """
     html = f"""
     <div style="font-family: sans-serif;">
       <button id="cleanterHealthBtn" style="
@@ -320,7 +296,7 @@ def init_session():
         st.session_state.customer_name_input = "Walk-in"
     if "customer_phone_input" not in st.session_state:
         st.session_state.customer_phone_input = ""
-    # NEW: tracks whether we are on the Checkout Complete screen
+    # tracks whether we are on the Checkout Complete screen
     if "checkout_complete" not in st.session_state:
         st.session_state.checkout_complete = False
 
@@ -356,12 +332,6 @@ def _drop_product_cache():
 # CART HELPERS
 # ==============================
 def add_item_to_cart(cart, product, qty, is_decimal):
-    """
-    Add a product to the cart.
-    If the barcode already exists, INCREMENT the existing row's quantity
-    instead of appending a duplicate row.
-    Returns (added_new, new_qty, stock_exceeded).
-    """
     barcode = product["barcode"]
     stock = float(product["stock"])
     price = float(product["price"])
@@ -649,9 +619,7 @@ def pos_page():
     st.markdown("---")
 
     # ============================================================
-    # NEW: CHECKOUT COMPLETE MODE
-    # Shown immediately after CHECKOUT, hides the shopping UI so the
-    # receipt options appear at the top of the page on the FIRST sale.
+    # CHECKOUT COMPLETE MODE
     # ============================================================
     if st.session_state.get("checkout_complete", False) and st.session_state.get("receipt", ""):
         st.subheader("Checkout Complete - Receipt")

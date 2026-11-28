@@ -40,7 +40,7 @@ def _resolve_branch_header(branch_id=None):
 
     name = _DEFAULT_BRANCH_NAME
     address = _DEFAULT_BRANCH_ADDR
-    phone = _DEFAULT_BRANCH_PHONE
+    phone = _DEFAULT_BRANCH_PHONE  # LOCKED: Always uses 0782905853
     email = _DEFAULT_BRANCH_EMAIL
 
     try:
@@ -53,7 +53,7 @@ def _resolve_branch_header(branch_id=None):
                 for src, key in (
                     ("branch_name", "name"),
                     ("address", "address"),
-                    ("phone", "phone"),
+                    # ("phone", "phone"),  <-- REMOVED SO DB CANNOT OVERWRITE PHONE
                     ("email", "email"),
                 ):
                     if src in row and row[src]:
@@ -63,8 +63,6 @@ def _resolve_branch_header(branch_id=None):
                                 name = val if "aziel" in val.lower() else f"Aziel Investments - {val}"
                             elif key == "address":
                                 address = val
-                            elif key == "phone":
-                                phone = val
                             elif key == "email":
                                 email = val
     except Exception:
