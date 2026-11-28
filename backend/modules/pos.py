@@ -1,15 +1,19 @@
 # backend/modules/pos.py
-# COMPACT LAYOUT:
-#   - Product search, cart, totals, customer, payment, and checkout all live
-#     inside a single two-column card so the cashier never scrolls far to checkout.
-#   - Cleanter (Bluetooth 58mm thermal printer) integration preserved.
-#   - Cart quantity merging preserved (clicking an existing item increments qty).
+# UPDATED:
+#   1. Thermal printing via browser-side JavaScript fetch() to Cleanter
+#      (http://localhost:9100/print) - this is required because Python
+#      requests on the Streamlit server cannot reach the tablet's localhost.
+#   2. Cart quantity merging - clicking an item already in the cart
+#      increments its quantity instead of adding a duplicate row.
+#   3. Compact two-column layout: products/cart on the left,
+#      totals/customer/payment/checkout on the right.
+#   4. No emojis in the UI.
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from datetime import datetime
-import time
-import requests
+import json
 
 from backend.core.db_adapter import (
     load_products,
@@ -42,21 +46,18 @@ from backend.utils.utils import generate_whatsapp_receipt, get_whatsapp_link
 
 
 # ==============================
-# CLEANTER INTEGRATION
+# CLEANTER (BLUETOOTH THERMAL PRINTER) INTEGRATION
 # ==============================
-CLEANTER_URL = "http://localhost:9100/print"
+CLEANTER_PRINT_URL = "http://localhost:9100/print"
 CLEANTER_HEALTH_URL = "http://localhost:9100/health"
 
 
-def check_cleanter_running():
-    try:
-        res = requests.get(CLEANTER_HEALTH_URL, timeout=2)
-        return res.status_code == 200
-    except Exception:
-        return False
-
-
 def _cleanter_payload_from_state():
+    """
+    Build a Cleanter-compatible receipt payload from the last completed
+    checkout stored in st.session_state. Reads all the `last_*` keys the
+    checkout flow writes.
+    """
     cart = st.session_state.get("last_cart", [])
     receipt_no = st.session_state.get("last_receipt_no", "N/A")
     payment_method = st.session_state.get("last_payment_method", "CASH")
@@ -70,58 +71,192 @@ def _cleanter_payload_from_state():
     change = float(st.session_state.get("last_change", 0) or 0)
 
     content = []
-    content.append({"type": "text", "text": "AZIEL INVESTMENTS", "align": "center", "bold": True, "size": "large"})
-    content.append({"type": "text", "text": "Smart Business Management... Made Easy!", "align": "center"})
+
+    # Header
+    content.append({
+        "type": "text", "text": "AZIEL INVESTMENTS",
+        "align": "center", "bold": True, "size": "large",
+    })
+    content.append({
+        "type": "text", "text": "Smart Business Management... Made Easy!",
+        "align": "center",
+    })
     content.append({"type": "divider"})
+
+    # Receipt metadata
     content.append({"type": "text", "text": f"Receipt: {receipt_no}", "align": "left"})
-    content.append({"type": "text", "text": f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", "align": "left"})
+    content.append({
+        "type": "text",
+        "text": f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "align": "left",
+    })
     content.append({"type": "text", "text": f"Customer: {customer_name}", "align": "left"})
     if customer_phone:
         content.append({"type": "text", "text": f"Phone: {customer_phone}", "align": "left"})
     content.append({"type": "divider"})
 
+    # Line items
     for item in cart:
         name = str(item.get("name", "Item"))
         qty = float(item.get("qty", 1))
         line_total = float(item.get("total", 0))
         price = float(item.get("price", 0))
-        qty_str = f"{int(qty)} x ${price:.2f}" if qty.is_integer() else f"{qty:.2f} x ${price:.2f}"
-        content.append({"type": "row", "left": f"{name[:20]}", "right": f"${line_total:.2f}"})
-        content.append({"type": "text", "text": f"   {qty_str}", "align": "left", "size": "small"})
+
+        if qty.is_integer():
+            qty_str = f"{int(qty)} x ${price:.2f}"
+        else:
+            qty_str = f"{qty:.2f} x ${price:.2f}"
+
+        content.append({
+            "type": "row",
+            "left": f"{name[:20]}",
+            "right": f"${line_total:.2f}",
+        })
+        content.append({
+            "type": "text", "text": f"   {qty_str}",
+            "align": "left", "size": "small",
+        })
 
     content.append({"type": "divider"})
+
+    # Totals
     content.append({"type": "row", "left": "Subtotal", "right": f"${subtotal:.2f}"})
     if discount > 0:
         content.append({"type": "row", "left": "Discount", "right": f"-${discount:.2f}"})
     if tax > 0:
         content.append({"type": "row", "left": "Tax", "right": f"${tax:.2f}"})
     content.append({"type": "divider"})
-    content.append({"type": "row", "left": "TOTAL", "right": f"${final_total:.2f}", "bold": True, "size": "large"})
+    content.append({
+        "type": "row", "left": "TOTAL", "right": f"${final_total:.2f}",
+        "bold": True, "size": "large",
+    })
+
+    # Payment
     content.append({"type": "text", "text": f"Payment: {payment_method}", "align": "left"})
     if payment_method == "CASH" and cash_received > 0:
         content.append({"type": "row", "left": "Cash", "right": f"${cash_received:.2f}"})
         content.append({"type": "row", "left": "Change", "right": f"${change:.2f}"})
 
+    # Footer
     content.append({"type": "divider"})
     content.append({"type": "text", "text": "Thank you for your business!", "align": "center"})
     content.append({"type": "text", "text": "Aziel Investments", "align": "center"})
-    content.append({"type": "text", "text": "0782905853 / 0776067967", "align": "center", "size": "small"})
+    content.append({
+        "type": "text", "text": "0782905853 / 0776067967",
+        "align": "center", "size": "small",
+    })
     content.append({"type": "feed", "lines": 3})
+
     return {"content": content}
 
 
-def print_receipt_to_cleanter():
-    payload = _cleanter_payload_from_state()
-    try:
-        res = requests.post(CLEANTER_URL, json=payload, timeout=8)
-        res.raise_for_status()
-        return True, "Receipt sent to printer ✅"
-    except requests.exceptions.ConnectionError:
-        return False, "Cannot reach Cleanter. Open the Cleanter app on this device and tap 'Start'."
-    except requests.exceptions.Timeout:
-        return False, "Printer did not respond in time. Check the Bluetooth pairing and that the printer is switched on."
-    except Exception as e:
-        return False, f"Print error: {e}"
+def render_thermal_print_button(payload_dict):
+    """
+    Render a button that sends the receipt payload to Cleanter using the
+    browser's own JavaScript fetch(). This is the ONLY way to reach
+    localhost:9100 from an HTTPS Streamlit page - the request must originate
+    in the browser on the same device as Cleanter.
+
+    Chrome will show a permission prompt on first tap
+    ("Allow ... to access other apps and services on this device?").
+    The cashier must tap Allow. The permission is remembered afterwards.
+    """
+    payload_json = json.dumps(payload_dict)
+
+    html = f"""
+    <div style="font-family: sans-serif;">
+      <button id="cleanterPrintBtn" style="
+        background:#0b5d1e;color:#ffffff;border:none;border-radius:8px;
+        padding:12px 20px;font-size:16px;font-weight:600;cursor:pointer;
+        width:100%;">
+        Print to Thermal
+      </button>
+      <div id="cleanterStatus" style="
+        margin-top:8px;font-size:14px;min-height:20px;color:#333;">
+      </div>
+    </div>
+    <script>
+    (function() {{
+      const btn = document.getElementById('cleanterPrintBtn');
+      const statusEl = document.getElementById('cleanterStatus');
+      const printUrl = "{CLEANTER_PRINT_URL}";
+      const payload = {payload_json};
+
+      btn.addEventListener('click', async function() {{
+        statusEl.style.color = '#333';
+        statusEl.textContent = 'Sending to printer...';
+        btn.disabled = true;
+        try {{
+          const res = await fetch(printUrl, {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify(payload),
+            targetAddressSpace: 'loopback'
+          }});
+          if (res.ok) {{
+            statusEl.style.color = '#0b5d1e';
+            statusEl.textContent = 'Receipt sent to printer.';
+          }} else {{
+            statusEl.style.color = '#a30000';
+            statusEl.textContent = 'Printer returned error code: ' + res.status;
+          }}
+        }} catch (err) {{
+          statusEl.style.color = '#a30000';
+          statusEl.textContent =
+            'Cannot reach Cleanter. Open the Cleanter app on this device, ' +
+            'tap Start, and make sure the printer is paired. (' + err.message + ')';
+        }} finally {{
+          btn.disabled = false;
+        }}
+      }});
+    }})();
+    </script>
+    """
+    components.html(html, height=110)
+
+
+def render_cleanter_health_check():
+    """
+    Optional: a small browser-side health check for Cleanter.
+    Not required for printing, but useful for support.
+    """
+    html = f"""
+    <div style="font-family: sans-serif;">
+      <button id="cleanterHealthBtn" style="
+        background:#444;color:#fff;border:none;border-radius:6px;
+        padding:8px 14px;font-size:13px;cursor:pointer;">
+        Check Cleanter
+      </button>
+      <span id="cleanterHealthStatus" style="margin-left:10px;font-size:13px;"></span>
+    </div>
+    <script>
+    (function() {{
+      const btn = document.getElementById('cleanterHealthBtn');
+      const out = document.getElementById('cleanterHealthStatus');
+      btn.addEventListener('click', async function() {{
+        out.style.color = '#333';
+        out.textContent = 'Checking...';
+        try {{
+          const res = await fetch("{CLEANTER_HEALTH_URL}", {{
+            method: 'GET',
+            targetAddressSpace: 'loopback'
+          }});
+          if (res.ok) {{
+            out.style.color = '#0b5d1e';
+            out.textContent = 'Cleanter is running.';
+          }} else {{
+            out.style.color = '#a30000';
+            out.textContent = 'Cleanter responded with ' + res.status;
+          }}
+        }} catch (err) {{
+          out.style.color = '#a30000';
+          out.textContent = 'Cleanter not reachable: ' + err.message;
+        }}
+      }});
+    }})();
+    </script>
+    """
+    components.html(html, height=60)
 
 
 # ==============================
@@ -152,14 +287,10 @@ def init_session():
         st.session_state.customer_name_input = "Walk-in"
     if "customer_phone_input" not in st.session_state:
         st.session_state.customer_phone_input = ""
-    if "cleanter_message" not in st.session_state:
-        st.session_state.cleanter_message = None
-    if "cleanter_message_type" not in st.session_state:
-        st.session_state.cleanter_message_type = "info"
 
 
 # ==============================
-# HELPERS
+# BRANCH HELPERS
 # ==============================
 def _get_session_branch():
     return (
@@ -185,10 +316,20 @@ def _drop_product_cache():
             del st.session_state[k]
 
 
+# ==============================
+# CART HELPERS
+# ==============================
 def add_item_to_cart(cart, product, qty, is_decimal):
+    """
+    Add a product to the cart.
+    If the barcode already exists, INCREMENT the existing row's quantity
+    instead of appending a duplicate row.
+    Returns (added_new, new_qty, stock_exceeded).
+    """
     barcode = product["barcode"]
     stock = float(product["stock"])
     price = float(product["price"])
+
     for item in cart:
         if item["barcode"] == barcode:
             new_qty = float(item["qty"]) + float(qty)
@@ -197,13 +338,21 @@ def add_item_to_cart(cart, product, qty, is_decimal):
             item["qty"] = new_qty
             item["total"] = new_qty * price
             return False, new_qty, False
+
     cart.append({
-        "barcode": barcode, "name": product["name"], "price": price,
-        "cost": float(product["cost"]), "qty": float(qty), "total": price * float(qty),
+        "barcode": barcode,
+        "name": product["name"],
+        "price": price,
+        "cost": float(product["cost"]),
+        "qty": float(qty),
+        "total": price * float(qty),
     })
     return True, float(qty), False
 
 
+# ==============================
+# CUSTOMER SUGGESTIONS
+# ==============================
 def get_customer_suggestions(branch_id: str):
     try:
         sales_df = load_sales(branch_id=branch_id)
@@ -217,9 +366,13 @@ def get_customer_suggestions(branch_id: str):
         if not customer_col:
             return []
         customers = sales_df[customer_col].dropna().unique().tolist()
-        customers = [c for c in customers if str(c).strip() and str(c).strip().lower() != "walk-in"]
+        customers = [
+            c for c in customers
+            if str(c).strip() and str(c).strip().lower() != "walk-in"
+        ]
         return sorted(set(customers))
-    except Exception:
+    except Exception as e:
+        print(f"Error getting customer suggestions: {e}")
         return []
 
 
@@ -248,10 +401,14 @@ def get_customer_phone_suggestions(branch_id: str):
                 if phone and str(phone).strip():
                     phones[str(name).strip()] = str(phone).strip()
         return phones
-    except Exception:
+    except Exception as e:
+        print(f"Error getting customer phone suggestions: {e}")
         return {}
 
 
+# ==============================
+# PRODUCTS (session-scoped)
+# ==============================
 def get_products():
     branch_id = _get_session_branch()
     cache_key = f"_products_cache_{branch_id}"
@@ -260,6 +417,9 @@ def get_products():
     return st.session_state[cache_key]
 
 
+# ==============================
+# CREDIT CHECK
+# ==============================
 def get_credit_scores(branch_id: str):
     try:
         df = get_credit_score()
@@ -288,6 +448,9 @@ def check_credit_allowed(customer_phone, amount):
     return True, "Credit approved"
 
 
+# ==============================
+# DEBTORS
+# ==============================
 def get_debtors_for_branch(branch_id: str):
     try:
         df = load_debtors(branch_id=branch_id)
@@ -307,6 +470,9 @@ def has_active_credit(phone):
     return not match.empty
 
 
+# ==============================
+# STOCK VALIDATION
+# ==============================
 def check_stock_available(products_df, cart):
     for item in cart:
         product = products_df[products_df["barcode"] == item["barcode"]]
@@ -319,6 +485,9 @@ def check_stock_available(products_df, cart):
     return True, "OK"
 
 
+# ==============================
+# SAVED CARTS
+# ==============================
 def save_current_cart(cart_name):
     if cart_name and st.session_state.cart:
         st.session_state.saved_carts[cart_name] = st.session_state.cart.copy()
@@ -333,13 +502,21 @@ def load_saved_cart(cart_name):
     return False
 
 
+# ==============================
+# RECENT CUSTOMERS
+# ==============================
 def add_recent_customer(name, phone):
     customer = {"name": name, "phone": phone}
-    st.session_state.recent_customers = [c for c in st.session_state.recent_customers if c["phone"] != phone]
+    st.session_state.recent_customers = [
+        c for c in st.session_state.recent_customers if c["phone"] != phone
+    ]
     st.session_state.recent_customers.insert(0, customer)
     st.session_state.recent_customers = st.session_state.recent_customers[:10]
 
 
+# ==============================
+# SHIFT STATUS
+# ==============================
 def get_branch_shift_status(branch_id):
     active_shift = get_active_shift_for_branch(branch_id)
     if active_shift:
@@ -351,9 +528,15 @@ def get_branch_shift_status(branch_id):
             "opening_cash": active_shift.get("opening_cash", 0),
             "branch_name": active_shift.get("branch_name", ""),
         }
-    return {"active": False, "shift_id": None, "started_by": None, "start_time": None, "opening_cash": 0, "branch_name": ""}
+    return {
+        "active": False, "shift_id": None, "started_by": None,
+        "start_time": None, "opening_cash": 0, "branch_name": "",
+    }
 
 
+# ==============================
+# CART OPS
+# ==============================
 def remove_from_cart(index):
     st.session_state.cart.pop(index)
     return True
@@ -367,7 +550,9 @@ def update_cart_quantity(index, new_qty):
                 st.session_state.cart.pop(index)
             else:
                 st.session_state.cart[index]["qty"] = new_qty
-                st.session_state.cart[index]["total"] = new_qty * st.session_state.cart[index]["price"]
+                st.session_state.cart[index]["total"] = (
+                    new_qty * st.session_state.cart[index]["price"]
+                )
             return True
         except ValueError:
             return False
@@ -379,7 +564,10 @@ def supports_decimal_quantity(product_name, category=""):
         return False
     name_lower = product_name.lower()
     category_lower = str(category).lower()
-    decimal_products = ["gas", "kg", "bread", "loaf", "flour", "sugar", "rice", "maize meal", "cooking oil", "milk", "liquid", "weight"]
+    decimal_products = [
+        "gas", "kg", "bread", "loaf", "flour", "sugar", "rice",
+        "maize meal", "cooking oil", "milk", "liquid", "weight",
+    ]
     for keyword in decimal_products:
         if keyword in name_lower or keyword in category_lower:
             return True
@@ -387,7 +575,7 @@ def supports_decimal_quantity(product_name, category=""):
 
 
 # ==============================
-# POS PAGE — COMPACT SINGLE-BOX LAYOUT
+# POS PAGE - COMPACT SINGLE-BOX LAYOUT
 # ==============================
 def pos_page():
     init_session()
@@ -398,25 +586,13 @@ def pos_page():
 
     try:
         st.image("aziellogo.png", width=90)
-    except:
+    except Exception:
         pass
 
     products_df = get_products()
     cart = st.session_state.cart
 
-    # Cleanter message banner
-    if st.session_state.get("cleanter_message"):
-        mt = st.session_state.get("cleanter_message_type", "info")
-        if mt == "success":
-            st.success(st.session_state.cleanter_message)
-        elif mt == "error":
-            st.error(st.session_state.cleanter_message)
-        else:
-            st.info(st.session_state.cleanter_message)
-        st.session_state.cleanter_message = None
-        st.session_state.cleanter_message_type = "info"
-
-    # ---------- Shift status (compact inline) ----------
+    # ---------- Shift status ----------
     user_branch = _get_session_branch()
     branch_shift = get_branch_shift_status(user_branch)
     active_shift_id = branch_shift.get("shift_id") if branch_shift.get("active") else None
@@ -426,9 +602,9 @@ def pos_page():
     st.session_state.branch_shift_active = branch_shift.get("active", False)
 
     if branch_shift.get("active"):
-        st.success(f"✅ Shift ACTIVE — {branch_shift.get('branch_name', user_branch)}")
+        st.success(f"Shift ACTIVE - {branch_shift.get('branch_name', user_branch)}")
     else:
-        st.warning("⚠️ No Active Shift — start one in Cash Dashboard.")
+        st.warning("No active shift. Start one in Cash Dashboard.")
         if st.session_state.get("role") in ["owner", "manager"]:
             if st.button("Go to Cash Dashboard", use_container_width=True):
                 st.session_state.current_page = "Cash Dashboard"
@@ -437,61 +613,78 @@ def pos_page():
     st.markdown("---")
 
     # ============================================================
-    # SINGLE CARD: TWO COLUMNS (Left = Products+Cart, Right = Checkout)
+    # TWO-COLUMN CARD
     # ============================================================
     left_col, right_col = st.columns([3, 2], gap="medium")
 
     # ============================================================
-    # LEFT COLUMN — products, quick actions, cart
+    # LEFT COLUMN - products, quick actions, cart
     # ============================================================
     with left_col:
-        # Quick action products (3 cols compact)
-        if not products_df.empty:
-            sales_df = load_sales(branch_id=user_branch)
-            if not sales_df.empty and "name" in sales_df.columns:
-                top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
-                quick_products = products_df[products_df["name"].isin(top_products)]
-            else:
-                quick_products = products_df.head(6)
-
-            if not quick_products.empty:
-                st.markdown("**⚡ Quick Products**")
-                qcols = st.columns(3)
-                for idx, (_, product) in enumerate(quick_products.iterrows()):
-                    with qcols[idx % 3]:
-                        if st.button(
-                            f"{product['name'][:12]}\n${product['price']:.2f}",
-                            key=f"quick_{product['barcode']}_{idx}",
-                            use_container_width=True,
-                        ):
-                            if product["stock"] <= 0:
-                                st.toast(f"{product['name']} out of stock")
-                            else:
-                                is_dec = supports_decimal_quantity(product["name"], product.get("category", ""))
-                                added_new, new_qty, exceeded = add_item_to_cart(cart, product, 1.0, is_dec)
-                                if exceeded:
-                                    st.toast(f"Stock limit reached ({float(product['stock']):.2f})")
-                                elif added_new:
-                                    st.toast(f"Added {product['name']}")
-                                else:
-                                    st.toast(f"Updated {product['name']} → qty {int(new_qty) if not is_dec else f'{new_qty:.2f}'}")
-
-        # Search + add to cart
-        st.markdown("**🔍 Search Product**")
-        s1, s2, s3 = st.columns([3, 1, 1])
-        with s1:
-            search = st.text_input("Search", placeholder="Name or barcode", key="search_input", label_visibility="collapsed")
-        with s2:
-            quick_qty = st.number_input("Qty", min_value=0.0, value=1.0, step=0.5, format="%.2f", key="quick_qty", label_visibility="collapsed")
-        with s3:
-            quick_mode = st.selectbox("Mode", ["Qty", "Amt"], key="quick_mode", label_visibility="collapsed")
-
         if products_df.empty:
-            st.warning(f"No products for branch **{user_branch}**.")
+            st.warning(f"No products found for branch {user_branch}.")
             if st.button("Go to Inventory"):
                 st.session_state.current_page = "Inventory"
                 st.rerun()
             return
+
+        # Quick action products (compact 3-col grid)
+        sales_df = load_sales(branch_id=user_branch)
+        if not sales_df.empty and "name" in sales_df.columns:
+            top_products = sales_df.groupby("name")["items"].sum().nlargest(6).index.tolist()
+            quick_products = products_df[products_df["name"].isin(top_products)]
+        else:
+            quick_products = products_df.head(6)
+
+        if not quick_products.empty:
+            st.markdown("**Quick Products**")
+            qcols = st.columns(3)
+            for idx, (_, product) in enumerate(quick_products.iterrows()):
+                with qcols[idx % 3]:
+                    if st.button(
+                        f"{product['name'][:12]}\n${product['price']:.2f}",
+                        key=f"quick_{product['barcode']}_{idx}",
+                        use_container_width=True,
+                    ):
+                        if product["stock"] <= 0:
+                            st.toast(f"{product['name']} out of stock")
+                        else:
+                            is_dec = supports_decimal_quantity(
+                                product["name"], product.get("category", "")
+                            )
+                            added_new, new_qty, exceeded = add_item_to_cart(
+                                cart, product, 1.0, is_dec
+                            )
+                            if exceeded:
+                                st.toast(
+                                    f"Stock limit reached ({float(product['stock']):.2f})"
+                                )
+                            elif added_new:
+                                st.toast(f"Added {product['name']}")
+                            else:
+                                qty_text = (
+                                    f"{new_qty:.2f}" if is_dec else f"{int(new_qty)}"
+                                )
+                                st.toast(f"Updated {product['name']} to qty {qty_text}")
+
+        # Search + add
+        st.markdown("**Search Product**")
+        s1, s2, s3 = st.columns([3, 1, 1])
+        with s1:
+            search = st.text_input(
+                "Search", placeholder="Name or barcode",
+                key="search_input", label_visibility="collapsed",
+            )
+        with s2:
+            quick_qty = st.number_input(
+                "Qty", min_value=0.0, value=1.0, step=0.5, format="%.2f",
+                key="quick_qty", label_visibility="collapsed",
+            )
+        with s3:
+            quick_mode = st.selectbox(
+                "Mode", ["Qty", "Amt"], key="quick_mode",
+                label_visibility="collapsed",
+            )
 
         filtered_df = products_df.copy()
         if search:
@@ -501,22 +694,28 @@ def pos_page():
             ]
 
         if not filtered_df.empty:
-            selected_product = st.selectbox("Product", filtered_df["name"].tolist(), key="product_select", label_visibility="collapsed")
+            selected_product = st.selectbox(
+                "Product", filtered_df["name"].tolist(),
+                key="product_select", label_visibility="collapsed",
+            )
             if selected_product:
                 product = filtered_df[filtered_df["name"] == selected_product].iloc[0]
-                is_decimal = supports_decimal_quantity(product["name"], product.get("category", ""))
+                is_decimal = supports_decimal_quantity(
+                    product["name"], product.get("category", "")
+                )
+
                 p1, p2, p3 = st.columns(3)
                 with p1:
-                    st.caption(f"**${product['price']:.2f}**")
+                    st.caption(f"Price: ${product['price']:.2f}")
                 with p2:
                     if product["stock"] <= 0:
-                        st.caption("❌ OUT")
+                        st.caption("Stock: OUT")
                     elif product["stock"] <= product["reorder_level"]:
-                        st.caption(f"⚠️ {product['stock']:.2f}")
+                        st.caption(f"Stock: {product['stock']:.2f} (LOW)")
                     else:
-                        st.caption(f"✅ {product['stock']:.2f}")
+                        st.caption(f"Stock: {product['stock']:.2f}")
                 with p3:
-                    st.caption(f"{product['category']}")
+                    st.caption(f"Category: {product['category']}")
 
                 final_qty = quick_qty
                 price_per_unit = float(product["price"])
@@ -528,49 +727,71 @@ def pos_page():
                 if not is_decimal:
                     final_qty = int(final_qty) if final_qty > 0 else 0
 
-                if st.button("➕ Add to Cart", key="add_to_cart_btn", use_container_width=True, type="primary"):
+                if st.button(
+                    "Add to Cart", key="add_to_cart_btn",
+                    use_container_width=True, type="primary",
+                ):
                     if product["stock"] <= 0:
                         st.toast(f"{product['name']} out of stock")
                     elif final_qty <= 0:
-                        st.toast("Enter valid qty/amount")
+                        st.toast("Enter a valid quantity or amount")
                     elif final_qty > product["stock"]:
-                        st.toast(f"Only {product['stock']:.2f} available")
+                        st.toast(
+                            f"Only {product['stock']:.2f} available for {product['name']}"
+                        )
                     else:
-                        added_new, new_qty, exceeded = add_item_to_cart(cart, product, final_qty, is_decimal)
+                        added_new, new_qty, exceeded = add_item_to_cart(
+                            cart, product, final_qty, is_decimal
+                        )
                         if exceeded:
-                            st.toast(f"Stock limit ({float(product['stock']):.2f})")
+                            st.toast(
+                                f"Stock limit reached ({float(product['stock']):.2f})"
+                            )
                         elif added_new:
-                            st.toast(f"Added {product['name']}")
+                            qty_text = (
+                                f"{final_qty:.2f}" if is_decimal else f"{int(final_qty)}"
+                            )
+                            st.toast(f"Added {product['name']} x{qty_text}")
                         else:
-                            st.toast(f"Updated {product['name']} → qty {new_qty:.2f}")
+                            qty_text = (
+                                f"{new_qty:.2f}" if is_decimal else f"{int(new_qty)}"
+                            )
+                            st.toast(f"Updated {product['name']} to qty {qty_text}")
 
         st.markdown("---")
 
-        # Cart display
-        st.markdown(f"**🛒 Cart ({len(cart)} items)**")
+        # Cart display (compact rows)
+        st.markdown(f"**Cart ({len(cart)} items)**")
 
         if not cart:
-            st.info("Cart empty.")
+            st.info("Cart is empty.")
         else:
-            # Compact cart table using HTML (avoids wide Streamlit rows)
             for idx, item in enumerate(cart):
                 c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
                 with c1:
-                    qty_display = int(item["qty"]) if float(item["qty"]).is_integer() else f"{item['qty']:.2f}"
-                    st.markdown(f"**{item['name'][:22]}**  \n<small>{qty_display} × ${item['price']:.2f}</small>", unsafe_allow_html=True)
+                    qty_display = (
+                        int(item["qty"])
+                        if float(item["qty"]).is_integer()
+                        else f"{item['qty']:.2f}"
+                    )
+                    st.markdown(
+                        f"**{item['name'][:22]}**  \n"
+                        f"<small>{qty_display} x ${item['price']:.2f}</small>",
+                        unsafe_allow_html=True,
+                    )
                 with c2:
                     st.markdown(f"**${item['total']:.2f}**")
                 with c3:
-                    if st.button("−", key=f"minus_{idx}_{item['barcode']}"):
+                    if st.button("Minus", key=f"minus_{idx}_{item['barcode']}"):
                         update_cart_quantity(idx, float(item["qty"]) - 1)
                         st.rerun()
                 with c4:
-                    if st.button("🗑", key=f"del_{idx}_{item['barcode']}"):
+                    if st.button("Del", key=f"del_{idx}_{item['barcode']}"):
                         remove_from_cart(idx)
                         st.rerun()
 
     # ============================================================
-    # RIGHT COLUMN — totals, customer, payment, checkout
+    # RIGHT COLUMN - totals, customer, payment, checkout
     # ============================================================
     with right_col:
         if not cart:
@@ -580,15 +801,23 @@ def pos_page():
         cart_df = pd.DataFrame(cart)
         subtotal = cart_df["total"].sum()
 
-        # ---------- Totals + discount + tax (compact) ----------
+        # Totals + discount + tax
         st.markdown("**Totals**")
         t1, t2 = st.columns(2)
         with t1:
-            discount_type = st.selectbox("Discount", ["NONE", "PERCENT", "FIXED"], key="discount_type", label_visibility="collapsed")
+            discount_type = st.selectbox(
+                "Discount", ["NONE", "PERCENT", "FIXED"],
+                key="discount_type", label_visibility="collapsed",
+            )
         with t2:
-            discount_value = st.number_input("Value", min_value=0.0, value=0.0, key="discount_value", label_visibility="collapsed")
+            discount_value = st.number_input(
+                "Value", min_value=0.0, value=0.0,
+                key="discount_value", label_visibility="collapsed",
+            )
 
-        tax_rate = st.number_input("Tax %", min_value=0.0, value=0.0, key="tax_rate")
+        tax_rate = st.number_input(
+            "Tax %", min_value=0.0, value=0.0, key="tax_rate"
+        )
 
         discount_amount = 0
         if discount_type == "PERCENT":
@@ -609,14 +838,20 @@ def pos_page():
 
         st.markdown("---")
 
-        # ---------- Customer (compact) ----------
-        st.markdown("**👤 Customer**")
+        # Customer
+        st.markdown("**Customer**")
         customer_suggestions = get_customer_suggestions(user_branch)
         customer_phones = get_customer_phone_suggestions(user_branch)
 
-        all_options = ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
+        all_options = (
+            ["Walk-in"] + customer_suggestions if customer_suggestions else ["Walk-in"]
+        )
         current_name = st.session_state.get("customer_name_input", "Walk-in")
-        if current_name not in all_options and current_name != "Walk-in" and current_name.strip():
+        if (
+            current_name not in all_options
+            and current_name != "Walk-in"
+            and current_name.strip()
+        ):
             all_options.append(current_name)
 
         selected_customer = st.selectbox(
@@ -626,7 +861,7 @@ def pos_page():
         )
         new_customer_name = st.text_input(
             "New customer name (optional)",
-            placeholder="Or type a new name...",
+            placeholder="Or type a new name",
             key="new_customer_name_input", label_visibility="collapsed",
         )
         if new_customer_name.strip():
@@ -634,15 +869,22 @@ def pos_page():
 
         st.session_state.customer_name_input = selected_customer
 
-        auto_phone = customer_phones.get(selected_customer, "") if selected_customer != "Walk-in" else ""
+        auto_phone = (
+            customer_phones.get(selected_customer, "")
+            if selected_customer != "Walk-in" else ""
+        )
         customer_phone = st.text_input(
-            "Phone", value=st.session_state.get("customer_phone_input", auto_phone),
+            "Phone",
+            value=st.session_state.get("customer_phone_input", auto_phone),
             key="customer_phone_field", label_visibility="collapsed",
             placeholder="Phone number",
         )
         st.session_state.customer_phone_input = customer_phone
 
-        customer_display = selected_customer.strip().title() if selected_customer and selected_customer.strip() else "Walk-in"
+        customer_display = (
+            selected_customer.strip().title()
+            if selected_customer and selected_customer.strip() else "Walk-in"
+        )
         customer_phone_clean = customer_phone.strip() if customer_phone else ""
 
         if customer_display != "Walk-in" and customer_phone_clean:
@@ -650,7 +892,7 @@ def pos_page():
 
         st.markdown("---")
 
-        # ---------- Receipt style (compact) ----------
+        # Receipt style
         receipt_style = st.selectbox(
             "Receipt Format",
             ["Standard", "Premium (Boxed)", "Thermal (58mm)", "HTML Print"],
@@ -658,60 +900,74 @@ def pos_page():
         )
         st.session_state.receipt_style = receipt_style
 
-        # ---------- Payment (compact) ----------
+        # Payment
         st.markdown("**Payment**")
         p1, p2 = st.columns(2)
         with p1:
-            payment_method = st.selectbox("Method", ["CASH", "ECOCASH", "CARD", "CREDIT"], key="payment_method", label_visibility="collapsed")
+            payment_method = st.selectbox(
+                "Method", ["CASH", "ECOCASH", "CARD", "CREDIT"],
+                key="payment_method", label_visibility="collapsed",
+            )
         with p2:
-            cash_received = st.number_input("Cash Recv.", min_value=0.0, value=0.0, key="cash_received", label_visibility="collapsed")
+            cash_received = st.number_input(
+                "Cash received", min_value=0.0, value=0.0,
+                key="cash_received", label_visibility="collapsed",
+            )
 
         change = cash_received - final_total
         can_checkout = True
 
         if payment_method == "CASH":
             if cash_received < final_total:
-                st.error(f"Insufficient — need ${final_total - cash_received:.2f} more")
+                st.error(f"Insufficient. Need ${final_total - cash_received:.2f} more.")
                 can_checkout = False
             else:
                 st.success(f"Change: ${change:.2f}")
         elif payment_method == "CREDIT":
             if has_active_credit(customer_phone_clean):
-                st.error("Customer has unpaid debt")
+                st.error("Customer has unpaid debt.")
                 can_checkout = False
             else:
                 allowed, msg = check_credit_allowed(customer_phone_clean, final_total)
                 if not allowed:
-                    st.error(f"❌ {msg}")
+                    st.error(f"Credit denied: {msg}")
                     can_checkout = False
                 else:
-                    st.warning(f"✅ {msg}")
+                    st.warning(f"Credit approved: {msg}")
 
-        # ---------- Loyalty (compact) ----------
+        # Loyalty points
         points_earned = 0
         points_used = 0
         if customer_phone_clean and payment_method != "CREDIT":
             loyalty = get_customer_loyalty_info(customer_phone_clean)
             if loyalty and loyalty["points"] >= 100:
                 st.markdown("---")
-                st.caption(f"{loyalty['points']} points available (${loyalty['points']/100:.2f})")
+                st.caption(
+                    f"{loyalty['points']} points available "
+                    f"(worth ${loyalty['points']/100:.2f})"
+                )
                 redeem = st.checkbox("Redeem points", key="redeem_points_checkbox")
                 if redeem:
                     max_redeem = min(loyalty["points"], final_total * 100)
                     points_to_redeem = st.number_input(
-                        "Points", min_value=100, max_value=int(max_redeem), step=100,
-                        value=min(500, int(max_redeem)), key="points_to_redeem",
+                        "Points", min_value=100, max_value=int(max_redeem),
+                        step=100, value=min(500, int(max_redeem)),
+                        key="points_to_redeem",
                     )
                     if points_to_redeem >= 100:
-                        ok, disc, _msg = redeem_points(customer_phone_clean, points_to_redeem, None)
+                        ok, disc, _msg = redeem_points(
+                            customer_phone_clean, points_to_redeem, None
+                        )
                         if ok:
                             final_total -= disc
                             points_used = points_to_redeem
-                            st.success(f"Redeemed {points_to_redeem} pts → -${disc:.2f}")
+                            st.success(
+                                f"Redeemed {points_to_redeem} points for -${disc:.2f}"
+                            )
 
         st.markdown("---")
 
-        # ---------- Actions (compact grid) ----------
+        # Actions
         a1, a2 = st.columns(2)
         with a1:
             if st.button("Clear Cart", key="clear_cart_btn", use_container_width=True):
@@ -719,65 +975,93 @@ def pos_page():
                 st.rerun()
         with a2:
             if not st.session_state.branch_shift_active:
-                st.button("Checkout", key="checkout_btn", type="primary", use_container_width=True, disabled=True)
+                st.button(
+                    "Checkout", key="checkout_btn", type="primary",
+                    use_container_width=True, disabled=True,
+                )
             elif st.session_state.checkout_processing:
-                st.button("Processing...", key="checkout_btn", type="primary", use_container_width=True, disabled=True)
+                st.button(
+                    "Processing...", key="checkout_btn", type="primary",
+                    use_container_width=True, disabled=True,
+                )
             else:
-                if st.button("CHECKOUT", key="checkout_btn", type="primary", use_container_width=True):
+                if st.button(
+                    "CHECKOUT", key="checkout_btn", type="primary",
+                    use_container_width=True,
+                ):
                     if not can_checkout:
-                        st.error("Fix payment before checkout")
+                        st.error("Fix payment before checkout.")
                         st.stop()
 
                     fresh = load_products(branch_id=_get_session_branch())
                     stock_ok, stock_msg = check_stock_available(fresh, cart)
                     if not stock_ok:
-                        st.error(f"STOCK: {stock_msg}")
+                        st.error(f"Stock error: {stock_msg}")
                         _drop_product_cache()
                         st.stop()
 
                     receipt_no = datetime.now().strftime("%Y%m%d%H%M%S")
                     st.session_state.receipt_no = receipt_no
-                    shift_id = st.session_state.branch_shift_id or st.session_state.get("shift_id", "")
+                    shift_id = (
+                        st.session_state.branch_shift_id
+                        or st.session_state.get("shift_id", "")
+                    )
 
                     if customer_phone_clean and payment_method != "CREDIT":
                         try:
                             points_earned = add_loyalty_points(
-                                customer_name=customer_display, phone=customer_phone_clean,
-                                amount_spent=final_total, receipt_no=receipt_no,
+                                customer_name=customer_display,
+                                phone=customer_phone_clean,
+                                amount_spent=final_total,
+                                receipt_no=receipt_no,
                             )
-                        except:
+                        except Exception:
                             points_earned = 0
 
                     st.session_state.checkout_processing = True
 
                     checkout_data = {
-                        "cart": cart.copy(), "receipt_no": receipt_no,
-                        "payment_method": payment_method, "customer_name": customer_display,
-                        "customer_phone": customer_phone_clean, "final_total": final_total,
-                        "shift_id": shift_id, "cashier": st.session_state.get("username", "system"),
+                        "cart": cart.copy(),
+                        "receipt_no": receipt_no,
+                        "payment_method": payment_method,
+                        "customer_name": customer_display,
+                        "customer_phone": customer_phone_clean,
+                        "final_total": final_total,
+                        "shift_id": shift_id,
+                        "cashier": st.session_state.get("username", "system"),
                     }
 
                     success, message = process_checkout_batch(
-                        branch_id=_get_session_branch(), checkout_data=checkout_data
+                        branch_id=_get_session_branch(),
+                        checkout_data=checkout_data,
                     )
 
                     if success:
                         style = st.session_state.get("receipt_style", "Standard")
                         if style == "Premium (Boxed)":
                             receipt_text = generate_premium_receipt(
-                                cart=cart.copy(), total_amount=subtotal, receipt_no=receipt_no,
-                                payment_method=payment_method, customer_name=customer_display,
+                                cart=cart.copy(), total_amount=subtotal,
+                                receipt_no=receipt_no,
+                                payment_method=payment_method,
+                                customer_name=customer_display,
                                 customer_phone=customer_phone_clean,
                                 discount_amount=discount_amount,
-                                discount_percent=(discount_value if discount_type == "PERCENT" else 0),
+                                discount_percent=(
+                                    discount_value
+                                    if discount_type == "PERCENT" else 0
+                                ),
                                 tax_amount=tax_amount, tax_percent=tax_rate,
-                                cash_received=cash_received, change=change, final_total=final_total,
-                                loyalty_points_earned=points_earned, loyalty_points_used=points_used,
+                                cash_received=cash_received, change=change,
+                                final_total=final_total,
+                                loyalty_points_earned=points_earned,
+                                loyalty_points_used=points_used,
                             )
                         elif style == "Thermal (58mm)":
                             receipt_text = generate_thermal_receipt(
-                                cart=cart.copy(), total_amount=subtotal, receipt_no=receipt_no,
-                                payment_method=payment_method, customer_name=customer_display,
+                                cart=cart.copy(), total_amount=subtotal,
+                                receipt_no=receipt_no,
+                                payment_method=payment_method,
+                                customer_name=customer_display,
                                 final_total=final_total,
                             )
                         else:
@@ -806,15 +1090,14 @@ def pos_page():
                         st.session_state.cart = []
                         st.session_state.checkout_processing = False
                         _drop_product_cache()
-                        st.success("Transaction completed")
-                        st.balloons()
+                        st.success("Transaction completed.")
                         st.rerun()
                     else:
                         st.error(f"Checkout failed: {message}")
                         st.session_state.checkout_processing = False
                         _drop_product_cache()
 
-        # Saved carts (small section)
+        # Saved carts
         if st.session_state.saved_carts:
             with st.expander("Saved Carts", expanded=False):
                 for cname in list(st.session_state.saved_carts.keys()):
@@ -827,23 +1110,19 @@ def pos_page():
                             st.rerun()
 
     # ============================================================
-    # RECEIPT MODAL (full-width, below both columns)
+    # RECEIPT + THERMAL PRINT (below the columns)
     # ============================================================
     if st.session_state.get("show_receipt", False) and st.session_state.receipt:
         st.markdown("---")
         st.subheader("Receipt")
 
-        # Cleanter print button
-        st.markdown("### Thermal Printer (58mm)")
-        pc1, pc2 = st.columns([2, 1])
-        with pc1:
-            st.caption("Ensure **Cleanter** is open and started on this device, then click below.")
-        with pc2:
-            if st.button("Print to Thermal", key="print_to_thermal_btn", type="primary", use_container_width=True):
-                ok, msg = print_receipt_to_cleanter()
-                st.session_state.cleanter_message = msg
-                st.session_state.cleanter_message_type = "success" if ok else "error"
-                st.rerun()
+        st.markdown("**Thermal Printer (58mm)**")
+        st.caption(
+            "Make sure Cleanter is open on this device and shows Started "
+            "with the printer paired. Then click Print to Thermal. "
+            "The first time, Chrome will ask for permission - tap Allow."
+        )
+        render_thermal_print_button(_cleanter_payload_from_state())
 
         st.markdown("---")
 
@@ -863,20 +1142,29 @@ def pos_page():
             )
             st.components.v1.html(html_receipt, height=600, scrolling=True)
         else:
-            st.text_area("Preview", st.session_state.receipt, height=250, key="receipt_preview")
+            st.text_area(
+                "Receipt preview", st.session_state.receipt,
+                height=250, key="receipt_preview",
+            )
 
         pdf_file = generate_receipt_pdf(st.session_state.receipt)
         if pdf_file:
             st.download_button(
-                "Download PDF", data=pdf_file,
-                file_name=f"receipt_{st.session_state.get('last_receipt_no', 'receipt')}.pdf",
-                mime="application/pdf", key="download_pdf_receipt", use_container_width=True,
+                "Download PDF",
+                data=pdf_file,
+                file_name=(
+                    f"receipt_{st.session_state.get('last_receipt_no', 'receipt')}.pdf"
+                ),
+                mime="application/pdf",
+                key="download_pdf_receipt",
+                use_container_width=True,
             )
 
         customer_phone_data = st.session_state.get("last_customer_phone", "")
         if customer_phone_data:
             wa = generate_whatsapp_receipt(
-                st.session_state.get("last_cart", []), st.session_state.get("last_subtotal", 0),
+                st.session_state.get("last_cart", []),
+                st.session_state.get("last_subtotal", 0),
                 st.session_state.get("last_receipt_no", "N/A"),
                 st.session_state.get("last_payment_method", "CASH"),
                 st.session_state.get("last_customer_display", "Walk-in"),
@@ -889,9 +1177,10 @@ def pos_page():
             link = get_whatsapp_link(customer_phone_data, wa)
             if link:
                 st.markdown(
-                    f'<a href="{link}" target="_blank"><button style="background:#25D366;color:white;'
-                    f'border:none;border-radius:30px;padding:10px 20px;width:100%;cursor:pointer;">'
-                    f'Send via WhatsApp</button></a>',
+                    f'<a href="{link}" target="_blank">'
+                    f'<button style="background:#25D366;color:white;'
+                    f'border:none;border-radius:30px;padding:10px 20px;'
+                    f'width:100%;cursor:pointer;">Send via WhatsApp</button></a>',
                     unsafe_allow_html=True,
                 )
 
@@ -901,8 +1190,11 @@ def pos_page():
 
     # Last receipt reprint
     if st.session_state.last_receipt and not st.session_state.get("show_receipt", False):
-        with st.expander("Last Receipt (Reprint)"):
-            st.text_area("Last Receipt", st.session_state.last_receipt, height=120, key="last_receipt_text")
+        with st.expander("Last Receipt (Reprint)", expanded=False):
+            st.text_area(
+                "Last receipt", st.session_state.last_receipt,
+                height=120, key="last_receipt_text",
+            )
             lr1, lr2, lr3 = st.columns(3)
             with lr1:
                 if st.button("Reprint", key="reprint_btn", use_container_width=True):
@@ -910,22 +1202,28 @@ def pos_page():
                     st.session_state.show_receipt = True
                     st.rerun()
             with lr2:
-                if st.button("Thermal", key="reprint_thermal_btn", use_container_width=True):
-                    ok, msg = print_receipt_to_cleanter()
-                    st.session_state.cleanter_message = msg
-                    st.session_state.cleanter_message_type = "success" if ok else "error"
-                    st.rerun()
+                st.caption("Thermal print is available on the receipt view.")
             with lr3:
                 pdf = generate_receipt_pdf(st.session_state.last_receipt)
                 if pdf:
-                    st.download_button("PDF", data=pdf, file_name="receipt_last.pdf",
-                                       mime="application/pdf", key="download_last_pdf",
-                                       use_container_width=True)
+                    st.download_button(
+                        "Download PDF", data=pdf,
+                        file_name="receipt_last.pdf",
+                        mime="application/pdf",
+                        key="download_last_pdf",
+                        use_container_width=True,
+                    )
+
+    st.markdown("---")
+    render_cleanter_health_check()
 
     if st.button("Refresh Page", key="refresh_page_btn", use_container_width=True):
         _drop_product_cache()
         st.rerun()
 
 
+# ==============================
+# MAIN GUARD
+# ==============================
 if __name__ == "__main__":
     pos_page()
