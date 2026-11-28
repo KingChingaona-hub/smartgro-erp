@@ -8,6 +8,11 @@
 #   3. Compact two-column layout: products/cart on the left,
 #      totals/customer/payment/checkout on the right.
 #   4. No emojis in the UI.
+#   5. NEW: Checkout Success screen with two buttons:
+#      - Print Receipt
+#      - Return to Add to Cart
+#      After a successful thermal print, a "Receipt Printed Successfully -
+#      Return to Add to Cart" button is injected automatically by JS.
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -150,7 +155,7 @@ def _cleanter_payload_from_state():
     return {"content": content}
 
 
-def render_thermal_print_button(payload_dict):
+def render_thermal_print_button(payload_dict, show_success_return=False):
     """
     Render a button that sends the receipt payload to Cleanter using the
     browser's own JavaScript fetch(). This is the ONLY way to reach
@@ -160,11 +165,31 @@ def render_thermal_print_button(payload_dict):
     Chrome will show a permission prompt on first tap
     ("Allow ... to access other apps and services on this device?").
     The cashier must tap Allow. The permission is remembered afterwards.
+
+    If show_success_return is True, after a successful print the button
+    is replaced by a "Receipt Printed Successfully - Return to Add to Cart"
+    button. Clicking it reloads the page to start a new sale.
     """
     payload_json = json.dumps(payload_dict)
 
+    success_js = ""
+    if show_success_return:
+        success_js = """
+            const container = document.getElementById('printActionContainer');
+            if (container) {
+              container.innerHTML = `
+                <button onclick="window.location.reload();" style="
+                  background:#0b5d1e;color:#ffffff;border:none;border-radius:8px;
+                  padding:12px 20px;font-size:16px;font-weight:600;cursor:pointer;
+                  width:100%;">
+                  Receipt Printed Successfully - Return to Add to Cart
+                </button>
+              `;
+            }
+        """
+
     html = f"""
-    <div style="font-family: sans-serif;">
+    <div id="printActionContainer" style="font-family: sans-serif;">
       <button id="cleanterPrintBtn" style="
         background:#0b5d1e;color:#ffffff;border:none;border-radius:8px;
         padding:12px 20px;font-size:16px;font-weight:600;cursor:pointer;
@@ -196,23 +221,24 @@ def render_thermal_print_button(payload_dict):
           if (res.ok) {{
             statusEl.style.color = '#0b5d1e';
             statusEl.textContent = 'Receipt sent to printer.';
+            {success_js}
           }} else {{
             statusEl.style.color = '#a30000';
             statusEl.textContent = 'Printer returned error code: ' + res.status;
+            btn.disabled = false;
           }}
         }} catch (err) {{
           statusEl.style.color = '#a30000';
           statusEl.textContent =
             'Cannot reach Cleanter. Open the Cleanter app on this device, ' +
             'tap Start, and make sure the printer is paired. (' + err.message + ')';
-        }} finally {{
           btn.disabled = false;
         }}
       }});
     }})();
     </script>
     """
-    components.html(html, height=110)
+    components.html(html, height=160)
 
 
 def render_cleanter_health_check():
@@ -1116,13 +1142,30 @@ def pos_page():
         st.markdown("---")
         st.subheader("Receipt")
 
-        st.markdown("**Thermal Printer (58mm)**")
+        st.markdown("**Post-Checkout Actions**")
         st.caption(
-            "Make sure Cleanter is open on this device and shows Started "
-            "with the printer paired. Then click Print to Thermal. "
-            "The first time, Chrome will ask for permission - tap Allow."
+            "Option 1: Print to Thermal. Option 2: Skip printing and start a new sale."
         )
-        render_thermal_print_button(_cleanter_payload_from_state())
+
+        action_col1, action_col2 = st.columns(2)
+
+        with action_col1:
+            st.markdown("**Print Receipt**")
+            # show_success_return=True injects a Return button after success
+            render_thermal_print_button(
+                _cleanter_payload_from_state(), show_success_return=True
+            )
+
+        with action_col2:
+            st.markdown("**Return to Add to Cart**")
+            if st.button(
+                "Return to Add to Cart",
+                key="return_to_cart_btn",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.session_state.show_receipt = False
+                st.rerun()
 
         st.markdown("---")
 
